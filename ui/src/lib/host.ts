@@ -184,6 +184,18 @@ async function rawCall<T>(method: string, params?: Record<string, unknown>, time
 
 const MOCK_GAMES: Game[] = [
   {
+    id: 'local:add',
+    title: 'Add portable game',
+    store: 'local',
+    installed: false,
+    owned: true,
+    canInstall: true,
+    primaryAction: 'install',
+    status: 'Ready',
+    deps: [],
+    launchNote: 'Pick a folder that contains the game executable. No store client — DRM-free / portable only.',
+  },
+  {
     id: 'mock:valorant',
     title: 'VALORANT',
     store: 'riot',
@@ -209,20 +221,6 @@ const MOCK_GAMES: Game[] = [
     sizeBytes: 15 * 1024 ** 3,
     deps: ['Steam client'],
     launchNote: 'Demo. Real Steam titles install/launch via minimized Steam.',
-  },
-  {
-    id: 'mock:celeste',
-    title: 'Celeste',
-    store: 'local',
-    installed: false,
-    owned: true,
-    canInstall: true,
-    primaryAction: 'install',
-    status: 'Demo',
-    playtimeMinutes: 380,
-    sizeBytes: 1200 * 1024 ** 2,
-    deps: [],
-    launchNote: 'Demo. Local/DRM-free: point Exo at a folder with an exe.',
   },
   {
     id: 'mock:control',

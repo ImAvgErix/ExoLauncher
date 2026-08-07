@@ -29,14 +29,21 @@ public sealed class LibraryService
             catch { /* one store must not block the library */ }
         }
 
-        // Always include demo tiles when empty so the UI is demoable offline.
-        if (discovered.Count == 0)
+        // Ensure the real Local "Add portable" entry is always present (not a mock:* id).
+        if (!discovered.Any(g => string.Equals(g.Id, LocalAdapter.AddPortableId, StringComparison.OrdinalIgnoreCase)))
+            discovered.Insert(0, LocalAdapter.CreateAddPortableEntry());
+
+        // Demo tiles for other stores when the machine has almost nothing — never a Local mock.
+        var realCount = discovered.Count(g => !g.Id.StartsWith("mock:", StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(g.Id, LocalAdapter.AddPortableId, StringComparison.OrdinalIgnoreCase));
+        if (realCount == 0)
             discovered.AddRange(MockCatalog.Create());
-        else if (discovered.Count < 2 && discovered.All(g => g.Store != StoreKind.Riot))
+        else if (realCount < 2 && discovered.All(g => g.Store != StoreKind.Riot || g.Id.StartsWith("mock:", StringComparison.Ordinal)))
             discovered.AddRange(MockCatalog.Create().Where(g => g.Store == StoreKind.Riot).Take(1));
 
         _cache = discovered
-            .OrderBy(g => g.Title, StringComparer.OrdinalIgnoreCase)
+            .OrderBy(g => string.Equals(g.Id, LocalAdapter.AddPortableId, StringComparison.OrdinalIgnoreCase) ? 0 : 1)
+            .ThenBy(g => g.Title, StringComparer.OrdinalIgnoreCase)
             .ToList();
         _cacheAt = DateTimeOffset.UtcNow;
         return _cache;
@@ -92,20 +99,7 @@ internal static class MockCatalog
             LaunchNote = "Demo tile. Real Steam titles install/launch via minimized Steam.",
             LaunchTarget = "1145360",
         },
-        new GameEntry
-        {
-            Id = "mock:celeste",
-            Title = "Celeste",
-            Store = StoreKind.Local,
-            Installed = false,
-            Owned = true,
-            CanInstall = true,
-            Status = "Demo",
-            PlaytimeMinutes = 380,
-            SizeBytes = 1200L * 1024 * 1024,
-            Deps = [],
-            LaunchNote = "Demo tile. Local/DRM-free: point Exo at a folder with an exe.",
-        },
+        // Local install uses real local:add from LocalAdapter — never mock:* for Local.
         new GameEntry
         {
             Id = "mock:control",

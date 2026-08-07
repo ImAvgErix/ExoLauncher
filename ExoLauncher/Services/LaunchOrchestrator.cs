@@ -117,6 +117,16 @@ public sealed class LaunchOrchestrator
 
     public async Task<InstallResult> InstallAsync(GameEntry game, string? path = null, CancellationToken outer = default)
     {
+        // local:add is a real portable-install entry (not mock:*).
+        if (game.Id.StartsWith("mock:", StringComparison.OrdinalIgnoreCase))
+        {
+            return new InstallResult
+            {
+                Ok = false,
+                Message = "Demo entry — install uses the real store backend when the title is discovered. For portable games use “Add portable game”.",
+            };
+        }
+
         return await RunJobAsync(game, async (adapter, progress, ct) =>
         {
             // Consent is the UI click. Auto-install redistributables is ask-first:
@@ -186,7 +196,7 @@ public sealed class LaunchOrchestrator
             return new InstallResult
             {
                 Ok = false,
-                Message = "Demo entry — install uses the real store backend when the title is discovered.",
+                Message = "Demo entry — install uses the real store backend when the title is discovered. For portable games use “Add portable game”.",
             };
         }
 

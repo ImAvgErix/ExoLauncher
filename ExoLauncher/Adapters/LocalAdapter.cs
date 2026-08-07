@@ -7,6 +7,12 @@ namespace ExoLauncher.Adapters;
 /// <summary>DRM-free / direct exe. Full install + launch with zero other client.</summary>
 public sealed class LocalAdapter : IStoreAdapter
 {
+    /// <summary>
+    /// Always-visible product entry: Install opens a folder picker and registers a portable game.
+    /// Not a mock id — LaunchOrchestrator and InstallAsync treat this as a real install path.
+    /// </summary>
+    public const string AddPortableId = "local:add";
+
     private readonly Dictionary<string, InstallProgress> _progress = new(StringComparer.OrdinalIgnoreCase);
 
     public StoreKind Store => StoreKind.Local;
@@ -18,9 +24,22 @@ public sealed class LocalAdapter : IStoreAdapter
     public Task<AuthResult> AuthenticateAsync(CancellationToken ct = default) =>
         Task.FromResult(new AuthResult { Ok = true, Message = "Local store needs no account." });
 
+    public static GameEntry CreateAddPortableEntry() => new()
+    {
+        Id = AddPortableId,
+        Title = "Add portable game",
+        Store = StoreKind.Local,
+        Installed = false,
+        Owned = true,
+        CanInstall = true,
+        Status = "Ready",
+        Deps = Array.Empty<string>(),
+        LaunchNote = "Pick a folder that contains the game executable. No store client — DRM-free / portable only.",
+    };
+
     public Task<IReadOnlyList<GameEntry>> GetLibraryAsync(CancellationToken ct = default)
     {
-        var games = new List<GameEntry>();
+        var games = new List<GameEntry> { CreateAddPortableEntry() };
         var roots = new[]
         {
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Games"),
@@ -42,9 +61,12 @@ public sealed class LocalAdapter : IStoreAdapter
                         .FirstOrDefault(f => !IsInstallerLike(f));
                     if (exe is null) continue;
                     var title = Path.GetFileName(dir);
+                    var id = "local:" + title.ToLowerInvariant().Replace(' ', '-');
+                    if (string.Equals(id, AddPortableId, StringComparison.OrdinalIgnoreCase))
+                        continue;
                     games.Add(new GameEntry
                     {
-                        Id = "local:" + title.ToLowerInvariant().Replace(' ', '-'),
+                        Id = id,
                         Title = title,
                         Store = StoreKind.Local,
                         Installed = true,
