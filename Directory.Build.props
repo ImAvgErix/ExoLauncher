@@ -1,0 +1,11 @@
+<Project>
+  <PropertyGroup>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <VersionFile>$(MSBuildThisFileDirectory)VERSION</VersionFile>
+    <ExoLauncherVersion>$([System.IO.File]::ReadAllText('$(VersionFile)').Trim())</ExoLauncherVersion>
+    <Version>$(ExoLauncherVersion)</Version>
+  </PropertyGroup>
+</Project>

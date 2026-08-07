@@ -1,0 +1,139 @@
+/*
+ * Exo Launcher shell tokens — same quiet AMOLED language as Exo / ExoOS.
+ */
+
+@import "tailwindcss";
+
+@theme {
+  --color-bg: #000000;
+  --color-surface: #0a0a0a;
+  --color-card: #0e0e0e;
+  --color-raised: #141414;
+  --color-fg: #ffffff;
+  --color-muted: #8a8a8a;
+  --color-faint: #555555;
+  --color-hairline: rgba(255, 255, 255, 0.07);
+  --color-outline: rgba(255, 255, 255, 0.14);
+  --font-sans: "Geist Variable", "Geist", "Segoe UI Variable Text", system-ui, sans-serif;
+  --font-mono: "Geist Mono Variable", "Geist Mono", ui-monospace, monospace;
+}
+
+:root {
+  --exo-text: #ffffff;
+  --exo-secondary: #8a8a8f;
+  --exo-muted: #6a6a72;
+  --exo-hairline: rgba(255, 255, 255, 0.07);
+  --exo-row-hover: rgba(255, 255, 255, 0.028);
+  --exo-icon-hover: rgba(255, 255, 255, 0.08);
+  --exo-close-hover: #c0303c;
+  --exo-ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --store-steam: #1a9fff;
+  --store-epic: #ffffff;
+  --store-gog: #c272d4;
+  --store-riot: #d13639;
+  --store-xbox: #107c10;
+  --store-ea: #eb212e;
+  --store-ubisoft: #0070ff;
+  --store-battlenet: #00aeff;
+  --store-local: #a8a8ae;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  overflow: hidden;
+  background: #000;
+}
+
+body {
+  color: var(--exo-text);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  cursor: default;
+  -webkit-font-smoothing: antialiased;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+button {
+  cursor: pointer;
+  font-family: inherit;
+}
+
+h1, h2, h3, p, span, strong, small, li {
+  user-select: none;
+}
+
+:focus-visible {
+  outline: 1.5px solid rgba(255, 255, 255, 0.8);
+  outline-offset: 3px;
+  border-radius: 999px;
+}
+
+.exo-titlebar {
+  -webkit-app-region: drag;
+}
+
+.exo-titlebar button,
+.exo-titlebar a {
+  -webkit-app-region: no-drag;
+}
+
+.exo-titlebar-button {
+  display: grid;
+  width: 32px;
+  height: 30px;
+  place-items: center;
+  border: 0;
+  border-radius: 9px;
+  color: var(--exo-secondary);
+  background: transparent;
+  transition: background 170ms ease, color 170ms ease;
+}
+
+.exo-titlebar-button:hover {
+  background: var(--exo-icon-hover);
+  color: var(--exo-text);
+}
+
+.exo-titlebar-button.is-close:hover {
+  background: var(--exo-close-hover);
+  color: #fff;
+}
+
+.game-card:hover {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.game-card.is-selected {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
+.pill-primary:hover {
+  transform: translateY(-1px);
+}
+
+.pill-primary:active {
+  transform: scale(0.98);
+}
+
+.toggle-row:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

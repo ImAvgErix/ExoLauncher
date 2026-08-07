@@ -1,0 +1,28 @@
+# Build / publish
+**/[Bb]in/
+**/[Oo]bj/
+**/[Dd]ebug/
+**/[Rr]elease/
+publish/
+release/
+.vs/
+*.user
+*.suo
+*.cache
+AppPackages/
+BundleArtifacts/
+**/node_modules/
+
+# Local scratch / IDE
+.idea/
+*.DotSettings.user
+dist/
+work/
+.ui-shots/
+
+# App logs
+*.log
+
+# OS
+Thumbs.db
+Desktop.ini

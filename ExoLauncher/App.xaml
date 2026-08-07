@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Application
+    x:Class="ExoLauncher.App"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Application.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
+                <ResourceDictionary Source="Styles/Tokens.Colors.xaml" />
+                <ResourceDictionary Source="Styles/Tokens.Type.xaml" />
+                <ResourceDictionary Source="Styles/Tokens.Metrics.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+        </ResourceDictionary>
+    </Application.Resources>
+</Application>
