@@ -2,20 +2,20 @@
 # Downloads the latest release asset from GitHub when available, verifies SHA-256,
 # and launches it. Prefer building from source until a release is published.
 #
-# One-liner: irm https://raw.githubusercontent.com/ImAvgErix/exo-launcher/main/Install-ExoLauncher.ps1 | iex
+# One-liner: irm https://raw.githubusercontent.com/ImAvgErix/ExoLauncher/main/Install-ExoLauncher.ps1 | iex
 param([switch]$Force)
 
 $ErrorActionPreference = 'Stop'
 if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) { throw 'Windows only.' }
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
-$Repo = 'ImAvgErix/exo-launcher'
+$Repo = 'ImAvgErix/ExoLauncher'
 Write-Host ''
 Write-Host '  Exo Launcher - checking GitHub releases...' -ForegroundColor Cyan
 Write-Host ''
 
 $headers = @{
-    'User-Agent' = 'ExoLauncher-Installer/0.1'
+    'User-Agent' = 'ExoLauncher-Installer/1.0'
     'Accept'     = 'application/vnd.github+json'
 }
 
@@ -25,15 +25,15 @@ try {
 catch {
     Write-Host '  No release published yet (or network error).' -ForegroundColor Yellow
     Write-Host '  Clone and run from source:' -ForegroundColor Yellow
-    Write-Host '    git clone https://github.com/ImAvgErix/exo-launcher.git' -ForegroundColor DarkGray
-    Write-Host '    cd exo-launcher' -ForegroundColor DarkGray
+    Write-Host '    git clone https://github.com/ImAvgErix/ExoLauncher.git' -ForegroundColor DarkGray
+    Write-Host '    cd ExoLauncher' -ForegroundColor DarkGray
     Write-Host '    pwsh -File Run-ExoLauncher.ps1' -ForegroundColor DarkGray
     Write-Host ''
     return
 }
 
 $asset = @($release.assets) |
-    Where-Object { $_.name -match 'ExoLauncher.*\.(exe|zip)$' } |
+    Where-Object { $_.name -match 'ExoLauncher.*\\.(exe)|ExoLauncher\\.exe|^ExoLauncher\\.exe$$' } |
     Select-Object -First 1
 
 if (-not $asset) {
@@ -48,7 +48,7 @@ New-Item -ItemType Directory -Force -Path $destDir | Out-Null
 $sfx = Join-Path $env:TEMP ('ExoLauncher-setup-' + [guid]::NewGuid().ToString('N') + [IO.Path]::GetExtension($asset.name))
 
 Write-Host "[*] $($release.tag_name) -> $sfx" -ForegroundColor DarkGray
-Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $sfx -UseBasicParsing -Headers @{ 'User-Agent' = 'ExoLauncher-Installer/0.1' } -TimeoutSec 300
+Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $sfx -UseBasicParsing -Headers @{ 'User-Agent' = 'ExoLauncher-Installer/1.0' } -TimeoutSec 300
 
 $downloaded = Get-Item -LiteralPath $sfx
 if ($asset.size -and $downloaded.Length -ne [long]$asset.size) {

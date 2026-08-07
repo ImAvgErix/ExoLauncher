@@ -2,16 +2,21 @@
 
 **One calm Windows library. Other store clients become invisible backends.**
 
+
+[![Release](https://img.shields.io/github/v/release/ImAvgErix/ExoLauncher?style=flat-square&color=111)](https://github.com/ImAvgErix/ExoLauncher/releases/latest)
+
 One UI. Other clients become invisible dependencies — not apps you open.  
 Buy in a browser if you must. Install, update, and launch only in Exo.
 
 Full “delete every other store binary and still play online multiplayer” is **impossible** for closed anti-cheat ecosystems (Riot/Vanguard, EAC, BattlEye, Steam DRM). Exo hides and orchestrates those backends; it does not crack or bypass them.
 
-[![License](https://img.shields.io/github/license/ImAvgErix/exo-launcher?style=flat-square)](LICENSE)
-[![Platform](https://img.shields.io/badge/platform-Windows%2011%20x64-0078d4?style=flat-square)](https://github.com/ImAvgErix/exo-launcher)
+[![License](https://img.shields.io/github/license/ImAvgErix/ExoLauncher?style=flat-square)](LICENSE)
+[![Platform](https://img.shields.io/badge/platform-Windows%2011%20x64-0078d4?style=flat-square)](https://github.com/ImAvgErix/ExoLauncher)
 [![.NET](https://img.shields.io/badge/.NET-10-512bd4?style=flat-square)](https://dotnet.microsoft.com/)
 
 <p align="center">
+  <a href="https://github.com/ImAvgErix/ExoLauncher/releases/latest"><strong>Download Exo Launcher</strong></a>
+  &nbsp;·&nbsp;
   <a href="CHANGELOG.md">Changelog</a>
   &nbsp;·&nbsp;
   <a href="docs/VENDORS.md">Vendors</a>
@@ -111,8 +116,8 @@ Optional backends: [Legendary](https://github.com/derrod/legendary), [gogdl](htt
 ### Build and run
 
 ```powershell
-git clone https://github.com/ImAvgErix/exo-launcher.git
-cd exo-launcher
+git clone https://github.com/ImAvgErix/ExoLauncher.git
+cd ExoLauncher
 pwsh -File Run-ExoLauncher.ps1
 ```
 
@@ -126,7 +131,7 @@ pwsh -File Run-ExoLauncher.ps1 -NoBuild
 ### One-liner (after a release exists)
 
 ```powershell
-irm https://raw.githubusercontent.com/ImAvgErix/exo-launcher/main/Install-ExoLauncher.ps1 | iex
+irm https://raw.githubusercontent.com/ImAvgErix/ExoLauncher/main/Install-ExoLauncher.ps1 | iex
 ```
 
 Install script verifies SHA-256 when GitHub provides a digest.
@@ -155,8 +160,20 @@ Install script verifies SHA-256 when GitHub provides a digest.
 
 ---
 
+
+## Family
+
+| Product | Role |
+| --- | --- |
+| **[Exo](https://github.com/ImAvgErix/Exo)** | Per-module gaming optimizers |
+| **[Exo OS](https://github.com/ImAvgErix/ExoOS)** | Full Windows transform — Balanced or Extreme |
+| **[Exocord](https://github.com/ImAvgErix/Exocord)** | Native desktop chat & voice |
+| **[Exo Launcher](https://github.com/ImAvgErix/ExoLauncher)** | One library UI (this repo) |
+
+---
 ## License
 
-MIT © 2026 Erix (ImAvgErix)
+MIT © 2026 Erix ([ImAvgErix](https://github.com/ImAvgErix)) — [LICENSE](LICENSE) · [PRIVACY.md](PRIVACY.md) · [SECURITY.md](SECURITY.md)
+
 
 Legendary and gogdl are separate GPL projects you install yourself; they are not redistributed inside the Exo Launcher binary.
