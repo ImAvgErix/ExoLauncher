@@ -23,22 +23,17 @@ public sealed class LibraryService
             ct.ThrowIfCancellationRequested();
             try
             {
-                var items = await adapter.DiscoverAsync(ct).ConfigureAwait(false);
+                var items = await adapter.GetLibraryAsync(ct).ConfigureAwait(false);
                 discovered.AddRange(items);
             }
             catch { /* one store must not block the library */ }
         }
 
-        // Always include mock demos when the real library is empty so the UI is demoable.
+        // Always include demo tiles when empty so the UI is demoable offline.
         if (discovered.Count == 0)
             discovered.AddRange(MockCatalog.Create());
-
-        // Prefer real titles; still append a couple of demos if only one store answered.
-        if (discovered.All(g => !g.Id.StartsWith("mock:", StringComparison.Ordinal))
-            && discovered.Count < 3)
-        {
-            discovered.AddRange(MockCatalog.Create().Take(2));
-        }
+        else if (discovered.Count < 2 && discovered.All(g => g.Store != StoreKind.Riot))
+            discovered.AddRange(MockCatalog.Create().Where(g => g.Store == StoreKind.Riot).Take(1));
 
         _cache = discovered
             .OrderBy(g => g.Title, StringComparer.OrdinalIgnoreCase)
@@ -50,33 +45,36 @@ public sealed class LibraryService
     public GameEntry? Find(string id) =>
         _cache.FirstOrDefault(g => string.Equals(g.Id, id, StringComparison.OrdinalIgnoreCase));
 
+    public void Invalidate() => _cacheAt = DateTimeOffset.MinValue;
+
     public object StoreMatrix()
     {
         return _adapters.Select(a => new
         {
-            store = a.Store.ToString().ToLowerInvariant(),
+            store = a.Id,
             displayName = a.DisplayName,
             agentPresent = a.IsAgentPresent(),
         }).ToList();
     }
 }
 
-/// <summary>Demo games for empty libraries and UI development.</summary>
 internal static class MockCatalog
 {
-    public static IReadOnlyList<GameEntry> Create() => new[]
-    {
+    public static IReadOnlyList<GameEntry> Create() =>
+    [
         new GameEntry
         {
             Id = "mock:valorant",
             Title = "VALORANT",
             Store = StoreKind.Riot,
             Installed = false,
+            Owned = true,
+            CanInstall = true,
             Status = "Demo",
             PlaytimeMinutes = 0,
             SizeBytes = 30L * 1024 * 1024 * 1024,
-            Deps = new[] { "Riot Client", "Vanguard" },
-            LaunchNote = "Demo entry. Real VALORANT needs Riot Client + Vanguard on disk.",
+            Deps = ["Riot Client", "Vanguard"],
+            LaunchNote = "Demo tile. Real install uses official RiotClientServices; Vanguard required for online play.",
             LaunchTarget = "valorant",
         },
         new GameEntry
@@ -85,11 +83,13 @@ internal static class MockCatalog
             Title = "Hades",
             Store = StoreKind.Steam,
             Installed = false,
+            Owned = true,
+            CanInstall = true,
             Status = "Demo",
             PlaytimeMinutes = 1240,
             SizeBytes = 15L * 1024 * 1024 * 1024,
-            Deps = new[] { "Steam client" },
-            LaunchNote = "Demo entry. Real Steam titles launch via steam://run.",
+            Deps = ["Steam client"],
+            LaunchNote = "Demo tile. Real Steam titles install/launch via minimized Steam.",
             LaunchTarget = "1145360",
         },
         new GameEntry
@@ -98,11 +98,13 @@ internal static class MockCatalog
             Title = "Celeste",
             Store = StoreKind.Local,
             Installed = false,
+            Owned = true,
+            CanInstall = true,
             Status = "Demo",
             PlaytimeMinutes = 380,
             SizeBytes = 1200L * 1024 * 1024,
-            Deps = Array.Empty<string>(),
-            LaunchNote = "Demo entry. Local/DRM-free titles launch the exe directly.",
+            Deps = [],
+            LaunchNote = "Demo tile. Local/DRM-free: point Exo at a folder with an exe.",
         },
         new GameEntry
         {
@@ -110,11 +112,14 @@ internal static class MockCatalog
             Title = "Control",
             Store = StoreKind.Epic,
             Installed = false,
+            Owned = true,
+            CanInstall = true,
             Status = "Demo",
             PlaytimeMinutes = 720,
             SizeBytes = 42L * 1024 * 1024 * 1024,
-            Deps = new[] { "Legendary or Epic Launcher" },
-            LaunchNote = "Demo entry. Epic prefers Legendary when present.",
+            Deps = ["Legendary"],
+            LaunchNote = "Demo tile. Epic installs via Legendary when present — Epic GUI optional.",
+            LaunchTarget = "Control",
         },
         new GameEntry
         {
@@ -122,23 +127,13 @@ internal static class MockCatalog
             Title = "Disco Elysium",
             Store = StoreKind.Gog,
             Installed = false,
+            Owned = true,
+            CanInstall = true,
             Status = "Demo",
             PlaytimeMinutes = 2100,
             SizeBytes = 20L * 1024 * 1024 * 1024,
-            Deps = new[] { "GOG Galaxy (optional offline)" },
-            LaunchNote = "Demo entry. GOG offline builds are first-class local launches.",
+            Deps = ["gogdl"],
+            LaunchNote = "Demo tile. GOG installs via gogdl; Galaxy not required for the happy path.",
         },
-        new GameEntry
-        {
-            Id = "mock:forza",
-            Title = "Forza Horizon",
-            Store = StoreKind.Xbox,
-            Installed = false,
-            Status = "Demo",
-            PlaytimeMinutes = 540,
-            SizeBytes = 100L * 1024 * 1024 * 1024,
-            Deps = new[] { "Gaming Services" },
-            LaunchNote = "Demo entry. Xbox titles keep Gaming Services as backend.",
-        },
-    };
+    ];
 }

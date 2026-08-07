@@ -10,12 +10,19 @@ export type StoreId =
   | 'ea'
   | 'ubisoft'
   | 'battlenet'
+  | 'amazon'
+
+export type PrimaryAction = 'play' | 'install' | 'update' | 'none'
 
 export interface Game {
   id: string
   title: string
   store: StoreId | string
   installed: boolean
+  owned?: boolean
+  updateAvailable?: boolean
+  canInstall?: boolean
+  primaryAction?: PrimaryAction | string
   path?: string | null
   coverUrl?: string | null
   playtimeMinutes?: number | null
@@ -24,6 +31,16 @@ export interface Game {
   deps: string[]
   launchNote: string
   launchTarget?: string | null
+}
+
+export interface InstallProgress {
+  gameId: string
+  phase: string
+  percent?: number | null
+  bytesPerSecond?: number | null
+  status: string
+  canCancel: boolean
+  isActive: boolean
 }
 
 export interface DependencyItem {
@@ -41,6 +58,7 @@ export interface LauncherSettings {
   autoInstallRedistributables: boolean
   minimizeWhilePlaying: boolean
   antiCheatSafeMode: boolean
+  theme?: string
 }
 
 export interface StoreStatus {
@@ -53,6 +71,7 @@ export interface LibraryResponse {
   games: Game[]
   count: number
   stores: StoreStatus[]
+  progress?: InstallProgress
 }
 
 export interface LaunchResponse {
@@ -60,6 +79,13 @@ export interface LaunchResponse {
   message: string
   processId?: number | null
   backendStarted?: string | null
+}
+
+export interface InstallResponse {
+  ok: boolean
+  message: string
+  path?: string | null
+  progress?: InstallProgress
 }
 
 type HostRequest = { id: string; method: string; params?: Record<string, unknown> }
@@ -129,7 +155,7 @@ export function onHostEvent(event: string, handler: (data: unknown) => void) {
   }
 }
 
-async function rawCall<T>(method: string, params?: Record<string, unknown>, timeoutMs = 60_000): Promise<T> {
+async function rawCall<T>(method: string, params?: Record<string, unknown>, timeoutMs = 600_000): Promise<T> {
   if (!isHost()) return mockCall<T>(method, params)
   const id = crypto.randomUUID()
   const req: HostRequest = { id, method, params }
@@ -162,66 +188,69 @@ const MOCK_GAMES: Game[] = [
     title: 'VALORANT',
     store: 'riot',
     installed: false,
+    owned: true,
+    canInstall: true,
+    primaryAction: 'install',
     status: 'Demo',
     playtimeMinutes: 0,
     sizeBytes: 30 * 1024 ** 3,
     deps: ['Riot Client', 'Vanguard'],
-    launchNote: 'Demo entry. Real VALORANT needs Riot Client + Vanguard on disk.',
+    launchNote: 'Demo. Real install uses official RiotClientServices; Vanguard required for online play.',
   },
   {
     id: 'mock:hades',
     title: 'Hades',
     store: 'steam',
-    installed: false,
-    status: 'Demo',
+    installed: true,
+    owned: true,
+    primaryAction: 'play',
+    status: 'Ready',
     playtimeMinutes: 1240,
     sizeBytes: 15 * 1024 ** 3,
     deps: ['Steam client'],
-    launchNote: 'Demo entry. Real Steam titles launch via steam://run.',
+    launchNote: 'Demo. Real Steam titles install/launch via minimized Steam.',
   },
   {
     id: 'mock:celeste',
     title: 'Celeste',
     store: 'local',
     installed: false,
+    owned: true,
+    canInstall: true,
+    primaryAction: 'install',
     status: 'Demo',
     playtimeMinutes: 380,
     sizeBytes: 1200 * 1024 ** 2,
     deps: [],
-    launchNote: 'Demo entry. Local/DRM-free titles launch the exe directly.',
+    launchNote: 'Demo. Local/DRM-free: point Exo at a folder with an exe.',
   },
   {
     id: 'mock:control',
     title: 'Control',
     store: 'epic',
     installed: false,
+    owned: true,
+    canInstall: true,
+    primaryAction: 'install',
     status: 'Demo',
     playtimeMinutes: 720,
     sizeBytes: 42 * 1024 ** 3,
-    deps: ['Legendary or Epic Launcher'],
-    launchNote: 'Demo entry. Epic prefers Legendary when present.',
+    deps: ['Legendary'],
+    launchNote: 'Demo. Epic installs via Legendary when present.',
   },
   {
     id: 'mock:disco',
     title: 'Disco Elysium',
     store: 'gog',
     installed: false,
+    owned: true,
+    canInstall: true,
+    primaryAction: 'install',
     status: 'Demo',
     playtimeMinutes: 2100,
     sizeBytes: 20 * 1024 ** 3,
-    deps: ['GOG Galaxy (optional offline)'],
-    launchNote: 'Demo entry. GOG offline builds are first-class local launches.',
-  },
-  {
-    id: 'mock:forza',
-    title: 'Forza Horizon',
-    store: 'xbox',
-    installed: false,
-    status: 'Demo',
-    playtimeMinutes: 540,
-    sizeBytes: 100 * 1024 ** 3,
-    deps: ['Gaming Services'],
-    launchNote: 'Demo entry. Xbox titles keep Gaming Services as backend.',
+    deps: ['gogdl'],
+    launchNote: 'Demo. GOG installs via gogdl; Galaxy not required for the happy path.',
   },
 ]
 
@@ -231,6 +260,15 @@ const mockSettings: LauncherSettings = {
   autoInstallRedistributables: false,
   minimizeWhilePlaying: true,
   antiCheatSafeMode: true,
+  theme: 'amoled',
+}
+
+let mockProgress: InstallProgress = {
+  gameId: '',
+  phase: 'idle',
+  status: '',
+  canCancel: false,
+  isActive: false,
 }
 
 async function mockCall<T>(method: string, params?: Record<string, unknown>): Promise<T> {
@@ -245,14 +283,46 @@ async function mockCall<T>(method: string, params?: Record<string, unknown>): Pr
           { store: 'local', displayName: 'Local', agentPresent: true },
           { store: 'steam', displayName: 'Steam', agentPresent: false },
           { store: 'epic', displayName: 'Epic', agentPresent: false },
+          { store: 'gog', displayName: 'GOG', agentPresent: false },
           { store: 'riot', displayName: 'Riot', agentPresent: false },
         ],
+        progress: mockProgress,
       } as T
+    case 'game.get': {
+      const id = String(params?.id ?? '')
+      const game = MOCK_GAMES.find((g) => g.id === id)
+      return (game ? { ok: true, game } : { ok: false, message: 'Game not found.' }) as T
+    }
     case 'game.launch':
       return {
         ok: false,
         message: 'Browser mock — launch only works inside the WinUI host.',
       } as T
+
+    case 'game.install':
+    case 'game.update': {
+      const id = String(params?.id ?? '')
+      mockProgress = {
+        gameId: id,
+        phase: 'downloading',
+        percent: 42,
+        bytesPerSecond: 12.5 * 1024 * 1024,
+        status: 'Mock progress (host required for real install)',
+        canCancel: true,
+        isActive: true,
+      }
+      emitHostEvent('install.progress', mockProgress)
+      return {
+        ok: false,
+        message: 'Browser mock — install only works inside the WinUI host.',
+        progress: mockProgress,
+      } as T
+    }
+    case 'game.cancelInstall':
+      mockProgress = { ...mockProgress, phase: 'cancelled', isActive: false, canCancel: false, status: 'Cancelled.' }
+      return { ok: true, message: 'Cancel requested.' } as T
+    case 'game.progress':
+      return mockProgress as T
     case 'deps.list':
       return {
         items: [
@@ -288,6 +358,14 @@ async function mockCall<T>(method: string, params?: Record<string, unknown>): Pr
       } as T
     case 'deps.offerInstall':
       return { ok: true, message: 'Mock: would open official installer page.' } as T
+    case 'stores.matrix':
+      return [
+        { store: 'local', displayName: 'Local', agentPresent: true },
+        { store: 'epic', displayName: 'Epic', agentPresent: false },
+        { store: 'gog', displayName: 'GOG', agentPresent: false },
+        { store: 'steam', displayName: 'Steam', agentPresent: false },
+        { store: 'riot', displayName: 'Riot', agentPresent: false },
+      ] as T
     case 'settings.get':
       return { ...mockSettings } as T
     case 'settings.set':
@@ -296,6 +374,7 @@ async function mockCall<T>(method: string, params?: Record<string, unknown>): Pr
       return { ...mockSettings } as T
     case 'shell.minimize':
     case 'shell.close':
+    case 'shell.openUrl':
       return { ok: true } as T
     case 'app.version':
       return { version: '0.1.0-dev' } as T
@@ -304,17 +383,37 @@ async function mockCall<T>(method: string, params?: Record<string, unknown>): Pr
   }
 }
 
+export function resolvePrimaryAction(game: Game): PrimaryAction {
+  if (game.primaryAction === 'play' || game.primaryAction === 'install' || game.primaryAction === 'update' || game.primaryAction === 'none') {
+    return game.primaryAction
+  }
+  if (game.installed && game.updateAvailable) return 'update'
+  if (game.installed) return 'play'
+  if (game.canInstall || game.owned) return 'install'
+  return 'none'
+}
+
 export const host = {
   getLibrary: (force = false) =>
     rawCall<LibraryResponse>(force ? 'library.refresh' : 'library.get', { force }),
+  getGame: (id: string) =>
+    rawCall<{ ok: boolean; game?: Game; message?: string }>('game.get', { id }),
   launch: (id: string) => rawCall<LaunchResponse>('game.launch', { id }),
+  install: (id: string, path?: string) =>
+    rawCall<InstallResponse>('game.install', path ? { id, path } : { id }),
+  update: (id: string) => rawCall<InstallResponse>('game.update', { id }),
+  cancelInstall: () => rawCall<{ ok: boolean; message?: string }>('game.cancelInstall'),
+  progress: (id?: string) =>
+    rawCall<InstallProgress>('game.progress', id ? { id } : {}),
   listDeps: () => rawCall<{ items: DependencyItem[] }>('deps.list'),
   offerDepInstall: (id: string) =>
     rawCall<{ ok: boolean; message?: string }>('deps.offerInstall', { id }),
+  storesMatrix: () => rawCall<StoreStatus[]>('stores.matrix'),
   getSettings: () => rawCall<LauncherSettings>('settings.get'),
   setSettings: (patch: Partial<LauncherSettings>) =>
     rawCall<LauncherSettings>('settings.set', patch as Record<string, unknown>),
   minimize: () => rawCall<{ ok: boolean }>('shell.minimize'),
   close: () => rawCall<{ ok: boolean }>('shell.close'),
   openUrl: (url: string) => rawCall<{ ok: boolean }>('shell.openUrl', { url }),
+  version: () => rawCall<{ version: string }>('app.version'),
 }

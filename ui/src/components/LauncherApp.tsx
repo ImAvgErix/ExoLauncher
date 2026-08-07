@@ -1,14 +1,15 @@
 /**
- * Exo Launcher AMOLED shell — library + quiet detail + settings.
- * Same design language as Exo / ExoOS: true black, hairlines, white pill CTA.
+ * Exo Launcher AMOLED shell — library + detail + install progress + settings.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Minus, RefreshCw, Settings, X } from 'lucide-react'
 import {
   host,
   onHostEvent,
+  resolvePrimaryAction,
   type DependencyItem,
   type Game,
+  type InstallProgress,
   type LauncherSettings,
 } from '../lib/host'
 import { cn, formatPlaytime, formatSize, storeDotColor, storeLabel } from '../lib/utils'
@@ -19,8 +20,9 @@ export function LauncherApp() {
   const [games, setGames] = useState<Game[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
-  const [launching, setLaunching] = useState(false)
+  const [busy, setBusy] = useState(false)
   const [statusMsg, setStatusMsg] = useState<string | null>(null)
+  const [progress, setProgress] = useState<InstallProgress | null>(null)
   const [view, setView] = useState<View>('library')
   const [settings, setSettings] = useState<LauncherSettings | null>(null)
   const [deps, setDeps] = useState<DependencyItem[]>([])
@@ -32,6 +34,7 @@ export function LauncherApp() {
     try {
       const res = await host.getLibrary(force)
       setGames(res.games)
+      if (res.progress?.isActive) setProgress(res.progress)
       setSelectedId((prev) => {
         if (prev && res.games.some((g) => g.id === prev)) return prev
         return res.games[0]?.id ?? null
@@ -63,11 +66,23 @@ export function LauncherApp() {
   useEffect(() => {
     void loadLibrary()
     void loadSettings()
-    const off = onHostEvent('launch.status', (data) => {
-      const d = data as { message?: string; ok?: boolean }
+    const offLaunch = onHostEvent('launch.status', (data) => {
+      const d = data as { message?: string }
       if (d?.message) setStatusMsg(d.message)
     })
-    return off
+    const offProgress = onHostEvent('install.progress', (data) => {
+      const p = data as InstallProgress
+      setProgress(p)
+      if (p?.status) setStatusMsg(p.status)
+      if (!p?.isActive && (p?.phase === 'completed' || p?.phase === 'failed' || p?.phase === 'cancelled')) {
+        setBusy(false)
+        if (p.phase === 'completed') void loadLibrary(true)
+      }
+    })
+    return () => {
+      offLaunch()
+      offProgress()
+    }
   }, [loadLibrary, loadSettings])
 
   const selected = useMemo(
@@ -86,17 +101,61 @@ export function LauncherApp() {
     )
   }, [games, filter])
 
-  async function onPlay() {
-    if (!selected || launching) return
-    setLaunching(true)
+  const action = selected ? resolvePrimaryAction(selected) : 'none'
+  const showProgress = progress?.isActive && (!selected || progress.gameId === selected.id || progress.gameId === '')
+
+  async function onPrimary() {
+    if (!selected || busy) return
+    setBusy(true)
     setStatusMsg(null)
     try {
-      const res = await host.launch(selected.id)
-      setStatusMsg(res.message)
+      if (action === 'play') {
+        const res = await host.launch(selected.id)
+        setStatusMsg(res.message)
+        setBusy(false)
+      } else if (action === 'install') {
+        setProgress({
+          gameId: selected.id,
+          phase: 'preparing',
+          percent: 0,
+          status: 'Starting install…',
+          canCancel: true,
+          isActive: true,
+        })
+        const res = await host.install(selected.id)
+        setStatusMsg(res.message)
+        if (res.progress) setProgress(res.progress)
+        if (!res.progress?.isActive) setBusy(false)
+        if (res.ok) void loadLibrary(true)
+      } else if (action === 'update') {
+        setProgress({
+          gameId: selected.id,
+          phase: 'preparing',
+          percent: 0,
+          status: 'Starting update…',
+          canCancel: true,
+          isActive: true,
+        })
+        const res = await host.update(selected.id)
+        setStatusMsg(res.message)
+        if (res.progress) setProgress(res.progress)
+        if (!res.progress?.isActive) setBusy(false)
+        if (res.ok) void loadLibrary(true)
+      } else {
+        setBusy(false)
+      }
     } catch (e) {
-      setStatusMsg(e instanceof Error ? e.message : 'Launch failed')
-    } finally {
-      setLaunching(false)
+      setStatusMsg(e instanceof Error ? e.message : 'Action failed')
+      setBusy(false)
+    }
+  }
+
+  async function onCancel() {
+    try {
+      const res = await host.cancelInstall()
+      setStatusMsg(res.message ?? 'Cancel requested')
+    } catch (e) {
+      setStatusMsg(e instanceof Error ? e.message : 'Cancel failed')
     }
   }
 
@@ -109,9 +168,14 @@ export function LauncherApp() {
     }
   }
 
+  const ctaLabel =
+    action === 'play' ? (busy ? 'Starting…' : 'Play')
+      : action === 'install' ? (busy ? 'Installing…' : 'Install')
+        : action === 'update' ? (busy ? 'Updating…' : 'Update')
+          : 'Unavailable'
+
   return (
     <div className="flex h-full w-full flex-col bg-bg text-fg">
-      {/* Title rail — drag + caption */}
       <header className="exo-titlebar flex h-14 shrink-0 items-center justify-between border-b border-[var(--exo-hairline)] px-5">
         <div className="flex items-center gap-3">
           <span className="text-[15px] font-medium tracking-tight">Exo Launcher</span>
@@ -148,20 +212,10 @@ export function LauncherApp() {
             <Settings size={15} strokeWidth={1.75} />
           </button>
           <div className="mx-1 h-4 w-px bg-[var(--exo-hairline)]" />
-          <button
-            type="button"
-            className="exo-titlebar-button"
-            title="Minimize"
-            onClick={() => void host.minimize()}
-          >
+          <button type="button" className="exo-titlebar-button" title="Minimize" onClick={() => void host.minimize()}>
             <Minus size={15} strokeWidth={1.75} />
           </button>
-          <button
-            type="button"
-            className="exo-titlebar-button is-close"
-            title="Close"
-            onClick={() => void host.close()}
-          >
+          <button type="button" className="exo-titlebar-button is-close" title="Close" onClick={() => void host.close()}>
             <X size={15} strokeWidth={1.75} />
           </button>
         </div>
@@ -169,11 +223,7 @@ export function LauncherApp() {
 
       <main className="flex min-h-0 flex-1">
         {view === 'settings' ? (
-          <SettingsPanel
-            settings={settings}
-            onPatch={patchSettings}
-            onBack={() => setView('library')}
-          />
+          <SettingsPanel settings={settings} onPatch={patchSettings} onBack={() => setView('library')} />
         ) : view === 'deps' ? (
           <DepsPanel
             items={deps}
@@ -183,7 +233,6 @@ export function LauncherApp() {
           />
         ) : (
           <>
-            {/* Library column */}
             <section className="flex w-[420px] shrink-0 flex-col border-r border-[var(--exo-hairline)]">
               <div className="px-5 pb-3 pt-5">
                 <p className="mb-3 text-[11px] font-medium uppercase tracking-[0.14em] text-[var(--exo-muted)]">
@@ -199,13 +248,9 @@ export function LauncherApp() {
               </div>
               <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-4">
                 {loading && games.length === 0 ? (
-                  <p className="px-2 py-8 text-center text-[13px] text-[var(--exo-muted)]">
-                    Scanning…
-                  </p>
+                  <p className="px-2 py-8 text-center text-[13px] text-[var(--exo-muted)]">Scanning…</p>
                 ) : filtered.length === 0 ? (
-                  <p className="px-2 py-8 text-center text-[13px] text-[var(--exo-muted)]">
-                    No titles match.
-                  </p>
+                  <p className="px-2 py-8 text-center text-[13px] text-[var(--exo-muted)]">No titles match.</p>
                 ) : (
                   <ul className="flex flex-col gap-1.5">
                     {filtered.map((g) => (
@@ -220,20 +265,16 @@ export function LauncherApp() {
                         >
                           <CoverMark title={g.title} store={g.store} />
                           <div className="min-w-0 flex-1">
-                            <div className="truncate text-[13.5px] font-medium tracking-tight">
-                              {g.title}
-                            </div>
+                            <div className="truncate text-[13.5px] font-medium tracking-tight">{g.title}</div>
                             <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-[var(--exo-muted)]">
                               <span
                                 className="inline-block h-1.5 w-1.5 rounded-full"
                                 style={{ background: storeDotColor(g.store) }}
                               />
                               <span>{storeLabel(g.store)}</span>
+                              {g.status === 'Demo' && <span className="text-[var(--exo-faint)]">· demo</span>}
                               {!g.installed && g.status !== 'Demo' && (
                                 <span className="text-[var(--exo-faint)]">· not installed</span>
-                              )}
-                              {g.status === 'Demo' && (
-                                <span className="text-[var(--exo-faint)]">· demo</span>
                               )}
                             </div>
                           </div>
@@ -245,7 +286,6 @@ export function LauncherApp() {
               </div>
             </section>
 
-            {/* Detail pane — lots of air, one primary action */}
             <section className="flex min-w-0 flex-1 flex-col">
               {selected ? (
                 <div className="flex flex-1 flex-col px-12 py-10">
@@ -262,9 +302,7 @@ export function LauncherApp() {
                         </span>
                         <StatusPill status={selected.status} installed={selected.installed} />
                       </div>
-                      <h1 className="text-[32px] font-medium leading-tight tracking-tight">
-                        {selected.title}
-                      </h1>
+                      <h1 className="text-[32px] font-medium leading-tight tracking-tight">{selected.title}</h1>
                     </div>
                   </div>
 
@@ -284,14 +322,18 @@ export function LauncherApp() {
                     </p>
                   )}
 
+                  {(showProgress || (progress?.isActive && progress.gameId === selected.id)) && progress && (
+                    <InstallProgressPanel progress={progress} onCancel={() => void onCancel()} />
+                  )}
+
                   <div className="mt-auto flex items-center gap-4 pt-12">
                     <button
                       type="button"
                       className="pill-primary rounded-full bg-white px-8 py-2.5 text-[13px] font-medium text-black transition-transform disabled:opacity-40"
-                      disabled={launching}
-                      onClick={() => void onPlay()}
+                      disabled={busy || action === 'none'}
+                      onClick={() => void onPrimary()}
                     >
-                      {launching ? 'Starting…' : 'Play'}
+                      {ctaLabel}
                     </button>
                     {statusMsg && (
                       <span className="max-w-md text-[12px] text-[var(--exo-muted)]">{statusMsg}</span>
@@ -311,6 +353,57 @@ export function LauncherApp() {
   )
 }
 
+function InstallProgressPanel({
+  progress,
+  onCancel,
+}: {
+  progress: InstallProgress
+  onCancel: () => void
+}) {
+  const pct = progress.percent != null ? Math.max(0, Math.min(100, progress.percent)) : null
+  const speed =
+    progress.bytesPerSecond != null && progress.bytesPerSecond > 0
+      ? formatSpeed(progress.bytesPerSecond)
+      : null
+
+  return (
+    <div className="mt-8 max-w-xl rounded-xl border border-[var(--exo-hairline)] bg-surface px-5 py-4">
+      <div className="flex items-center justify-between gap-3">
+        <div className="text-[12px] text-[var(--exo-secondary)]">{progress.status || progress.phase}</div>
+        {pct != null && (
+          <div className="text-[12px] font-medium tabular-nums text-fg">{pct.toFixed(pct < 10 ? 1 : 0)}%</div>
+        )}
+      </div>
+      <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-[rgba(255,255,255,0.06)]">
+        <div
+          className="h-full rounded-full bg-white transition-[width] duration-300"
+          style={{ width: pct != null ? `${pct}%` : progress.isActive ? '15%' : '0%' }}
+        />
+      </div>
+      <div className="mt-3 flex items-center justify-between gap-3">
+        <span className="text-[11px] text-[var(--exo-muted)]">
+          {speed ? speed : progress.isActive ? 'Working…' : progress.phase}
+        </span>
+        {progress.canCancel && progress.isActive && (
+          <button
+            type="button"
+            className="rounded-full border border-[var(--exo-hairline)] px-3 py-1 text-[11px] text-[var(--exo-secondary)] hover:text-fg"
+            onClick={onCancel}
+          >
+            Cancel
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function formatSpeed(bps: number): string {
+  if (bps >= 1024 * 1024) return `${(bps / (1024 * 1024)).toFixed(1)} MB/s`
+  if (bps >= 1024) return `${(bps / 1024).toFixed(0)} KB/s`
+  return `${Math.round(bps)} B/s`
+}
+
 function CoverMark({
   title,
   store,
@@ -328,9 +421,7 @@ function CoverMark({
         'flex shrink-0 items-center justify-center rounded-lg border border-[var(--exo-hairline)] bg-raised font-medium tracking-tight text-fg',
         size,
       )}
-      style={{
-        boxShadow: `inset 0 -2px 0 0 ${storeDotColor(store)}`,
-      }}
+      style={{ boxShadow: `inset 0 -2px 0 0 ${storeDotColor(store)}` }}
       aria-hidden
     >
       {initial}
@@ -367,17 +458,12 @@ function SettingsPanel({
 }) {
   return (
     <div className="flex flex-1 flex-col px-12 py-10">
-      <button
-        type="button"
-        className="mb-8 self-start text-[12px] text-[var(--exo-muted)] hover:text-fg"
-        onClick={onBack}
-      >
+      <button type="button" className="mb-8 self-start text-[12px] text-[var(--exo-muted)] hover:text-fg" onClick={onBack}>
         Back to library
       </button>
       <h2 className="text-[24px] font-medium tracking-tight">Settings</h2>
       <p className="mt-2 max-w-lg text-[13px] text-[var(--exo-secondary)]">
-        Quiet defaults. Consent before any download or elevated action. Anti-cheat safe mode is
-        always on.
+        Quiet defaults. Consent before any download or elevated action. Anti-cheat safe mode is always on. Theme is AMOLED.
       </p>
 
       <div className="mt-10 max-w-xl space-y-1">
@@ -402,6 +488,13 @@ function SettingsPanel({
         <ToggleRow
           title="Anti-cheat safe mode"
           detail="Always on. No game binary edits, no kernel hacks, no bypass."
+          value
+          locked
+          onChange={() => undefined}
+        />
+        <ToggleRow
+          title="Theme — AMOLED"
+          detail="Fixed true-black shell. No alternate themes in Phase 1."
           value
           locked
           onChange={() => undefined}
@@ -447,15 +540,13 @@ function ToggleRow({
         )}
       >
         <span
-          className={cn(
-            'absolute top-0.5 h-4.5 w-4.5 rounded-full transition-all',
-            value ? 'left-5.5 bg-black' : 'left-0.5 bg-[var(--exo-muted)]',
-          )}
+          className="absolute rounded-full transition-all"
           style={{
             width: 18,
             height: 18,
             top: 2,
             left: value ? 22 : 3,
+            background: value ? '#000' : 'var(--exo-muted)',
           }}
         />
       </button>
@@ -476,11 +567,7 @@ function DepsPanel({
 }) {
   return (
     <div className="flex flex-1 flex-col px-12 py-10">
-      <button
-        type="button"
-        className="mb-8 self-start text-[12px] text-[var(--exo-muted)] hover:text-fg"
-        onClick={onBack}
-      >
+      <button type="button" className="mb-8 self-start text-[12px] text-[var(--exo-muted)] hover:text-fg" onClick={onBack}>
         Back to library
       </button>
       <div className="flex items-end justify-between gap-4">

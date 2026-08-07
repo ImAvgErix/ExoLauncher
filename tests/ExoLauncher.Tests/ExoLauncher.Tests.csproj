@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <RootNamespace>ExoLauncher.Tests</RootNamespace>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Compile pure adapter helpers + models into the test project (no WinUI host dependency). -->
+    <Compile Include="..\..\ExoLauncher\Adapters\Cli\**\*.cs" Link="Adapters\Cli\%(Filename)%(Extension)" />
+    <Compile Include="..\..\ExoLauncher\Models\GameEntry.cs" Link="Models\GameEntry.cs" />
+    <Compile Include="..\..\ExoLauncher\Adapters\IStoreAdapter.cs" Link="Adapters\IStoreAdapter.cs" />
+    <Compile Include="..\..\ExoLauncher\Adapters\ProcessHelper.cs" Link="Adapters\ProcessHelper.cs" />
+    <Compile Include="..\..\ExoLauncher\Adapters\LocalAdapter.cs" Link="Adapters\LocalAdapter.cs" />
+    <Compile Include="..\..\ExoLauncher\Helpers\PathHelper.cs" Link="Helpers\PathHelper.cs" />
+  </ItemGroup>
+</Project>

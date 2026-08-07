@@ -14,8 +14,8 @@ public sealed class AppServices
     public void Initialize()
     {
         Settings.Load();
-        Adapters = new IStoreAdapter[]
-        {
+        Adapters =
+        [
             new LocalAdapter(),
             new SteamAdapter(),
             new EpicAdapter(),
@@ -25,7 +25,8 @@ public sealed class AppServices
             new EaAdapter(),
             new UbisoftAdapter(),
             new BattleNetAdapter(),
-        };
+            new AmazonAdapter(),
+        ];
         Library = new LibraryService(Adapters);
         Launcher = new LaunchOrchestrator(Adapters, Settings, Dependencies);
     }

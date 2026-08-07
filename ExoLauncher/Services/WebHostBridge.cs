@@ -8,7 +8,7 @@ namespace ExoLauncher.Services;
 
 /// <summary>
 /// JSON-RPC bridge between the React UI (WebView2) and native services.
-/// UI owns pixels; this host owns discovery, launch, and deps.
+/// UI owns pixels; host owns discovery, install/progress, launch, and deps.
 /// </summary>
 public sealed class WebHostBridge
 {
@@ -27,6 +27,7 @@ public sealed class WebHostBridge
     {
         _services = services;
         _queue = queue;
+        _services.Launcher.ProgressChanged += OnProgress;
     }
 
     public void Attach(CoreWebView2 web)
@@ -41,6 +42,9 @@ public sealed class WebHostBridge
         try { _web.WebMessageReceived -= OnMessage; } catch { }
         _web = null;
     }
+
+    private void OnProgress(InstallProgress p) =>
+        PostEvent("install.progress", MapProgress(p));
 
     private void OnMessage(CoreWebView2 sender, CoreWebView2WebMessageReceivedEventArgs e)
     {
@@ -74,6 +78,10 @@ public sealed class WebHostBridge
                 "library.refresh" => await LibraryGetAsync(paramsEl, hasParams: true, force: true).ConfigureAwait(true),
                 "game.get" => await GameGetAsync(paramsEl, hasParams).ConfigureAwait(true),
                 "game.launch" => await GameLaunchAsync(paramsEl, hasParams).ConfigureAwait(true),
+                "game.install" => await GameInstallAsync(paramsEl, hasParams).ConfigureAwait(true),
+                "game.update" => await GameUpdateAsync(paramsEl, hasParams).ConfigureAwait(true),
+                "game.cancelInstall" => _services.Launcher.Cancel(),
+                "game.progress" => GameProgress(paramsEl, hasParams),
                 "deps.list" => DepsList(),
                 "deps.offerInstall" => DepsOfferInstall(paramsEl, hasParams),
                 "stores.matrix" => _services.Library.StoreMatrix(),
@@ -107,17 +115,18 @@ public sealed class WebHostBridge
             games = games.Select(MapGame).ToList(),
             count = games.Count,
             stores = _services.Library.StoreMatrix(),
+            progress = MapProgress(_services.Launcher.CurrentProgress),
         };
     }
 
     private async Task<object> GameGetAsync(JsonElement p, bool hasParams)
     {
-        var id = ReadString(p, hasParams, "id");
-        if (string.IsNullOrWhiteSpace(id))
+        var gameId = ReadString(p, hasParams, "id");
+        if (string.IsNullOrWhiteSpace(gameId))
             return new { ok = false, message = "Missing game id." };
 
         await _services.Library.GetLibraryAsync().ConfigureAwait(true);
-        var game = _services.Library.Find(id!);
+        var game = _services.Library.Find(gameId!);
         if (game is null)
             return new { ok = false, message = "Game not found." };
 
@@ -126,12 +135,12 @@ public sealed class WebHostBridge
 
     private async Task<object> GameLaunchAsync(JsonElement p, bool hasParams)
     {
-        var id = ReadString(p, hasParams, "id");
-        if (string.IsNullOrWhiteSpace(id))
+        var gameId = ReadString(p, hasParams, "id");
+        if (string.IsNullOrWhiteSpace(gameId))
             return new { ok = false, message = "Missing game id." };
 
         await _services.Library.GetLibraryAsync().ConfigureAwait(true);
-        var game = _services.Library.Find(id!);
+        var game = _services.Library.Find(gameId!);
         if (game is null)
             return new { ok = false, message = "Game not found. Refresh the library." };
 
@@ -157,6 +166,64 @@ public sealed class WebHostBridge
         };
     }
 
+    private async Task<object> GameInstallAsync(JsonElement p, bool hasParams)
+    {
+        var gameId = ReadString(p, hasParams, "id");
+        if (string.IsNullOrWhiteSpace(gameId))
+            return new { ok = false, message = "Missing game id." };
+
+        var path = ReadString(p, hasParams, "path");
+
+        await _services.Library.GetLibraryAsync().ConfigureAwait(true);
+        var game = _services.Library.Find(gameId!);
+        if (game is null)
+            return new { ok = false, message = "Game not found. Refresh the library." };
+
+        // Fire-and-forget long install? No — await so the RPC returns the result,
+        // while progress events stream via install.progress.
+        var result = await _services.Launcher.InstallAsync(game, path).ConfigureAwait(true);
+        if (result.Ok)
+            _services.Library.Invalidate();
+
+        return new
+        {
+            ok = result.Ok,
+            message = result.Message,
+            path = result.Path,
+            progress = MapProgress(_services.Launcher.CurrentProgress),
+        };
+    }
+
+    private async Task<object> GameUpdateAsync(JsonElement p, bool hasParams)
+    {
+        var gameId = ReadString(p, hasParams, "id");
+        if (string.IsNullOrWhiteSpace(gameId))
+            return new { ok = false, message = "Missing game id." };
+
+        await _services.Library.GetLibraryAsync().ConfigureAwait(true);
+        var game = _services.Library.Find(gameId!);
+        if (game is null)
+            return new { ok = false, message = "Game not found. Refresh the library." };
+
+        var result = await _services.Launcher.UpdateAsync(game).ConfigureAwait(true);
+        if (result.Ok)
+            _services.Library.Invalidate();
+
+        return new
+        {
+            ok = result.Ok,
+            message = result.Message,
+            path = result.Path,
+            progress = MapProgress(_services.Launcher.CurrentProgress),
+        };
+    }
+
+    private object GameProgress(JsonElement p, bool hasParams)
+    {
+        var gameId = ReadString(p, hasParams, "id");
+        return MapProgress(_services.Launcher.GetProgress(gameId));
+    }
+
     private object DepsList() => new
     {
         items = _services.Dependencies.DetectAll().Select(d => new
@@ -172,10 +239,10 @@ public sealed class WebHostBridge
 
     private object DepsOfferInstall(JsonElement p, bool hasParams)
     {
-        var id = ReadString(p, hasParams, "id");
-        if (string.IsNullOrWhiteSpace(id))
+        var depId = ReadString(p, hasParams, "id");
+        if (string.IsNullOrWhiteSpace(depId))
             return new { ok = false, message = "Missing dependency id." };
-        return _services.Dependencies.OfferInstall(id!);
+        return _services.Dependencies.OfferInstall(depId!);
     }
 
     private object BuildSettings()
@@ -187,7 +254,8 @@ public sealed class WebHostBridge
             closeStoreClientsAfterLaunch = s.CloseStoreClientsAfterLaunch,
             autoInstallRedistributables = s.AutoInstallRedistributables,
             minimizeWhilePlaying = s.MinimizeWhilePlaying,
-            antiCheatSafeMode = true, // always
+            antiCheatSafeMode = true,
+            theme = "amoled",
         };
     }
 
@@ -262,6 +330,10 @@ public sealed class WebHostBridge
         title = g.Title,
         store = g.Store.ToString().ToLowerInvariant(),
         installed = g.Installed,
+        owned = g.Owned,
+        updateAvailable = g.UpdateAvailable,
+        canInstall = g.CanInstall,
+        primaryAction = g.PrimaryAction,
         path = g.Path,
         coverUrl = g.CoverUrl,
         playtimeMinutes = g.PlaytimeMinutes,
@@ -270,6 +342,17 @@ public sealed class WebHostBridge
         deps = g.Deps,
         launchNote = g.LaunchNote,
         launchTarget = g.LaunchTarget,
+    };
+
+    private static object MapProgress(InstallProgress p) => new
+    {
+        gameId = p.GameId,
+        phase = p.Phase.ToString().ToLowerInvariant(),
+        percent = p.Percent,
+        bytesPerSecond = p.BytesPerSecond,
+        status = p.Status,
+        canCancel = p.CanCancel,
+        isActive = p.IsActive,
     };
 
     private static string? ReadString(JsonElement p, bool hasParams, string name)

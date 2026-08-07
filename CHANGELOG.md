@@ -2,13 +2,19 @@
 
 ## 0.1.0 — 2026-08-07
 
-Phase 1 initial public release.
+Phase 1 public release.
 
 - Fixed 1400×900 AMOLED shell (WinUI 3 + React + WebView2)
-- Library UI: covers, title, store dot; detail with Play + three facts + launch note
-- Game model: id, title, store, installed, path, playtime, size, deps, launchNote
-- Store adapters: Local, Steam, Epic, GOG, Riot (real discovery/launch shapes); Xbox / EA / Ubisoft / Battle.net (agent-present stubs)
-- Launch orchestration: backend minimized when needed, no anti-cheat bypass
-- Dependencies panel: VC++ / DirectX / .NET / WebView2 detect + official installer links with consent
-- Settings: close store clients after launch, auto-install redist (ask path), minimize while playing, anti-cheat safe (always on)
-- Honest README store matrix — no “delete every binary and still play VALORANT online” fiction
+- Library UI: covers, title, store dot; detail with **Play | Install | Update** + three facts + launch note
+- Install progress view in Exo (percent, speed when known, cancel)
+- Shared `IStoreAdapter`: auth, library, install, update, launch, uninstall, progress, cleanup
+- **Local:** portable folder install + direct launch
+- **Epic:** Legendary CLI install/update/launch with stdout progress parsing (GUI optional)
+- **GOG:** gogdl download/repair/launch; Galaxy optional
+- **Riot:** fixed product tiles; official RiotClientServices flags; hide UI; cleanup without Vanguard
+- **Steam:** appmanifest library; minimized `steam://install` / `steam://rungameid`
+- Stubs: Xbox / EA / Ubisoft / Battle.net / Amazon (Nile)
+- Dependencies panel + consent installers
+- Settings: close store UI, ask-first redist, minimize while playing, anti-cheat always, AMOLED
+- Docs: honest store matrix, architecture, vendor pin strategy
+- Tests: CLI helpers, LocalAdapter fixture, bridge parity
