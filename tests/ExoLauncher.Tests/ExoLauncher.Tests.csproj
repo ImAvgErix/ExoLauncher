@@ -23,5 +23,8 @@
     <Compile Include="..\..\ExoLauncher\Adapters\ProcessHelper.cs" Link="Adapters\ProcessHelper.cs" />
     <Compile Include="..\..\ExoLauncher\Adapters\LocalAdapter.cs" Link="Adapters\LocalAdapter.cs" />
     <Compile Include="..\..\ExoLauncher\Helpers\PathHelper.cs" Link="Helpers\PathHelper.cs" />
+    <Compile Include="..\..\ExoLauncher\Services\LaunchOrchestrator.cs" Link="Services\LaunchOrchestrator.cs" />
+    <Compile Include="..\..\ExoLauncher\Services\SettingsService.cs" Link="Services\SettingsService.cs" />
+    <Compile Include="..\..\ExoLauncher\Services\DependencyService.cs" Link="Services\DependencyService.cs" />
   </ItemGroup>
 </Project>

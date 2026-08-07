@@ -136,4 +136,63 @@ public class CliHelperTests
         Assert.Equal("dota 2 beta", dir);
         Assert.Equal(1234567890, size);
     }
+
+    [Fact]
+    public void Legendary_ListOwnedArgs_UsesListJson()
+    {
+        Assert.Equal(["list", "--json"], LegendaryCli.ListOwnedArgs());
+    }
+
+    [Fact]
+    public void Legendary_ParseAndMerge_OwnedNotInstalled_StaysInstallable()
+    {
+        const string ownedJson = """
+            [
+              { "app_name": "Control", "title": "Control" },
+              { "app_name": "Hades", "title": "Hades" }
+            ]
+            """;
+        const string installedJson = """
+            [
+              { "app_name": "Hades", "title": "Hades", "install_path": "C:/Games/Hades", "install_size": 100 }
+            ]
+            """;
+
+        var owned = LegendaryCli.ParseLibraryJson(ownedJson, forceInstalled: false);
+        var installed = LegendaryCli.ParseLibraryJson(installedJson, forceInstalled: true);
+        var merged = LegendaryCli.MergeOwnedAndInstalled(owned, installed);
+
+        Assert.Equal(2, merged.Count);
+        var control = Assert.Single(merged, r => r.AppName == "Control");
+        Assert.False(control.Installed);
+        var hades = Assert.Single(merged, r => r.AppName == "Hades");
+        Assert.True(hades.Installed);
+        Assert.Equal("C:/Games/Hades", hades.InstallPath);
+    }
+
+    [Fact]
+    public void Gogdl_ParseOwnedLibrary_AndMerge()
+    {
+        const string owned = """
+            { "games": [
+              { "id": "1207659012", "title": "Disco Elysium" },
+              { "id": "1423049311", "title": "Celeste" }
+            ]}
+            """;
+        const string installed = """
+            [
+              { "id": "1423049311", "title": "Celeste", "path": "C:\\\\GOG\\\\Celeste", "installed": true }
+            ]
+            """;
+
+        var o = GogdlCli.ParseOwnedLibraryJson(owned);
+        var i = GogdlCli.ParseOwnedLibraryJson(installed);
+        var merged = GogdlCli.MergeOwnedAndInstalled(o, i);
+
+        Assert.Equal(2, merged.Count);
+        var disco = Assert.Single(merged, g => g.Id == "1207659012");
+        Assert.False(disco.Installed);
+        var celeste = Assert.Single(merged, g => g.Id == "1423049311");
+        Assert.True(celeste.Installed);
+    }
 }

@@ -52,20 +52,34 @@ public sealed class EpicAdapter : IStoreAdapter
 
     public async Task<IReadOnlyList<GameEntry>> GetLibraryAsync(CancellationToken ct = default)
     {
-        var games = new List<GameEntry>();
+        var owned = new List<LegendaryCli.GameRow>();
+        var installed = new List<LegendaryCli.GameRow>();
         var legendary = ResolveLegendary();
 
         if (legendary is not null)
         {
+            // Owned titles (installed or not) — legendary list --json
+            try
+            {
+                var (code, stdout, _) = await CliRunner.RunAsync(
+                    legendary, LegendaryCli.ListOwnedArgs(), null, null, ct).ConfigureAwait(false);
+                if (code == 0 && !string.IsNullOrWhiteSpace(stdout))
+                    owned.AddRange(LegendaryCli.ParseLibraryJson(stdout, forceInstalled: false));
+            }
+            catch { /* auth may be missing */ }
+
             try
             {
                 var (code, stdout, _) = await CliRunner.RunAsync(
                     legendary, LegendaryCli.ListInstalledArgs(), null, null, ct).ConfigureAwait(false);
                 if (code == 0 && !string.IsNullOrWhiteSpace(stdout))
-                    games.AddRange(ParseLegendaryInstalledJson(stdout));
+                    installed.AddRange(LegendaryCli.ParseLibraryJson(stdout, forceInstalled: true));
             }
             catch { /* fall through to manifests */ }
         }
+
+        var merged = LegendaryCli.MergeOwnedAndInstalled(owned, installed);
+        var games = merged.Select(MapRow).ToList();
 
         // Also merge Epic manifest folder (works even without Legendary).
         foreach (var g in ReadEpicManifests())
@@ -75,6 +89,28 @@ public sealed class EpicAdapter : IStoreAdapter
         }
 
         return games;
+    }
+
+    private static GameEntry MapRow(LegendaryCli.GameRow row)
+    {
+        var hasLegendary = ResolveLegendary() is not null;
+        return new GameEntry
+        {
+            Id = "epic:" + row.AppName,
+            Title = row.Title,
+            Store = StoreKind.Epic,
+            Installed = row.Installed,
+            Owned = true,
+            CanInstall = !row.Installed && hasLegendary,
+            Path = row.InstallPath,
+            LaunchTarget = row.AppName,
+            SizeBytes = row.SizeBytes,
+            Status = row.Installed ? "Ready" : "Not installed",
+            Deps = new[] { "Legendary" },
+            LaunchNote = row.Installed
+                ? "Launches via Legendary. Epic GUI is optional."
+                : "Owned on Epic. Install via Legendary without opening the Epic GUI.",
+        };
     }
 
     public async Task<InstallResult> InstallAsync(
@@ -287,66 +323,6 @@ public sealed class EpicAdapter : IStoreAdapter
         };
         _progress[gameId] = p;
         progress?.Report(p);
-    }
-
-    private static IEnumerable<GameEntry> ParseLegendaryInstalledJson(string json)
-    {
-        // Legendary list-installed --json is typically an array or object map.
-        using var doc = JsonDocument.Parse(json);
-        if (doc.RootElement.ValueKind == JsonValueKind.Array)
-        {
-            foreach (var el in doc.RootElement.EnumerateArray())
-            {
-                var g = MapLegendaryItem(el);
-                if (g is not null) yield return g;
-            }
-        }
-        else if (doc.RootElement.ValueKind == JsonValueKind.Object)
-        {
-            foreach (var prop in doc.RootElement.EnumerateObject())
-            {
-                var g = MapLegendaryItem(prop.Value, prop.Name);
-                if (g is not null) yield return g;
-            }
-        }
-    }
-
-    private static GameEntry? MapLegendaryItem(JsonElement el, string? key = null)
-    {
-        try
-        {
-            var appName = el.TryGetProperty("app_name", out var a) ? a.GetString()
-                : el.TryGetProperty("appName", out var a2) ? a2.GetString()
-                : key;
-            var title = el.TryGetProperty("title", out var t) ? t.GetString()
-                : el.TryGetProperty("app_title", out var t2) ? t2.GetString()
-                : appName;
-            var installPath = el.TryGetProperty("install_path", out var p) ? p.GetString()
-                : el.TryGetProperty("installPath", out var p2) ? p2.GetString()
-                : null;
-            if (string.IsNullOrWhiteSpace(appName) || string.IsNullOrWhiteSpace(title))
-                return null;
-
-            long? size = null;
-            if (el.TryGetProperty("install_size", out var s) && s.TryGetInt64(out var sv)) size = sv;
-
-            return new GameEntry
-            {
-                Id = "epic:" + appName,
-                Title = title!,
-                Store = StoreKind.Epic,
-                Installed = true,
-                Owned = true,
-                CanInstall = false,
-                Path = installPath,
-                LaunchTarget = appName,
-                SizeBytes = size,
-                Status = "Ready",
-                Deps = new[] { "Legendary" },
-                LaunchNote = "Launches via Legendary. Epic GUI is optional.",
-            };
-        }
-        catch { return null; }
     }
 
     private static IEnumerable<GameEntry> ReadEpicManifests()

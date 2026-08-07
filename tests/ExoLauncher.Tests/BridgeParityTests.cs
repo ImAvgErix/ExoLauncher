@@ -26,6 +26,7 @@ public class BridgeParityTests
         "shell.minimize",
         "shell.close",
         "shell.openUrl",
+        "shell.pickFolder",
         "app.version",
     ];
 

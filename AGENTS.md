@@ -36,7 +36,7 @@ Same family as **Exo** and **ExoOS**. Same quiet voice. Same honesty bar.
 
 ## Bridge methods (keep UI strings in sync)
 
-`library.get`, `library.refresh`, `game.get`, `game.launch`, `game.install`, `game.update`, `game.cancelInstall`, `game.progress`, `deps.list`, `deps.offerInstall`, `stores.matrix`, `settings.get`, `settings.set`, `shell.minimize`, `shell.close`, `shell.openUrl`, `app.version`
+`library.get`, `library.refresh`, `game.get`, `game.launch`, `game.install`, `game.update`, `game.cancelInstall`, `game.progress`, `deps.list`, `deps.offerInstall`, `stores.matrix`, `settings.get`, `settings.set`, `shell.minimize`, `shell.close`, `shell.openUrl`, `shell.pickFolder`, `app.version`
 
 ## Day-to-day
 

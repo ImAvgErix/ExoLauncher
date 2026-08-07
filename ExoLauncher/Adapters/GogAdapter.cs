@@ -52,7 +52,11 @@ public sealed class GogAdapter : IStoreAdapter
 
     public Task<IReadOnlyList<GameEntry>> GetLibraryAsync(CancellationToken ct = default)
     {
-        var games = new List<GameEntry>();
+        var installed = new List<GogdlCli.OwnedGame>();
+        var owned = new List<GogdlCli.OwnedGame>();
+        var exeById = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        // Installed titles from GOG registry.
         try
         {
             using var key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\WOW6432Node\GOG.com\Games")
@@ -69,28 +73,72 @@ public sealed class GogAdapter : IStoreAdapter
                     var exe = sub.GetValue("exe") as string ?? sub.GetValue("EXE") as string;
                     if (string.IsNullOrWhiteSpace(name)) continue;
 
-                    games.Add(new GameEntry
-                    {
-                        Id = "gog:" + subName,
-                        Title = name,
-                        Store = StoreKind.Gog,
-                        Installed = !string.IsNullOrWhiteSpace(path) && Directory.Exists(path),
-                        Owned = true,
-                        CanInstall = ResolveGogdl() is not null,
-                        Path = path,
-                        LaunchTarget = exe is not null && path is not null ? Path.Combine(path, exe) : exe,
-                        Status = "Ready",
-                        Deps = ResolveGogdl() is not null
-                            ? new[] { "gogdl (preferred)" }
-                            : new[] { "GOG Galaxy (optional offline)" },
-                        LaunchNote = "Offline GOG builds launch as local exes. gogdl handles install without Galaxy.",
-                    });
+                    installed.Add(new GogdlCli.OwnedGame(
+                        subName,
+                        name,
+                        path,
+                        !string.IsNullOrWhiteSpace(path) && Directory.Exists(path)));
+
+                    if (exe is not null && path is not null)
+                        exeById[subName] = Path.Combine(path, exe);
                 }
             }
         }
         catch { }
 
+        // Owned-but-not-installed: Heroic / Exo library JSON (gogdl has no stable list CLI).
+        foreach (var file in OwnedLibraryCandidates())
+        {
+            ct.ThrowIfCancellationRequested();
+            try
+            {
+                if (!File.Exists(file)) continue;
+                var json = File.ReadAllText(file);
+                owned.AddRange(GogdlCli.ParseOwnedLibraryJson(json));
+            }
+            catch { /* skip bad cache files */ }
+        }
+
+        var gogdlPresent = ResolveGogdl() is not null;
+        var merged = GogdlCli.MergeOwnedAndInstalled(owned, installed);
+        var games = merged.Select(row =>
+        {
+            exeById.TryGetValue(row.Id, out var launchExe);
+            return new GameEntry
+            {
+                Id = "gog:" + row.Id,
+                Title = row.Title,
+                Store = StoreKind.Gog,
+                Installed = row.Installed,
+                Owned = true,
+                CanInstall = !row.Installed && gogdlPresent,
+                Path = row.InstallPath,
+                LaunchTarget = launchExe ?? row.InstallPath,
+                Status = row.Installed ? "Ready" : "Not installed",
+                Deps = gogdlPresent
+                    ? new[] { "gogdl (preferred)" }
+                    : new[] { "gogdl or GOG Galaxy" },
+                LaunchNote = row.Installed
+                    ? "Offline GOG builds launch as local exes. gogdl handles install without Galaxy."
+                    : "Owned on GOG. Install via gogdl when present — Galaxy not required.",
+            };
+        }).ToList();
+
         return Task.FromResult<IReadOnlyList<GameEntry>>(games);
+    }
+
+    private static IEnumerable<string> OwnedLibraryCandidates()
+    {
+        var local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        var roaming = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+        var user = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+
+        yield return Path.Combine(PathHelper.AppDataDir, "gog-owned.json");
+        yield return Path.Combine(PathHelper.AppDataDir, "gog", "library.json");
+        yield return Path.Combine(local, "heroic", "gog_store", "library.json");
+        yield return Path.Combine(roaming, "heroic", "gog_store", "library.json");
+        yield return Path.Combine(user, ".config", "heroic", "gog_store", "library.json");
+        yield return Path.Combine(local, "GOG.com", "Galaxy", "webcache", "library.json");
     }
 
     public async Task<InstallResult> InstallAsync(
@@ -205,8 +253,7 @@ public sealed class GogAdapter : IStoreAdapter
         {
             try
             {
-                var p = ProcessHelper.StartMinimized(game.LaunchTarget);
-                // StartMinimized still runs the game; for exe launch use normal start.
+                // Single start — do not pair StartMinimized with Process.Start (double-launch).
                 var psi = new System.Diagnostics.ProcessStartInfo
                 {
                     FileName = game.LaunchTarget,

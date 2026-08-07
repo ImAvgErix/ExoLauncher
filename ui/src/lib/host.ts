@@ -376,6 +376,8 @@ async function mockCall<T>(method: string, params?: Record<string, unknown>): Pr
     case 'shell.close':
     case 'shell.openUrl':
       return { ok: true } as T
+    case 'shell.pickFolder':
+      return { ok: true, cancelled: false, path: 'C:\\Games\\MockPortable' } as T
     case 'app.version':
       return { version: '0.1.0-dev' } as T
     default:
@@ -415,5 +417,10 @@ export const host = {
   minimize: () => rawCall<{ ok: boolean }>('shell.minimize'),
   close: () => rawCall<{ ok: boolean }>('shell.close'),
   openUrl: (url: string) => rawCall<{ ok: boolean }>('shell.openUrl', { url }),
+  pickFolder: (title?: string) =>
+    rawCall<{ ok: boolean; cancelled?: boolean; path?: string; message?: string }>(
+      'shell.pickFolder',
+      title ? { title } : {},
+    ),
   version: () => rawCall<{ version: string }>('app.version'),
 }

@@ -37,6 +37,13 @@ gogdl launch --path <path> <id>
 
 Galaxy is optional for the happy path.
 
+gogdl has **no stable “list owned” CLI**. Owned-but-not-installed titles come from:
+
+1. GOG registry (installed)
+2. Library JSON caches (Heroic `gog_store/library.json`, or `%LocalAppData%\ExoLauncher\gog-owned.json`)
+
+Drop a products array into `gog-owned.json` after auth if you want Exo to show not-yet-installed owned titles.
+
 ## Riot
 
 Official flags only (no CDN scrapers):

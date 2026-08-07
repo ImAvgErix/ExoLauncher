@@ -64,11 +64,54 @@ public sealed class LaunchOrchestrator
         try
         {
             var result = await adapter.LaunchAsync(game, options, ct).ConfigureAwait(false);
+            if (result.Ok && options.CloseStoreUiAfterExit)
+            {
+                // Soft-close store UI after handoff. Never blocks launch; never kills anti-cheat.
+                // Full game-exit process tracking is best-effort via optional process id.
+                _ = ScheduleCleanupAsync(adapter, game, options, result.ProcessId);
+            }
             return result;
         }
         catch (Exception ex)
         {
             return new LaunchResult { Ok = false, Message = ex.Message };
+        }
+    }
+
+    private static async Task ScheduleCleanupAsync(
+        IStoreAdapter adapter,
+        GameEntry game,
+        LaunchOptions options,
+        int? processId)
+    {
+        try
+        {
+            // Brief settle so protocol handoff can complete before we hide store chrome.
+            await Task.Delay(4000).ConfigureAwait(false);
+
+            if (processId is int pid)
+            {
+                try
+                {
+                    using var gameProc = System.Diagnostics.Process.GetProcessById(pid);
+                    // If we launched the game process directly, wait for exit then cleanup.
+                    if (!gameProc.HasExited)
+                    {
+                        await gameProc.WaitForExitAsync().ConfigureAwait(false);
+                    }
+                }
+                catch
+                {
+                    // Protocol launches often return a helper pid that exits quickly —
+                    // still run a single cleanup pass for store UI.
+                }
+            }
+
+            await adapter.CleanupAfterExitAsync(game, options).ConfigureAwait(false);
+        }
+        catch
+        {
+            /* best-effort cleanup */
         }
     }
 

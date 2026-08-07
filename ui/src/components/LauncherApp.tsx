@@ -114,6 +114,18 @@ export function LauncherApp() {
         setStatusMsg(res.message)
         setBusy(false)
       } else if (action === 'install') {
+        // Local portable installs need a real folder path — pick before starting.
+        let installPath: string | undefined
+        if (selected.store === 'local') {
+          const pick = await host.pickFolder('Choose folder containing the game executable')
+          if (!pick.ok || pick.cancelled || !pick.path) {
+            setStatusMsg(pick.message ?? 'Folder selection cancelled.')
+            setBusy(false)
+            return
+          }
+          installPath = pick.path
+        }
+
         setProgress({
           gameId: selected.id,
           phase: 'preparing',
@@ -122,7 +134,7 @@ export function LauncherApp() {
           canCancel: true,
           isActive: true,
         })
-        const res = await host.install(selected.id)
+        const res = await host.install(selected.id, installPath)
         setStatusMsg(res.message)
         if (res.progress) setProgress(res.progress)
         if (!res.progress?.isActive) setBusy(false)

@@ -90,6 +90,7 @@ public sealed class WebHostBridge
                 "shell.minimize" => MinimizeWindow(),
                 "shell.close" => CloseWindow(),
                 "shell.openUrl" => OpenUrl(paramsEl, hasParams),
+                "shell.pickFolder" => await PickFolderAsync(paramsEl, hasParams).ConfigureAwait(true),
                 "app.version" => new { version = _services.AppVersion },
                 _ => throw new InvalidOperationException($"Unknown method: {method}")
             };
@@ -321,6 +322,63 @@ public sealed class WebHostBridge
         catch (Exception ex)
         {
             return new { ok = false, message = ex.Message };
+        }
+    }
+
+    /// <summary>
+    /// Folder picker for Local portable installs (and optional install path overrides).
+    /// Runs on the UI thread; returns cancelled when the user dismisses the dialog.
+    /// </summary>
+    private async Task<object> PickFolderAsync(JsonElement p, bool hasParams)
+    {
+        var title = ReadString(p, hasParams, "title") ?? "Choose game folder";
+
+        var tcs = new TaskCompletionSource<object>();
+        void Run()
+        {
+            _ = RunPickFolderAsync(title, tcs);
+        }
+
+        if (!_queue.HasThreadAccess)
+            _queue.TryEnqueue(Run);
+        else
+            Run();
+
+        return await tcs.Task.ConfigureAwait(true);
+    }
+
+    private static async Task RunPickFolderAsync(string title, TaskCompletionSource<object> tcs)
+    {
+        try
+        {
+            var window = App.MainAppWindow;
+            if (window is null)
+            {
+                tcs.TrySetResult(new { ok = false, cancelled = true, message = "No window for folder picker." });
+                return;
+            }
+
+            var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(window);
+            var picker = new Windows.Storage.Pickers.FolderPicker();
+            WinRT.Interop.InitializeWithWindow.Initialize(picker, hwnd);
+            picker.SuggestedStartLocation = Windows.Storage.Pickers.PickerLocationId.ComputerFolder;
+            picker.FileTypeFilter.Add("*");
+            picker.ViewMode = Windows.Storage.Pickers.PickerViewMode.List;
+            // Title is not always honored on FolderPicker; keep for future / diagnostics.
+            _ = title;
+
+            var folder = await picker.PickSingleFolderAsync();
+            if (folder is null)
+            {
+                tcs.TrySetResult(new { ok = false, cancelled = true, message = "Cancelled." });
+                return;
+            }
+
+            tcs.TrySetResult(new { ok = true, cancelled = false, path = folder.Path });
+        }
+        catch (Exception ex)
+        {
+            tcs.TrySetResult(new { ok = false, cancelled = false, message = ex.Message });
         }
     }
 
