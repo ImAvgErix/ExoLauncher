@@ -35,11 +35,10 @@ Local-first — see [PRIVACY.md](PRIVACY.md).
 
 | Product | Role |
 | --- | --- |
-| **[Exo](https://github.com/ImAvgErix/Exo)** | Gaming optimizers |
+| **[Exo Hub](https://github.com/ImAvgErix/ExoHub)** | Gaming optimizers |
 | **[Exo OS](https://github.com/ImAvgErix/ExoOS)** | Windows gaming transform |
 | **[Exo Link](https://github.com/ImAvgErix/ExoLink)** | Desktop chat & voice |
 | **[Exo Launcher](https://github.com/ImAvgErix/ExoLauncher)** | Game library |
-| **[Exo Hub](https://github.com/ImAvgErix/ExoHub)** | Home base for the stack |
 
 ---
 ## License
