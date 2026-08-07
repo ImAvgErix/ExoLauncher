@@ -1,5 +1,7 @@
 # Exo Launcher
 
+**Built quiet. Tuned sharp.**
+
 **One calm Windows library. Other store clients become invisible backends.**
 
 
