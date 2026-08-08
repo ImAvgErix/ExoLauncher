@@ -516,17 +516,14 @@ export function LauncherApp() {
 
             {loading && games.length === 0 ? (
               <div className="exo-enter flex flex-col items-center justify-center py-24">
-                <div
-                  className="mb-5 grid size-14 place-items-center text-lg font-bold"
-                  style={{
-                    borderRadius: 16,
-                    background: 'linear-gradient(160deg,#303034 0%,#121214 55%,#050505 100%)',
-                    border: '1px solid #2a2a2a',
-                    boxShadow: '0 20px 50px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.07)',
-                  }}
-                >
-                  Ex
-                </div>
+                <img
+                  src="./logo.png"
+                  alt=""
+                  width={56}
+                  height={56}
+                  className="mb-5 size-14 rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.55)]"
+                  draggable={false}
+                />
                 <p className="text-sm text-fg-muted">Scanning libraries…</p>
               </div>
             ) : filtered.length === 0 ? (
@@ -1014,6 +1011,29 @@ function SettingsPanel({
         <button type="button" className="exo-ghost-btn mt-3" onClick={onPickInstallRoot}>
           Choose folder
         </button>
+      </div>
+
+      <div className="mt-12 max-w-xl">
+        <h3 className="text-sm font-medium text-fg">Exo family</h3>
+        <p className="mt-1 text-xs text-faint">Same quiet shell. Presence without weight.</p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          {(
+            [
+              ['Exo Hub', 'https://github.com/ImAvgErix/ExoHub/releases/latest'],
+              ['Exo OS', 'https://github.com/ImAvgErix/ExoOS/releases/latest'],
+              ['Exo Link', 'https://github.com/ImAvgErix/ExoLink/releases/latest'],
+            ] as const
+          ).map(([label, url]) => (
+            <button
+              key={label}
+              type="button"
+              className="exo-ghost-btn"
+              onClick={() => void host.openUrl(url)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="mt-12 max-w-xl">
