@@ -1,5 +1,8 @@
 # Exo Launcher
 
+<p align="center">
+  <img src="docs/media/logo.png" alt="Exo Launcher" width="96" />
+</p>
 **Presence without weight.**
 
 Exo Launcher is **one calm library** for your games. Other store clients become **invisible backends** — install, update, and play from one place instead of juggling windows.
