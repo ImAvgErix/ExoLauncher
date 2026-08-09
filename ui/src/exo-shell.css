@@ -1,0 +1,189 @@
+/*
+ * EXO SHELL SYSTEM — single company chrome.
+ * Copy or import into every product UI.
+ *
+ * Layout:
+ *   [logo 28] [Name 13sb / role 10 faint]  ···  [actions]  |  [−] [×]
+ * Height 52 · hairline #161616 · pure black · white CTAs · Geist
+ */
+
+:root {
+  --exo-bg: #000000;
+  --exo-surface: #0c0c0c;
+  --exo-elevated: #141414;
+  --exo-hover: #1c1c1c;
+  --exo-line: #222222;
+  --exo-line-soft: #161616;
+  --exo-fg: #f2f2f2;
+  --exo-muted: #8a8a8a;
+  --exo-faint: #555555;
+  --exo-good: #3dd68c;
+  --exo-bad: #ff5c5c;
+  --exo-close: #c0303c;
+  --exo-radius: 14px;
+  --exo-titlebar-h: 52px;
+  --exo-logo: 28px;
+  --exo-font: "Geist Variable", "Geist", "Segoe UI Variable Text", system-ui, -apple-system, sans-serif;
+}
+
+/* ——— Titlebar ——— */
+.exo-titlebar {
+  position: relative;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  height: var(--exo-titlebar-h);
+  padding: 0 10px 0 14px;
+  gap: 10px;
+  border-bottom: 1px solid var(--exo-line-soft);
+  background: #000;
+  color: var(--exo-fg);
+  font-family: var(--exo-font);
+  -webkit-app-region: drag;
+  app-region: drag;
+  user-select: none;
+}
+
+.exo-titlebar button,
+.exo-titlebar a,
+.exo-titlebar input,
+.exo-titlebar select,
+.exo-titlebar .exo-no-drag {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+/* Brand lockup — identical in every app */
+.exo-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+  min-width: 0;
+}
+
+.exo-brand-logo {
+  width: var(--exo-logo);
+  height: var(--exo-logo);
+  border-radius: 9px;
+  display: block;
+  object-fit: cover;
+  flex-shrink: 0;
+  box-shadow: 0 0 0 1px #222;
+}
+
+.exo-brand-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.15;
+  min-width: 0;
+}
+
+.exo-brand-name {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--exo-fg);
+  white-space: nowrap;
+}
+
+.exo-brand-role {
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--exo-faint);
+  white-space: nowrap;
+}
+
+/* Right cluster */
+.exo-titlebar-actions {
+  position: relative;
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.exo-titlebar-divider {
+  width: 1px;
+  height: 16px;
+  margin: 0 6px;
+  background: var(--exo-line-soft);
+}
+
+/* Window / chrome buttons — same hit target everywhere */
+.exo-winbtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 32px;
+  padding: 0;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--exo-muted);
+  cursor: pointer;
+  transition: background 140ms ease, color 140ms ease;
+}
+
+.exo-winbtn:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--exo-fg);
+}
+
+.exo-winbtn.is-close:hover {
+  background: var(--exo-close);
+  color: #fff;
+}
+
+.exo-winbtn.is-wide {
+  width: auto;
+  padding: 0 10px;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+/* Primary CTA — white pill, every product */
+.exo-cta {
+  position: relative;
+  overflow: hidden;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 44px;
+  padding: 0 22px;
+  border: none;
+  border-radius: 999px;
+  background: #f2f2f2;
+  color: #0a0a0a;
+  font-family: var(--exo-font);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  cursor: pointer;
+  box-shadow:
+    0 10px 32px rgba(255, 255, 255, 0.1),
+    0 0 0 1px rgba(255, 255, 255, 0.05);
+  transition: transform 180ms ease, background 140ms ease, box-shadow 180ms ease, opacity 140ms ease;
+}
+
+.exo-cta:hover:not(:disabled) {
+  background: #fff;
+  transform: translateY(-1px);
+}
+
+.exo-cta:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Quiet card */
+.exo-card {
+  border-radius: var(--exo-radius);
+  border: 1px solid var(--exo-line-soft);
+  background: var(--exo-surface);
+}

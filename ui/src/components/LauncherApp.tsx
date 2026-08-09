@@ -394,22 +394,15 @@ export function LauncherApp() {
     <div className="exo-app">
       <div className="exo-ambient" />
       <header className="exo-titlebar">
-        <div className="flex items-center gap-2.5">
-          <img
-            src="./logo.png"
-            alt=""
-            width={32}
-            height={32}
-            className="h-8 w-8 rounded-[11px] shadow-[inset_0_1px_0_rgba(255,255,255,0.07)]"
-            draggable={false}
-          />
-          <div className="leading-tight">
-            <div className="text-[13px] font-semibold tracking-tight">Exo Launcher</div>
-            <div className="text-[10px] text-faint">Library</div>
+        <div className="exo-brand">
+          <img src="./logo.png" alt="" className="exo-brand-logo" width={28} height={28} draggable={false} />
+          <div className="exo-brand-text">
+            <span className="exo-brand-name">Exo Launcher</span>
+            <span className="exo-brand-role">Library</span>
           </div>
         </div>
 
-        <div className="relative mx-auto hidden w-full max-w-[300px] flex-1 sm:block">
+        <div className="relative mx-auto hidden w-full max-w-[280px] flex-1 sm:block exo-no-drag">
           <Search className="pointer-events-none absolute left-3.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-faint" />
           <input
             value={query}
@@ -420,33 +413,29 @@ export function LauncherApp() {
           />
         </div>
 
-        <div className="ml-auto flex items-center gap-1">
-          <div className="mr-2 hidden text-right sm:block">
-            <div className="text-[11px] tabular-nums text-muted">{filtered.length}</div>
-            <div className="text-[10px] text-faint">games</div>
-          </div>
-          <button type="button" className="exo-titlebar-button" title="Refresh (F5)" onClick={() => void loadLibrary(true)}>
+        <div className="exo-titlebar-actions">
+          <button type="button" className="exo-winbtn" title="Refresh (F5)" onClick={() => void loadLibrary(true)}>
             <RefreshCw size={15} strokeWidth={1.75} className={loading ? 'animate-spin' : ''} />
           </button>
           <button
             type="button"
-            className="exo-titlebar-button is-wide"
+            className="exo-winbtn is-wide"
             title="Dependencies"
             onClick={() => {
               setView('deps')
               void loadDeps()
             }}
           >
-            <span className="text-[11px] font-medium">Deps</span>
+            Deps
           </button>
-          <button type="button" className="exo-titlebar-button" title="Settings" onClick={() => setView('settings')}>
+          <button type="button" className="exo-winbtn" title="Settings" onClick={() => setView('settings')}>
             <Settings size={15} strokeWidth={1.75} />
           </button>
-          <div className="mx-1 h-4 w-px bg-line-soft" />
-          <button type="button" className="exo-titlebar-button" title="Minimize" onClick={() => void host.minimize()}>
+          <div className="exo-titlebar-divider" />
+          <button type="button" className="exo-winbtn" title="Minimize" onClick={() => void host.minimize()}>
             <Minus size={15} strokeWidth={1.75} />
           </button>
-          <button type="button" className="exo-titlebar-button is-close" title="Close" onClick={() => void host.close()}>
+          <button type="button" className="exo-winbtn is-close" title="Close" onClick={() => void host.close()}>
             <X size={15} strokeWidth={1.75} />
           </button>
         </div>
