@@ -455,6 +455,7 @@ export function LauncherApp() {
     () => installedGames.filter((g) => g.isFavorite),
     [installedGames],
   )
+  const pinnedRailMounted = view === 'library' && query.trim().length < 2
 
   useEffect(() => {
     const rail = pinnedRailRef.current
@@ -470,7 +471,9 @@ export function LauncherApp() {
       rail.removeEventListener('scroll', syncPinnedNav)
       observer.disconnect()
     }
-  }, [pinnedGames.length, syncPinnedNav])
+  // Settings and active search both remove the rail from the DOM. Rebind its
+  // observer and recompute the edge masks whenever the rail mounts again.
+  }, [pinnedGames.length, pinnedRailMounted, syncPinnedNav])
 
   const libraryGrid = useMemo(() => {
     const pinnedIds = new Set(pinnedGames.map((g) => g.id))

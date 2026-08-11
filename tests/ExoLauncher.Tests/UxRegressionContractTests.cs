@@ -471,6 +471,8 @@ public sealed class UxRegressionContractTests
         Assert.Contains("aria-label=\"Previous pinned games\"", launcher, StringComparison.Ordinal);
         Assert.Contains("aria-label=\"Next pinned games\"", launcher, StringComparison.Ordinal);
         Assert.Contains("new ResizeObserver(syncPinnedNav)", launcher, StringComparison.Ordinal);
+        Assert.Contains("const pinnedRailMounted = view === 'library' && query.trim().length < 2", launcher, StringComparison.Ordinal);
+        Assert.Contains("[pinnedGames.length, pinnedRailMounted, syncPinnedNav]", launcher, StringComparison.Ordinal);
         Assert.Contains("max-width: 100%;", tokens, StringComparison.Ordinal);
         Assert.Contains(".exo-pinned-section", tokens, StringComparison.Ordinal);
         Assert.Contains("width: 100%;", tokens, StringComparison.Ordinal);
