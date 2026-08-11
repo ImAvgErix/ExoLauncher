@@ -13,6 +13,7 @@ public sealed class SmartSearchUiContractTests
         Assert.Contains("export function smartSearchScore", utils, StringComparison.Ordinal);
         Assert.Contains("boundedDamerauLevenshtein", utils, StringComparison.Ordinal);
         Assert.Contains("normalizeSearchText", utils, StringComparison.Ordinal);
+        Assert.Contains("titleToken.length >= 3", utils, StringComparison.Ordinal);
         Assert.Contains("smartSearchScore(game.title, q)", launcher, StringComparison.Ordinal);
         Assert.Contains("b.score - a.score", launcher, StringComparison.Ordinal);
         Assert.DoesNotContain("g.title.toLowerCase().includes(q)", launcher, StringComparison.Ordinal);

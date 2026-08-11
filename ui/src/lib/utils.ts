@@ -67,6 +67,7 @@ function tokenMatchQuality(titleToken: string, queryToken: string): number {
   if (titleToken === queryToken) return 3
   if (
     queryToken.length >= 3 &&
+    titleToken.length >= 3 &&
     (titleToken.startsWith(queryToken) || queryToken.startsWith(titleToken))
   ) {
     return 2
