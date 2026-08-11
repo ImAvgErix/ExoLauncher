@@ -42,7 +42,6 @@ internal sealed class TrophyNotificationPresenter : IDisposable
     private Border? _card;
     private DispatcherQueueTimer? _timer;
     private Storyboard? _exitStoryboard;
-    private TrophyMotion _motion;
     private bool _closing;
     private bool _disposed;
 
@@ -62,20 +61,17 @@ internal sealed class TrophyNotificationPresenter : IDisposable
     {
         if (_disposed || _window is not null || _queue.Count == 0) return;
         var (payload, options, onPresented) = _queue.Dequeue();
+        Window? pendingWindow = null;
 
         try
         {
             var window = new Window { Title = "Achievement notification" };
+            pendingWindow = window;
             var card = BuildCard(payload);
-            window.Content = new Border
-            {
-                // The backing surface, card, and DWM corner treatment share
-                // one 12px silhouette. This avoids a darker square appearing
-                // around the inner plate during entry/exit frames.
-                Background = new SolidColorBrush(TrophySurface),
-                CornerRadius = new CornerRadius(12),
-                Child = card,
-            };
+            // The notification has one visual surface. Wrapping the card in a
+            // second rounded black Border made the outer backing show during
+            // movement and produced a visibly broken double silhouette.
+            window.Content = card;
 
             var hwnd = WindowNative.GetWindowHandle(window);
             var appWindow = window.AppWindow;
@@ -105,8 +101,7 @@ internal sealed class TrophyNotificationPresenter : IDisposable
             // and must not block durable delivery acknowledgement.
             try { onPresented?.Invoke(); }
             catch (Exception ex) { Helpers.AppLog.Debug("Trophy presentation acknowledgement failed: " + ex.Message); }
-            _motion = TrophyMotion.For(options);
-            AnimateIn(card, _motion);
+            AnimateIn(card);
             TrophySoundPlayer.Play();
 
             _timer = _dispatcher.CreateTimer();
@@ -118,6 +113,13 @@ internal sealed class TrophyNotificationPresenter : IDisposable
         catch (Exception ex)
         {
             Helpers.AppLog.Error("Trophy notification display failed", ex);
+            // Failures before _window assignment still own a native Window.
+            // Close that local instance so queue recovery cannot orphan or
+            // stack a hidden notification surface.
+            if (!ReferenceEquals(_window, pendingWindow))
+            {
+                try { pendingWindow?.Close(); } catch { }
+            }
             CloseCurrentImmediately();
             ShowNext();
         }
@@ -175,28 +177,24 @@ internal sealed class TrophyNotificationPresenter : IDisposable
             Width = 4,
             Fill = visual.AccentBrush,
             VerticalAlignment = VerticalAlignment.Stretch,
+            RadiusX = 2,
+            RadiusY = 2,
         };
-        var tier = new Border
+        var tier = new TextBlock
         {
             VerticalAlignment = VerticalAlignment.Bottom,
-            Margin = new Thickness(0, 0, 0, 2),
-            CornerRadius = new CornerRadius(6),
-            BorderBrush = visual.OutlineBrush,
-            BorderThickness = new Thickness(1),
-            Background = new SolidColorBrush(Color.FromArgb(24, visual.Accent.R, visual.Accent.G, visual.Accent.B)),
-            Padding = new Thickness(7, 3, 6, 3),
-            Child = new TextBlock
-            {
-                Text = TrophyRarityResolver.Label(visual.Rarity),
-                FontSize = 8,
-                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
-                CharacterSpacing = 85,
-                Foreground = visual.AccentBrush,
-            },
+            Margin = new Thickness(0, 0, 0, 3),
+            Text = TrophyRarityResolver.Label(visual.Rarity),
+            FontSize = 8,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            CharacterSpacing = 85,
+            Foreground = visual.AccentBrush,
         };
         var layout = new Grid
         {
-            Padding = new Thickness(0, 14, 14, 14),
+            // Keep the rail inside the rounded card rather than allowing it
+            // to collide with the top/bottom corners.
+            Padding = new Thickness(14, 14, 14, 14),
             ColumnSpacing = 12,
         };
         layout.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(4) });
@@ -406,14 +404,14 @@ internal sealed class TrophyNotificationPresenter : IDisposable
         };
     }
 
-    private static void AnimateIn(Border target, TrophyMotion motion)
+    private static void AnimateIn(Border target)
     {
         var transform = new CompositeTransform
         {
-            TranslateX = motion.X,
-            TranslateY = motion.Y,
-            ScaleX = 0.985,
-            ScaleY = 0.985,
+            // The window bounds cannot accommodate a translated child without
+            // clipping it. A small pop/fade stays fully inside the one surface.
+            ScaleX = 0.97,
+            ScaleY = 0.97,
             CenterX = NotificationWidth / 2d,
             CenterY = NotificationHeight / 2d,
         };
@@ -421,8 +419,6 @@ internal sealed class TrophyNotificationPresenter : IDisposable
         target.Opacity = 0;
         if (!AnimationsEnabled())
         {
-            transform.TranslateX = 0;
-            transform.TranslateY = 0;
             transform.ScaleX = 1;
             transform.ScaleY = 1;
             target.Opacity = 1;
@@ -431,10 +427,8 @@ internal sealed class TrophyNotificationPresenter : IDisposable
 
         var storyboard = new Storyboard();
         storyboard.Children.Add(CreateAnimation(target, "Opacity", 0, 1, 220, EasingMode.EaseOut));
-        storyboard.Children.Add(CreateAnimation(transform, "TranslateX", motion.X, 0, 240, EasingMode.EaseOut));
-        storyboard.Children.Add(CreateAnimation(transform, "TranslateY", motion.Y, 0, 240, EasingMode.EaseOut));
-        storyboard.Children.Add(CreateAnimation(transform, "ScaleX", 0.985, 1, 260, EasingMode.EaseOut));
-        storyboard.Children.Add(CreateAnimation(transform, "ScaleY", 0.985, 1, 260, EasingMode.EaseOut));
+        storyboard.Children.Add(CreateAnimation(transform, "ScaleX", 0.97, 1, 260, EasingMode.EaseOut));
+        storyboard.Children.Add(CreateAnimation(transform, "ScaleY", 0.97, 1, 260, EasingMode.EaseOut));
         storyboard.Begin();
     }
 
@@ -454,10 +448,8 @@ internal sealed class TrophyNotificationPresenter : IDisposable
         _card.RenderTransform = transform;
         var storyboard = new Storyboard();
         storyboard.Children.Add(CreateAnimation(_card, "Opacity", 1, 0, 160, EasingMode.EaseInOut));
-        storyboard.Children.Add(CreateAnimation(transform, "TranslateX", 0, _motion.X * 0.45, 160, EasingMode.EaseInOut));
-        storyboard.Children.Add(CreateAnimation(transform, "TranslateY", 0, _motion.Y * 0.45, 160, EasingMode.EaseInOut));
-        storyboard.Children.Add(CreateAnimation(transform, "ScaleX", 1, 0.99, 160, EasingMode.EaseInOut));
-        storyboard.Children.Add(CreateAnimation(transform, "ScaleY", 1, 0.99, 160, EasingMode.EaseInOut));
+        storyboard.Children.Add(CreateAnimation(transform, "ScaleX", 1, 0.97, 160, EasingMode.EaseInOut));
+        storyboard.Children.Add(CreateAnimation(transform, "ScaleY", 1, 0.97, 160, EasingMode.EaseInOut));
         storyboard.Completed += OnExitAnimationCompleted;
         _exitStoryboard = storyboard;
         storyboard.Begin();
@@ -595,13 +587,6 @@ internal sealed class TrophyNotificationPresenter : IDisposable
     }
 
     private readonly record struct TrophyDisplay(RectInt32 WorkArea, double Scale);
-
-    private readonly record struct TrophyMotion(double X, double Y)
-    {
-        public static TrophyMotion For(TrophyNotificationOptions options) => new(
-            options.PositionX <= 0d ? -18d : options.PositionX >= 1d ? 18d : 0d,
-            options.PositionY <= 0d ? -18d : options.PositionY >= 1d ? 18d : 0d);
-    }
 
     private sealed record TrophyVisual(
         TrophyRarity Rarity,

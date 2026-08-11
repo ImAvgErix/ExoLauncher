@@ -139,25 +139,6 @@ public sealed class SteamPlaytimeTests
         }
     }
 
-    [Fact]
-    public void SteamCoverage_ContainsOnlyHashedAccountProvenance()
-    {
-        var game = new GameEntry
-        {
-            Id = "steam:252950",
-            Title = "Rocket League",
-            Store = StoreKind.Steam,
-            LaunchTarget = "252950",
-        };
-
-        var coverage = PlaytimeService.NativeCoverageKey(
-            game,
-            "7ce84b31d013d2e7b45cc6593db1f73f");
-
-        Assert.Equal("steam:7ce84b31d013d2e7b45cc6593db1f73f:252950", coverage);
-        Assert.DoesNotContain("765611", coverage, StringComparison.Ordinal);
-    }
-
     private static string CreateSteamRoot(params (string Account, string App, int Minutes)[] rows)
     {
         var root = Path.Combine(Path.GetTempPath(), "exo-steam-playtime-" + Guid.NewGuid().ToString("N"));

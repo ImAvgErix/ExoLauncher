@@ -374,13 +374,17 @@ function Row({ label, value }: { label: string; value: string }) {
 
 /** Buy via store client / browser — Exo does not host checkout. */
 function storeBuyUrl(game: Game): string | null {
-  if (game.installed || game.canInstall) return null
+  // Account-proven ownership is never a purchase CTA, even when the backing
+  // client is temporarily unavailable to accept an install request.
+  if (game.installed || game.canInstall || game.owned) return null
   const target = (game.launchTarget || '').trim()
   // Steam: open the desktop client's store page (not the browser).
   if (game.store === 'steam' && /^\d+$/.test(target))
     return `steam://store/${target}`
   if (game.store === 'gog' && target)
     return `https://www.gog.com/en/game/${encodeURIComponent(target)}`
+  if (game.store === 'epic' && game.id.startsWith('epic:catalog:') && target)
+    return `https://store.epicgames.com/en-US/p/${encodeURIComponent(target)}`
   if (game.id.startsWith('steam:')) {
     const id = game.id.slice('steam:'.length)
     if (/^\d+$/.test(id)) return `steam://store/${id}`

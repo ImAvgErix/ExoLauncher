@@ -3,7 +3,7 @@
  * CTA strings (Play | Install | Update) and cancelInstall live via DetailPanel + host.
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
-import { Loader2, Minus, Search, Settings, X } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Loader2, Minus, Search, Settings, X } from 'lucide-react'
 import {
   host,
   onHostEvent,
@@ -15,7 +15,7 @@ import {
   type MissingDependency,
   type StoreStatus,
 } from '../lib/host'
-import { cn, smartSearchScore, storeLabel } from '../lib/utils'
+import { cn, smartSearchScore } from '../lib/utils'
 import { DetailRail, GridItem } from '../motion'
 import { DetailPanel } from './DetailPanel'
 import { GameCard } from './GameCard'
@@ -159,6 +159,7 @@ export function LauncherApp() {
   const [catalogHits, setCatalogHits] = useState<CatalogHit[]>([])
   const [catalogSearching, setCatalogSearching] = useState(false)
   const [authMsg, setAuthMsg] = useState<string | null>(null)
+  const [pinnedNav, setPinnedNav] = useState({ back: false, forward: false })
   const searchGen = useRef(0)
   const searchInputRef = useRef<HTMLInputElement>(null)
   const pinnedRailRef = useRef<HTMLDivElement>(null)
@@ -170,6 +171,41 @@ export function LauncherApp() {
   const selectCard = useCallback((id: string | null) => {
     setSelectedId(id)
     setSelectedVariantId(null)
+  }, [])
+
+  const syncPinnedNav = useCallback(() => {
+    const rail = pinnedRailRef.current
+    if (!rail) {
+      setPinnedNav({ back: false, forward: false })
+      return
+    }
+    // Keep the resting carousel on whole-card boundaries. The scrollport can
+    // be wider than an exact number of fixed-size cards, so cover only that
+    // remainder instead of leaving a clipped preview of the next card.
+    const railBounds = rail.getBoundingClientRect()
+    const wholeCards = Array.from(rail.children)
+      .map((child) => (child as HTMLElement).getBoundingClientRect())
+      .filter((bounds) => bounds.left >= railBounds.left - 0.5 && bounds.right <= railBounds.right + 0.5)
+    if (wholeCards.length > 0 && rail.parentElement) {
+      const firstWholeCard = wholeCards[0]
+      const lastWholeCard = wholeCards[wholeCards.length - 1]
+      rail.parentElement.style.setProperty(
+        '--pinned-left-edge-width',
+        `${Math.max(0, firstWholeCard.left - railBounds.left)}px`,
+      )
+      rail.parentElement.style.setProperty(
+        '--pinned-right-edge-width',
+        `${Math.max(0, railBounds.right - lastWholeCard.right)}px`,
+      )
+    }
+    const max = Math.max(0, rail.scrollWidth - rail.clientWidth)
+    const next = {
+      back: rail.scrollLeft > 2,
+      forward: rail.scrollLeft < max - 2,
+    }
+    setPinnedNav((current) =>
+      current.back === next.back && current.forward === next.forward ? current : next,
+    )
   }, [])
 
   function movePinnedRail(delta: number) {
@@ -420,6 +456,22 @@ export function LauncherApp() {
     [installedGames],
   )
 
+  useEffect(() => {
+    const rail = pinnedRailRef.current
+    if (!rail) {
+      syncPinnedNav()
+      return
+    }
+    syncPinnedNav()
+    rail.addEventListener('scroll', syncPinnedNav, { passive: true })
+    const observer = new ResizeObserver(syncPinnedNav)
+    observer.observe(rail)
+    return () => {
+      rail.removeEventListener('scroll', syncPinnedNav)
+      observer.disconnect()
+    }
+  }, [pinnedGames.length, syncPinnedNav])
+
   const libraryGrid = useMemo(() => {
     const pinnedIds = new Set(pinnedGames.map((g) => g.id))
     // Pinned row + remaining grid without duplicates
@@ -432,11 +484,9 @@ export function LauncherApp() {
     return installedGames
       .map((game) => ({
         game,
-        score: Math.max(
-          smartSearchScore(game.title, q),
-          smartSearchScore(game.store, q),
-          smartSearchScore(storeLabel(game.store), q),
-        ),
+        // Search is a title search. Store names, tools and backend labels must
+        // never turn into a page full of unrelated game cards.
+        score: smartSearchScore(game.title, q),
       }))
       .filter(({ score }) => score >= 0)
       .sort(
@@ -450,7 +500,9 @@ export function LauncherApp() {
 
   const catalogGames = useMemo(() => catalogHits.map(hitToGame), [catalogHits])
 
-  // Catalog search — 140ms debounce; spinner only after 150ms; generation cancels stale.
+  // Catalog search — a pending query is never an empty result. Keep the loading
+  // state through debounce and provider work so the UI cannot flash a false
+  // "No matches" before Epic/Steam returns.
   useEffect(() => {
     const q = query.trim()
     if (q.length < 2) {
@@ -465,12 +517,8 @@ export function LauncherApp() {
     // Mortal Shell) never shows unrelated catalog cards while the new backend
     // search is debouncing or in flight.
     setCatalogHits([])
-    setCatalogSearching(false)
-    let showSpinnerTimer: number | undefined
+    setCatalogSearching(true)
     const t = window.setTimeout(() => {
-      showSpinnerTimer = window.setTimeout(() => {
-        if (searchGen.current === gen) setCatalogSearching(true)
-      }, 150)
       void host
         .storeSearch(q)
         .then((r) => {
@@ -492,13 +540,11 @@ export function LauncherApp() {
           if (searchGen.current === gen) setCatalogHits([])
         })
         .finally(() => {
-          if (showSpinnerTimer !== undefined) window.clearTimeout(showSpinnerTimer)
           if (searchGen.current === gen) setCatalogSearching(false)
         })
     }, 140)
     return () => {
       window.clearTimeout(t)
-      if (showSpinnerTimer !== undefined) window.clearTimeout(showSpinnerTimer)
     }
   }, [query, games])
 
@@ -1134,53 +1180,82 @@ export function LauncherApp() {
             ) : (
               <>
                 {pinnedGames.length > 0 && (
-                  <section className="mb-8 min-w-0 max-w-full overflow-hidden">
-                    <h3 className="mb-3 text-[12px] font-medium uppercase tracking-wider text-faint">
-                      Pinned
-                    </h3>
-                    <div
-                      ref={pinnedRailRef}
-                      className="exo-pinned-row"
-                      tabIndex={0}
-                      role="region"
-                      aria-label="Pinned games"
-                      onWheel={(event) => {
-                        if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return
-                        event.preventDefault()
-                        movePinnedRail(event.deltaY)
-                      }}
-                      onKeyDown={(event) => {
-                        if (event.key === 'ArrowRight') {
+                  <section className="exo-pinned-section mb-7 min-w-0 max-w-full">
+                    <div className="mb-3 flex items-center justify-between gap-3">
+                      <h3 className="text-[12px] font-medium uppercase tracking-wider text-faint">
+                        Pinned
+                      </h3>
+                      {(pinnedNav.back || pinnedNav.forward) && (
+                        <div className="flex items-center gap-1" aria-label="Pinned game navigation">
+                          <button
+                            type="button"
+                            className="exo-pinned-nav-button"
+                            aria-label="Previous pinned games"
+                            disabled={!pinnedNav.back}
+                            onClick={() => movePinnedRail(-564)}
+                          >
+                            <ChevronLeft size={15} />
+                          </button>
+                          <button
+                            type="button"
+                            className="exo-pinned-nav-button"
+                            aria-label="Next pinned games"
+                            disabled={!pinnedNav.forward}
+                            onClick={() => movePinnedRail(564)}
+                          >
+                            <ChevronRight size={15} />
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                    <div className="exo-pinned-viewport">
+                      <div
+                        ref={pinnedRailRef}
+                        className="exo-pinned-row"
+                        tabIndex={0}
+                        role="region"
+                        aria-label="Pinned games"
+                        onWheel={(event) => {
+                          if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return
+                          if (event.currentTarget.scrollWidth <= event.currentTarget.clientWidth) return
                           event.preventDefault()
-                          movePinnedRail(220)
-                        } else if (event.key === 'ArrowLeft') {
-                          event.preventDefault()
-                          movePinnedRail(-220)
-                        } else if (event.key === 'Home') {
-                          event.preventDefault()
-                          pinnedRailRef.current?.scrollTo({ left: 0, behavior: 'smooth' })
-                        } else if (event.key === 'End') {
-                          event.preventDefault()
-                          const rail = pinnedRailRef.current
-                          rail?.scrollTo({ left: rail.scrollWidth, behavior: 'smooth' })
-                        }
-                      }}
-                    >
-                      {pinnedGames.map((game, i) => (
-                        <GameCard
-                          key={game.id}
-                          game={game}
-                          size="lg"
-                          selected={selectedId === game.id}
-                          disabled={actionLocked && lockedGameId !== game.id}
-                          onSelect={() => {
-                            selectCard(game.id)
-                            setFocusIndex(i)
-                            setActionStatus(null, null)
-                          }}
-                          onToggleFavorite={() => void onToggleFavorite(game.id)}
-                        />
-                      ))}
+                          movePinnedRail(event.deltaY)
+                        }}
+                        onKeyDown={(event) => {
+                          if (event.key === 'ArrowRight') {
+                            event.preventDefault()
+                            movePinnedRail(220)
+                          } else if (event.key === 'ArrowLeft') {
+                            event.preventDefault()
+                            movePinnedRail(-220)
+                          } else if (event.key === 'Home') {
+                            event.preventDefault()
+                            pinnedRailRef.current?.scrollTo({ left: 0, behavior: 'smooth' })
+                          } else if (event.key === 'End') {
+                            event.preventDefault()
+                            const rail = pinnedRailRef.current
+                            rail?.scrollTo({ left: rail.scrollWidth, behavior: 'smooth' })
+                          }
+                        }}
+                      >
+                        {pinnedGames.map((game, i) => (
+                          <GameCard
+                            key={game.id}
+                            game={game}
+                            size="lg"
+                            selected={selectedId === game.id}
+                            disabled={actionLocked && lockedGameId !== game.id}
+                            onSelect={() => {
+                              selectCard(game.id)
+                              setFocusIndex(i)
+                              setActionStatus(null, null)
+                            }}
+                            onToggleFavorite={() => void onToggleFavorite(game.id)}
+                          />
+                        ))}
+                      </div>
+                      {pinnedNav.back && <span className="exo-pinned-edge is-left" aria-hidden="true" />}
+                      {pinnedNav.forward && <span className="exo-pinned-edge is-right" aria-hidden="true" />}
                     </div>
                   </section>
                 )}

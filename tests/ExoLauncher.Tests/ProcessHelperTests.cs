@@ -16,6 +16,19 @@ public sealed class ProcessHelperTests
             @"C:\Games\Beast"));
     }
 
+    [Theory]
+    [InlineData("EasyAntiCheat_EOS")]
+    [InlineData("BEService")]
+    [InlineData("GameOverlayUI64")]
+    [InlineData("EpicWebHelper")]
+    [InlineData("GalaxyClient")]
+    public void GenericHandoffDetectionNeverCreditsHelpersOrOverlays(string processName) =>
+        Assert.True(ProcessHelper.IsNonGameProcessName(processName));
+
+    [Fact]
+    public void GenericHandoffDetectionStillPermitsOrdinaryGameProcesses() =>
+        Assert.False(ProcessHelper.IsNonGameProcessName("Game-Win64-Shipping"));
+
     [Fact]
     public void UnobservedGameTimeout_UsesShortGraceAfterKnownSeedDies()
     {

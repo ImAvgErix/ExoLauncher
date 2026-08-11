@@ -79,6 +79,30 @@ public sealed class UxRegressionContractTests
     }
 
     [Fact]
+    public void SearchCoverWarmKeysReleaseOnlyAfterTheWholeWarmTaskSettles()
+    {
+        var bridge = ReadRepoFile("ExoLauncher", "Services", "WebHostBridge.cs");
+
+        Assert.Contains("ReleaseSearchCoverWarmKeysAsync(warm, warmKeys)", bridge, StringComparison.Ordinal);
+        Assert.Contains("await warm.ConfigureAwait(false)", bridge, StringComparison.Ordinal);
+        Assert.Contains("finally", bridge, StringComparison.Ordinal);
+        Assert.DoesNotContain("onBatchDone: () =>\n        {\n            lock (_searchCoverWarmGate)", bridge, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void OwnedTitles_NeverRenderAPurchaseAction()
+    {
+        var detail = ReadRepoFile("ui", "src", "components", "DetailPanel.tsx");
+        var launcher = ReadRepoFile("ui", "src", "components", "LauncherApp.tsx");
+        var bridge = ReadRepoFile("ExoLauncher", "Services", "WebHostBridge.cs");
+
+        Assert.Contains("game.installed || game.canInstall || game.owned", detail, StringComparison.Ordinal);
+        Assert.Contains("score: smartSearchScore(game.title, q)", launcher, StringComparison.Ordinal);
+        Assert.DoesNotContain("smartSearchScore(game.store, q)", launcher, StringComparison.Ordinal);
+        Assert.Contains("if (!proven.Owned) return null", bridge, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void GameplayUsesNotificationArea_NotTaskbarMinimize()
     {
         var bridge = ReadRepoFile("ExoLauncher", "Services", "WebHostBridge.cs");
@@ -142,12 +166,18 @@ public sealed class UxRegressionContractTests
         Assert.Contains("ImageFailed", presenter, StringComparison.Ordinal);
         Assert.Contains("Uri.UriSchemeHttps", presenter, StringComparison.Ordinal);
         Assert.Contains("Text = \"EXO // UNLOCKED\"", presenter, StringComparison.Ordinal);
-        Assert.Contains("TrophyMotion.For(options)", presenter, StringComparison.Ordinal);
-        Assert.Contains("\"TranslateY\", motion.Y, 0, 240", presenter, StringComparison.Ordinal);
-        Assert.Contains("\"ScaleX\", 0.985, 1, 260", presenter, StringComparison.Ordinal);
+        Assert.Contains("AnimateIn(card)", presenter, StringComparison.Ordinal);
+        Assert.DoesNotContain("TrophyMotion", presenter, StringComparison.Ordinal);
+        Assert.Contains("window.Content = card", presenter, StringComparison.Ordinal);
+        Assert.DoesNotContain("window.Content = new Border", presenter, StringComparison.Ordinal);
+        Assert.Contains("\"ScaleX\", 0.97, 1, 260", presenter, StringComparison.Ordinal);
+        Assert.DoesNotContain("\"TranslateX\", motion.X", presenter, StringComparison.Ordinal);
+        Assert.DoesNotContain("\"TranslateY\", motion.Y", presenter, StringComparison.Ordinal);
         Assert.Contains("BeginCloseCurrent", presenter, StringComparison.Ordinal);
         Assert.Contains("OnExitAnimationCompleted", presenter, StringComparison.Ordinal);
         Assert.Contains("CompleteCloseCurrent", presenter, StringComparison.Ordinal);
+        Assert.Contains("Window? pendingWindow = null", presenter, StringComparison.Ordinal);
+        Assert.Contains("pendingWindow?.Close()", presenter, StringComparison.Ordinal);
         Assert.DoesNotContain("BuildCollectibleBadge", presenter, StringComparison.Ordinal);
         Assert.DoesNotContain("Gradient(", presenter, StringComparison.Ordinal);
         Assert.DoesNotContain("EXO  /", presenter, StringComparison.Ordinal);
@@ -165,7 +195,7 @@ public sealed class UxRegressionContractTests
         Assert.Contains(".exo-trophy-preview-stage", styles, StringComparison.Ordinal);
         Assert.Contains(".exo-trophy-preview-card.is-top-left", styles, StringComparison.Ordinal);
         Assert.Contains(".exo-trophy-preview-card.is-bottom-right", styles, StringComparison.Ordinal);
-        Assert.Contains("min-height: 158px", styles, StringComparison.Ordinal);
+        Assert.Contains("min-height: 415px", styles, StringComparison.Ordinal);
         Assert.Contains("exo-trophy-preview-arrive", styles, StringComparison.Ordinal);
         Assert.Contains("TrophyRarityResolver.Label", presenter, StringComparison.Ordinal);
         Assert.Contains("DwmSetWindowAttribute", presenter, StringComparison.Ordinal);
@@ -173,7 +203,16 @@ public sealed class UxRegressionContractTests
         Assert.Contains("NotificationHeight = 122", presenter, StringComparison.Ordinal);
         Assert.Contains("NotificationDuration = TimeSpan.FromMilliseconds(3500)", presenter, StringComparison.Ordinal);
         Assert.Contains("width: min(432px", styles, StringComparison.Ordinal);
-        Assert.Contains("min-height: 122px", styles, StringComparison.Ordinal);
+        Assert.Contains("position: absolute", styles, StringComparison.Ordinal);
+        Assert.Contains("height: 122px", styles, StringComparison.Ordinal);
+        Assert.DoesNotContain("grid-area:", styles, StringComparison.Ordinal);
+        Assert.Contains("top: 8px; left: 8px", styles, StringComparison.Ordinal);
+        Assert.Contains("right: 8px; bottom: 8px", styles, StringComparison.Ordinal);
+        Assert.Contains("padding: 14px", styles, StringComparison.Ordinal);
+        Assert.Contains("border-radius: 2px", styles, StringComparison.Ordinal);
+        Assert.Contains("transform: scale(.97)", styles, StringComparison.Ordinal);
+        Assert.DoesNotContain("--trophy-enter-x", styles, StringComparison.Ordinal);
+        Assert.DoesNotContain("--trophy-enter-y", styles, StringComparison.Ordinal);
         Assert.Contains("grid-template-columns: 4px 64px minmax(0, 1fr) auto", styles, StringComparison.Ordinal);
         Assert.Contains("TrophySurface", presenter, StringComparison.Ordinal);
         Assert.Contains("DecodePixelWidth = 128", presenter, StringComparison.Ordinal);
@@ -251,8 +290,9 @@ public sealed class UxRegressionContractTests
     {
         var settings = ReadRepoFile("ui", "src", "components", "SettingsPanel.tsx");
 
-        Assert.Contains("max-w-[1340px]", settings, StringComparison.Ordinal);
-        Assert.Contains("xl:grid-cols-[0.86fr_1.02fr_1.2fr]", settings, StringComparison.Ordinal);
+        Assert.Contains("max-w-[1360px]", settings, StringComparison.Ordinal);
+        Assert.Contains("xl:grid-cols-[1.18fr_0.82fr]", settings, StringComparison.Ordinal);
+        Assert.Contains("md:grid-cols-[0.82fr_1.18fr]", settings, StringComparison.Ordinal);
         Assert.Contains("divide-y divide-line-soft", settings, StringComparison.Ordinal);
         Assert.Contains("<h2", settings, StringComparison.Ordinal);
         Assert.Contains("Launcher settings", settings, StringComparison.Ordinal);
@@ -395,6 +435,7 @@ public sealed class UxRegressionContractTests
         var host = ReadRepoFile("ui", "src", "lib", "host.ts");
         var detail = ReadRepoFile("ui", "src", "components", "DetailPanel.tsx");
         var launcher = ReadRepoFile("ui", "src", "components", "LauncherApp.tsx");
+        var bridge = ReadRepoFile("ExoLauncher", "Services", "WebHostBridge.cs");
 
         Assert.Contains("export interface GameVariant", host, StringComparison.Ordinal);
         Assert.Contains("variants?: GameVariant[]", host, StringComparison.Ordinal);
@@ -409,6 +450,7 @@ public sealed class UxRegressionContractTests
         Assert.Contains("setExactRunState(items, d.gameId!, false, false)", launcher, StringComparison.Ordinal);
         Assert.Contains("const card = cardForExactId(games, selectedId)", launcher, StringComparison.Ordinal);
         Assert.Contains("setSelectedVariantId(retainedVariant)", launcher, StringComparison.Ordinal);
+        Assert.Contains("variant.ToGameEntry(g), discoverExternalRunningGame", bridge, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -421,15 +463,26 @@ public sealed class UxRegressionContractTests
         Assert.Contains("aria-label=\"Pinned games\"", launcher, StringComparison.Ordinal);
         Assert.Contains("onWheel={(event)", launcher, StringComparison.Ordinal);
         Assert.Contains("event.deltaY", launcher, StringComparison.Ordinal);
+        Assert.Contains("event.currentTarget.scrollWidth <= event.currentTarget.clientWidth", launcher, StringComparison.Ordinal);
         Assert.Contains("event.key === 'ArrowRight'", launcher, StringComparison.Ordinal);
         Assert.Contains("event.key === 'ArrowLeft'", launcher, StringComparison.Ordinal);
         Assert.Contains("event.key === 'Home'", launcher, StringComparison.Ordinal);
         Assert.Contains("event.key === 'End'", launcher, StringComparison.Ordinal);
+        Assert.Contains("aria-label=\"Previous pinned games\"", launcher, StringComparison.Ordinal);
+        Assert.Contains("aria-label=\"Next pinned games\"", launcher, StringComparison.Ordinal);
+        Assert.Contains("new ResizeObserver(syncPinnedNav)", launcher, StringComparison.Ordinal);
         Assert.Contains("max-width: 100%;", tokens, StringComparison.Ordinal);
+        Assert.Contains(".exo-pinned-section", tokens, StringComparison.Ordinal);
+        Assert.Contains("width: 100%;", tokens, StringComparison.Ordinal);
         Assert.Contains("overflow-x: auto;", tokens, StringComparison.Ordinal);
         Assert.Contains("overflow-y: hidden;", tokens, StringComparison.Ordinal);
-        Assert.Contains("contain: paint;", tokens, StringComparison.Ordinal);
-        Assert.Contains(".exo-pinned-row::after", tokens, StringComparison.Ordinal);
+        Assert.Contains("contain: layout style;", tokens, StringComparison.Ordinal);
+        Assert.Contains(".exo-pinned-edge.is-right", tokens, StringComparison.Ordinal);
+        Assert.Contains("--pinned-left-edge-width", launcher, StringComparison.Ordinal);
+        Assert.Contains("--pinned-right-edge-width", launcher, StringComparison.Ordinal);
+        Assert.Contains("width: var(--pinned-left-edge-width, 0px)", tokens, StringComparison.Ordinal);
+        Assert.Contains("width: var(--pinned-right-edge-width, 0px)", tokens, StringComparison.Ordinal);
+        Assert.Contains(".exo-pinned-nav-button", tokens, StringComparison.Ordinal);
         Assert.Contains("scroll-snap-type: x proximity;", tokens, StringComparison.Ordinal);
     }
 

@@ -965,6 +965,8 @@ public sealed class SteamAdapter : IStoreAdapter, IInstalledSteamManifestSource,
     /// <summary>Public for Settings → Open Steam.</summary>
     public static string? TryResolveSteamExePublic() => ResolveSteamExe();
 
+    public static string? TryResolveSteamRootPublic() => ResolveSteamRoot();
+
     private static string? ResolveSteamExe()
     {
         var root = ResolveSteamRoot();

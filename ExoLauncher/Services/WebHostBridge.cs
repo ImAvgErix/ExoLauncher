@@ -20,6 +20,8 @@ public sealed class WebHostBridge
     private readonly DispatcherQueue _queue;
     private CoreWebView2? _web;
     private CancellationTokenSource? _searchCts;
+    private readonly object _searchCoverWarmGate = new();
+    private readonly HashSet<string> _searchCoverWarmKeys = new(StringComparer.OrdinalIgnoreCase);
     private bool _detached;
 
     private static readonly JsonSerializerOptions JsonOpts = new()
@@ -346,16 +348,21 @@ public sealed class WebHostBridge
         {
             var appId = gameId["steam:".Length..];
             if (!appId.All(char.IsDigit)) return null;
+            // This path handles a search result that is not yet materialized in
+            // LibraryService. Re-check active-account ticket evidence here;
+            // never let a crafted bridge request turn an unknown catalog app
+            // into an install handoff merely because Steam is installed.
+            var proven = StoreSearchService.BuildSteamCatalogHit(
+                appId, title, Array.Empty<GameEntry>());
+            if (!proven.Owned) return null;
             return new GameEntry
             {
                 Id = gameId,
                 Title = title,
                 Store = StoreKind.Steam,
                 Installed = false,
-                // Search results are not proof of ownership; never present Install
-                // for a Steam title just because an app id was supplied.
-                Owned = false,
-                CanInstall = false,
+                Owned = true,
+                CanInstall = true,
                 LaunchTarget = appId,
                 CoverUrl = null,
                 Status = "Not installed",
@@ -372,8 +379,8 @@ public sealed class WebHostBridge
                 Title = title,
                 Store = StoreKind.Epic,
                 Installed = false,
-                Owned = true,
-                CanInstall = true,
+                Owned = false,
+                CanInstall = false,
                 LaunchTarget = app,
                 Status = "Not installed",
                 Deps = Array.Empty<string>(),
@@ -389,8 +396,8 @@ public sealed class WebHostBridge
                 Title = title,
                 Store = StoreKind.Gog,
                 Installed = false,
-                Owned = true,
-                CanInstall = true,
+                Owned = false,
+                CanInstall = false,
                 LaunchTarget = app,
                 Status = "Not installed",
                 Deps = Array.Empty<string>(),
@@ -462,14 +469,26 @@ public sealed class WebHostBridge
 
     private void WarmSearchCovers(string query, IReadOnlyList<StoreSearchHit> hits, CancellationToken ct)
     {
-        var needsArt = hits
+        var candidates = hits
             .Where(h => !CoverArtService.IsUiLoadableCoverUrl(h.CoverUrl))
             .Select(SearchHitEntry)
             .Where(g => CoverArtService.ResolvePreferredUrl(g) is null)
             .ToList();
+        var needsArt = new List<GameEntry>(candidates.Count);
+        var warmKeys = new List<string>(candidates.Count);
+        lock (_searchCoverWarmGate)
+        {
+            foreach (var candidate in candidates)
+            {
+                var key = SearchCoverWarmKey(candidate);
+                if (!_searchCoverWarmKeys.Add(key)) continue;
+                warmKeys.Add(key);
+                needsArt.Add(candidate);
+            }
+        }
         if (needsArt.Count == 0) return;
 
-        _ = CoverArtService.WarmCacheAsync(needsArt, requested: true, onBatchDone: () =>
+        var warm = CoverArtService.WarmCacheAsync(needsArt, requested: true, onBatchDone: () =>
         {
             if (ct.IsCancellationRequested) return;
             try
@@ -485,7 +504,24 @@ public sealed class WebHostBridge
                 AppLog.Debug("search cover push failed: " + ex.Message);
             }
         });
+        _ = ReleaseSearchCoverWarmKeysAsync(warm, warmKeys);
     }
+
+    private async Task ReleaseSearchCoverWarmKeysAsync(Task warm, IReadOnlyList<string> keys)
+    {
+        try { await warm.ConfigureAwait(false); }
+        catch (Exception ex) { AppLog.Debug("search cover warm failed: " + ex.Message); }
+        finally
+        {
+            lock (_searchCoverWarmGate)
+            {
+                foreach (var key in keys) _searchCoverWarmKeys.Remove(key);
+            }
+        }
+    }
+
+    private static string SearchCoverWarmKey(GameEntry game) =>
+        game.Store + ":" + (game.LaunchTarget ?? game.Id) + ":" + game.Title.Trim();
 
     /// <summary>Search hits carry no art of their own; resolve through the same
     /// official-cover cache the library uses so results are not bare monograms.</summary>
@@ -495,6 +531,8 @@ public sealed class WebHostBridge
         Title = h.Title,
         Store = h.Store,
         LaunchTarget = h.LaunchTarget,
+        CoverUrl = h.CoverUrl,
+        CoverSource = h.CoverSource,
         Installed = h.Installed,
         Owned = h.Owned,
         CanInstall = h.CanInstall,
@@ -1225,7 +1263,13 @@ public sealed class WebHostBridge
         selectedVariantId = g.SelectedVariantId ?? g.Id,
         variants = g.Variants.Select(variant =>
         {
-            var variantRunState = _services.Launcher.GetGameRunState(variant.ToGameEntry(g));
+            // game.get is the deliberate, selected-card reconciliation point.
+            // Scan every exact source on that card there, otherwise a running
+            // alternate-store copy stays invisible until the user happens to
+            // switch sources and triggers another round trip. library.get keeps
+            // this false so the grid never enumerates every installed process.
+            var variantRunState = _services.Launcher.GetGameRunState(
+                variant.ToGameEntry(g), discoverExternalRunningGame);
             return new
             {
                 id = variant.Id,

@@ -18,12 +18,36 @@ internal static class ProcessHelper
     // ReSharper disable once NotAccessedField.Local
     private static readonly GCHandle EnumClosePin = GCHandle.Alloc(EnumCloseProc);
 
+    // Every generic install-root scan (Epic, GOG and direct handoffs) shares
+    // this hard deny-list. A process being located inside a game folder is not
+    // proof that it is the playable game: overlays, anti-cheat services,
+    // launchers and crash helpers can all live there too. Keep this separate
+    // from store-specific executable allow-lists; it is the common floor that
+    // prevents one adapter from crediting a process that Stop will later refuse
+    // to touch.
+    private static readonly HashSet<string> NonGameProcessNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "steam", "steamwebhelper", "steamservice", "gameoverlayui", "gameoverlayui64", "steamerrorreporter",
+        "epicgameslauncher", "epicwebhelper", "epiconlineservices", "eosoverlayrenderer-win64-shipping",
+        "galaxyclient", "galaxyclientservice", "goggalaxynotifications", "gogdl",
+        "riotclientservices", "riotclientux", "riotclientuxrender", "riotclientcrashhandler", "riot client",
+        "leagueclient", "leagueclientux", "leagueclientuxrender",
+        "vgc", "vgk", "easyanticheat", "easyanticheat_eos", "easyanticheat_eos_setup",
+        "beservice", "beservice_x64", "battleye", "battleye_launcher", "eac_launcher",
+        "start_protected_game", "start_protected_game64", "eossdk-win64-shipping",
+        "crashreportclient", "crashhandler", "crashpad_handler", "unitycrashhandler32",
+        "unitycrashhandler64", "unins000", "setup", "updater", "patcher", "launcher",
+    };
+
     [ThreadStatic]
     private static int t_targetPid;
     [ThreadStatic]
     private static int t_showCmd;
     [ThreadStatic]
     private static HashSet<int>? t_closePids;
+
+    internal static bool IsNonGameProcessName(string? processName) =>
+        string.IsNullOrWhiteSpace(processName) || NonGameProcessNames.Contains(processName);
 
     private delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
 
@@ -312,7 +336,8 @@ internal static class ProcessHelper
             {
                 try
                 {
-                    if (process.HasExited || ignored.Contains(process.ProcessName)) continue;
+                    if (process.HasExited || ignored.Contains(process.ProcessName) ||
+                        IsNonGameProcessName(process.ProcessName)) continue;
                     string? module = null;
                     try { module = process.MainModule?.FileName; }
                     catch { /* access denied is not a verified path match */ }
@@ -617,11 +642,10 @@ internal static class ProcessHelper
 
     private static bool IsIgnoredPid(int pid, HashSet<string> ignored)
     {
-        if (ignored.Count == 0) return false;
         try
         {
             using var proc = Process.GetProcessById(pid);
-            return ignored.Contains(proc.ProcessName);
+            return IsNonGameProcessName(proc.ProcessName) || ignored.Contains(proc.ProcessName);
         }
         catch { return false; }
     }
@@ -638,7 +662,8 @@ internal static class ProcessHelper
                                      Directory.Exists(installRoot);
             foreach (var name in processNames)
             {
-                if (string.IsNullOrWhiteSpace(name) || ignored.Contains(name)) continue;
+                if (string.IsNullOrWhiteSpace(name) || ignored.Contains(name) ||
+                    IsNonGameProcessName(name)) continue;
                 try
                 {
                     foreach (var proc in Process.GetProcessesByName(name))
@@ -679,6 +704,7 @@ internal static class ProcessHelper
                 try
                 {
                     if (ignored.Contains(process.ProcessName) ||
+                        IsNonGameProcessName(process.ProcessName) ||
                         (excludedProcessIds?.Contains(process.Id) ?? false)) continue;
                     string? module = null;
                     try { module = process.MainModule?.FileName; }

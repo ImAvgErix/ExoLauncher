@@ -85,7 +85,7 @@ export function SettingsPanel({
   }
 
   return (
-    <div className="mx-auto flex h-full w-full max-w-[1340px] min-h-[720px] flex-col px-7 py-5">
+    <div className="mx-auto flex h-full w-full max-w-[1360px] min-h-[720px] flex-col px-6 py-4">
       <div className="mb-4 flex shrink-0 items-end justify-between gap-5">
         <div>
           <p className="text-[10px] font-medium uppercase tracking-[0.14em] text-faint">Preferences</p>
@@ -100,83 +100,76 @@ export function SettingsPanel({
         </div>
       )}
 
-      <div className="grid min-h-0 flex-1 items-start gap-x-7 gap-y-5 xl:grid-cols-[0.86fr_1.02fr_1.2fr]">
-        <div className="divide-y divide-line-soft">
-          <section className="pb-4" aria-labelledby="updates-heading">
-            <div className="flex items-center justify-between gap-3">
-              <div>
+      <div className="grid min-h-0 flex-1 items-start gap-7 xl:grid-cols-[1.18fr_0.82fr]">
+        <div className="grid min-w-0 items-start gap-7 md:grid-cols-[0.82fr_1.18fr]">
+          <div className="divide-y divide-line-soft">
+            <section className="pb-4" aria-labelledby="updates-heading">
+              <div className="flex items-center justify-between gap-3">
                 <h3 id="updates-heading" className="text-[14px] font-medium text-fg">App updates</h3>
-                <p className="mt-0.5 text-[11px] text-faint">Check and install in Exo.</p>
+                <div className="flex shrink-0 gap-2">
+                  <button type="button" className="exo-ghost-btn min-h-9" disabled={updateBusy} onClick={onCheckUpdate}>Check</button>
+                  {(updateAvailable || updateBusy) && (
+                    <button type="button" className={`exo-cta exo-update-action h-9 px-3.5 text-[12px]${updateBusy ? ' is-active' : ''}`} disabled={updateBusy} onClick={onInstallUpdate}>
+                      {updateBusy && <span className="exo-action-progress" style={{ '--progress': Math.max(0, Math.min(100, updatePercent)) / 100 } as CSSProperties} aria-hidden="true" />}
+                      <span className="exo-action-state">
+                        <span className="exo-action-content exo-action-idle" aria-hidden={updateBusy}><strong>Update</strong></span>
+                        <span className="exo-action-content exo-action-active" aria-hidden={!updateBusy}><Loader2 className="h-3.5 w-3.5 animate-spin" /><strong>{`${Math.round(updatePercent)}%`}</strong></span>
+                      </span>
+                      {updateBusy && <span className="sr-only" role="progressbar" aria-label="App update progress" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(Math.max(0, Math.min(100, updatePercent)))} />}
+                    </button>
+                  )}
+                </div>
               </div>
-              <div className="flex shrink-0 gap-2">
-                <button type="button" className="exo-ghost-btn min-h-9" disabled={updateBusy} onClick={onCheckUpdate}>Check</button>
-                {(updateAvailable || updateBusy) && (
-                  <button type="button" className={`exo-cta exo-update-action h-9 px-3.5 text-[12px]${updateBusy ? ' is-active' : ''}`} disabled={updateBusy} onClick={onInstallUpdate}>
-                    {updateBusy && <span className="exo-action-progress" style={{ '--progress': Math.max(0, Math.min(100, updatePercent)) / 100 } as CSSProperties} aria-hidden="true" />}
-                    <span className="exo-action-state">
-                      <span className="exo-action-content exo-action-idle" aria-hidden={updateBusy}><strong>Update</strong></span>
-                      <span className="exo-action-content exo-action-active" aria-hidden={!updateBusy}><Loader2 className="h-3.5 w-3.5 animate-spin" /><strong>{`${Math.round(updatePercent)}%`}</strong></span>
-                    </span>
-                    {updateBusy && <span className="sr-only" role="progressbar" aria-label="App update progress" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(Math.max(0, Math.min(100, updatePercent)))} />}
-                  </button>
-                )}
-              </div>
-            </div>
-          </section>
+            </section>
 
-          <section className="py-4" aria-labelledby="portable-heading">
-            <div className="flex items-center justify-between gap-3">
-              <div>
+            <section className="py-4" aria-labelledby="portable-heading">
+              <div className="flex items-center justify-between gap-3">
                 <h3 id="portable-heading" className="text-[14px] font-medium text-fg">Portable game</h3>
-                <p className="mt-0.5 text-[11px] text-faint">Add a local game folder.</p>
+                <button type="button" className="exo-ghost-btn min-h-9 shrink-0" onClick={() => void (async () => {
+                  const pick = await host.pickFolder('Choose game folder')
+                  if (!pick.ok || !pick.path) return
+                  const result = await host.install('local:add', pick.path, undefined)
+                  setLocalMsg(result.message ?? (result.ok ? 'Portable game added.' : 'Could not add portable game'))
+                })()}>
+                  Add folder…
+                </button>
               </div>
-              <button type="button" className="exo-ghost-btn min-h-9 shrink-0" onClick={() => void (async () => {
-                const pick = await host.pickFolder('Choose game folder')
-                if (!pick.ok || !pick.path) return
-                const result = await host.install('local:add', pick.path, undefined)
-                setLocalMsg(result.message ?? (result.ok ? 'Portable game added.' : 'Could not add portable game'))
-              })()}>
-                Add folder…
-              </button>
-            </div>
-          </section>
+            </section>
 
-          <section className="pt-4" aria-labelledby="help-heading">
-            <h3 id="help-heading" className="text-[14px] font-medium text-fg">Help &amp; support</h3>
-            <div className="mt-2 grid grid-cols-2 gap-2">
-              <button type="button" className="exo-settings-link" onClick={() => void host.openUrl(ISSUES)}><FileText size={14} />Report issue</button>
-              <button type="button" className="exo-settings-link" onClick={() => void host.openUrl(BUY_ME_A_COFFEE)}><HeartHandshake size={14} />Buy me a coffee</button>
-              <button type="button" className="exo-settings-link" onClick={() => void host.openUrl(PRIVACY)}><FileText size={14} />Privacy</button>
-              <button type="button" className="exo-settings-link" onClick={() => void host.openUrl(RELEASES)}><ExternalLink size={14} />Releases</button>
-            </div>
+            <section className="pt-4" aria-labelledby="help-heading">
+              <h3 id="help-heading" className="text-[14px] font-medium text-fg">Help &amp; support</h3>
+              <div className="mt-2 grid grid-cols-2 gap-2">
+                <button type="button" className="exo-settings-link" onClick={() => void host.openUrl(ISSUES)}><FileText size={14} />Report issue</button>
+                <button type="button" className="exo-settings-link" onClick={() => void host.openUrl(BUY_ME_A_COFFEE)}><HeartHandshake size={14} />Buy me a coffee</button>
+                <button type="button" className="exo-settings-link" onClick={() => void host.openUrl(PRIVACY)}><FileText size={14} />Privacy</button>
+                <button type="button" className="exo-settings-link" onClick={() => void host.openUrl(RELEASES)}><ExternalLink size={14} />Releases</button>
+              </div>
+            </section>
+          </div>
+
+          <section className="min-w-0" aria-labelledby="backends-heading">
+            <h3 id="backends-heading" className="text-[14px] font-medium text-fg">Store apps</h3>
+            <ul className="mt-2 grid grid-cols-1 divide-y divide-line-soft">
+              {storeRows.map((store) => {
+                const clientInstalled = store.clientPresent ?? store.agentPresent
+                // The matrix is the source of truth for which rows can surface
+                // an official client. New passive clients inherit this without
+                // another UI allowlist, while an absent backend stays inert.
+                const canOpen = clientInstalled && !!store.agentPresent
+                const isOpening = openingStore === store.store
+                return (
+                  <li key={store.store} className="flex min-w-0 items-center justify-between gap-2 py-2.5 first:border-t first:border-line-soft">
+                    <div className="min-w-0">
+                      <div className="truncate text-[13px] text-fg">{store.displayName}</div>
+                      <div className={`mt-0.5 text-[10px] ${clientInstalled ? 'text-good' : 'text-faint'}`}>{clientInstalled ? 'Installed' : 'Not installed'}</div>
+                    </div>
+                    {canOpen && <button type="button" className="exo-ghost-btn min-h-8 shrink-0 px-2.5 text-[11px]" disabled={isOpening} onClick={() => void openStore(store)}>{isOpening ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Open'}</button>}
+                  </li>
+                )
+              })}
+            </ul>
           </section>
         </div>
-
-        <section className="min-w-0" aria-labelledby="backends-heading">
-          <div className="flex items-baseline justify-between gap-3">
-            <h3 id="backends-heading" className="text-[14px] font-medium text-fg">Store apps</h3>
-            <span className="text-[10px] text-faint">Use your installed client</span>
-          </div>
-          <ul className="mt-2 grid grid-cols-2 gap-x-4 divide-y-0">
-            {storeRows.map((store) => {
-              const clientInstalled = store.clientPresent ?? store.agentPresent
-              // The matrix is the source of truth for which rows can surface
-              // an official client. New passive clients inherit this without
-              // another UI allowlist, while an absent backend stays inert.
-              const canOpen = clientInstalled && !!store.agentPresent
-              const isOpening = openingStore === store.store
-              return (
-                <li key={store.store} className="flex min-w-0 items-center justify-between gap-2 border-t border-line-soft py-2.5">
-                  <div className="min-w-0">
-                    <div className="truncate text-[13px] text-fg">{store.displayName}</div>
-                    <div className={`mt-0.5 text-[10px] ${clientInstalled ? 'text-good' : 'text-faint'}`}>{clientInstalled ? 'Installed' : 'Not installed'}</div>
-                  </div>
-                  {canOpen && <button type="button" className="exo-ghost-btn min-h-8 shrink-0 px-2.5 text-[11px]" disabled={isOpening} onClick={() => void openStore(store)}>{isOpening ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Open'}</button>}
-                </li>
-              )
-            })}
-          </ul>
-        </section>
 
         <TrophyNotificationSettings
           settings={settings}

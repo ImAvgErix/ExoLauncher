@@ -25,6 +25,49 @@ public sealed class GameProcessRegistryTests
     public void OrdinaryGameExecutableName_IsNotReserved() =>
         Assert.False(GameProcessRegistry.IsReservedProcessName("Game-Win64-Shipping"));
 
+    [Theory]
+    [InlineData(StoreKind.Steam)]
+    [InlineData(StoreKind.Epic)]
+    [InlineData(StoreKind.Gog)]
+    [InlineData(StoreKind.Riot)]
+    [InlineData(StoreKind.Local)]
+    public void GameOperationBackendsSupportExactProcessControl(StoreKind store) =>
+        Assert.True(GameProcessRegistry.SupportsGameProcessControl(store));
+
+    [Theory]
+    [InlineData(StoreKind.Xbox)]
+    [InlineData(StoreKind.Ea)]
+    [InlineData(StoreKind.Ubisoft)]
+    [InlineData(StoreKind.BattleNet)]
+    [InlineData(StoreKind.Amazon)]
+    [InlineData(StoreKind.Rockstar)]
+    public void PresenceOnlyClientsNeverGainPerGameStopFromAnInstallPath(StoreKind store)
+    {
+        var root = Path.Combine(Path.GetTempPath(), "exo-stop-presence-only", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            var game = Game(root, store, "catalog-id");
+
+            Assert.False(GameProcessRegistry.SupportsGameProcessControl(store));
+            Assert.False(GameProcessRegistry.IsEligibleExecutableForStop(
+                game, "Game-Win64-Shipping", Path.Combine(root, "bin", "Game-Win64-Shipping.exe")));
+        }
+        finally
+        {
+            try { Directory.Delete(root, recursive: true); } catch { }
+        }
+    }
+
+    [Theory]
+    [InlineData("GameOverlayUI64")]
+    [InlineData("EADesktop")]
+    [InlineData("UbisoftConnect")]
+    [InlineData("Battle.net")]
+    [InlineData("RockstarService")]
+    public void StoreClientsAndOverlaysRemainReservedEvenWhenNamedLikeGameProcesses(string processName) =>
+        Assert.True(GameProcessRegistry.IsReservedProcessName(processName));
+
     [Fact]
     public void StopEligibilityRequiresAnExecutableInsideTheExactInstallRoot()
     {

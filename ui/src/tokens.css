@@ -235,23 +235,36 @@
 }
 
 /* Pinned row — quiet horizontal strip above installed grid */
+.exo-pinned-section {
+  min-width: 0;
+  max-width: 100%;
+  /* The rail owns its x-axis clipping. Its focus ring and hover lift need
+     room outside the scrollport so a long pinned list never looks cut off. */
+  overflow: visible;
+}
+
+.exo-pinned-viewport {
+  position: relative;
+  min-width: 0;
+}
+
 .exo-pinned-row {
   position: relative;
   display: flex;
+  width: 100%;
   max-width: 100%;
   min-width: 0;
+  box-sizing: border-box;
   gap: 16px;
   overflow-x: auto;
   overflow-y: hidden;
   overscroll-behavior-x: contain;
   scroll-behavior: smooth;
   /* Room for hover lift — otherwise the top of pinned cards gets clipped. */
-  padding-top: 8px;
-  padding-inline: 2px;
-  padding-bottom: 8px;
+  padding: 8px 10px 12px 2px;
   scroll-snap-type: x proximity;
   -webkit-overflow-scrolling: touch;
-  contain: paint;
+  contain: layout style;
 }
 
 .exo-pinned-row > * {
@@ -259,17 +272,44 @@
   scroll-snap-align: start;
 }
 
-.exo-pinned-row::after {
-  position: sticky;
-  right: 0;
+.exo-pinned-edge {
+  position: absolute;
+  top: 8px;
+  bottom: 12px;
   z-index: 3;
-  width: 32px;
-  margin-left: -32px;
-  flex: 0 0 32px;
-  align-self: stretch;
-  content: "";
   pointer-events: none;
-  background: linear-gradient(90deg, transparent, #000 84%);
+  background: #000;
+}
+
+.exo-pinned-edge.is-left {
+  left: 0;
+  width: var(--pinned-left-edge-width, 0px);
+}
+
+.exo-pinned-edge.is-right {
+  right: 0;
+  width: var(--pinned-right-edge-width, 0px);
+}
+
+.exo-pinned-nav-button {
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--color-line-soft);
+  border-radius: 999px;
+  color: var(--color-fg);
+  background: #000;
+  transition: border-color 140ms var(--ease-out), opacity 140ms var(--ease-out);
+}
+
+.exo-pinned-nav-button:hover:not(:disabled) {
+  border-color: var(--color-muted);
+}
+
+.exo-pinned-nav-button:disabled {
+  opacity: .28;
 }
 
 .exo-pinned-row:focus-visible {

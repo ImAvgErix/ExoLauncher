@@ -48,7 +48,7 @@ Version 1.0.24 turns the last large feature pass into a safer everyday launcher:
 - **Multi-store games without double cards** — exact same-title Steam/Epic entries share one card while every source keeps its own install, update, playtime, account scope, and action target.
 - **Account-safe discovery** — active Steam/Epic account caches are isolated; a machine-wide install can remain visible when account identity is unknown without being presented as owned.
 - **Session-true achievement moments** — Exo snapshots progress before handoff and only attributes a new unlock after a successful Exo-driven game session. Manual refreshes reconcile silently.
-- **A new Exo reward cue** — an original 1.18-second futuristic stereo sound replaces the generic sample, paired with a unified AMOLED trophy plate, real provider artwork, rarity color, directional motion, and exact nine-point placement.
+- **A new Exo reward cue** — an original 1.18-second futuristic stereo sound replaces the generic sample, paired with a unified AMOLED trophy plate, real provider artwork, rarity color, a brief scale-and-fade entrance, and exact nine-point placement.
 - **Broader official-client awareness** — Settings honestly detects and opens Xbox, EA app, Ubisoft Connect, Battle.net, Amazon Games, and Rockstar Games Launcher without inventing libraries, accounts, or unsupported game actions.
 - **Cleaner, faster surfaces** — compact no-waste Settings, high-resolution cover upgrades, restored card lift, constrained pinned-game overflow, pure-black surfaces, and zero idle Core Audio enumeration when Exo is not driving a store.
 

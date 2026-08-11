@@ -79,6 +79,12 @@ public class SteamStateFlagsTests
             installPath: root,
             seenBeforeLaunch));
         Assert.False(SteamProcessPath.IsEligibleNewGameProcess(
+            processId: 102,
+            processName: "BEService",
+            executablePath: Path.Combine(root, "BattlEye", "BEService.exe"),
+            installPath: root,
+            seenBeforeLaunch));
+        Assert.False(SteamProcessPath.IsEligibleNewGameProcess(
             processId: 103,
             processName: "Game",
             executablePath: root + "-other" + Path.DirectorySeparatorChar + "Game.exe",

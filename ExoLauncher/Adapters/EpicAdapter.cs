@@ -329,6 +329,8 @@ public sealed class EpicAdapter : IStoreAdapter, IStoreClientPresence, IStoreAcc
             Owned = false,
             CanInstall = !row.Installed && hasLegendary,
             Path = row.InstallPath,
+            CoverUrl = row.CoverUrl,
+            CoverSource = row.CoverUrl is null ? null : "epic-catalog",
             LaunchTarget = row.AppName,
             SizeBytes = row.SizeBytes,
             Status = row.Installed ? "Ready" : "Not installed",

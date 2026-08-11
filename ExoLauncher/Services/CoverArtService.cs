@@ -227,7 +227,7 @@ public static class CoverArtService
     {
         if (string.IsNullOrWhiteSpace(url)) return false;
         if (!url.StartsWith("https://", StringComparison.OrdinalIgnoreCase)) return false;
-        if (IsOfficialSteamPortraitCdn(url)) return true;
+        if (IsOfficialSteamPortraitCdn(url) || IsOfficialEpicPortraitCdn(url)) return true;
         return url.Contains("ddragon.leagueoflegends.com", StringComparison.OrdinalIgnoreCase)
                || url.Contains("images.gog-statics.com", StringComparison.OrdinalIgnoreCase)
                || url.Contains("gog-statics.com", StringComparison.OrdinalIgnoreCase);
@@ -459,6 +459,16 @@ public static class CoverArtService
                    && !rest.Contains('\\');
         }
         return false;
+    }
+
+    /// <summary>Official Epic portrait CDN hosts used by catalog keyImages.</summary>
+    public static bool IsOfficialEpicPortraitCdn(string? url)
+    {
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) ||
+            !uri.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
+            return false;
+        return uri.Host.Equals("cdn1.epicgames.com", StringComparison.OrdinalIgnoreCase) ||
+               uri.Host.Equals("cdn2.unrealengine.com", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
@@ -987,7 +997,9 @@ public static class CoverArtService
             if (IsValidImageFile(dest) && IsPortraitCover(dest) && IsSharpEnough(dest))
                 return true;
 
-            var url = await EpicCatalogArt.FindPortraitUrlAsync(http, g.Title).ConfigureAwait(false);
+            var url = IsOfficialEpicPortraitCdn(g.CoverUrl)
+                ? g.CoverUrl
+                : await EpicCatalogArt.FindPortraitUrlAsync(http, g.Title).ConfigureAwait(false);
             if (url is null)
             {
                 AppLog.Debug($"No Epic portrait art for '{g.Title}'.");

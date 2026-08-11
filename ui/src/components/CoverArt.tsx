@@ -37,7 +37,18 @@ export function isSafeCoverUrl(url: string | null | undefined): url is string {
   if (url.startsWith('data:image/')) return true
   if (url.startsWith('https://covers.exo-launcher.local/')) return true
   if (isOfficialSteamPortraitCdn(url)) return true
+  if (isOfficialEpicPortraitCdn(url)) return true
   return false
+}
+
+function isOfficialEpicPortraitCdn(url: string): boolean {
+  try {
+    const parsed = new URL(url)
+    return parsed.protocol === 'https:' &&
+      (parsed.hostname === 'cdn1.epicgames.com' || parsed.hostname === 'cdn2.unrealengine.com')
+  } catch {
+    return false
+  }
 }
 
 /** Tiny store capsules / known landscape CDN names — never show on 2:3 tiles. */

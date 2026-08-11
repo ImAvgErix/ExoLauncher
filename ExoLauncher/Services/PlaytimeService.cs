@@ -7,17 +7,6 @@ using ExoLauncher.Models;
 
 namespace ExoLauncher.Services;
 
-public sealed record LocalPlaytimeObservation(
-    string GameKey,
-    string Source,
-    string CoverageKey,
-    long TotalSeconds,
-    DateTimeOffset ObservedAt,
-    string? CatalogProvider = null,
-    string? SourceGameId = null,
-    string? DisplayName = null,
-    string? ArtworkUrl = null);
-
 /// <summary>
 /// Playtime for every library title: native lifetime readings (Steam, Epic,
 /// and GOG) plus Exo sessions as an offline fallback. A frozen imported lifetime
@@ -28,7 +17,6 @@ public static class PlaytimeService
 {
     private sealed record LocalPlaytimeRow(
         GameEntry Game,
-        string GameKey,
         int? StoreMinutes,
         DateTimeOffset? StoreLastPlayed,
         int ExoMinutes,
@@ -52,7 +40,6 @@ public static class PlaytimeService
     private static Timer? _checkpointTimer;
     private static Dictionary<string, int>? _exoMinutes;
     private static Dictionary<string, string>? _exoLastPlayed;
-    private static IReadOnlyList<LocalPlaytimeObservation> _lastObservations = [];
     private static readonly JsonSerializerOptions ImportedLifetimeJsonOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
@@ -65,22 +52,6 @@ public static class PlaytimeService
         Path.Combine(PathHelper.AppDataDir, "exo-imported-lifetime.json");
     private static string LegacyImportedLifetimePath =>
         Path.Combine(PathHelper.AppDataDir, "tracker-gg-playtime.json");
-
-    /// <summary>Returns the raw cumulative readings most recently observed on
-    /// this PC. Exo-session coverage is scoped to the supplied stable device id
-    /// so the server can sum distinct PCs but de-duplicate repeated syncs.</summary>
-    public static IReadOnlyList<LocalPlaytimeObservation> SnapshotObservations(string deviceId)
-    {
-        var safeDevice = SlugComponent(deviceId);
-        lock (FileGate)
-        {
-            return _lastObservations
-                .Select(value => value.Source == "exo_session"
-                    ? value with { CoverageKey = $"device:{safeDevice}" }
-                    : value)
-                .ToList();
-        }
-    }
 
     public static void BeginSession(string gameId)
     {
@@ -175,7 +146,6 @@ public static class PlaytimeService
             steamSnapshot is null
                 ? new Dictionary<string, SteamPlaytime.Entry>()
                 : steamSnapshot.Entries;
-        var steamAccountKey = steamSnapshot?.AccountKey;
         var gog = GogPlaytime.LoadAll();
         var riotLast = RiotLastPlayed.LoadAll();
         var importedLifetime = LoadImportedLifetime();
@@ -188,7 +158,6 @@ public static class PlaytimeService
             exoLast = new Dictionary<string, string>(_exoLastPlayed!, StringComparer.OrdinalIgnoreCase);
         }
 
-        var now = DateTimeOffset.UtcNow;
         var rows = games.Select(g =>
         {
             int? storeMins = g.PlaytimeMinutes;
@@ -220,150 +189,15 @@ public static class PlaytimeService
                 DateTimeOffset.TryParse(raw, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var parsed))
                 exoPlayed = parsed;
 
-            return new LocalPlaytimeRow(g, GameKey(g), storeMins, storeLast, exoMins, exoPlayed);
+            return new LocalPlaytimeRow(g, storeMins, storeLast, exoMins, exoPlayed);
         }).ToList();
-
-        var native = rows
-            .Where(row => row.StoreMinutes is > 0 &&
-                          IsNativeLifetimeStore(row.Game.Store) &&
-                          (row.Game.Store != StoreKind.Steam || steamAccountKey is not null))
-            .Select(row => new LocalPlaytimeObservation(
-                row.GameKey,
-                row.Game.Store.ToString().ToLowerInvariant(),
-                NativeCoverageKey(row.Game, steamAccountKey),
-                checked((long)row.StoreMinutes!.Value * 60L),
-                row.StoreLastPlayed ?? now,
-                row.Game.Store.ToString().ToLowerInvariant(),
-                CatalogSourceGameId(row.Game),
-                row.Game.Title,
-                row.Game.CoverUrl))
-            .ToList();
-
-        // Preserve the user's last successful pre-Exo lifetime import. Riot's
-        // local client exposes timestamps but no lifetime counter, so dropping
-        // this already-observed value would make valid hours disappear. The
-        // one-way account key lets Exo deduplicate the same import across PCs
-        // without uploading the account identifier itself.
-        if (importedLifetime is not null)
-        {
-            foreach (var row in rows.Where(value => value.Game.Store == StoreKind.Riot))
-            {
-                if (!importedLifetime.MinutesByGameId.TryGetValue(row.Game.Id, out var minutes) || minutes <= 0)
-                    continue;
-                native.Add(new LocalPlaytimeObservation(
-                    row.GameKey,
-                    "imported_lifetime",
-                    $"imported:{importedLifetime.AccountKey}:{SlugComponent(row.Game.Id)}",
-                    checked((long)minutes * 60L),
-                    importedLifetime.ObservedAt,
-                    "riot",
-                    CatalogSourceGameId(row.Game),
-                    row.Game.Title,
-                    row.Game.CoverUrl));
-            }
-        }
-
-        // A repeated reading for one native account/product is overlapping,
-        // while different stores are genuinely distinct purchases/histories.
-        native = native
-            .GroupBy(value => (value.GameKey, value.CoverageKey))
-            .Select(group => group
-                .OrderByDescending(value => value.TotalSeconds)
-                .ThenByDescending(value => value.ObservedAt)
-                .First())
-            .ToList();
-        var nativeTotals = native
-            .GroupBy(value => value.GameKey, StringComparer.Ordinal)
-            .ToDictionary(
-                group => group.Key,
-                group => group.Aggregate(0L, (total, value) => total + value.TotalSeconds),
-                StringComparer.Ordinal);
-
-        var exoFallback = rows
-            .Where(row => row.ExoMinutes > 0)
-            .GroupBy(row => row.GameKey, StringComparer.Ordinal)
-            .Select(group =>
-            {
-                var representative = group
-                    .OrderBy(row => row.Game.Store == StoreKind.Local)
-                    .ThenBy(row => row.Game.Id, StringComparer.OrdinalIgnoreCase)
-                    .First();
-                return new LocalPlaytimeObservation(
-                    group.Key,
-                    "exo_session",
-                    "device",
-                    group.GroupBy(row => row.Game.Id, StringComparer.OrdinalIgnoreCase)
-                        .Sum(entries => (long)entries.Max(row => row.ExoMinutes) * 60L),
-                    group.Select(row => row.ExoLastPlayed ?? now).Max(),
-                    representative.Game.Store.ToString().ToLowerInvariant(),
-                    CatalogSourceGameId(representative.Game),
-                    representative.Game.Title,
-                    representative.Game.CoverUrl);
-            })
-            // Exo sessions are an offline fallback, not an independent store
-            // lifetime. Uploading them beside a real lifetime source gives the
-            // server two distinct coverage keys and inflates the aggregate.
-            .Where(value => !nativeTotals.ContainsKey(value.GameKey))
-            .ToList();
-
-        // A one-time import is not a live native counter. Preserve its value,
-        // but add only the cumulative Exo minutes recorded after the import's
-        // persisted baseline. Live Steam/Epic/GOG readings still use Exo solely
-        // as a fallback and therefore never enter this path.
-        var importedSessionDeltas = importedLifetime is null
-            ? []
-            : rows
-                .Where(row =>
-                    row.Game.Store == StoreKind.Riot &&
-                    row.ExoMinutes > 0 &&
-                    importedLifetime.MinutesByGameId.ContainsKey(row.Game.Id))
-                .GroupBy(row => row.GameKey, StringComparer.Ordinal)
-                .Select(group =>
-                {
-                    var representative = group
-                        .OrderBy(row => row.Game.Id, StringComparer.OrdinalIgnoreCase)
-                        .First();
-                    var deltaMinutes = group
-                        .GroupBy(row => row.Game.Id, StringComparer.OrdinalIgnoreCase)
-                        .Sum(entries =>
-                        {
-                            var current = entries.Max(row => row.ExoMinutes);
-                            var baseline = importedLifetime.ExoSessionBaselineMinutesByGameId
-                                .GetValueOrDefault(entries.Key, current);
-                            return Math.Max(0, current - baseline);
-                        });
-                    return new LocalPlaytimeObservation(
-                        group.Key,
-                        "exo_session",
-                        "device",
-                        checked((long)deltaMinutes * 60L),
-                        group.Select(row => row.ExoLastPlayed ?? now).Max(),
-                        "riot",
-                        CatalogSourceGameId(representative.Game),
-                        representative.Game.Title,
-                        representative.Game.CoverUrl);
-                })
-                .Where(value => value.TotalSeconds > 0 && nativeTotals.ContainsKey(value.GameKey))
-                .ToList();
-
-        var exoObservations = exoFallback.Concat(importedSessionDeltas).ToList();
-        var exoTotals = exoObservations.ToDictionary(
-            value => value.GameKey,
-            value => value.TotalSeconds,
-            StringComparer.Ordinal);
-
-        lock (FileGate)
-        {
-            _lastObservations = native.Concat(exoObservations).ToList();
-        }
 
         return rows.Select(row =>
         {
             // Library rows are source variants, not a cross-store identity.
             // Never show Epic hours on a Steam variant (or vice versa), even
-            // when the titles normalize to the same canonical card. A provider
-            // may define a safe within-source dedupe rule via CoverageKey; no
-            // generic cross-store/account sum is valid for the UI.
+            // when the titles normalize to the same canonical card. No generic
+            // cross-store/account sum is valid for the UI.
             var nativeMinutes = row.StoreMinutes.GetValueOrDefault();
             var importedMinutes = row.Game.Store == StoreKind.Riot && importedLifetime is not null
                 ? importedLifetime.MinutesByGameId.GetValueOrDefault(row.Game.Id)
@@ -402,15 +236,6 @@ public static class PlaytimeService
 
             return Clone(row.Game, best, effectiveLastPlayed);
         }).ToList();
-    }
-
-    internal static string GameKey(GameEntry game)
-    {
-        if (IsRocketLeague(game)) return "rocket-league";
-        var product = ExtractRiotProduct(game);
-        if (product is "valorant" or "valorant_live") return "valorant";
-        if (product is "league_of_legends" or "lion") return "league-of-legends";
-        return SlugComponent(game.Title);
     }
 
     private static ImportedLifetimeSnapshot? LoadImportedLifetime()
@@ -636,61 +461,6 @@ public static class PlaytimeService
 
     private static bool IsNativeLifetimeStore(StoreKind store) =>
         store is StoreKind.Steam or StoreKind.Epic or StoreKind.Gog;
-
-    internal static string NativeCoverageKey(GameEntry game, string? steamAccountKey = null)
-    {
-        var source = game.Store.ToString().ToLowerInvariant();
-        var identity = !string.IsNullOrWhiteSpace(game.LaunchTarget)
-            ? game.LaunchTarget!
-            : game.Id.Contains(':', StringComparison.Ordinal)
-                ? game.Id[(game.Id.IndexOf(':') + 1)..]
-                : game.Title;
-        return game.Store == StoreKind.Steam
-            ? $"steam:{SlugComponent(steamAccountKey ?? "unknown-account")}:{SlugComponent(identity)}"
-            : $"{source}:{SlugComponent(identity)}";
-    }
-
-    private static string CatalogSourceGameId(GameEntry game)
-    {
-        var value = !string.IsNullOrWhiteSpace(game.LaunchTarget)
-            ? game.LaunchTarget!.Trim()
-            : game.Id.Contains(':', StringComparison.Ordinal)
-                ? game.Id[(game.Id.IndexOf(':') + 1)..].Trim()
-                : game.Title.Trim();
-        if (value.Length is > 0 and <= 128 &&
-            char.IsAsciiLetterOrDigit(value[0]) &&
-            value.Skip(1).All(ch => char.IsAsciiLetterOrDigit(ch) || ch is '.' or '_' or ':' or '-'))
-            return value;
-        return SlugComponent(value);
-    }
-
-    private static string SlugComponent(string value)
-    {
-        var normalized = (value ?? string.Empty).Normalize(System.Text.NormalizationForm.FormD);
-        var builder = new System.Text.StringBuilder(Math.Min(normalized.Length, 96));
-        var pendingSeparator = false;
-        foreach (var ch in normalized)
-        {
-            if (System.Globalization.CharUnicodeInfo.GetUnicodeCategory(ch) ==
-                System.Globalization.UnicodeCategory.NonSpacingMark)
-                continue;
-            if (ch <= 127 && char.IsLetterOrDigit(ch))
-            {
-                if (pendingSeparator && builder.Length > 0) builder.Append('-');
-                builder.Append(char.ToLowerInvariant(ch));
-                pendingSeparator = false;
-            }
-            else if (builder.Length > 0)
-            {
-                pendingSeparator = true;
-            }
-            if (builder.Length >= 96) break;
-        }
-        if (builder.Length > 0) return builder.ToString().TrimEnd('-');
-        var hash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
-            System.Text.Encoding.UTF8.GetBytes(value ?? string.Empty))).ToLowerInvariant();
-        return "game-" + hash[..16];
-    }
 
     internal static int? CombineRocketLeagueStoreMinutes(
         IReadOnlyList<GameEntry> games,

@@ -98,6 +98,20 @@ public sealed class StoreSearchService
             AppLog.Debug("Steam search fail: " + ex.Message);
         }
 
+        // Steam catalog lookup is independent of the slower owned-library
+        // providers. Paint any useful Steam result immediately while those
+        // providers finish, so a cold Legendary/GOG check never leaves a
+        // correct game search looking empty for its whole timeout budget.
+        var beforeOwnedSettles = RankAndDedup(local.Concat(epic).Concat(gog).Concat(steam), q, 40);
+        if (beforeOwnedSettles.Count > 0)
+            onPartialResults?.Invoke(beforeOwnedSettles);
+
+        // An empty final response must mean every enabled owned provider has
+        // settled. The background partial remains useful for a fast local hit,
+        // but returning before Legendary/GOG finishes made the UI show a false
+        // "No matches" state and then replace it later.
+        await ownedWarm.WaitAsync(ct).ConfigureAwait(false);
+
         (epic, gog) = FilterOwnedCaches(q);
 
         return RankAndDedup(local.Concat(epic).Concat(gog).Concat(steam), q, 40);
@@ -132,6 +146,7 @@ public sealed class StoreSearchService
     {
         if (cache is null || cache.Count == 0) return new List<StoreSearchHit>();
         return cache
+            .Where(h => h.Store != StoreKind.Epic || IsSearchableEpicTitle(h.Title))
             .Select(h => new { Hit = h, Score = CachedMatchScore(h, q) })
             .Where(x => x.Score >= 0)
             .OrderByDescending(x => x.Score)
@@ -226,6 +241,7 @@ public sealed class StoreSearchService
     private static List<StoreSearchHit> SearchOwnedLibrary(string q, IReadOnlyList<GameEntry> ownedLibrary)
     {
         return ownedLibrary
+            .Where(IsSearchableLibraryGame)
             .Where(g => TitleMatchesQuery(g.Title, q)
                         || TitleMatchesQuery(g.LaunchTarget, q))
             .Select(g => new StoreSearchHit
@@ -243,6 +259,33 @@ public sealed class StoreSearchService
             .ToList();
     }
 
+    private static bool IsSearchableLibraryGame(GameEntry game) =>
+        !string.Equals(game.Id, LocalAdapter.AddPortableId, StringComparison.OrdinalIgnoreCase) &&
+        !string.Equals(game.Title, "Add portable game", StringComparison.OrdinalIgnoreCase);
+
+    internal static bool IsSearchableEpicTitle(string? title)
+    {
+        if (string.IsNullOrWhiteSpace(title) || CoverArtService.LooksLikeEngineAsset(title)) return false;
+        var normalized = Normalize(title);
+        return !normalized.Contains("metahuman", StringComparison.Ordinal) &&
+               !normalized.Contains("wait for players", StringComparison.Ordinal) &&
+               !normalized.Contains("ai for npc", StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Legendary categories are authoritative when present. Older responses
+    /// omit categories; those unknown rows retain the title safeguard so a
+    /// legitimate game is not hidden merely due to missing metadata.
+    /// </summary>
+    internal static bool IsSearchableEpicRow(LegendaryCli.GameRow row)
+    {
+        if (!IsSearchableEpicTitle(row.Title)) return false;
+        if (row.Categories.Count == 0) return true; // explicit unknown policy
+        return row.Categories.Any(category =>
+            string.Equals(category, "games", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(category, "game", StringComparison.OrdinalIgnoreCase));
+    }
+
     private static async Task<List<StoreSearchHit>> LoadLegendaryOwnedAsync(CancellationToken ct)
     {
         var list = new List<StoreSearchHit>();
@@ -256,13 +299,15 @@ public sealed class StoreSearchService
         var rows = LegendaryCli.ParseLibraryJson(stdout, forceInstalled: false);
         foreach (var row in rows)
         {
+            if (!IsSearchableEpicRow(row)) continue;
             list.Add(new StoreSearchHit
             {
                 Id = "epic:" + row.AppName,
                 Title = row.Title,
                 Store = StoreKind.Epic,
                 LaunchTarget = row.AppName,
-                CoverUrl = null,
+                CoverUrl = row.CoverUrl,
+                CoverSource = row.CoverUrl is null ? null : "epic-catalog",
                 Owned = true,
                 Installed = row.Installed,
                 CanInstall = !row.Installed,
@@ -275,21 +320,19 @@ public sealed class StoreSearchService
     private static async Task<IReadOnlyList<StoreSearchHit>> SearchSteamAsync(
         string q, IReadOnlyList<GameEntry> ownedLibrary, CancellationToken ct)
     {
-        // A catalog hit cannot prove an entitlement. It can, however, safely hand
-        // the exact app id to an installed Steam client, which is the authority
-        // that will accept or reject the install request for the active account.
-        var steamClientPresent = SteamAdapter.TryResolveSteamExePublic() is not null;
+        // A catalog hit cannot prove an entitlement. Only account-scoped local
+        // evidence may turn a public store result into an Install action.
         var directId = TryParseSteamAppId(q);
         if (directId is not null)
-            return new[] { BuildSteamCatalogHit(directId, "Steam app " + directId, ownedLibrary, steamClientPresent) };
+            return new[] { BuildSteamCatalogHit(directId, "Steam app " + directId, ownedLibrary) };
 
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct);
         linked.CancelAfter(TimeSpan.FromSeconds(5));
         var token = linked.Token;
 
         // Prefer SearchApps (better relevance) — run in parallel with store JSON.
-        var appsTask = SearchSteamAppsAsync(q, ownedLibrary, steamClientPresent, token);
-        var storeTask = SearchSteamStoreJsonAsync(q, ownedLibrary, steamClientPresent, token);
+        var appsTask = SearchSteamAppsAsync(q, ownedLibrary, token);
+        var storeTask = SearchSteamStoreJsonAsync(q, ownedLibrary, token);
 
         var results = new ConcurrentBag<StoreSearchHit>();
         try
@@ -316,8 +359,8 @@ public sealed class StoreSearchService
                 relaxedTimeout.CancelAfter(TimeSpan.FromSeconds(3));
                 var relaxedResults = new ConcurrentBag<StoreSearchHit>();
                 await Task.WhenAll(
-                    Absorb(SearchSteamAppsAsync(relaxed, ownedLibrary, steamClientPresent, relaxedTimeout.Token), relaxedResults),
-                    Absorb(SearchSteamStoreJsonAsync(relaxed, ownedLibrary, steamClientPresent, relaxedTimeout.Token), relaxedResults))
+                    Absorb(SearchSteamAppsAsync(relaxed, ownedLibrary, relaxedTimeout.Token), relaxedResults),
+                    Absorb(SearchSteamStoreJsonAsync(relaxed, ownedLibrary, relaxedTimeout.Token), relaxedResults))
                     .ConfigureAwait(false);
                 foreach (var h in relaxedResults) results.Add(h);
             }
@@ -342,7 +385,7 @@ public sealed class StoreSearchService
     }
 
     private static async Task<IReadOnlyList<StoreSearchHit>> SearchSteamAppsAsync(
-        string q, IReadOnlyList<GameEntry> ownedLibrary, bool steamClientPresent, CancellationToken ct)
+        string q, IReadOnlyList<GameEntry> ownedLibrary, CancellationToken ct)
     {
         var list = new List<StoreSearchHit>();
         var enc = Uri.EscapeDataString(q);
@@ -362,14 +405,14 @@ public sealed class StoreSearchService
             if (string.IsNullOrWhiteSpace(id) || string.IsNullOrWhiteSpace(name)) continue;
             if (!TitleMatchesQuery(name, q)) continue;
             if (SteamAdapter.IsNonGameSteamEntry(id, name, null)) continue;
-            list.Add(BuildSteamCatalogHit(id!, name!, ownedLibrary, steamClientPresent));
+            list.Add(BuildSteamCatalogHit(id!, name!, ownedLibrary));
             if (list.Count >= 20) break;
         }
         return list;
     }
 
     private static async Task<IReadOnlyList<StoreSearchHit>> SearchSteamStoreJsonAsync(
-        string q, IReadOnlyList<GameEntry> ownedLibrary, bool steamClientPresent, CancellationToken ct)
+        string q, IReadOnlyList<GameEntry> ownedLibrary, CancellationToken ct)
     {
         var list = new List<StoreSearchHit>();
         var enc = Uri.EscapeDataString(q);
@@ -393,27 +436,30 @@ public sealed class StoreSearchService
             // Store JSON pads with unrelated recommendations — require title match.
             if (!TitleMatchesQuery(name, q)) continue;
             if (SteamAdapter.IsNonGameSteamEntry(id, name, null)) continue;
-            list.Add(BuildSteamCatalogHit(id, name, ownedLibrary, steamClientPresent));
+            list.Add(BuildSteamCatalogHit(id, name, ownedLibrary));
             if (list.Count >= 20) break;
         }
         return list;
     }
 
     /// <summary>
-    /// Builds a Steam catalog result without treating catalog metadata as an
-    /// ownership assertion. When Steam is installed, the exact app id remains
-    /// installable so Steam can adjudicate the active account at handoff time.
+    /// Builds a Steam catalog result without treating catalog metadata or an
+    /// installed Steam client as an ownership assertion.
     /// </summary>
     internal static StoreSearchHit BuildSteamCatalogHit(
         string id,
         string name,
-        IReadOnlyList<GameEntry> ownedLibrary,
-        bool steamClientPresent)
+        IReadOnlyList<GameEntry> ownedLibrary)
     {
         var owned = ownedLibrary.Any(g =>
             g.Store == StoreKind.Steam &&
             string.Equals(g.LaunchTarget, id, StringComparison.Ordinal) &&
             (g.Owned || g.Installed));
+        // A ticket is positive evidence for the active Steam userdata account,
+        // including a newly bought title that has no appmanifest yet. Missing
+        // tickets remain unknown and never become a negative ownership claim.
+        var root = TryResolveSteamRootForTicketEvidence();
+        owned |= root is not null && SteamPlaytime.HasActiveAppTicket(root, id);
         var installed = ownedLibrary.Any(g =>
             g.Store == StoreKind.Steam &&
             string.Equals(g.LaunchTarget, id, StringComparison.Ordinal) &&
@@ -427,11 +473,20 @@ public sealed class StoreSearchService
             CoverUrl = SteamCover(id),
             Owned = owned,
             Installed = installed,
-            // This means Exo can ask Steam to install the exact app id; it does
-            // not mean Exo has independently verified ownership.
-            CanInstall = owned || steamClientPresent,
+            CanInstall = owned,
             Source = "steam",
         };
+    }
+
+    private static string? TryResolveSteamRootForTicketEvidence()
+    {
+        try
+        {
+            var executable = SteamAdapter.TryResolveSteamExePublic();
+            var root = string.IsNullOrWhiteSpace(executable) ? null : Path.GetDirectoryName(executable);
+            return !string.IsNullOrWhiteSpace(root) && Directory.Exists(root) ? root : null;
+        }
+        catch { return null; }
     }
 
     private static string? TryParseSteamAppId(string q)
@@ -471,7 +526,7 @@ public sealed class StoreSearchService
         if (t.StartsWith(q, StringComparison.Ordinal)) return 1050;
         if (ContainsWholePhrase(t, q)) return 900;
 
-        var titleTokens = Tokens(t);
+        var titleTokens = ExpandAdjacentTokens(Tokens(t));
         var queryTokens = Tokens(q);
         if (titleTokens.Length == 0 || queryTokens.Length == 0) return -1;
 
@@ -546,6 +601,21 @@ public sealed class StoreSearchService
     private static string[] Tokens(string normalized)
     {
         return normalized.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+    }
+
+    // Hyphenated and spaced compound names are often typed without the
+    // separator ("spiderman"). Add only adjacent joins, preserving the
+    // normal bounded token matcher and avoiding broad substring matching.
+    private static string[] ExpandAdjacentTokens(string[] tokens)
+    {
+        if (tokens.Length < 2) return tokens;
+        var expanded = new List<string>(tokens.Length * 2 - 1);
+        for (var i = 0; i < tokens.Length; i++)
+        {
+            expanded.Add(tokens[i]);
+            if (i + 1 < tokens.Length) expanded.Add(tokens[i] + tokens[i + 1]);
+        }
+        return expanded.ToArray();
     }
 
     // 3 exact, 2 prefix, 1 bounded Damerau-Levenshtein typo, 0 no match.
@@ -636,12 +706,25 @@ public sealed class StoreSearchService
 
     private static List<StoreSearchHit> RankAndDedup(IEnumerable<StoreSearchHit> hits, string query, int cap)
     {
-        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        // A public Epic result and an account-proven Epic result can have
+        // different ids for the same title. Keep the higher-ranked (owned /
+        // installed) entry, rather than showing both or letting the catalog
+        // row obscure an Install action.
+        var seenIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var seenTitles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var ordered = new List<StoreSearchHit>();
         foreach (var h in hits.OrderByDescending(h => RelevanceScore(h, query))
                               .ThenBy(h => h.Title, StringComparer.OrdinalIgnoreCase))
         {
-            if (!seen.Add(h.Id)) continue;
+            var identity = h.Store + ":" + Normalize(h.Title);
+            // One account-proven/local row and one catalog row can share the
+            // exact store id but carry slightly different display titles
+            // (for example "Steam app 424242"). Conversely, Epic catalog and
+            // Legendary can use different ids for the same title. Collapse
+            // either duplicate shape while keeping the highest-ranked row.
+            if (seenIds.Contains(h.Id) || seenTitles.Contains(identity)) continue;
+            seenIds.Add(h.Id);
+            seenTitles.Add(identity);
             ordered.Add(h);
             if (ordered.Count >= cap) break;
         }

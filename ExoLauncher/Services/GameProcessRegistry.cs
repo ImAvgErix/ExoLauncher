@@ -15,10 +15,14 @@ internal sealed class GameProcessRegistry
     private static readonly HashSet<string> DeniedProcessNames = new(StringComparer.OrdinalIgnoreCase)
     {
         "steam", "steamwebhelper", "steamservice", "gameoverlayui", "steamerrorreporter",
+        "gameoverlayui64",
         "epicgameslauncher", "epicwebhelper", "epiconlineservices", "eosoverlayrenderer-win64-shipping",
         "galaxyclient", "galaxyclientservice", "goggalaxynotifications",
         "riotclientservices", "riotclientux", "riotclientuxrender", "riotclientcrashhandler", "riot client",
         "leagueclient", "leagueclientux", "leagueclientuxrender",
+        "xboxpcapp", "gamingapp", "eadesktop", "ubisoftconnect", "upc", "uplaywebcore",
+        "battle.net", "amazon games", "amazongames", "amazongamesui",
+        "rockstarservice", "socialclubhelper", "launcherpatcher",
         "vgc", "vgk", "easyanticheat", "easyanticheat_eos", "easyanticheat_eos_setup",
         "beservice", "beservice_x64", "battleye", "battleye_launcher", "eac_launcher",
         "start_protected_game", "start_protected_game64", "eossdk-win64-shipping",
@@ -30,14 +34,25 @@ internal sealed class GameProcessRegistry
         new(StringComparer.OrdinalIgnoreCase);
 
     internal static bool IsReservedProcessName(string? processName) =>
-        string.IsNullOrWhiteSpace(processName) || DeniedProcessNames.Contains(processName);
+        string.IsNullOrWhiteSpace(processName) ||
+        DeniedProcessNames.Contains(processName) ||
+        ProcessHelper.IsNonGameProcessName(processName);
+
+    /// <summary>
+    /// Exo currently has exact install/path and launch contracts only for these
+    /// backends. A detected official client is intentionally not enough to
+    /// infer that one of its games is safe to inspect or stop.
+    /// </summary>
+    internal static bool SupportsGameProcessControl(StoreKind store) => store is
+        StoreKind.Steam or StoreKind.Epic or StoreKind.Gog or StoreKind.Riot or StoreKind.Local;
 
     internal static bool IsEligibleExecutableForStop(
         GameEntry game,
         string? processName,
         string? executablePath)
     {
-        if (!CanInspect(game) || IsReservedProcessName(processName) ||
+        if (!SupportsGameProcessControl(game.Store) ||
+            !CanInspect(game) || IsReservedProcessName(processName) ||
             string.IsNullOrWhiteSpace(executablePath))
             return false;
 
@@ -182,6 +197,7 @@ internal sealed class GameProcessRegistry
         }).ToArray();
 
     private static bool CanInspect(GameEntry game) =>
+        SupportsGameProcessControl(game.Store) &&
         game.Installed &&
         !string.Equals(game.Id, "local:add", StringComparison.OrdinalIgnoreCase) &&
         !string.IsNullOrWhiteSpace(game.Path) &&
