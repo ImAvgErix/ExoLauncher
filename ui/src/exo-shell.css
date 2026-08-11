@@ -1,10 +1,17 @@
 /*
- * EXO SHELL SYSTEM — single company chrome.
- * Copy or import into every product UI.
+ * EXO SHELL SYSTEM — single company chrome (Emil Kowalski craft bar).
+ * Copy into every product UI. Do not fork styles per app.
  *
  * Layout:
  *   [logo 28] [Name 13sb / role 10 faint]  ···  [actions]  |  [−] [×]
  * Height 52 · hairline #161616 · pure black · white CTAs · Geist
+ *
+ * Motion rules (emil-design-eng / animate):
+ *   - ease-out on enter/exit, never ease-in on UI
+ *   - transform + opacity only
+ *   - press: scale(0.97) on :active
+ *   - hover gated to fine pointers
+ *   - reduced-motion keeps opacity/color, drops movement
  */
 
 :root {
@@ -16,7 +23,7 @@
   --exo-line-soft: #161616;
   --exo-fg: #f2f2f2;
   --exo-muted: #8a8a8a;
-  --exo-faint: #555555;
+  --exo-faint: #808080;
   --exo-good: #3dd68c;
   --exo-bad: #ff5c5c;
   --exo-close: #c0303c;
@@ -24,6 +31,16 @@
   --exo-titlebar-h: 52px;
   --exo-logo: 28px;
   --exo-font: "Geist Variable", "Geist", "Segoe UI Variable Text", system-ui, -apple-system, sans-serif;
+
+  /* Strong custom curves — built-in ease is too weak */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+  /* Aliases used by product tokens */
+  --exo-ease: var(--ease-out);
+  --ease-out-expo: var(--ease-out);
+  --ease-snap: var(--ease-out);
+  --ease-inout: var(--ease-in-out);
 }
 
 /* ——— Titlebar ——— */
@@ -34,15 +51,25 @@
   align-items: center;
   flex-shrink: 0;
   height: var(--exo-titlebar-h);
-  padding: 0 10px 0 14px;
-  gap: 10px;
-  border-bottom: 1px solid var(--exo-line-soft);
+  padding: 0 8px 0 10px;
+  gap: 8px;
+  border-bottom: 1px solid #111;
   background: #000;
   color: var(--exo-fg);
   font-family: var(--exo-font);
   -webkit-app-region: drag;
   app-region: drag;
+  -webkit-user-select: none;
   user-select: none;
+}
+
+/* Brand as icon-only home control */
+.exo-titlebar .exo-brand {
+  padding: 0;
+  margin: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
 }
 
 .exo-titlebar button,
@@ -113,7 +140,8 @@
 }
 
 /* Window / chrome buttons — same hit target everywhere */
-.exo-winbtn {
+.exo-winbtn,
+.exo-titlebar-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -125,17 +153,29 @@
   background: transparent;
   color: var(--exo-muted);
   cursor: pointer;
-  transition: background 140ms ease, color 140ms ease;
+  transition:
+    background 140ms var(--ease-out),
+    color 140ms var(--ease-out),
+    transform 120ms var(--ease-out);
 }
 
-.exo-winbtn:hover {
-  background: rgba(255, 255, 255, 0.06);
-  color: var(--exo-fg);
+.exo-winbtn:active:not(:disabled),
+.exo-titlebar-button:active:not(:disabled) {
+  transform: scale(0.97);
 }
 
-.exo-winbtn.is-close:hover {
-  background: var(--exo-close);
-  color: #fff;
+@media (hover: hover) and (pointer: fine) {
+  .exo-winbtn:hover,
+  .exo-titlebar-button:hover {
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--exo-fg);
+  }
+
+  .exo-winbtn.is-close:hover,
+  .exo-titlebar-button.is-close:hover {
+    background: var(--exo-close);
+    color: #fff;
+  }
 }
 
 .exo-winbtn.is-wide {
@@ -144,6 +184,13 @@
   gap: 6px;
   font-size: 11px;
   font-weight: 500;
+}
+
+.exo-winbtn:focus-visible,
+.exo-titlebar-button:focus-visible,
+.exo-cta:focus-visible {
+  outline: 1.5px solid rgba(255, 255, 255, 0.75);
+  outline-offset: 2px;
 }
 
 /* Primary CTA — white pill, every product */
@@ -168,12 +215,23 @@
   box-shadow:
     0 10px 32px rgba(255, 255, 255, 0.1),
     0 0 0 1px rgba(255, 255, 255, 0.05);
-  transition: transform 180ms ease, background 140ms ease, box-shadow 180ms ease, opacity 140ms ease;
+  transition:
+    transform 160ms var(--ease-out),
+    background 140ms ease,
+    box-shadow 160ms var(--ease-out),
+    opacity 140ms ease;
 }
 
-.exo-cta:hover:not(:disabled) {
-  background: #fff;
-  transform: translateY(-1px);
+/* Instant press feedback — the interface must feel like it heard the user */
+.exo-cta:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .exo-cta:hover:not(:disabled):not(:active) {
+    background: #fff;
+    transform: translateY(-1px);
+  }
 }
 
 .exo-cta:disabled {
@@ -186,4 +244,66 @@
   border-radius: var(--exo-radius);
   border: 1px solid var(--exo-line-soft);
   background: var(--exo-surface);
+}
+
+/* Secondary / ghost pressable — shared across products */
+.exo-press {
+  transition:
+    transform 160ms var(--ease-out),
+    background 140ms ease,
+    border-color 140ms ease,
+    color 140ms ease,
+    opacity 140ms ease;
+}
+
+.exo-press:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .exo-press:hover:not(:disabled):not(:active) {
+    transform: translateY(-1px);
+  }
+}
+
+/* Shared entrance — GPU only, sub-300ms, not from scale(0) */
+@keyframes exo-enter {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.exo-enter {
+  animation: exo-enter 260ms var(--ease-out) both;
+}
+
+/* Reduced motion: keep comprehension (opacity/color), drop movement */
+@media (prefers-reduced-motion: reduce) {
+  .exo-winbtn,
+  .exo-titlebar-button,
+  .exo-cta,
+  .exo-press {
+    transition-duration: 0.01ms;
+    transition-property: background, color, opacity, border-color, box-shadow;
+  }
+
+  .exo-winbtn:active:not(:disabled),
+  .exo-titlebar-button:active:not(:disabled),
+  .exo-cta:active:not(:disabled),
+  .exo-cta:hover:not(:disabled),
+  .exo-press:active:not(:disabled),
+  .exo-press:hover:not(:disabled) {
+    transform: none;
+  }
+
+  .exo-enter {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
 }

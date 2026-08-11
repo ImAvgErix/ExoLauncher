@@ -26,6 +26,36 @@ public static partial class LegendaryCli
     public static string[] ListOwnedArgs(bool json = true) =>
         json ? ["list", "--json"] : ["list"];
 
+    /// <summary>
+    /// A successful <c>legendary list --json</c> response is the session probe.
+    /// Requiring both exit code zero and the expected JSON collection shape avoids
+    /// treating a cancelled login or a textual error as authenticated.
+    /// </summary>
+    public static bool IsAuthenticatedLibraryResponse(int exitCode, string stdout)
+    {
+        if (exitCode != 0 || string.IsNullOrWhiteSpace(stdout)) return false;
+
+        try
+        {
+            using var doc = JsonDocument.Parse(stdout);
+            if (doc.RootElement.ValueKind == JsonValueKind.Array) return true;
+            if (doc.RootElement.ValueKind != JsonValueKind.Object) return false;
+
+            if (doc.RootElement.TryGetProperty("games", out var games))
+                return games.ValueKind == JsonValueKind.Array;
+
+            // Older Legendary builds may emit an object keyed by app name. An
+            // empty or arbitrary object is not enough evidence of a session.
+            var properties = doc.RootElement.EnumerateObject().ToList();
+            return properties.Count > 0 && properties.All(
+                property => property.Value.ValueKind is JsonValueKind.Object or JsonValueKind.Array);
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
     public static string[] InstallArgs(string appName, string? basePath = null)
     {
         var args = new List<string> { "install", appName, "-y" };
@@ -40,7 +70,8 @@ public static partial class LegendaryCli
     public static string[] UpdateArgs(string appName) =>
         ["install", appName, "-y", "--update-only"];
 
-    public static string[] LaunchArgs(string appName) => ["launch", appName];
+    public static string[] LaunchArgs(string appName) =>
+        ["launch", appName, "--skip-version-check"];
 
     public static string[] UninstallArgs(string appName) => ["uninstall", appName, "-y"];
 

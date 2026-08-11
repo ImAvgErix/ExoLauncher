@@ -22,8 +22,9 @@ public sealed class DependencyService
 
     public IReadOnlyList<DependencyInfo> GetMissingRequired(GameEntry game)
     {
-        var all = DetectAll();
-        return all.Where(d => d.Status is "Missing" or "Unknown").ToList();
+        _ = game;
+        // Only definite Missing — never Unknown (that spam-prompted VC++ on every machine).
+        return DetectAll().Where(d => d.Status == "Missing").ToList();
     }
 
     /// <summary>
@@ -73,10 +74,10 @@ public sealed class DependencyService
         {
             Id = "vcredist",
             Name = "Visual C++ Redistributable",
-            Status = present ? "Present" : "Unknown",
+            Status = present ? "Present" : "Missing",
             Detail = present
                 ? "VC++ 2015–2022 x64 runtime key found."
-                : "Could not confirm VC++ runtime. Many games need it.",
+                : "VC++ 2015–2022 x64 runtime not found.",
             CanOfferInstall = true,
             OfficialUrl = "https://aka.ms/vs/17/release/vc_redist.x64.exe",
         };

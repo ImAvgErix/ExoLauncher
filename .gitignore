@@ -5,6 +5,7 @@
 **/[Rr]elease/
 publish/
 release/
+artifacts/
 .vs/
 *.user
 *.suo

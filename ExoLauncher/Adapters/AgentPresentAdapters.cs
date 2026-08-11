@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using ExoLauncher.Models;
 
 namespace ExoLauncher.Adapters;
@@ -8,7 +9,7 @@ namespace ExoLauncher.Adapters;
 /// </summary>
 public abstract class AgentPresentAdapterBase : IStoreAdapter
 {
-    private readonly Dictionary<string, InstallProgress> _progress = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, InstallProgress> _progress = new(StringComparer.OrdinalIgnoreCase);
 
     public abstract StoreKind Store { get; }
     public abstract string Id { get; }
@@ -20,7 +21,7 @@ public abstract class AgentPresentAdapterBase : IStoreAdapter
 
     public bool IsAgentPresent() => AgentPaths.Any(File.Exists);
 
-    public Task<AuthResult> AuthenticateAsync(CancellationToken ct = default) =>
+    public virtual Task<AuthResult> AuthenticateAsync(CancellationToken ct = default) =>
         Task.FromResult(new AuthResult
         {
             Ok = IsAgentPresent(),
@@ -58,11 +59,13 @@ public abstract class AgentPresentAdapterBase : IStoreAdapter
                 Percent = 5,
                 Status = $"Opening {DisplayName} minimized (phase-2 install path)…",
             });
-            ProcessHelper.StartMinimized(agent);
+            ProcessHelper.StartHidden(agent);
+            // Honest: we only opened the agent — not a completed Exo install.
             return Task.FromResult(new InstallResult
             {
-                Ok = true,
-                Message = $"{DisplayName} agent started minimized. Full install progress wiring is phase 2.",
+                Ok = false,
+                HandoffOnly = true,
+                Message = $"{DisplayName} agent opened minimized. Full install-in-Exo is not wired yet — finish in the official client.",
             });
         }
         catch (Exception ex)
@@ -88,12 +91,14 @@ public abstract class AgentPresentAdapterBase : IStoreAdapter
         var agent = AgentPaths.First(File.Exists);
         try
         {
-            var p = ProcessHelper.StartMinimized(agent);
+            var p = ProcessHelper.StartHidden(agent);
             return Task.FromResult(new LaunchResult
             {
-                Ok = p is not null,
+                // Handoff-only: agent opened; title-specific launch is phase 2.
+                Ok = false,
+                HandoffOnly = true,
                 Message = p is not null
-                    ? $"{DisplayName} agent started minimized. Full title launch wiring is phase 2."
+                    ? $"{DisplayName} agent opened. Full title launch from Exo is not wired yet."
                     : "Agent did not start.",
                 ProcessId = p?.Id,
                 BackendStarted = Id,
@@ -118,7 +123,7 @@ public abstract class AgentPresentAdapterBase : IStoreAdapter
     public Task CleanupAfterExitAsync(GameEntry game, LaunchOptions options, CancellationToken ct = default)
     {
         if (options.CloseStoreUiAfterExit)
-            ProcessHelper.TryCloseProcesses(ProcessNames);
+            StoreWindowHider.CollapseOrphanSurfaces(ProcessNames);
         return Task.CompletedTask;
     }
 }
@@ -204,7 +209,7 @@ public sealed class AmazonAdapter : AgentPresentAdapterBase
     {
         get
         {
-            var nile = Cli.CliRunner.ResolveOnPath("nile.exe") ?? Cli.CliRunner.ResolveOnPath("nile");
+            var nile = ResolveNile();
             var list = new List<string>();
             if (nile is not null) list.Add(nile);
             list.Add(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -215,4 +220,63 @@ public sealed class AmazonAdapter : AgentPresentAdapterBase
     protected override string LaunchNote =>
         "Prefer Nile (https://github.com/imLinguin/nile) when present. Amazon Games app is the fallback agent.";
     protected override string[] DefaultDeps => ["Nile (preferred)", "Amazon Games"];
+
+    public override async Task<AuthResult> AuthenticateAsync(CancellationToken ct = default)
+    {
+        var nile = ResolveNile() ?? await EnsureNileAsync(ct).ConfigureAwait(false);
+        if (nile is not null)
+        {
+            ProcessHelper.StartAuthConsole(nile, "auth");
+            return new AuthResult
+            {
+                Ok = true,
+                RequiresUserAction = true,
+                Message = "Nile sign-in opened. Complete login in the console, then Refresh.",
+            };
+        }
+        return await base.AuthenticateAsync(ct).ConfigureAwait(false);
+    }
+
+    private static string? ResolveNile()
+    {
+        var tools = Path.Combine(Helpers.PathHelper.AppDataDir, "tools", "nile.exe");
+        if (File.Exists(tools)) return tools;
+        return Cli.CliRunner.ResolveOnPath("nile.exe") ?? Cli.CliRunner.ResolveOnPath("nile");
+    }
+
+    /// <summary>Download Nile windows binary into Exo tools when missing (user consented via Connect).</summary>
+    private static async Task<string?> EnsureNileAsync(CancellationToken ct)
+    {
+        try
+        {
+            var tools = Path.Combine(Helpers.PathHelper.AppDataDir, "tools");
+            Directory.CreateDirectory(tools);
+            var dest = Path.Combine(tools, "nile.exe");
+            if (File.Exists(dest) && new FileInfo(dest).Length > 1_000_000) return dest;
+
+            // Latest release asset name can shift; prefer the documented windows x64 build.
+            var url = "https://github.com/imLinguin/nile/releases/latest/download/nile_windows_x86_64.exe";
+            using var http = new HttpClient { Timeout = TimeSpan.FromMinutes(3) };
+            http.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "ExoLauncher/1.0");
+            var tmp = Path.Combine(tools, "nile-dl.tmp");
+            await using (var fs = File.Create(tmp))
+            {
+                using var stream = await http.GetStreamAsync(url, ct).ConfigureAwait(false);
+                await stream.CopyToAsync(fs, ct).ConfigureAwait(false);
+            }
+            if (new FileInfo(tmp).Length < 1_000_000)
+            {
+                try { File.Delete(tmp); } catch { /* */ }
+                return null;
+            }
+            File.Copy(tmp, dest, overwrite: true);
+            try { File.Delete(tmp); } catch { /* */ }
+            return File.Exists(dest) ? dest : null;
+        }
+        catch (Exception ex)
+        {
+            Helpers.AppLog.Warn("EnsureNile failed: " + ex.Message);
+            return null;
+        }
+    }
 }

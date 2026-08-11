@@ -43,7 +43,6 @@ public class OrchestratorCleanupTests
     {
         var adapter = new TrackingAdapter();
         var settings = new SettingsService();
-        settings.Current.CloseStoreClientsAfterLaunch = true;
         var orchestrator = new LaunchOrchestrator(
             new IStoreAdapter[] { adapter },
             settings,

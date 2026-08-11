@@ -13,9 +13,227 @@ namespace ExoLauncher.Adapters.Cli;
 /// </summary>
 public static partial class GogdlCli
 {
-    public sealed record OwnedGame(string Id, string Title, string? InstallPath, bool Installed);
+    public const string LoginUrl =
+        "https://auth.gog.com/auth?client_id=46899977096215655&redirect_uri=https%3A%2F%2Fembed.gog.com%2Fon_login_success%3Forigin%3Dclient&response_type=code&layout=galaxy";
+
+    public sealed record OwnedGame(
+        string Id,
+        string Title,
+        string? InstallPath,
+        bool Installed,
+        string? CoverUrl = null);
+
+    /// <summary>
+    /// Credentials emitted by heroic-gogdl. The on-disk file is normally keyed
+    /// by GOG client id, but Heroic and older gogdl builds have also wrapped the
+    /// payload in client / credentials / token objects.
+    /// </summary>
+    public sealed record AuthCredentials(
+        string AccessToken,
+        string UserId,
+        string? RefreshToken,
+        DateTimeOffset? ExpiresAtUtc)
+    {
+        public bool IsExpired(DateTimeOffset now, TimeSpan? clockSkew = null) =>
+            ExpiresAtUtc is { } expires && expires <= now + (clockSkew ?? TimeSpan.FromMinutes(2));
+    }
 
     public static string[] AuthArgs() => ["auth"];
+
+    public static string[] AuthStatusArgs(string authConfigPath) =>
+        WithAuthConfig(authConfigPath, AuthArgs());
+
+    public static string[] AuthCodeArgs(string authConfigPath, string authorizationCode) =>
+        WithAuthConfig(authConfigPath, ["auth", "--code", authorizationCode]);
+
+    public static string[] WithAuthConfig(string authConfigPath, IReadOnlyList<string> commandArgs)
+    {
+        if (string.IsNullOrWhiteSpace(authConfigPath))
+            throw new ArgumentException("GOG auth config path is required.", nameof(authConfigPath));
+        return ["--auth-config-path", authConfigPath, .. commandArgs];
+    }
+
+    public static bool TryExtractAuthorizationCode(string? callbackUrl, out string authorizationCode)
+    {
+        authorizationCode = string.Empty;
+        if (!Uri.TryCreate(callbackUrl, UriKind.Absolute, out var uri) ||
+            !uri.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase) ||
+            !uri.Host.Equals("embed.gog.com", StringComparison.OrdinalIgnoreCase) ||
+            !uri.IsDefaultPort ||
+            !string.IsNullOrEmpty(uri.UserInfo) ||
+            !uri.AbsolutePath.TrimEnd('/').Equals("/on_login_success", StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        string? origin = null;
+        string? code = null;
+        foreach (var pair in uri.Query.TrimStart('?').Split('&', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var separator = pair.IndexOf('=');
+            var name = System.Net.WebUtility.UrlDecode(separator >= 0 ? pair[..separator] : pair);
+            var rawValue = separator >= 0 ? pair[(separator + 1)..] : string.Empty;
+            var decoded = System.Net.WebUtility.UrlDecode(rawValue);
+            if (string.Equals(name, "origin", StringComparison.OrdinalIgnoreCase)) origin = decoded;
+            if (string.Equals(name, "code", StringComparison.OrdinalIgnoreCase)) code = decoded;
+        }
+
+        if (!string.Equals(origin, "client", StringComparison.Ordinal) || string.IsNullOrWhiteSpace(code))
+            return false;
+        authorizationCode = code;
+        return true;
+    }
+
+    public static bool HasAuthenticatedCredentials(string? json)
+    {
+        return TryReadCredentials(json, out var credentials) &&
+               !string.IsNullOrWhiteSpace(credentials.RefreshToken);
+    }
+
+    /// <summary>
+    /// Recursively finds the first usable token payload without ever returning
+    /// or logging the source JSON. Traversal is bounded to reject pathological
+    /// config files and supports snake_case and camelCase gogdl variants.
+    /// </summary>
+    public static bool TryReadCredentials(string? json, out AuthCredentials credentials)
+    {
+        credentials = null!;
+        if (string.IsNullOrWhiteSpace(json)) return false;
+        try
+        {
+            using var doc = JsonDocument.Parse(json, new JsonDocumentOptions
+            {
+                AllowTrailingCommas = false,
+                CommentHandling = JsonCommentHandling.Disallow,
+                MaxDepth = 32,
+            });
+            return TryFindCredentials(doc.RootElement, null, null, null, null, 0, out credentials);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static bool TryFindCredentials(
+        JsonElement value,
+        string? inheritedUserId,
+        string? inheritedRefreshToken,
+        double? inheritedLoginTime,
+        double? inheritedExpiresIn,
+        int depth,
+        out AuthCredentials credentials)
+    {
+        credentials = null!;
+        if (depth > 12) return false;
+
+        if (value.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var child in value.EnumerateArray())
+            {
+                if (TryFindCredentials(
+                        child,
+                        inheritedUserId,
+                        inheritedRefreshToken,
+                        inheritedLoginTime,
+                        inheritedExpiresIn,
+                        depth + 1,
+                        out credentials))
+                    return true;
+            }
+            return false;
+        }
+
+        if (value.ValueKind != JsonValueKind.Object) return false;
+        if (TryGetBoolean(value, "error", out var isError) && isError) return false;
+
+        var userId = GetString(value, "user_id", "userId", "account_id", "accountId")
+                     ?? inheritedUserId;
+        var refreshToken = GetString(value, "refresh_token", "refreshToken")
+                           ?? inheritedRefreshToken;
+        var loginTime = GetNumber(value, "loginTime", "login_time") ?? inheritedLoginTime;
+        var expiresIn = GetNumber(value, "expires_in", "expiresIn") ?? inheritedExpiresIn;
+        var accessToken = GetString(value, "access_token", "accessToken");
+
+        // Some wrappers use { user_id, refresh_token, token: "..." }.
+        if (string.IsNullOrWhiteSpace(accessToken) && !string.IsNullOrWhiteSpace(userId))
+            accessToken = GetString(value, "token");
+
+        if (!string.IsNullOrWhiteSpace(accessToken) && !string.IsNullOrWhiteSpace(userId))
+        {
+            DateTimeOffset? expiresAtUtc = null;
+            var explicitExpiry = GetNumber(value, "expires_at", "expiresAt");
+            if (explicitExpiry is > 0)
+                expiresAtUtc = FromUnixTimeSecondsOrNull(explicitExpiry.Value);
+            else if (loginTime is > 0 && expiresIn is > 0)
+                expiresAtUtc = FromUnixTimeSecondsOrNull(loginTime.Value + expiresIn.Value);
+
+            credentials = new AuthCredentials(accessToken!, userId!, refreshToken, expiresAtUtc);
+            return true;
+        }
+
+        foreach (var property in value.EnumerateObject())
+        {
+            if (property.Value.ValueKind is not (JsonValueKind.Object or JsonValueKind.Array))
+                continue;
+            if (TryFindCredentials(
+                    property.Value,
+                    userId,
+                    refreshToken,
+                    loginTime,
+                    expiresIn,
+                    depth + 1,
+                    out credentials))
+                return true;
+        }
+        return false;
+    }
+
+    private static string? GetString(JsonElement value, params string[] names)
+    {
+        foreach (var property in value.EnumerateObject())
+        {
+            if (!names.Contains(property.Name, StringComparer.OrdinalIgnoreCase) ||
+                property.Value.ValueKind != JsonValueKind.String)
+                continue;
+            var text = property.Value.GetString()?.Trim();
+            if (!string.IsNullOrWhiteSpace(text)) return text;
+        }
+        return null;
+    }
+
+    private static double? GetNumber(JsonElement value, params string[] names)
+    {
+        foreach (var property in value.EnumerateObject())
+        {
+            if (!names.Contains(property.Name, StringComparer.OrdinalIgnoreCase)) continue;
+            if (property.Value.ValueKind == JsonValueKind.Number && property.Value.TryGetDouble(out var number))
+                return number;
+            if (property.Value.ValueKind == JsonValueKind.String &&
+                double.TryParse(property.Value.GetString(), NumberStyles.Float, CultureInfo.InvariantCulture, out number))
+                return number;
+        }
+        return null;
+    }
+
+    private static bool TryGetBoolean(JsonElement value, string name, out bool result)
+    {
+        result = false;
+        foreach (var property in value.EnumerateObject())
+        {
+            if (!property.Name.Equals(name, StringComparison.OrdinalIgnoreCase)) continue;
+            if (property.Value.ValueKind == JsonValueKind.True) { result = true; return true; }
+            if (property.Value.ValueKind == JsonValueKind.False) { result = false; return true; }
+        }
+        return false;
+    }
+
+    private static DateTimeOffset? FromUnixTimeSecondsOrNull(double seconds)
+    {
+        if (!double.IsFinite(seconds) ||
+            seconds < -62_135_596_800d ||
+            seconds > 253_402_300_799d)
+            return null;
+        return DateTimeOffset.FromUnixTimeSeconds((long)seconds);
+    }
 
     public static string[] ImportArgs(string path) => ["import", path];
 
@@ -37,10 +255,13 @@ public static partial class GogdlCli
         "--path", path,
     ];
 
-    public static string[] LaunchArgs(string gameId, string path) =>
-        ["launch", "--path", path, gameId];
+    public static string[] LaunchArgs(string gameId, string path, string platform = "windows") =>
+        ["launch", path, gameId, "--platform", platform];
 
     public static string[] InfoArgs(string gameId) => ["info", gameId];
+
+    internal static string HeroicLibraryCachePath(string roamingAppData) =>
+        Path.Combine(roamingAppData, "heroic", "store_cache", "gog_library.json");
 
     /// <summary>
     /// gogdl / aria-style progress, e.g. "Progress: 12.5%" or "[12%] downloading".
@@ -89,7 +310,8 @@ public static partial class GogdlCli
     }
 
     /// <summary>
-    /// Parse owned-library JSON (Heroic gog_store/library.json, Exo cache, or GOG products array).
+    /// Parse owned-library JSON (Heroic store_cache/gog_library.json, legacy gog_store/library.json,
+    /// Exo cache, or GOG products array).
     /// Accepts array of objects or <c>{ "games": [...] }</c> / <c>{ "products": [...] }</c>.
     /// </summary>
     public static IReadOnlyList<OwnedGame> ParseOwnedLibraryJson(string json)
@@ -129,7 +351,14 @@ public static partial class GogdlCli
         foreach (var o in owned)
             map[o.Id] = o with { Installed = false, InstallPath = null };
         foreach (var i in installed)
-            map[i.Id] = i with { Installed = true };
+        {
+            map.TryGetValue(i.Id, out var ownedRow);
+            map[i.Id] = i with
+            {
+                Installed = true,
+                CoverUrl = i.CoverUrl ?? ownedRow?.CoverUrl,
+            };
+        }
         return map.Values.OrderBy(g => g.Title, StringComparer.OrdinalIgnoreCase).ToList();
     }
 
@@ -138,6 +367,9 @@ public static partial class GogdlCli
         try
         {
             if (el.ValueKind != JsonValueKind.Object) return null;
+            if (el.TryGetProperty("visible", out var visible) &&
+                visible.ValueKind == JsonValueKind.False)
+                return null;
 
             string? id = null;
             if (el.TryGetProperty("id", out var idEl)) id = idEl.ValueKind == JsonValueKind.Number
@@ -167,7 +399,15 @@ public static partial class GogdlCli
             if (el.TryGetProperty("installed", out var inst) && inst.ValueKind is JsonValueKind.True or JsonValueKind.False)
                 installed = inst.GetBoolean();
 
-            return new OwnedGame(id!, title!, path, installed);
+            var coverUrl = el.TryGetProperty("coverUrl", out var cover) && cover.ValueKind == JsonValueKind.String
+                ? cover.GetString()
+                : el.TryGetProperty("art_square", out var artSquare) && artSquare.ValueKind == JsonValueKind.String
+                    ? artSquare.GetString()
+                : el.TryGetProperty("art_cover", out var artCover) && artCover.ValueKind == JsonValueKind.String
+                    ? artCover.GetString()
+                : null;
+
+            return new OwnedGame(id!, title!, path, installed, coverUrl);
         }
         catch
         {

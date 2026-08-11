@@ -1,0 +1,819 @@
+using ExoLauncher.Models;
+using ExoLauncher.Services.Achievements;
+using Xunit;
+
+namespace ExoLauncher.Tests;
+
+public sealed class AchievementProviderTests
+{
+    [Fact]
+    public void EpicParser_NormalizesCompleteLegendarySnapshot()
+    {
+        const string json = """
+            {
+              "total_achievements": 3,
+              "user_unlocked": 1,
+              "completed": [
+                {
+                  "name": "FIRST_WIN",
+                  "is_base": true,
+                  "hidden": false,
+                  "xp": 25,
+                  "unlocked": true,
+                  "progress": 100,
+                  "unlock_date": "2026-08-10T01:02:03Z",
+                  "display_name": "First Win",
+                  "description": "Win one match.",
+                  "icon_link": "https://cdn.example.test/first.png",
+                  "tier": "bronze",
+                  "rarity": 12.5
+                }
+              ],
+              "in_progress": [
+                {
+                  "name": "PLAY_TEN",
+                  "hidden": false,
+                  "xp": 50,
+                  "unlocked": false,
+                  "progress": 40,
+                  "display_name": "Getting Started",
+                  "description": "Play ten matches.",
+                  "icon_link": "http://not-accepted.test/icon.png",
+                  "tier": "silver",
+                  "rarity": "8.25"
+                }
+              ],
+              "uninitiated": [],
+              "hidden": [
+                {
+                  "name": "SECRET",
+                  "hidden": true,
+                  "xp": 100,
+                  "unlocked": false,
+                  "progress": 0,
+                  "display_name": "",
+                  "description": ""
+                }
+              ]
+            }
+            """;
+        var observed = DateTimeOffset.Parse("2026-08-10T02:00:00Z");
+
+        var snapshot = EpicLegendaryAchievementProvider.ParseSnapshotJson(
+            json, "Sugar", "epic:hashed-account", observed);
+
+        Assert.Equal(AchievementCoverageStatus.Complete, snapshot.Coverage);
+        Assert.Equal(AchievementProviderCapabilities.Snapshot |
+                     AchievementProviderCapabilities.Progress |
+                     AchievementProviderCapabilities.Rarity |
+                     AchievementProviderCapabilities.CompleteCatalog,
+            snapshot.Capabilities);
+        Assert.Equal(3, snapshot.ReportedTotal);
+        Assert.Equal(1, snapshot.ReportedUnlocked);
+        Assert.Equal(3, snapshot.Entries.Count);
+
+        var unlocked = Assert.Single(snapshot.Entries, row => row.Definition.ExternalId == "FIRST_WIN");
+        Assert.True(unlocked.State.Unlocked);
+        Assert.Equal(DateTimeOffset.Parse("2026-08-10T01:02:03Z"), unlocked.State.UnlockedAtUtc);
+        Assert.Equal(25, unlocked.Definition.Points);
+        Assert.Equal(12.5, unlocked.Definition.GlobalUnlockPercent);
+        Assert.Equal("https://cdn.example.test/first.png", unlocked.Definition.IconUnlockedUrl);
+
+        var progress = Assert.Single(snapshot.Entries, row => row.Definition.ExternalId == "PLAY_TEN");
+        Assert.Equal(40, progress.State.ProgressCurrent);
+        Assert.Equal(100, progress.State.ProgressTarget);
+        Assert.Null(progress.Definition.IconUnlockedUrl);
+
+        var hidden = Assert.Single(snapshot.Entries, row => row.Definition.ExternalId == "SECRET");
+        Assert.True(hidden.Definition.Hidden);
+        Assert.Equal("Hidden achievement", hidden.Definition.Name);
+    }
+
+    [Fact]
+    public async Task EpicProvider_UsesArgumentListAndReturnsUnavailableForMissingBackend()
+    {
+        IReadOnlyList<string>? captured = null;
+        var provider = new EpicLegendaryAchievementProvider(
+            () => "legendary.exe",
+            (_, args, _) =>
+            {
+                captured = args.ToArray();
+                return Task.FromResult((0, "{\"total_achievements\":0,\"user_unlocked\":0,\"completed\":[],\"in_progress\":[],\"uninitiated\":[],\"hidden\":[]}", ""));
+            },
+            () => "epic:hashed-account");
+        var game = EpicGame();
+
+        var snapshot = await provider.GetSnapshotAsync(game);
+
+        Assert.Equal(new[] { "achievements", "Sugar", "--hidden", "--json" }, captured);
+        Assert.Equal(AchievementCoverageStatus.Complete, snapshot.Coverage);
+
+        var missing = new EpicLegendaryAchievementProvider(
+            () => null,
+            (_, _, _) => throw new InvalidOperationException("must not run"),
+            () => "epic:hashed-account");
+        var unavailable = await missing.GetSnapshotAsync(game);
+        Assert.Equal(AchievementCoverageStatus.Unavailable, unavailable.Coverage);
+        Assert.Contains("Legendary", unavailable.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task EpicProvider_FailsClosedWhenAccountChangesDuringCliRefresh()
+    {
+        var calls = 0;
+        var provider = new EpicLegendaryAchievementProvider(
+            () => "legendary.exe",
+            (_, _, _) => Task.FromResult((0,
+                "{\"total_achievements\":0,\"user_unlocked\":0,\"completed\":[],\"in_progress\":[],\"uninitiated\":[],\"hidden\":[]}",
+                "")),
+            () => ++calls == 1
+                ? "epic:0123456789abcdef0123456789abcdef"
+                : "epic:fedcba9876543210fedcba9876543210");
+
+        var snapshot = await provider.GetSnapshotAsync(EpicGame());
+
+        Assert.Equal(AchievementCoverageStatus.Unavailable, snapshot.Coverage);
+        Assert.Null(snapshot.ReportedTotal);
+        Assert.Contains("changed", snapshot.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData("-1", "0")]
+    [InlineData("3", "-1")]
+    [InlineData("3", "99")]
+    [InlineData("\"not-a-number\"", "0")]
+    [InlineData("3", "\"not-a-number\"")]
+    public void EpicParser_FailsClosedOnContradictorySummaries(string total, string unlocked)
+    {
+        var json = $$"""
+            {
+              "total_achievements": {{total}},
+              "user_unlocked": {{unlocked}},
+              "completed": [],
+              "in_progress": [],
+              "uninitiated": [],
+              "hidden": []
+            }
+            """;
+
+        var snapshot = EpicLegendaryAchievementProvider.ParseSnapshotJson(
+            json, "Sugar", "epic:hashed-account", DateTimeOffset.UtcNow);
+
+        Assert.Equal(AchievementCoverageStatus.Unavailable, snapshot.Coverage);
+        Assert.Contains("contradictory", snapshot.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void EpicParser_FailsClosedWhenReportedTotalIsSmallerThanCatalog()
+    {
+        const string json = """
+            {
+              "total_achievements": 0,
+              "user_unlocked": 0,
+              "completed": [{ "name": "FIRST_WIN", "unlocked": true }],
+              "in_progress": [],
+              "uninitiated": [],
+              "hidden": []
+            }
+            """;
+
+        var snapshot = EpicLegendaryAchievementProvider.ParseSnapshotJson(
+            json, "Sugar", "epic:hashed-account", DateTimeOffset.UtcNow);
+
+        Assert.Equal(AchievementCoverageStatus.Unavailable, snapshot.Coverage);
+    }
+
+    [Fact]
+    public void EpicParser_FailsClosedOnEmptyCatalogWithoutExplicitTotal()
+    {
+        const string json = """
+            { "completed": [], "in_progress": [], "uninitiated": [], "hidden": [] }
+            """;
+
+        var snapshot = EpicLegendaryAchievementProvider.ParseSnapshotJson(
+            json, "Sugar", "epic:hashed-account", DateTimeOffset.UtcNow);
+
+        Assert.Equal(AchievementCoverageStatus.Unavailable, snapshot.Coverage);
+    }
+
+    [Theory]
+    [InlineData("{ \"total_achievements\": 1, \"completed\": [], \"in_progress\": [], \"uninitiated\": [], \"hidden\": [] }")]
+    [InlineData("{ \"user_unlocked\": 0, \"completed\": [], \"in_progress\": [], \"uninitiated\": [], \"hidden\": [] }")]
+    public void EpicParser_FailsClosedWhenEitherAccountSummaryIsMissing(string json)
+    {
+        var snapshot = EpicLegendaryAchievementProvider.ParseSnapshotJson(
+            json, "Sugar", "epic:hashed-account", DateTimeOffset.UtcNow);
+
+        Assert.Equal(AchievementCoverageStatus.Unavailable, snapshot.Coverage);
+        Assert.Contains("totals", snapshot.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void EpicParser_FailsClosedOnCaseInsensitiveDuplicateAchievementIds()
+    {
+        const string json = """
+            {
+              "total_achievements": 2,
+              "user_unlocked": 1,
+              "completed": [{ "name": "FIRST_WIN", "unlocked": true }],
+              "in_progress": [{ "name": "first_win", "unlocked": false }],
+              "uninitiated": [],
+              "hidden": []
+            }
+            """;
+
+        var snapshot = EpicLegendaryAchievementProvider.ParseSnapshotJson(
+            json, "Sugar", "epic:hashed-account", DateTimeOffset.UtcNow);
+
+        Assert.Equal(AchievementCoverageStatus.Unavailable, snapshot.Coverage);
+        Assert.Contains("duplicate", snapshot.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task EpicProvider_RejectsMismatchedLibraryArtifactAndLaunchTarget()
+    {
+        var called = false;
+        var provider = new EpicLegendaryAchievementProvider(
+            () => "legendary.exe",
+            (_, _, _) =>
+            {
+                called = true;
+                return Task.FromResult((0, "{}", ""));
+            },
+            () => "epic:hashed-account");
+        var game = new GameEntry
+        {
+            Id = "epic:Sugar",
+            Title = "Rocket League",
+            Store = StoreKind.Epic,
+            Installed = true,
+            LaunchTarget = "NotSugar",
+        };
+
+        // The provider remains selected so the UI reports unavailable source
+        // data instead of mislabelling a corrupt Epic mapping as unsupported.
+        Assert.True(provider.Supports(game));
+        var snapshot = await provider.GetSnapshotAsync(game);
+
+        Assert.False(called);
+        Assert.Equal(AchievementCoverageStatus.Unavailable, snapshot.Coverage);
+        Assert.Contains("disagree", snapshot.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void EpicParser_FailsClosedWhenCompleteRowsContradictUnlockedSummary()
+    {
+        const string json = """
+            {
+              "total_achievements": 1,
+              "user_unlocked": 0,
+              "completed": [{ "name": "FIRST_WIN", "unlocked": true }],
+              "in_progress": [],
+              "uninitiated": [],
+              "hidden": []
+            }
+            """;
+
+        var snapshot = EpicLegendaryAchievementProvider.ParseSnapshotJson(
+            json, "Sugar", "epic:hashed-account", DateTimeOffset.UtcNow);
+
+        Assert.Equal(AchievementCoverageStatus.Unavailable, snapshot.Coverage);
+    }
+
+    [Fact]
+    public void SteamParser_ReportsBestEffortPartialCoverage()
+    {
+        const string json = """
+            {
+              "achievements": {
+                "nAchieved": 1,
+                "nTotal": 40,
+                "vecHighlight": [
+                  {
+                    "strID": "ACH_WIN",
+                    "strName": "Winner",
+                    "strDescription": "Win a match.",
+                    "bAchieved": true,
+                    "rtUnlocked": 1786323723,
+                    "flCurrentProgress": 1,
+                    "flMaxProgress": 1,
+                    "strImage": "https://cdn.example.test/win.png"
+                  }
+                ],
+                "vecUnachieved": [
+                  {
+                    "strID": "ACH_GRIND",
+                    "strName": "Keep Going",
+                    "strDescription": "Play 100 matches.",
+                    "bAchieved": false,
+                    "flCurrentProgress": 32,
+                    "flMaxProgress": 100
+                  },
+                  {
+                    "strID": "ACH_SECRET",
+                    "bAchieved": false
+                  }
+                ]
+              },
+              "achievementmap": {
+                "ACH_SECRET": {
+                  "strID": "ACH_SECRET",
+                  "bHidden": true,
+                  "bAchieved": false
+                }
+              }
+            }
+            """;
+
+        var snapshot = SteamLibraryCacheAchievementProvider.ParseSnapshotJson(
+            json,
+            "252950",
+            "steam:hashed-account",
+            DateTimeOffset.Parse("2026-08-10T02:00:00Z"));
+
+        Assert.Equal(AchievementCoverageStatus.Partial, snapshot.Coverage);
+        Assert.False(snapshot.Capabilities.HasFlag(AchievementProviderCapabilities.CompleteCatalog));
+        Assert.Equal(40, snapshot.ReportedTotal);
+        Assert.Equal(1, snapshot.ReportedUnlocked);
+        Assert.Equal(3, snapshot.Entries.Count);
+
+        var win = Assert.Single(snapshot.Entries, row => row.Definition.ExternalId == "ACH_WIN");
+        Assert.True(win.State.Unlocked);
+        Assert.Equal(DateTimeOffset.FromUnixTimeSeconds(1786323723), win.State.UnlockedAtUtc);
+
+        var grind = Assert.Single(snapshot.Entries, row => row.Definition.ExternalId == "ACH_GRIND");
+        Assert.Equal(32, grind.State.ProgressCurrent);
+        Assert.Equal(100, grind.State.ProgressTarget);
+
+        var secret = Assert.Single(snapshot.Entries, row => row.Definition.ExternalId == "ACH_SECRET");
+        Assert.True(secret.Definition.Hidden);
+        Assert.Equal("Hidden achievement", secret.Definition.Name);
+    }
+
+    [Fact]
+    public void SteamParser_ReadsLiveLibraryCacheTupleEnvelopeAndNestedMapJson()
+    {
+        const string json = """
+            [
+              ["badge", {"version": 1, "data": {"strName": "ignored"}}],
+              ["achievements", {
+                "version": 1,
+                "data": {
+                  "nAchieved": 1,
+                  "nTotal": 40,
+                   "vecHighlight": [
+                    {
+                      "strID": "ACH_WIN",
+                      "strName": "Winner",
+                      "bAchieved": true,
+                      "rtUnlocked": 1786323723
+                    }
+                   ],
+                   "vecUnachieved": [
+                     {"strID":"ACH_MAP","bAchieved":false}
+                   ],
+                  "vecAchievedHidden": []
+                }
+              }],
+              ["achievementmap", {
+                "version": 1,
+                 "data": "[[252950,[[\"ACH_MAP\",{\"strID\":\"ach_map\",\"strName\":\"Mapped\",\"strDescription\":\"From nested JSON\",\"strImage\":\"https://cdn.example.test/mapped.png\"}]]]]"
+              }]
+            ]
+            """;
+
+        var snapshot = SteamLibraryCacheAchievementProvider.ParseSnapshotJson(
+            json,
+            "252950",
+            "steam:0123456789abcdef0123456789abcdef",
+            DateTimeOffset.Parse("2026-08-10T02:00:00Z"));
+
+        Assert.Equal(AchievementCoverageStatus.Partial, snapshot.Coverage);
+        Assert.Equal(40, snapshot.ReportedTotal);
+        Assert.Equal(1, snapshot.ReportedUnlocked);
+        Assert.Contains(snapshot.Entries, row => row.Definition.ExternalId == "ACH_WIN");
+        var mapped = Assert.Single(snapshot.Entries, row => row.Definition.ExternalId == "ACH_MAP");
+        Assert.Equal("Mapped", mapped.Definition.Name);
+        Assert.Equal("https://cdn.example.test/mapped.png", mapped.Definition.IconUnlockedUrl);
+    }
+
+    [Fact]
+    public void SteamParser_OnlyUsesAccountVectorsForStateAndMapOnlyEnrichesKnownIds()
+    {
+        const string json = """
+            {
+              "achievements": {
+                "nAchieved": 0,
+                "nTotal": 1,
+                "vecUnachieved": [{"strID":"ACH_OWN","bAchieved":false}]
+              },
+              "achievementmap": {
+                "foreign": {"strID":"ACH_FOREIGN","strName":"Wrong game","bAchieved":true},
+                "own": {"strID":"ach_own","strName":"Correct metadata","bAchieved":true}
+              }
+            }
+            """;
+
+        var snapshot = SteamLibraryCacheAchievementProvider.ParseSnapshotJson(
+            json, "252950", "steam:0123456789abcdef0123456789abcdef", DateTimeOffset.UtcNow);
+
+        Assert.Equal(AchievementCoverageStatus.Partial, snapshot.Coverage);
+        var own = Assert.Single(snapshot.Entries);
+        Assert.Equal("ACH_OWN", own.Definition.ExternalId);
+        Assert.Equal("Correct metadata", own.Definition.Name);
+        Assert.False(own.State.Unlocked);
+    }
+
+    [Fact]
+    public void SteamParser_FailsClosedForContradictoryDuplicateAccountRows()
+    {
+        const string json = """
+            {"achievements":{"nAchieved":1,"nTotal":1,
+              "vecHighlight":[{"strID":"ACH_ONE","bAchieved":true}],
+              "vecUnachieved":[{"strID":"ach_one","bAchieved":false}]}}
+            """;
+
+        var snapshot = SteamLibraryCacheAchievementProvider.ParseSnapshotJson(
+            json, "252950", "steam:0123456789abcdef0123456789abcdef", DateTimeOffset.UtcNow);
+
+        Assert.Equal(AchievementCoverageStatus.Unavailable, snapshot.Coverage);
+        Assert.Contains("contradictory", snapshot.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void SteamParser_FailsClosedWhenAccountRowsExceedUnlockedHeader()
+    {
+        const string json = """
+            {"achievements":{"nAchieved":0,"nTotal":1,
+              "vecHighlight":[{"strID":"ACH_ONE","bAchieved":true}]}}
+            """;
+
+        var snapshot = SteamLibraryCacheAchievementProvider.ParseSnapshotJson(
+            json, "252950", "steam:0123456789abcdef0123456789abcdef", DateTimeOffset.UtcNow);
+
+        Assert.Equal(AchievementCoverageStatus.Unavailable, snapshot.Coverage);
+        Assert.Contains("inconsistent", snapshot.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task SteamProvider_RejectsMismatchedSteamIdAndLaunchTarget()
+    {
+        var provider = new SteamLibraryCacheAchievementProvider(
+            () => throw new InvalidOperationException("must not resolve Steam for inconsistent ids"),
+            _ => throw new InvalidOperationException("must not resolve an account for inconsistent ids"));
+
+        var snapshot = await provider.GetSnapshotAsync(new GameEntry
+        {
+            Id = "steam:252950",
+            Title = "Rocket League",
+            Store = StoreKind.Steam,
+            LaunchTarget = "1110910",
+        });
+
+        Assert.Equal(AchievementCoverageStatus.Unavailable, snapshot.Coverage);
+        Assert.Contains("valid Steam app id", snapshot.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void SteamParser_LeavesAnExplicitLocalZeroUnverified()
+    {
+        const string json = """
+            [["achievements",{"version":2,"data":{
+              "vecHighlight":[],
+              "vecUnachieved":[],
+              "vecAchievedHidden":[],
+              "nTotal":0,
+              "nAchieved":0
+            }}]]
+            """;
+
+        var snapshot = SteamLibraryCacheAchievementProvider.ParseSnapshotJson(
+            json,
+            "1422450",
+            "steam:0123456789abcdef0123456789abcdef",
+            DateTimeOffset.Parse("2026-08-10T02:00:00Z"));
+
+        Assert.Equal(AchievementCoverageStatus.Unavailable, snapshot.Coverage);
+        Assert.Equal(0, snapshot.ReportedTotal);
+        Assert.Equal(0, snapshot.ReportedUnlocked);
+        Assert.Empty(snapshot.Entries);
+        Assert.Contains("requires separate catalog verification", snapshot.Message,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task SteamProvider_ConfirmsZeroOnlyWhenStoreCatalogAlsoHasNoAchievements()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "exo-steam-achievements-" + Guid.NewGuid().ToString("N"));
+        var cacheDirectory = Path.Combine(root, "userdata", "1162499906", "config", "librarycache");
+        Directory.CreateDirectory(cacheDirectory);
+        await File.WriteAllTextAsync(Path.Combine(cacheDirectory, "1422450.json"), """
+            [["achievements",{"version":2,"data":{
+              "vecHighlight":[],"vecUnachieved":[],"vecAchievedHidden":[],"nTotal":0,"nAchieved":0
+            }}]]
+            """);
+        try
+        {
+            var provider = new SteamLibraryCacheAchievementProvider(
+                () => root,
+                _ => "1162499906",
+                (uri, _) =>
+                {
+                    Assert.Equal("store.steampowered.com", uri.Host);
+                    Assert.Contains("appids=1422450", uri.Query, StringComparison.Ordinal);
+                    return Task.FromResult<string?>("""
+                        {"1422450":{"success":true,"data":{
+                          "name":"Deadlock","categories":[{"id":1,"description":"Multi-player"}]
+                        }}}
+                        """);
+                });
+            var snapshot = await provider.GetSnapshotAsync(new GameEntry
+            {
+                Id = "steam:1422450",
+                Title = "Deadlock",
+                Store = StoreKind.Steam,
+                LaunchTarget = "1422450",
+            });
+
+            Assert.Equal(AchievementCoverageStatus.Complete, snapshot.Coverage);
+            Assert.Equal(0, snapshot.ReportedTotal);
+            Assert.Equal(0, snapshot.ReportedUnlocked);
+            Assert.Empty(snapshot.Entries);
+        }
+        finally
+        {
+            try { Directory.Delete(root, recursive: true); } catch { }
+        }
+    }
+
+    [Fact]
+    public async Task SteamProvider_RejectsLocalZeroWhenStoreCatalogIsNonzero()
+    {
+        var root = await WriteSteamZeroCacheAsync("1110910");
+        try
+        {
+            var provider = new SteamLibraryCacheAchievementProvider(
+                () => root,
+                _ => "1162499906",
+                (_, _) => Task.FromResult<string?>("""
+                    {"1110910":{"success":true,"data":{
+                      "achievements":{"total":37,"highlighted":[]},
+                      "categories":[{"id":22,"description":"Steam Achievements"}]
+                    }}}
+                    """));
+
+            var snapshot = await provider.GetSnapshotAsync(SteamGame("1110910", "Mortal Shell"));
+
+            Assert.Equal(AchievementCoverageStatus.Unavailable, snapshot.Coverage);
+            Assert.Null(snapshot.ReportedTotal);
+            Assert.Null(snapshot.ReportedUnlocked);
+            Assert.Contains("conflicts", snapshot.Message, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            try { Directory.Delete(root, recursive: true); } catch { }
+        }
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("not-json")]
+    [InlineData("{\"1110910\":{\"success\":true,\"data\":{}}}")]
+    [InlineData("{\"1110910\":{\"success\":true,\"data\":{\"categories\":[{}]}}}")]
+    [InlineData("{\"1110910\":{\"success\":true,\"data\":{\"achievements\":{\"total\":0},\"categories\":[{\"id\":22,\"description\":\"Steam Achievements\"}]}}}")]
+    public async Task SteamProvider_FailsHonestWhenZeroCatalogCannotBeCorroborated(string? catalogJson)
+    {
+        var root = await WriteSteamZeroCacheAsync("1110910");
+        try
+        {
+            var provider = new SteamLibraryCacheAchievementProvider(
+                () => root,
+                _ => "1162499906",
+                (_, _) => Task.FromResult(catalogJson));
+
+            var snapshot = await provider.GetSnapshotAsync(SteamGame("1110910", "Mortal Shell"));
+
+            Assert.Equal(AchievementCoverageStatus.Unavailable, snapshot.Coverage);
+            Assert.Null(snapshot.ReportedTotal);
+            Assert.Null(snapshot.ReportedUnlocked);
+            Assert.Contains("could not corroborate", snapshot.Message, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            try { Directory.Delete(root, recursive: true); } catch { }
+        }
+    }
+
+    [Fact]
+    public async Task SteamProvider_FailsHonestWhenTheLocalCacheIsMissing()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "exo-steam-achievements-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            var provider = new SteamLibraryCacheAchievementProvider(
+                () => root,
+                _ => "1162499906");
+            var snapshot = await provider.GetSnapshotAsync(new GameEntry
+            {
+                Id = "steam:252950",
+                Title = "Rocket League",
+                Store = StoreKind.Steam,
+                LaunchTarget = "252950",
+            });
+
+            Assert.Equal(AchievementCoverageStatus.Unavailable, snapshot.Coverage);
+            Assert.Null(snapshot.ReportedTotal);
+            Assert.Null(snapshot.ReportedUnlocked);
+            Assert.Empty(snapshot.Entries);
+        }
+        finally
+        {
+            try { Directory.Delete(root, recursive: true); } catch { }
+        }
+    }
+
+    [Fact]
+    public void SteamCommunityParser_RejectsDtdPayloads()
+    {
+        const string xml = """
+            <!DOCTYPE profile [<!ENTITY payload "unsafe">]>
+            <profile><achievements><achievement><apiname>ONE</apiname><name>&payload;</name></achievement></achievements></profile>
+            """;
+
+        var snapshot = SteamLibraryCacheAchievementProvider.ParseCommunitySnapshotXml(
+            xml,
+            "1110910",
+            "steam:0123456789abcdef0123456789abcdef",
+            DateTimeOffset.Parse("2026-08-10T02:00:00Z"));
+
+        Assert.Equal(AchievementCoverageStatus.Unavailable, snapshot.Coverage);
+        Assert.Empty(snapshot.Entries);
+    }
+
+    [Fact]
+    public void SteamCommunityParser_NeverTreatsCatalogRowsAsAccountProgress()
+    {
+        const string xml = """
+            <profile><achievements>
+              <achievement closed="1"><apiname>ONE</apiname><name>One</name><unlockTimestamp>1786323723</unlockTimestamp></achievement>
+              <achievement closed="0"><apiname>TWO</apiname><name>Two</name></achievement>
+            </achievements></profile>
+            """;
+
+        var snapshot = SteamLibraryCacheAchievementProvider.ParseCommunitySnapshotXml(
+            xml,
+            "1110910",
+            "steam:0123456789abcdef0123456789abcdef",
+            DateTimeOffset.Parse("2026-08-10T02:00:00Z"));
+
+        Assert.Equal(AchievementCoverageStatus.Unavailable, snapshot.Coverage);
+        Assert.Null(snapshot.ReportedTotal);
+        Assert.Null(snapshot.ReportedUnlocked);
+        Assert.Empty(snapshot.Entries);
+        Assert.Contains("cannot verify", snapshot.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void SteamParser_UsesHeaderCountsWhenSteamOnlySuppliesHighlights()
+    {
+        const string json = """
+            [["achievements",{"version":2,"data":{
+              "vecHighlight":[],"vecUnachieved":[],"vecAchievedHidden":[],"nTotal":37,"nAchieved":1
+            }}]]
+            """;
+
+        var snapshot = SteamLibraryCacheAchievementProvider.ParseSnapshotJson(
+            json,
+            "1110910",
+            "steam:0123456789abcdef0123456789abcdef",
+            DateTimeOffset.Parse("2026-08-10T02:00:00Z"));
+
+        Assert.Equal(AchievementCoverageStatus.Partial, snapshot.Coverage);
+        Assert.Equal(37, snapshot.ReportedTotal);
+        Assert.Equal(1, snapshot.ReportedUnlocked);
+        Assert.Empty(snapshot.Entries);
+    }
+
+    [Fact]
+    public async Task SteamProvider_ReadsOnlyResolvedAccountCacheAndHashesCoverage()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "exo-steam-achievements-" + Guid.NewGuid().ToString("N"));
+        var cacheDirectory = Path.Combine(root, "userdata", "111", "config", "librarycache");
+        Directory.CreateDirectory(cacheDirectory);
+        await File.WriteAllTextAsync(Path.Combine(cacheDirectory, "252950.json"), """
+            [["achievements",{"version":1,"data":{
+              "nAchieved":0,
+              "nTotal":1,
+              "vecHighlight":[],
+              "vecUnachieved":[{"strID":"ACH_ONE","strName":"One","bAchieved":false}],
+              "vecAchievedHidden":[]
+            }}]]
+            """);
+        try
+        {
+            var provider = new SteamLibraryCacheAchievementProvider(() => root, _ => "111");
+            var game = new GameEntry
+            {
+                Id = "steam:252950",
+                Title = "Rocket League",
+                Store = StoreKind.Steam,
+                LaunchTarget = "252950",
+            };
+
+            var snapshot = await provider.GetSnapshotAsync(game);
+
+            Assert.Equal(AchievementCoverageStatus.Partial, snapshot.Coverage);
+            Assert.Single(snapshot.Entries);
+            Assert.StartsWith("steam:", snapshot.CoverageKey, StringComparison.Ordinal);
+            Assert.Equal(38, snapshot.CoverageKey.Length);
+            Assert.DoesNotContain("111", snapshot.CoverageKey, StringComparison.Ordinal);
+        }
+        finally
+        {
+            try { Directory.Delete(root, recursive: true); } catch { }
+        }
+    }
+
+    [Fact]
+    public async Task SteamProvider_FailsClosedWhenActiveAccountChangesDuringCacheRead()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "exo-steam-achievements-" + Guid.NewGuid().ToString("N"));
+        var cacheDirectory = Path.Combine(root, "userdata", "111", "config", "librarycache");
+        Directory.CreateDirectory(cacheDirectory);
+        await File.WriteAllTextAsync(Path.Combine(cacheDirectory, "252950.json"), """
+            [["achievements",{"version":1,"data":{
+              "nAchieved":0,"nTotal":1,"vecHighlight":[],"vecUnachieved":[],"vecAchievedHidden":[]
+            }}]]
+            """);
+        try
+        {
+            var calls = 0;
+            var provider = new SteamLibraryCacheAchievementProvider(
+                () => root,
+                _ => ++calls == 1 ? "111" : "222");
+
+            var snapshot = await provider.GetSnapshotAsync(SteamGame("252950", "Rocket League"));
+
+            Assert.Equal(AchievementCoverageStatus.Unavailable, snapshot.Coverage);
+            Assert.Null(snapshot.ReportedTotal);
+            Assert.Contains("changed", snapshot.Message, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            try { Directory.Delete(root, recursive: true); } catch { }
+        }
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("not-json")]
+    [InlineData("{\"achievements\":{\"nTotal\":40}}")]
+    public void ProviderParsers_FailClosedOnMissingAchievementRows(string json)
+    {
+        var observed = DateTimeOffset.Parse("2026-08-10T02:00:00Z");
+
+        var epic = EpicLegendaryAchievementProvider.ParseSnapshotJson(
+            json, "Sugar", "epic:hash", observed);
+        var steam = SteamLibraryCacheAchievementProvider.ParseSnapshotJson(
+            json, "252950", "steam:hash", observed);
+
+        Assert.Equal(AchievementCoverageStatus.Unavailable, epic.Coverage);
+        Assert.Equal(AchievementCoverageStatus.Unavailable, steam.Coverage);
+        Assert.Empty(epic.Entries);
+        Assert.Empty(steam.Entries);
+    }
+
+    private static GameEntry EpicGame() => new()
+    {
+        Id = "epic:Sugar",
+        Title = "Rocket League",
+        Store = StoreKind.Epic,
+        Installed = true,
+        LaunchTarget = "Sugar",
+    };
+
+    private static GameEntry SteamGame(string appId, string title) => new()
+    {
+        Id = "steam:" + appId,
+        Title = title,
+        Store = StoreKind.Steam,
+        Installed = true,
+        LaunchTarget = appId,
+    };
+
+    private static async Task<string> WriteSteamZeroCacheAsync(string appId)
+    {
+        var root = Path.Combine(Path.GetTempPath(),
+            "exo-steam-achievements-" + Guid.NewGuid().ToString("N"));
+        var cacheDirectory = Path.Combine(root, "userdata", "1162499906", "config", "librarycache");
+        Directory.CreateDirectory(cacheDirectory);
+        await File.WriteAllTextAsync(Path.Combine(cacheDirectory, appId + ".json"), """
+            [["achievements",{"version":2,"data":{
+              "vecHighlight":[],"vecUnachieved":[],"vecAchievedHidden":[],"nTotal":0,"nAchieved":0
+            }}]]
+            """);
+        return root;
+    }
+}

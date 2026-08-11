@@ -1,12 +1,15 @@
 using System.Runtime.InteropServices;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
+using Microsoft.Windows.AppLifecycle;
 using WinRT;
 
 namespace ExoLauncher;
 
 public static class Program
 {
+    private static int _restoreRequested;
+
     [DllImport("Microsoft.ui.xaml.dll")]
     private static extern void XamlCheckProcessRequirements();
 
@@ -25,8 +28,27 @@ public static class Program
 
             try { SetCurrentProcessExplicitAppUserModelID(AppUserModelId); } catch { }
 
-            XamlCheckProcessRequirements();
+            // Custom-main WinUI apps must initialize WinRT wrappers before the
+            // first Windows App SDK API, including AppInstance.
             ComWrappersSupport.InitializeComWrappers();
+            var currentInstance = AppInstance.GetCurrent();
+            var mainInstance = AppInstance.FindOrRegisterForKey("ExoLauncher.Main");
+            if (!mainInstance.IsCurrent)
+            {
+                mainInstance
+                    .RedirectActivationToAsync(currentInstance.GetActivatedEventArgs())
+                    .AsTask()
+                    .GetAwaiter()
+                    .GetResult();
+                return;
+            }
+            mainInstance.Activated += (_, _) =>
+            {
+                Interlocked.Exchange(ref _restoreRequested, 1);
+                TryDeliverRestore();
+            };
+
+            XamlCheckProcessRequirements();
             Application.Start(p =>
             {
                 var context = new DispatcherQueueSynchronizationContext(
@@ -48,5 +70,18 @@ public static class Program
             catch { /* best-effort */ }
             throw;
         }
+    }
+
+    internal static void NotifyWindowReady() => TryDeliverRestore();
+
+    private static void TryDeliverRestore()
+    {
+        var window = App.MainAppWindow;
+        if (window is null || Volatile.Read(ref _restoreRequested) == 0) return;
+        _ = window.DispatcherQueue.TryEnqueue(() =>
+        {
+            if (Interlocked.Exchange(ref _restoreRequested, 0) == 1)
+                window.RestoreAndActivate();
+        });
     }
 }

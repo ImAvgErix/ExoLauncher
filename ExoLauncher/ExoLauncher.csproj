@@ -13,12 +13,14 @@
     <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">win-x64</RuntimeIdentifier>
 
     <UseWinUI>true</UseWinUI>
+    <UseSystemDrawing>true</UseSystemDrawing>
     <EnableMsixTooling>true</EnableMsixTooling>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
     <WindowsPackageType>None</WindowsPackageType>
     <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <PublishSelfContained>true</PublishSelfContained>
     <ApplicationIcon Condition="Exists('Assets\ExoLauncher.ico')">Assets\ExoLauncher.ico</ApplicationIcon>
     <AssemblyName>ExoLauncher</AssemblyName>
     <Product>Exo Launcher</Product>
@@ -33,35 +35,47 @@
     <PackageReference Include="Microsoft.WindowsAppSDK.Foundation" Version="2.3.5" />
     <PackageReference Include="Microsoft.WindowsAppSDK.InteractiveExperiences" Version="2.1.3" />
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.28000.2270" />
+    <PackageReference Include="System.Drawing.Common" Version="10.0.0" />
     <Manifest Include="$(ApplicationManifest)" />
   </ItemGroup>
 
   <ItemGroup>
     <Content Include="Assets\**\*">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <!-- Asset archives can retain upstream timestamps. Always copy them so a
+           rebuilt app never ships an older cue merely because its source date
+           predates a previous publish. -->
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+      <CopyToPublishDirectory>Always</CopyToPublishDirectory>
     </Content>
     <Content Include="..\CHANGELOG.md" Link="CHANGELOG.md" Condition="Exists('..\CHANGELOG.md')">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
-    <Content Include="wwwroot\**\*">
+    <Content Include="..\VERSION" Link="VERSION" Condition="Exists('..\VERSION')">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
   </ItemGroup>
 
-  <Target Name="BuildWebUi" BeforeTargets="PrepareForBuild" Condition="Exists('$(MSBuildThisFileDirectory)..\ui\package.json') And Exists('$(MSBuildThisFileDirectory)..\ui\node_modules')">
+  <Target Name="BuildWebUi" Condition="Exists('$(MSBuildThisFileDirectory)..\ui\package.json')">
+    <Error
+      Condition="!Exists('$(MSBuildThisFileDirectory)..\ui\node_modules')"
+      Text="ui/node_modules is missing. Run: cd ui &amp;&amp; npm ci. Refusing to package stale generated web assets." />
     <Exec Command="npm run build" WorkingDirectory="$(MSBuildThisFileDirectory)..\ui" IgnoreExitCode="false" />
+  </Target>
+
+  <!--
+    Vite emits content-hashed filenames and clears the output directory, so a
+    wwwroot glob evaluated at project load names the *previous* build's assets
+    and the copy step fails with MSB3030. Collect it after the UI build instead.
+  -->
+  <Target Name="CollectWebUi" BeforeTargets="AssignTargetPaths" DependsOnTargets="BuildWebUi">
+    <Error
+      Condition="!Exists('$(MSBuildThisFileDirectory)wwwroot\index.html')"
+      Text="ExoLauncher/wwwroot/index.html missing. Run: cd ui &amp;&amp; npm ci &amp;&amp; npm run build" />
     <ItemGroup>
-      <Content Remove="wwwroot\**\*" />
       <Content Include="wwwroot\**\*">
         <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       </Content>
     </ItemGroup>
-  </Target>
-
-  <Target Name="EnsureWwwRootPacked" BeforeTargets="PrepareForBuild">
-    <Error
-      Condition="!Exists('$(MSBuildThisFileDirectory)wwwroot\index.html')"
-      Text="ExoLauncher/wwwroot/index.html missing. Run: cd ui &amp;&amp; npm ci &amp;&amp; npm run build" />
   </Target>
 
   <ItemGroup Condition="'$(DisableMsixProjectCapabilityAddedByProject)'!='true' and '$(EnableMsixTooling)'=='true'">
