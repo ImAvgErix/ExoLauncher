@@ -28,7 +28,9 @@ public class CliHelperTests
     [Fact]
     public void Legendary_LaunchArgs_AreCorrect()
     {
-        Assert.Equal(["launch", "Control"], LegendaryCli.LaunchArgs("Control"));
+        Assert.Equal(
+            ["launch", "Control", "--skip-version-check"],
+            LegendaryCli.LaunchArgs("Control"));
     }
 
     [Fact]
@@ -62,6 +64,71 @@ public class CliHelperTests
         Assert.Contains("1234567890", args);
         Assert.Contains("--path", args);
         Assert.Contains(@"C:\Games\GOG\title", args);
+    }
+
+    [Fact]
+    public void Gogdl_AuthCodeArgs_UseExplicitConfigBeforeCommand()
+    {
+        var args = GogdlCli.AuthCodeArgs(
+            @"C:\Users\Test User\AppData\Local\ExoLauncher\gogdl\credentials.json",
+            "opaque/code+value");
+
+        Assert.Equal(
+        [
+            "--auth-config-path",
+            @"C:\Users\Test User\AppData\Local\ExoLauncher\gogdl\credentials.json",
+            "auth",
+            "--code",
+            "opaque/code+value",
+        ], args);
+    }
+
+    [Fact]
+    public void Gogdl_CallbackParser_AcceptsOnlyTrustedGogRedirect()
+    {
+        Assert.True(GogdlCli.TryExtractAuthorizationCode(
+            "https://embed.gog.com/on_login_success?origin=client&code=abc%2F123%2Bxyz",
+            out var code));
+        Assert.Equal("abc/123+xyz", code);
+
+        Assert.False(GogdlCli.TryExtractAuthorizationCode(
+            "https://embed.gog.com.evil.example/on_login_success?code=stolen",
+            out _));
+        Assert.False(GogdlCli.TryExtractAuthorizationCode(
+            "https://embed.gog.com/on_login_success?origin=client",
+            out _));
+        Assert.False(GogdlCli.TryExtractAuthorizationCode(
+            "https://embed.gog.com/on_login_success?origin=wrong&code=stolen",
+            out _));
+        Assert.False(GogdlCli.TryExtractAuthorizationCode(
+            "http://embed.gog.com/on_login_success?origin=client&code=stolen",
+            out _));
+        Assert.False(GogdlCli.TryExtractAuthorizationCode(
+            "https://embed.gog.com:444/on_login_success?origin=client&code=stolen",
+            out _));
+    }
+
+    [Theory]
+    [InlineData("null", false)]
+    [InlineData("{\"error\":true}", false)]
+    [InlineData("{\"access_token\":\"a\",\"refresh_token\":\"r\"}", false)]
+    [InlineData("{\"access_token\":\"a\",\"refresh_token\":\"r\",\"user_id\":\"u\"}", true)]
+    public void Gogdl_CredentialParser_RequiresCompleteSuccessfulPayload(string json, bool expected)
+    {
+        Assert.Equal(expected, GogdlCli.HasAuthenticatedCredentials(json));
+    }
+
+    [Fact]
+    public void Gogdl_LaunchArgs_UseRequiredPlatformAndPositionalPath()
+    {
+        Assert.Equal(
+        [
+            "launch",
+            @"C:\Games\GOG Library\Celeste",
+            "1423049311",
+            "--platform",
+            "windows",
+        ], GogdlCli.LaunchArgs("1423049311", @"C:\Games\GOG Library\Celeste"));
     }
 
     [Fact]
@@ -114,6 +181,34 @@ public class CliHelperTests
     {
         Assert.Equal("steam://rungameid/570", SteamProtocol.RunGameUri("570"));
         Assert.Equal("steam://install/570", SteamProtocol.InstallUri("570"));
+        Assert.Equal("steam://store/570", SteamProtocol.StoreUri("570"));
+    }
+
+    [Theory]
+    [InlineData("570", true)]
+    [InlineData("252950", true)]
+    [InlineData("0", false)]
+    [InlineData("570?applaunch=730", false)]
+    [InlineData(" 570", false)]
+    [InlineData("12345678901", false)]
+    [InlineData("not-an-app-id", false)]
+    public void Steam_AppIdValidation_RequiresPositiveAsciiDecimalId(string appId, bool expected)
+    {
+        Assert.Equal(expected, SteamProtocol.IsValidAppId(appId));
+    }
+
+    [Fact]
+    public void Steam_ParseAppManifest_RejectsNonNumericAppId()
+    {
+        const string acf = """
+            "AppState"
+            {
+                "appid" "570?applaunch=730"
+                "name" "Malformed title"
+            }
+            """;
+
+        Assert.False(SteamProtocol.TryParseAppManifest(acf, out _, out _, out _, out _));
     }
 
     [Fact]
@@ -141,6 +236,29 @@ public class CliHelperTests
     public void Legendary_ListOwnedArgs_UsesListJson()
     {
         Assert.Equal(["list", "--json"], LegendaryCli.ListOwnedArgs());
+    }
+
+    [Fact]
+    public void Legendary_AuthArgs_UseNormalInteractiveFlowWithoutImport()
+    {
+        Assert.Equal(["auth"], LegendaryCli.AuthArgs());
+    }
+
+    [Theory]
+    [InlineData(0, "[]", true)]
+    [InlineData(0, "{\"games\":[]}", true)]
+    [InlineData(1, "[]", false)]
+    [InlineData(0, "", false)]
+    [InlineData(0, "null", false)]
+    [InlineData(0, "{}", false)]
+    [InlineData(0, "{\"error\":\"authentication required\"}", false)]
+    [InlineData(0, "not json", false)]
+    public void Legendary_AuthValidation_RequiresSuccessfulLibraryJson(
+        int exitCode,
+        string stdout,
+        bool expected)
+    {
+        Assert.Equal(expected, LegendaryCli.IsAuthenticatedLibraryResponse(exitCode, stdout));
     }
 
     [Fact]
@@ -194,5 +312,49 @@ public class CliHelperTests
         Assert.False(disco.Installed);
         var celeste = Assert.Single(merged, g => g.Id == "1423049311");
         Assert.True(celeste.Installed);
+    }
+
+    [Fact]
+    public void Gogdl_HeroicLibraryCachePath_UsesCurrentRoamingStoreCacheLocation()
+    {
+        var path = GogdlCli.HeroicLibraryCachePath(@"C:\Users\Player One\AppData\Roaming");
+
+        Assert.Equal(
+            @"C:\Users\Player One\AppData\Roaming\heroic\store_cache\gog_library.json",
+            path);
+    }
+
+    [Fact]
+    public void Gogdl_ParseOwnedLibrary_AcceptsCurrentHeroicStoreCacheShape()
+    {
+        const string heroicCache = """
+            {
+              "games": [
+                {
+                  "app_name": "1423049311",
+                  "title": "Cyberpunk 2077",
+                  "runner": "gog",
+                  "is_installed": false,
+                  "install": {}
+                }
+              ]
+            }
+            """;
+
+        var games = GogdlCli.ParseOwnedLibraryJson(heroicCache);
+
+        var game = Assert.Single(games);
+        Assert.Equal("1423049311", game.Id);
+        Assert.Equal("Cyberpunk 2077", game.Title);
+        Assert.False(game.Installed);
+        Assert.Null(game.InstallPath);
+    }
+
+    [Theory]
+    [InlineData("{\"games\":{}}")]
+    [InlineData("{\"games\":[null,{}]}")]
+    public void Gogdl_ParseOwnedLibrary_GracefullySkipsMalformedHeroicCacheRows(string heroicCache)
+    {
+        Assert.Empty(GogdlCli.ParseOwnedLibraryJson(heroicCache));
     }
 }

@@ -19,13 +19,59 @@
     <!-- Compile pure adapter helpers + models into the test project (no WinUI host dependency). -->
     <Compile Include="..\..\ExoLauncher\Adapters\Cli\**\*.cs" Link="Adapters\Cli\%(Filename)%(Extension)" />
     <Compile Include="..\..\ExoLauncher\Models\GameEntry.cs" Link="Models\GameEntry.cs" />
+    <Compile Include="..\..\ExoLauncher\Models\AchievementModels.cs" Link="Models\AchievementModels.cs" />
     <Compile Include="..\..\ExoLauncher\Adapters\IStoreAdapter.cs" Link="Adapters\IStoreAdapter.cs" />
     <Compile Include="..\..\ExoLauncher\Adapters\ProcessHelper.cs" Link="Adapters\ProcessHelper.cs" />
+    <Compile Include="..\..\ExoLauncher\Adapters\StoreClientCleanup.cs" Link="Adapters\StoreClientCleanup.cs" />
+    <Compile Include="..\..\ExoLauncher\Adapters\StoreWindowHider.cs" Link="Adapters\StoreWindowHider.cs" />
+    <Compile Include="..\..\ExoLauncher\Adapters\StoreAudioSilencer.cs" Link="Adapters\StoreAudioSilencer.cs" />
+    <Compile Include="..\..\ExoLauncher\Adapters\StoreUninstallPromptAutomator.cs" Link="Adapters\StoreUninstallPromptAutomator.cs" />
+    <Compile Include="..\..\ExoLauncher\Adapters\HiddenStoreRuntime.cs" Link="Adapters\HiddenStoreRuntime.cs" />
+    <Compile Include="..\..\ExoLauncher\Adapters\SteamStateFlags.cs" Link="Adapters\SteamStateFlags.cs" />
+    <Compile Include="..\..\ExoLauncher\Adapters\SteamProcessPath.cs" Link="Adapters\SteamProcessPath.cs" />
+    <Compile Include="..\..\ExoLauncher\Adapters\SteamPlaytime.cs" Link="Adapters\SteamPlaytime.cs" />
+    <Compile Include="..\..\ExoLauncher\Services\PlaytimeService.cs" Link="Services\PlaytimeService.cs" />
     <Compile Include="..\..\ExoLauncher\Adapters\LocalAdapter.cs" Link="Adapters\LocalAdapter.cs" />
+    <Compile Include="..\..\ExoLauncher\Adapters\GogAdapter.cs" Link="Adapters\GogAdapter.cs" />
+    <Compile Include="..\..\ExoLauncher\Adapters\RiotInstallProbe.cs" Link="Adapters\RiotInstallProbe.cs" />
+    <Compile Include="..\..\ExoLauncher\Adapters\RiotAdapter.cs" Link="Adapters\RiotAdapter.cs" />
+    <Compile Include="..\..\ExoLauncher\Adapters\Riot\RiotClientApi.cs" Link="Adapters\Riot\RiotClientApi.cs" />
+    <Compile Include="..\..\ExoLauncher\Adapters\EpicAdapter.cs" Link="Adapters\EpicAdapter.cs" />
+    <Compile Include="..\..\ExoLauncher\Adapters\EpicEglMerge.cs" Link="Adapters\EpicEglMerge.cs" />
+    <Compile Include="..\..\ExoLauncher\Adapters\EpicPlaytime.cs" Link="Adapters\EpicPlaytime.cs" />
+    <!-- LibraryService StoreMatrix helpers need this when linked into tests -->
     <Compile Include="..\..\ExoLauncher\Helpers\PathHelper.cs" Link="Helpers\PathHelper.cs" />
+    <Compile Include="..\..\ExoLauncher\Helpers\AppLog.cs" Link="Helpers\AppLog.cs" />
+    <Compile Include="..\..\ExoLauncher\Helpers\RecursiveDeleteGuard.cs" Link="Helpers\RecursiveDeleteGuard.cs" />
+    <Compile Include="..\..\ExoLauncher\Helpers\WebViewTrustPolicy.cs" Link="Helpers\WebViewTrustPolicy.cs" />
     <Compile Include="..\..\ExoLauncher\Services\LaunchOrchestrator.cs" Link="Services\LaunchOrchestrator.cs" />
+    <Compile Include="..\..\ExoLauncher\Services\GameProcessRegistry.cs" Link="Services\GameProcessRegistry.cs" />
     <Compile Include="..\..\ExoLauncher\Services\LibraryService.cs" Link="Services\LibraryService.cs" />
+    <Compile Include="..\..\ExoLauncher\Services\SteamOwnershipCatalog.cs" Link="Services\SteamOwnershipCatalog.cs" />
+    <Compile Include="..\..\ExoLauncher\Services\InstalledGameCatalog.cs" Link="Services\InstalledGameCatalog.cs" />
+    <Compile Include="..\..\ExoLauncher\Services\CoverArtService.cs" Link="Services\CoverArtService.cs" />
+    <Compile Include="..\..\ExoLauncher\Services\EpicCatalogArt.cs" Link="Services\EpicCatalogArt.cs" />
+    <Compile Include="..\..\ExoLauncher\Services\EpicCatCacheArt.cs" Link="Services\EpicCatCacheArt.cs" />
+    <Compile Include="..\..\ExoLauncher\Services\GogOwnedLibraryService.cs" Link="Services\GogOwnedLibraryService.cs" />
+    <Compile Include="..\..\ExoLauncher\Services\StoreSearchService.cs" Link="Services\StoreSearchService.cs" />
     <Compile Include="..\..\ExoLauncher\Services\SettingsService.cs" Link="Services\SettingsService.cs" />
+    <Compile Include="..\..\ExoLauncher\Services\LegacyProfileDataCleanup.cs" Link="Services\LegacyProfileDataCleanup.cs" />
+    <Compile Include="..\..\ExoLauncher\Services\TrophyNotificationLayout.cs" Link="Services\TrophyNotificationLayout.cs" />
+    <Compile Include="..\..\ExoLauncher\Services\TrophyNotificationService.cs" Link="Services\TrophyNotificationService.cs" />
+    <Compile Include="..\..\ExoLauncher\Services\TrophyRarity.cs" Link="Services\TrophyRarity.cs" />
+    <Compile Include="..\..\ExoLauncher\Services\AchievementIconCache.cs" Link="Services\AchievementIconCache.cs" />
+    <Compile Include="..\..\ExoLauncher\Services\TrophySoundPlayer.cs" Link="Services\TrophySoundPlayer.cs" />
+    <Compile Include="..\..\ExoLauncher\Services\NotificationAreaIcon.cs" Link="Services\NotificationAreaIcon.cs" />
+    <Compile Include="..\..\ExoLauncher\Services\AppUpdateService.cs" Link="Services\AppUpdateService.cs" />
+    <Compile Include="..\..\ExoLauncher\Services\VerifiedGitHubReleaseDownloader.cs" Link="Services\VerifiedGitHubReleaseDownloader.cs" />
     <Compile Include="..\..\ExoLauncher\Services\DependencyService.cs" Link="Services\DependencyService.cs" />
+    <Compile Include="..\..\ExoLauncher\Services\AchievementService.cs" Link="Services\AchievementService.cs" />
+    <Compile Include="..\..\ExoLauncher\Services\Achievements\**\*.cs" Link="Services\Achievements\%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="..\..\ExoLauncher\Assets\Audio\exo-achievement-unlock.wav"
+             Link="Assets\Audio\exo-achievement-unlock.wav"
+             CopyToOutputDirectory="Always" />
   </ItemGroup>
 </Project>

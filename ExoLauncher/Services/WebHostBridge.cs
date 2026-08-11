@@ -1,5 +1,9 @@
+using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using ExoLauncher.Adapters;
+using ExoLauncher.Adapters.Cli;
+using ExoLauncher.Helpers;
 using ExoLauncher.Models;
 using Microsoft.UI.Dispatching;
 using Microsoft.Web.WebView2.Core;
@@ -15,6 +19,8 @@ public sealed class WebHostBridge
     private readonly AppServices _services;
     private readonly DispatcherQueue _queue;
     private CoreWebView2? _web;
+    private CancellationTokenSource? _searchCts;
+    private bool _detached;
 
     private static readonly JsonSerializerOptions JsonOpts = new()
     {
@@ -28,26 +34,76 @@ public sealed class WebHostBridge
         _services = services;
         _queue = queue;
         _services.Launcher.ProgressChanged += OnProgress;
+        _services.Launcher.GameSessionCompleted += OnGameSessionCompleted;
+        _services.Library.LibraryUpdated += OnLibraryUpdated;
+        _services.Achievements.SnapshotUpdated += OnAchievementSnapshotUpdated;
     }
 
     public void Attach(CoreWebView2 web)
     {
+        _services.GogAuth.AttachDispatcher(_queue);
         _web = web;
         web.WebMessageReceived += OnMessage;
     }
 
     public void Detach()
     {
-        if (_web is null) return;
-        try { _web.WebMessageReceived -= OnMessage; } catch { }
+        if (_detached) return;
+        _detached = true;
+        if (_web is not null)
+        {
+            try { _web.WebMessageReceived -= OnMessage; } catch { }
+        }
         _web = null;
+        _services.Launcher.ProgressChanged -= OnProgress;
+        _services.Launcher.GameSessionCompleted -= OnGameSessionCompleted;
+        _services.Library.LibraryUpdated -= OnLibraryUpdated;
+        _services.Achievements.SnapshotUpdated -= OnAchievementSnapshotUpdated;
+        var search = Interlocked.Exchange(ref _searchCts, null);
+        try { search?.Cancel(); } catch { }
+        search?.Dispose();
     }
 
     private void OnProgress(InstallProgress p) =>
         PostEvent("install.progress", MapProgress(p));
 
+    private void OnGameSessionCompleted(GameEntry game) =>
+        PostEvent("launch.status", new
+        {
+            gameId = game.Id,
+            ok = true,
+            message = "Game closed.",
+            phase = "stopped",
+        });
+
+    private void OnAchievementSnapshotUpdated(AchievementSnapshot snapshot) =>
+        PostEvent("achievements.updated", MapAchievementSnapshot(snapshot, includeEntries: true));
+
+    private void OnLibraryUpdated()
+    {
+        try
+        {
+            var games = _services.Library.RefreshCovers();
+            PostEvent("library.updated", new
+            {
+                games = games.Select(game => MapGame(game)).ToList(),
+                count = games.Count,
+            });
+        }
+        catch (Exception ex)
+        {
+            AppLog.Debug("library.updated failed: " + ex.Message);
+        }
+    }
+
     private void OnMessage(CoreWebView2 sender, CoreWebView2WebMessageReceivedEventArgs e)
     {
+        if (!WebViewTrustPolicy.IsTrustedAppUri(e.Source))
+        {
+            AppLog.Warn("Blocked a privileged WebView message from an untrusted origin.");
+            return;
+        }
+
         string? raw = null;
         try { raw = e.TryGetWebMessageAsString(); } catch { }
         if (string.IsNullOrWhiteSpace(raw))
@@ -78,20 +134,33 @@ public sealed class WebHostBridge
                 "library.refresh" => await LibraryGetAsync(paramsEl, hasParams: true, force: true).ConfigureAwait(true),
                 "game.get" => await GameGetAsync(paramsEl, hasParams).ConfigureAwait(true),
                 "game.launch" => await GameLaunchAsync(paramsEl, hasParams).ConfigureAwait(true),
+                "game.stop" => await GameStopAsync(paramsEl, hasParams).ConfigureAwait(true),
                 "game.install" => await GameInstallAsync(paramsEl, hasParams).ConfigureAwait(true),
                 "game.update" => await GameUpdateAsync(paramsEl, hasParams).ConfigureAwait(true),
+                "game.uninstall" => await GameUninstallAsync(paramsEl, hasParams).ConfigureAwait(true),
+                "game.openFolder" => GameOpenFolder(paramsEl, hasParams),
+                "game.toggleFavorite" => GameToggleFavorite(paramsEl, hasParams),
                 "game.cancelInstall" => _services.Launcher.Cancel(),
                 "game.progress" => GameProgress(paramsEl, hasParams),
+                "achievements.get" => AchievementGet(paramsEl, hasParams),
+                "achievements.refresh" => await AchievementRefreshAsync(paramsEl, hasParams).ConfigureAwait(true),
+                "stores.auth" => await StoresAuthAsync(paramsEl, hasParams).ConfigureAwait(true),
+                "stores.search" => await StoresSearchAsync(paramsEl, hasParams).ConfigureAwait(true),
                 "deps.list" => DepsList(),
                 "deps.offerInstall" => DepsOfferInstall(paramsEl, hasParams),
                 "stores.matrix" => _services.Library.StoreMatrix(),
                 "settings.get" => BuildSettings(),
                 "settings.set" => SetSettings(paramsEl, hasParams),
-                "shell.minimize" => MinimizeWindow(),
+                "trophies.preview" => PreviewTrophyNotification(),
+                "shell.minimize" => HideToNotificationArea(),
                 "shell.close" => CloseWindow(),
                 "shell.openUrl" => OpenUrl(paramsEl, hasParams),
+                "shell.openPath" => OpenPath(paramsEl, hasParams),
+                "shell.showStore" => await ShowStoreAsync(paramsEl, hasParams).ConfigureAwait(true),
                 "shell.pickFolder" => await PickFolderAsync(paramsEl, hasParams).ConfigureAwait(true),
                 "app.version" => new { version = _services.AppVersion },
+                "app.checkUpdate" => await CheckUpdateAsync().ConfigureAwait(true),
+                "app.installUpdate" => await InstallUpdateAsync().ConfigureAwait(true),
                 _ => throw new InvalidOperationException($"Unknown method: {method}")
             };
 
@@ -99,6 +168,7 @@ public sealed class WebHostBridge
         }
         catch (Exception ex)
         {
+            AppLog.Warn($"RPC {id}: {ex.Message}");
             if (id is not null)
                 PostResponse(id, ok: false, error: ex.Message);
         }
@@ -111,16 +181,384 @@ public sealed class WebHostBridge
             force = true;
 
         var games = await _services.Library.GetLibraryAsync(force).ConfigureAwait(true);
+        var settings = _services.Settings.Current;
         return new
         {
-            games = games.Select(MapGame).ToList(),
+            games = games.Select(game => MapGame(game)).ToList(),
             count = games.Count,
             stores = _services.Library.StoreMatrix(),
             progress = MapProgress(_services.Launcher.CurrentProgress),
+            sortMode = settings.SortMode,
+            favorites = settings.Favorites,
+            recent = settings.Recent,
         };
     }
 
     private async Task<object> GameGetAsync(JsonElement p, bool hasParams)
+    {
+        var gameId = ReadString(p, hasParams, "id");
+        if (string.IsNullOrWhiteSpace(gameId))
+            return new { ok = false, message = "Missing game id." };
+
+        var game = _services.Library.Find(gameId!);
+        if (game is null)
+        {
+            await _services.Library.GetLibraryAsync().ConfigureAwait(true);
+            game = _services.Library.Find(gameId!);
+        }
+        if (game is null)
+            return new { ok = false, message = "Game not found." };
+
+        return new { ok = true, game = MapGame(game, discoverExternalRunningGame: true) };
+    }
+
+    private async Task<object> GameLaunchAsync(JsonElement p, bool hasParams)
+    {
+        var gameId = ReadString(p, hasParams, "id");
+        if (string.IsNullOrWhiteSpace(gameId))
+            return new { ok = false, message = "Missing game id." };
+
+        var game = _services.Library.Find(gameId!);
+        if (game is null)
+        {
+            await _services.Library.GetLibraryAsync().ConfigureAwait(true);
+            game = _services.Library.Find(gameId!);
+        }
+        if (game is null)
+            return new { ok = false, message = "Game not found. Refresh the library." };
+
+        PostEvent("launch.status", new
+        {
+            gameId = game.Id,
+            ok = true,
+            message = "Preparing launch…",
+            phase = "preparing",
+        });
+
+        var skipDeps = ReadBool(p, hasParams, "skipDeps") == true;
+        var launchTask = _services.Launcher.LaunchAsync(game, skipDeps);
+        var first = await Task.WhenAny(launchTask, Task.Delay(450)).ConfigureAwait(true);
+        var hiddenForLaunch = first != launchTask;
+        if (hiddenForLaunch)
+        {
+            try { App.MainAppWindow?.HideForGameplay(); } catch { }
+        }
+        var result = await launchTask.ConfigureAwait(true);
+
+        PostEvent("launch.status", new
+        {
+            gameId = game.Id,
+            ok = result.Ok,
+            message = result.Ok
+                ? (string.IsNullOrWhiteSpace(result.Message) ? "Running" : result.Message)
+                : result.Message,
+            processId = result.ProcessId,
+            backendStarted = result.BackendStarted,
+            handoffOnly = result.HandoffOnly,
+            needsDependencies = result.NeedsDependencies,
+            phase = result.Ok ? "running" : (result.NeedsDependencies ? "needsDeps" : (result.HandoffOnly ? "handoff" : "failed")),
+        });
+
+        // Keep Exo out of the way while playing, but leave an explicit restore
+        // affordance in the Windows notification area. Slow store handoffs are
+        // hidden above while they continue; a failed handoff restores the UI.
+        if (result.Ok)
+        {
+            if (!hiddenForLaunch)
+                try { App.MainAppWindow?.HideForGameplay(); } catch { }
+        }
+        else if (hiddenForLaunch)
+        {
+            try { App.MainAppWindow?.RestoreAndActivate(); } catch { }
+        }
+
+        return MapDepAwareResult(result);
+    }
+
+    private async Task<object> GameStopAsync(JsonElement p, bool hasParams)
+    {
+        var gameId = ReadString(p, hasParams, "id");
+        if (string.IsNullOrWhiteSpace(gameId))
+            return new { ok = false, message = "Missing game id." };
+
+        var game = _services.Library.Find(gameId!);
+        if (game is null)
+        {
+            await _services.Library.GetLibraryAsync().ConfigureAwait(true);
+            game = _services.Library.Find(gameId!);
+        }
+        if (game is null)
+            return new { ok = false, message = "Game not found. Refresh the library." };
+
+        var result = await _services.Launcher.StopGameAsync(game).ConfigureAwait(true);
+        PostEvent("launch.status", new
+        {
+            gameId = game.Id,
+            ok = result.Ok,
+            message = result.Message,
+            phase = result.Ok ? "stopped" : "stopFailed",
+        });
+        return new { ok = result.Ok, message = result.Message };
+    }
+
+    private async Task<object> GameInstallAsync(JsonElement p, bool hasParams)
+    {
+        var gameId = ReadString(p, hasParams, "id");
+        if (string.IsNullOrWhiteSpace(gameId))
+            return new { ok = false, message = "Missing game id." };
+
+        // Auto root: Settings override → %LOCALAPPDATA%\ExoLauncher\Games
+        var path = ReadString(p, hasParams, "path");
+        if (string.IsNullOrWhiteSpace(path))
+            path = _services.Settings.Current.DefaultInstallRoot;
+        if (string.IsNullOrWhiteSpace(path))
+            path = Helpers.PathHelper.GamesRoot;
+
+        var skipDeps = ReadBool(p, hasParams, "skipDeps") == true;
+
+        await _services.Library.GetLibraryAsync().ConfigureAwait(true);
+        var game = _services.Library.Find(gameId!)
+                   ?? TrySynthesizeFromId(gameId!, p, hasParams);
+        if (game is null)
+            return new { ok = false, message = "Game not found. Refresh the library or pick a store result." };
+
+        var result = await _services.Launcher.InstallAsync(game, path, skipDeps).ConfigureAwait(true);
+        if (result.Ok)
+            _services.Library.Invalidate();
+
+        return new
+        {
+            ok = result.Ok,
+            message = result.Message,
+            path = result.Path,
+            handoffOnly = result.HandoffOnly,
+            needsDependencies = result.NeedsDependencies,
+            missingDependencies = MapMissingDeps(result.MissingDependencies),
+            progress = MapProgress(_services.Launcher.CurrentProgress),
+        };
+    }
+
+    /// <summary>Install from Store search when the title is not in the library yet.</summary>
+    private static GameEntry? TrySynthesizeFromId(string gameId, JsonElement p, bool hasParams)
+    {
+        var title = ReadString(p, hasParams, "title") ?? gameId;
+        if (gameId.StartsWith("steam:", StringComparison.OrdinalIgnoreCase))
+        {
+            var appId = gameId["steam:".Length..];
+            if (!appId.All(char.IsDigit)) return null;
+            return new GameEntry
+            {
+                Id = gameId,
+                Title = title,
+                Store = StoreKind.Steam,
+                Installed = false,
+                // Search results are not proof of ownership; never present Install
+                // for a Steam title just because an app id was supplied.
+                Owned = false,
+                CanInstall = false,
+                LaunchTarget = appId,
+                CoverUrl = null,
+                Status = "Not installed",
+                Deps = Array.Empty<string>(),
+                LaunchNote = "",
+            };
+        }
+        if (gameId.StartsWith("epic:", StringComparison.OrdinalIgnoreCase))
+        {
+            var app = gameId["epic:".Length..];
+            return new GameEntry
+            {
+                Id = gameId,
+                Title = title,
+                Store = StoreKind.Epic,
+                Installed = false,
+                Owned = true,
+                CanInstall = true,
+                LaunchTarget = app,
+                Status = "Not installed",
+                Deps = Array.Empty<string>(),
+                LaunchNote = "",
+            };
+        }
+        if (gameId.StartsWith("gog:", StringComparison.OrdinalIgnoreCase))
+        {
+            var app = gameId["gog:".Length..];
+            return new GameEntry
+            {
+                Id = gameId,
+                Title = title,
+                Store = StoreKind.Gog,
+                Installed = false,
+                Owned = true,
+                CanInstall = true,
+                LaunchTarget = app,
+                Status = "Not installed",
+                Deps = Array.Empty<string>(),
+                LaunchNote = "",
+            };
+        }
+        return null;
+    }
+
+    private async Task<object> StoresSearchAsync(JsonElement p, bool hasParams)
+    {
+        var q = ReadString(p, hasParams, "query") ?? ReadString(p, hasParams, "q") ?? "";
+        if (string.IsNullOrWhiteSpace(q) || q.Trim().Length < 2)
+            return new { ok = true, query = q, results = Array.Empty<object>(), count = 0 };
+
+        var query = q.Trim();
+        try { _searchCts?.Cancel(); } catch { /* */ }
+        try { _searchCts?.Dispose(); } catch { /* */ }
+        _searchCts = new CancellationTokenSource();
+        var ct = _searchCts.Token;
+
+        void PublishPartial(IReadOnlyList<StoreSearchHit> hits)
+        {
+            try
+            {
+                WarmSearchCovers(query, hits, ct);
+                PostEvent("stores.search.partial", new
+                {
+                    query,
+                    results = hits.Select(MapSearchHit).ToList(),
+                });
+            }
+            catch (Exception ex)
+            {
+                AppLog.Debug("stores.search.partial failed: " + ex.Message);
+            }
+        }
+
+        try
+        {
+            // Never block search on a full library rescan — use cache, warm if empty once.
+            var lib = _services.Library.PeekCachedLibrary();
+            if (lib.Count == 0)
+                lib = await _services.Library.GetLibraryAsync().ConfigureAwait(true);
+            var hits = await _services.StoreSearch
+                .SearchAsync(query, lib, ct, PublishPartial)
+                .ConfigureAwait(true);
+            if (ct.IsCancellationRequested)
+                return new { ok = true, query, results = Array.Empty<object>(), count = 0, cancelled = true };
+
+            // Pull the official art for these titles now and push it back when it
+            // lands, so results fill in instead of staying as monograms.
+            WarmSearchCovers(query, hits, ct);
+
+            return new
+            {
+                ok = true,
+                query,
+                count = hits.Count,
+                results = hits.Select(MapSearchHit).ToList(),
+            };
+        }
+        catch (OperationCanceledException)
+        {
+            // Do not wipe UI results — client ignores cancelled:true and keeps prior hits.
+            return new { ok = true, query, results = Array.Empty<object>(), count = 0, cancelled = true };
+        }
+    }
+
+    private void WarmSearchCovers(string query, IReadOnlyList<StoreSearchHit> hits, CancellationToken ct)
+    {
+        var needsArt = hits
+            .Where(h => !CoverArtService.IsUiLoadableCoverUrl(h.CoverUrl))
+            .Select(SearchHitEntry)
+            .Where(g => CoverArtService.ResolvePreferredUrl(g) is null)
+            .ToList();
+        if (needsArt.Count == 0) return;
+
+        _ = CoverArtService.WarmCacheAsync(needsArt, requested: true, onBatchDone: () =>
+        {
+            if (ct.IsCancellationRequested) return;
+            try
+            {
+                PostEvent("stores.search.partial", new
+                {
+                    query,
+                    results = hits.Select(MapSearchHit).ToList(),
+                });
+            }
+            catch (Exception ex)
+            {
+                AppLog.Debug("search cover push failed: " + ex.Message);
+            }
+        });
+    }
+
+    /// <summary>Search hits carry no art of their own; resolve through the same
+    /// official-cover cache the library uses so results are not bare monograms.</summary>
+    private static GameEntry SearchHitEntry(StoreSearchHit h) => new()
+    {
+        Id = h.Id,
+        Title = h.Title,
+        Store = h.Store,
+        LaunchTarget = h.LaunchTarget,
+        Installed = h.Installed,
+        Owned = h.Owned,
+        CanInstall = h.CanInstall,
+    };
+
+    private static object MapSearchHit(StoreSearchHit h) => new
+    {
+        id = h.Id,
+        title = h.Title,
+        store = h.Store.ToString().ToLowerInvariant(),
+        launchTarget = h.LaunchTarget,
+        coverUrl = CoverArtService.IsUiLoadableCoverUrl(h.CoverUrl)
+            ? h.CoverUrl
+            : CoverArtService.ResolvePreferredUrl(SearchHitEntry(h))
+              ?? CoverArtService.ProvisionalSteamPosterUrl(SearchHitEntry(h)),
+        coverSource = h.CoverSource,
+        owned = h.Owned,
+        installed = h.Installed,
+        canInstall = h.CanInstall,
+        source = h.Source,
+    };
+
+    private async Task<object> GameUpdateAsync(JsonElement p, bool hasParams)
+    {
+        var gameId = ReadString(p, hasParams, "id");
+        if (string.IsNullOrWhiteSpace(gameId))
+            return new { ok = false, message = "Missing game id." };
+
+        try
+        {
+            await _services.Library.GetLibraryAsync().ConfigureAwait(true);
+            var game = _services.Library.Find(gameId!);
+            if (game is null)
+                return new { ok = false, message = "Game not found. Refresh the library." };
+
+            var skipDeps = ReadBool(p, hasParams, "skipDeps") == true;
+            var result = await _services.Launcher.UpdateAsync(game, skipDeps).ConfigureAwait(true);
+            if (result.Ok)
+                _services.Library.Invalidate();
+
+            return new
+            {
+                ok = result.Ok,
+                message = result.Message,
+                path = result.Path,
+                handoffOnly = result.HandoffOnly,
+                needsDependencies = result.NeedsDependencies,
+                missingDependencies = MapMissingDeps(result.MissingDependencies),
+                progress = MapProgress(_services.Launcher.CurrentProgress),
+            };
+        }
+        catch (Exception ex)
+        {
+            AppLog.Warn($"game.update failed: {ex}");
+            return new
+            {
+                ok = false,
+                message = "Update failed: " + ex.Message,
+                progress = MapProgress(_services.Launcher.CurrentProgress),
+            };
+        }
+    }
+
+    private async Task<object> GameUninstallAsync(JsonElement p, bool hasParams)
     {
         var gameId = ReadString(p, hasParams, "id");
         if (string.IsNullOrWhiteSpace(gameId))
@@ -131,91 +569,87 @@ public sealed class WebHostBridge
         if (game is null)
             return new { ok = false, message = "Game not found." };
 
-        return new { ok = true, game = MapGame(game) };
+        var result = await _services.Launcher.UninstallAsync(game).ConfigureAwait(true);
+        if (result.Ok)
+            _services.Library.Invalidate();
+        return new { ok = result.Ok, message = result.Message };
     }
 
-    private async Task<object> GameLaunchAsync(JsonElement p, bool hasParams)
+    private object GameOpenFolder(JsonElement p, bool hasParams)
     {
         var gameId = ReadString(p, hasParams, "id");
         if (string.IsNullOrWhiteSpace(gameId))
             return new { ok = false, message = "Missing game id." };
 
-        await _services.Library.GetLibraryAsync().ConfigureAwait(true);
         var game = _services.Library.Find(gameId!);
         if (game is null)
-            return new { ok = false, message = "Game not found. Refresh the library." };
+            return new { ok = false, message = "Game not found. Refresh first." };
 
-        if (_services.Settings.Current.MinimizeWhilePlaying)
-            MinimizeWindow();
-
-        var result = await _services.Launcher.LaunchAsync(game).ConfigureAwait(true);
-        PostEvent("launch.status", new
+        var path = game.Path;
+        if (string.IsNullOrWhiteSpace(path) || !Directory.Exists(path))
         {
-            id = game.Id,
-            ok = result.Ok,
-            message = result.Message,
-            processId = result.ProcessId,
-            backendStarted = result.BackendStarted,
-        });
+            if (!string.IsNullOrWhiteSpace(game.LaunchTarget) && File.Exists(game.LaunchTarget))
+                path = Path.GetDirectoryName(game.LaunchTarget);
+        }
 
+        if (string.IsNullOrWhiteSpace(path) || !Directory.Exists(path))
+            return new { ok = false, message = "Install folder not found." };
+
+        try
+        {
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = "explorer.exe",
+                Arguments = $"\"{path}\"",
+                UseShellExecute = true,
+            });
+            return new { ok = true, path };
+        }
+        catch (Exception ex)
+        {
+            return new { ok = false, message = ex.Message };
+        }
+    }
+
+    private object GameToggleFavorite(JsonElement p, bool hasParams)
+    {
+        var gameId = ReadString(p, hasParams, "id");
+        if (string.IsNullOrWhiteSpace(gameId))
+            return new { ok = false, message = "Missing game id." };
+        _services.Settings.ToggleFavorite(gameId!);
+        var settings = _services.Settings.Current;
         return new
         {
-            ok = result.Ok,
-            message = result.Message,
-            processId = result.ProcessId,
-            backendStarted = result.BackendStarted,
+            ok = true,
+            isFavorite = _services.Settings.IsFavorite(gameId!),
+            favorites = settings.Favorites,
         };
     }
 
-    private async Task<object> GameInstallAsync(JsonElement p, bool hasParams)
+    private async Task<object> StoresAuthAsync(JsonElement p, bool hasParams)
     {
-        var gameId = ReadString(p, hasParams, "id");
-        if (string.IsNullOrWhiteSpace(gameId))
-            return new { ok = false, message = "Missing game id." };
+        var storeId = ReadString(p, hasParams, "store");
+        if (string.IsNullOrWhiteSpace(storeId))
+            return new { ok = false, message = "Missing store id." };
 
-        var path = ReadString(p, hasParams, "path");
+        var adapter = _services.FindAdapterById(storeId!);
+        if (adapter is null)
+            return new { ok = false, message = "Unknown store." };
 
-        await _services.Library.GetLibraryAsync().ConfigureAwait(true);
-        var game = _services.Library.Find(gameId!);
-        if (game is null)
-            return new { ok = false, message = "Game not found. Refresh the library." };
-
-        // Fire-and-forget long install? No — await so the RPC returns the result,
-        // while progress events stream via install.progress.
-        var result = await _services.Launcher.InstallAsync(game, path).ConfigureAwait(true);
-        if (result.Ok)
-            _services.Library.Invalidate();
+        var result = await adapter.AuthenticateAsync().ConfigureAwait(true);
+        if (result.Ok &&
+            (string.Equals(storeId, "epic", StringComparison.OrdinalIgnoreCase) ||
+             string.Equals(storeId, "gog", StringComparison.OrdinalIgnoreCase)))
+        {
+            try { _services.StoreSearch.InvalidateOwnedCaches(); }
+            catch { /* */ }
+        }
 
         return new
         {
             ok = result.Ok,
             message = result.Message,
-            path = result.Path,
-            progress = MapProgress(_services.Launcher.CurrentProgress),
-        };
-    }
-
-    private async Task<object> GameUpdateAsync(JsonElement p, bool hasParams)
-    {
-        var gameId = ReadString(p, hasParams, "id");
-        if (string.IsNullOrWhiteSpace(gameId))
-            return new { ok = false, message = "Missing game id." };
-
-        await _services.Library.GetLibraryAsync().ConfigureAwait(true);
-        var game = _services.Library.Find(gameId!);
-        if (game is null)
-            return new { ok = false, message = "Game not found. Refresh the library." };
-
-        var result = await _services.Launcher.UpdateAsync(game).ConfigureAwait(true);
-        if (result.Ok)
-            _services.Library.Invalidate();
-
-        return new
-        {
-            ok = result.Ok,
-            message = result.Message,
-            path = result.Path,
-            progress = MapProgress(_services.Launcher.CurrentProgress),
+            requiresUserAction = result.RequiresUserAction,
         };
     }
 
@@ -249,14 +683,31 @@ public sealed class WebHostBridge
     private object BuildSettings()
     {
         var s = _services.Settings.Current;
+        // Locked product defaults always reflected to the UI.
         return new
         {
             appVersion = _services.AppVersion,
-            closeStoreClientsAfterLaunch = s.CloseStoreClientsAfterLaunch,
-            autoInstallRedistributables = s.AutoInstallRedistributables,
+            closeStoreClientsAfterLaunch = true,
+            autoInstallRedistributables = true,
             minimizeWhilePlaying = s.MinimizeWhilePlaying,
             antiCheatSafeMode = true,
             theme = "amoled",
+            copyPortableIntoLibrary = false,
+            allowResize = false,
+            checkForUpdates = true,
+            sortMode = s.SortMode,
+            defaultInstallRoot = s.DefaultInstallRoot,
+            favorites = s.Favorites,
+            recent = s.Recent,
+            onboardingComplete = s.OnboardingComplete,
+            trophyNotificationsEnabled = s.TrophyNotificationsEnabled,
+            trophyNotificationPreset = s.TrophyNotificationPreset,
+            trophyNotificationPosition = s.TrophyNotificationPosition,
+            trophyNotificationPositionX = s.TrophyNotificationPositionX,
+            trophyNotificationPositionY = s.TrophyNotificationPositionY,
+            trophyNotificationDurationSeconds = s.TrophyNotificationDurationSeconds,
+            trophyNotificationSound = s.TrophyNotificationSound,
+            trophyNotificationSoundCue = s.TrophyNotificationSoundCue,
         };
     }
 
@@ -265,7 +716,13 @@ public sealed class WebHostBridge
         if (!hasParams || p.ValueKind != JsonValueKind.Object)
             return BuildSettings();
 
-        bool? close = null, auto = null, min = null;
+        bool? close = null, auto = null, min = null, copy = null, resize = null, updates = null, onboard = null;
+        bool? trophies = null, trophySound = null;
+        int? trophyDuration = null;
+        double? trophyPositionX = null, trophyPositionY = null;
+        string? sort = null, root = null, trophyPreset = null, trophyPosition = null;
+        string? trophySoundCue = null;
+
         if (p.TryGetProperty("closeStoreClientsAfterLaunch", out var c) &&
             (c.ValueKind is JsonValueKind.True or JsonValueKind.False))
             close = c.GetBoolean();
@@ -275,21 +732,113 @@ public sealed class WebHostBridge
         if (p.TryGetProperty("minimizeWhilePlaying", out var m) &&
             (m.ValueKind is JsonValueKind.True or JsonValueKind.False))
             min = m.GetBoolean();
-
-        _services.Settings.ApplyPatch(close, auto, min);
+        if (p.TryGetProperty("copyPortableIntoLibrary", out var cp) &&
+            (cp.ValueKind is JsonValueKind.True or JsonValueKind.False))
+            copy = cp.GetBoolean();
+        if (p.TryGetProperty("allowResize", out var ar) &&
+            (ar.ValueKind is JsonValueKind.True or JsonValueKind.False))
+            resize = ar.GetBoolean();
+        if (p.TryGetProperty("checkForUpdates", out var cu) &&
+            (cu.ValueKind is JsonValueKind.True or JsonValueKind.False))
+            updates = cu.GetBoolean();
+        if (p.TryGetProperty("onboardingComplete", out var ob) &&
+            (ob.ValueKind is JsonValueKind.True or JsonValueKind.False))
+            onboard = ob.GetBoolean();
+        if (p.TryGetProperty("sortMode", out var sm) && sm.ValueKind == JsonValueKind.String)
+            sort = sm.GetString();
+        if (p.TryGetProperty("defaultInstallRoot", out var dr))
+            root = dr.ValueKind == JsonValueKind.String ? dr.GetString() : (dr.ValueKind == JsonValueKind.Null ? "" : null);
+        if (p.TryGetProperty("trophyNotificationsEnabled", out var tn) &&
+            (tn.ValueKind is JsonValueKind.True or JsonValueKind.False))
+            trophies = tn.GetBoolean();
+        if (p.TryGetProperty("trophyNotificationSound", out var ts) &&
+            (ts.ValueKind is JsonValueKind.True or JsonValueKind.False))
+            trophySound = ts.GetBoolean();
+        if (p.TryGetProperty("trophyNotificationDurationSeconds", out var td) && td.TryGetInt32(out var seconds))
+            trophyDuration = seconds;
+        if (p.TryGetProperty("trophyNotificationPreset", out var tp) && tp.ValueKind == JsonValueKind.String)
+            trophyPreset = tp.GetString();
+        if (p.TryGetProperty("trophyNotificationPosition", out var tpos) && tpos.ValueKind == JsonValueKind.String)
+            trophyPosition = tpos.GetString();
+        if (p.TryGetProperty("trophyNotificationPositionX", out var tposX) && tposX.TryGetDouble(out var positionX))
+            trophyPositionX = positionX;
+        if (p.TryGetProperty("trophyNotificationPositionY", out var tposY) && tposY.TryGetDouble(out var positionY))
+            trophyPositionY = positionY;
+        if (p.TryGetProperty("trophyNotificationSoundCue", out var tsc) && tsc.ValueKind == JsonValueKind.String)
+            trophySoundCue = tsc.GetString();
+        _services.Settings.ApplyPatch(
+            closeStore: close,
+            autoRedist: auto,
+            minimizeWhilePlaying: min,
+            copyPortable: copy,
+            allowResize: resize,
+            checkUpdates: updates,
+            sortMode: sort,
+            defaultInstallRoot: root,
+            onboardingComplete: onboard,
+            trophyNotificationsEnabled: trophies,
+            trophyNotificationPreset: trophyPreset,
+            trophyNotificationPosition: trophyPosition,
+            trophyNotificationPositionX: trophyPositionX,
+            trophyNotificationPositionY: trophyPositionY,
+            trophyNotificationDurationSeconds: trophyDuration,
+            trophyNotificationSound: trophySound,
+            trophyNotificationSoundCue: trophySoundCue);
         return BuildSettings();
     }
 
-    private object MinimizeWindow()
+    private object AchievementGet(JsonElement p, bool hasParams)
+    {
+        var gameId = ReadString(p, hasParams, "id");
+        if (string.IsNullOrWhiteSpace(gameId))
+            return new { ok = false, message = "Missing game id." };
+        var game = _services.Library.Find(gameId!);
+        if (game is null)
+            return new { ok = false, message = "Game not found." };
+
+        // Persisted achievement state is a notification baseline, not current
+        // account authority. A shared PC may have switched Steam/Epic users
+        // since Exo last ran, so never expose an old account's count before a
+        // successful provider refresh for this detail view.
+        var coverage = _services.Achievements.GetCoverage(game);
+        return new
+        {
+            ok = true,
+            gameId = game.Id,
+            provider = coverage.ProviderId,
+            coverage = coverage.Status,
+            capabilities = coverage.Capabilities,
+            summary = (object?)null,
+            achievements = Array.Empty<object>(),
+            message = coverage.Message,
+        };
+    }
+
+    private async Task<object> AchievementRefreshAsync(JsonElement p, bool hasParams)
+    {
+        var gameId = ReadString(p, hasParams, "id");
+        if (string.IsNullOrWhiteSpace(gameId))
+            return new { ok = false, message = "Missing game id." };
+        var game = _services.Library.Find(gameId!);
+        if (game is null)
+            return new { ok = false, message = "Game not found." };
+
+        var snapshot = await _services.Achievements.RefreshAsync(game).ConfigureAwait(true);
+        return MapAchievementSnapshot(snapshot, includeEntries: true);
+    }
+
+    private object PreviewTrophyNotification()
+    {
+        void Show() => _services.TrophyNotifications.Preview();
+        if (!_queue.HasThreadAccess) _queue.TryEnqueue(Show); else Show();
+        return new { ok = true };
+    }
+
+    private object HideToNotificationArea()
     {
         void Go()
         {
-            try
-            {
-                if (App.MainAppWindow?.AppWindow.Presenter is Microsoft.UI.Windowing.OverlappedPresenter p)
-                    p.Minimize();
-            }
-            catch { }
+            try { App.MainAppWindow?.HideForGameplay(); } catch { }
         }
         if (!_queue.HasThreadAccess) _queue.TryEnqueue(Go); else Go();
         return new { ok = true };
@@ -300,21 +849,83 @@ public sealed class WebHostBridge
         void Go()
         {
             try { App.MainAppWindow?.Close(); } catch { }
+            // WinUI's dispatcher can outlive its final unpackaged window. End
+            // the application loop explicitly after Closed has flushed state;
+            // otherwise the user sees no window but Exo keeps its files locked.
+            try { Microsoft.UI.Xaml.Application.Current?.Exit(); } catch { }
         }
         if (!_queue.HasThreadAccess) _queue.TryEnqueue(Go); else Go();
         return new { ok = true };
     }
+
+    private static DateTimeOffset _lastSteamProtocolUtc = DateTimeOffset.MinValue;
+    private static string? _lastSteamProtocolUri;
 
     private object OpenUrl(JsonElement p, bool hasParams)
     {
         var url = ReadString(p, hasParams, "url");
         if (string.IsNullOrWhiteSpace(url)) return new { ok = false };
         if (!Uri.TryCreate(url, UriKind.Absolute, out var uri)) return new { ok = false };
-        if (uri.Scheme is not ("https" or "http")) return new { ok = false };
+        // http(s) for browser storefronts; steam:// for the Steam desktop client
+        // (Buy on Steam must land on the in-app store page, not Chrome).
+        if (uri.Scheme is not ("https" or "http" or "steam")) return new { ok = false };
         try
         {
-            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(uri.AbsoluteUri)
+            if (uri.Scheme.Equals("steam", StringComparison.OrdinalIgnoreCase))
+                return OpenSteamProtocol(uri.AbsoluteUri);
+
+            Process.Start(new ProcessStartInfo(uri.AbsoluteUri) { UseShellExecute = true });
+            return new { ok = true };
+        }
+        catch (Exception ex)
+        {
+            return new { ok = false, message = ex.Message };
+        }
+    }
+
+    /// <summary>
+    /// One protocol handoff + reveal main Steam chrome only. Do not restore
+    /// steamwebhelper windows — that spawned multiple Steam taskbar entries.
+    /// </summary>
+    private static object OpenSteamProtocol(string absoluteUri)
+    {
+        var now = DateTimeOffset.UtcNow;
+        if (string.Equals(absoluteUri, _lastSteamProtocolUri, StringComparison.OrdinalIgnoreCase) &&
+            now - _lastSteamProtocolUtc < TimeSpan.FromSeconds(2))
+            return new { ok = true, message = "Already opening Steam." };
+
+        _lastSteamProtocolUri = absoluteUri;
+        _lastSteamProtocolUtc = now;
+
+        HiddenStoreRuntime.SuspendFor(StoreKind.Steam, TimeSpan.FromMinutes(30));
+        ProcessHelper.StartProtocol(absoluteUri);
+
+        // Main steam.exe window only — helpers stay off the taskbar.
+        var chrome = StoreWindowHider.SteamMainProcessNames;
+        StoreWindowHider.RestoreStoreWindows(chrome);
+        _ = Task.Run(async () =>
+        {
+            // Brief settle while Steam creates the store HWND; two nudges max.
+            for (var i = 0; i < 2; i++)
             {
+                await Task.Delay(600).ConfigureAwait(false);
+                StoreWindowHider.RestoreStoreWindows(chrome);
+            }
+        });
+        return new { ok = true };
+    }
+
+    private object OpenPath(JsonElement p, bool hasParams)
+    {
+        var path = ReadString(p, hasParams, "path");
+        if (string.IsNullOrWhiteSpace(path) || !Directory.Exists(path) && !File.Exists(path))
+            return new { ok = false, message = "Path not found." };
+        try
+        {
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = "explorer.exe",
+                Arguments = File.Exists(path) ? $"/select,\"{path}\"" : $"\"{path}\"",
                 UseShellExecute = true,
             });
             return new { ok = true };
@@ -326,18 +937,124 @@ public sealed class WebHostBridge
     }
 
     /// <summary>
-    /// Folder picker for Local portable installs (and optional install path overrides).
-    /// Runs on the UI thread; returns cancelled when the user dismisses the dialog.
+    /// Settings → Open Steam / Epic / GOG / Riot. Suspends hide for that store,
+    /// starts the client if needed, and reveals its chrome.
     /// </summary>
+    private async Task<object> ShowStoreAsync(JsonElement p, bool hasParams)
+    {
+        // Yield the WebView RPC turn so Settings can paint "Opening…" first.
+        await Task.Yield();
+        var store = (ReadString(p, hasParams, "store") ?? "steam").Trim().ToLowerInvariant();
+        try
+        {
+            return store switch
+            {
+                "steam" => OpenVendorClient(
+                    StoreKind.Steam,
+                    StoreWindowHider.SteamMainProcessNames,
+                    SteamAdapter.TryResolveSteamExePublic(),
+                    args: "",
+                    missing: "Steam not found."),
+                "epic" => OpenVendorClient(
+                    StoreKind.Epic,
+                    StoreWindowHider.EpicProcessNames,
+                    ResolveEpicLauncherExe(),
+                    args: "",
+                    missing: "Epic Games Launcher not found."),
+                "gog" => OpenVendorClient(
+                    StoreKind.Gog,
+                    StoreWindowHider.GalaxyProcessNames,
+                    ResolveGalaxyExe(),
+                    args: "",
+                    missing: "GOG Galaxy not found."),
+                "riot" => OpenVendorClient(
+                    StoreKind.Riot,
+                    StoreWindowHider.RiotUiProcessNames,
+                    ResolveRiotClientExe(),
+                    args: "",
+                    missing: "Riot Client not found."),
+                _ => new { ok = false, message = "Unknown store." },
+            };
+        }
+        catch (Exception ex)
+        {
+            return new { ok = false, message = ex.Message };
+        }
+    }
+
+    private static object OpenVendorClient(
+        StoreKind kind,
+        string[] processNames,
+        string? exe,
+        string args,
+        string missing)
+    {
+        // Do not fight the user for a while after they asked to open the client.
+        HiddenStoreRuntime.SuspendFor(kind, TimeSpan.FromMinutes(30));
+
+        if (string.IsNullOrWhiteSpace(exe) || !File.Exists(exe))
+            return new { ok = false, message = missing };
+
+        // Cold Epic/Riot clients can spend several seconds starting helpers.
+        // Queue all shell work so the Settings bridge responds immediately.
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                // Re-invoke the main executable even when a helper process is
+                // already alive. All supported clients are single-instance;
+                // this both cold-starts them and asks an existing instance to
+                // surface its main window. An orphan helper must not suppress
+                // the explicit Settings -> Open action.
+                using var started = Process.Start(new ProcessStartInfo
+                {
+                    FileName = exe,
+                    Arguments = args,
+                    UseShellExecute = true,
+                    WorkingDirectory = Path.GetDirectoryName(exe) ?? "",
+                });
+
+                var deadline = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(15);
+                var delayMs = 120;
+                do
+                {
+                    await Task.Delay(delayMs).ConfigureAwait(false);
+                    StoreWindowHider.RestoreStoreWindows(processNames);
+                    delayMs = Math.Min(900, delayMs + 140);
+                }
+                while (DateTimeOffset.UtcNow < deadline);
+            }
+            catch (Exception ex)
+            {
+                AppLog.Warn($"Open {kind}: {ex.GetType().Name} (0x{ex.HResult:X8}): {ex.Message}");
+            }
+        });
+        return new { ok = true, message = $"Opening {kind}…" };
+    }
+
+    private static string? ResolveEpicLauncherExe() =>
+        CliRunner.FirstExisting(
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+                "Epic Games", "Launcher", "Portal", "Binaries", "Win64", "EpicGamesLauncher.exe"),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
+                "Epic Games", "Launcher", "Portal", "Binaries", "Win32", "EpicGamesLauncher.exe"));
+
+    private static string? ResolveGalaxyExe() =>
+        CliRunner.FirstExisting(
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+                "GOG Galaxy", "GalaxyClient.exe"),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
+                "GOG Galaxy", "GalaxyClient.exe"));
+
+    private static string? ResolveRiotClientExe() =>
+        RiotAdapter.TryResolveRiotClientServicesPublic();
+
     private async Task<object> PickFolderAsync(JsonElement p, bool hasParams)
     {
         var title = ReadString(p, hasParams, "title") ?? "Choose game folder";
 
         var tcs = new TaskCompletionSource<object>();
-        void Run()
-        {
-            _ = RunPickFolderAsync(title, tcs);
-        }
+        void Run() => _ = RunPickFolderAsync(title, tcs);
 
         if (!_queue.HasThreadAccess)
             _queue.TryEnqueue(Run);
@@ -364,7 +1081,6 @@ public sealed class WebHostBridge
             picker.SuggestedStartLocation = Windows.Storage.Pickers.PickerLocationId.ComputerFolder;
             picker.FileTypeFilter.Add("*");
             picker.ViewMode = Windows.Storage.Pickers.PickerViewMode.List;
-            // Title is not always honored on FolderPicker; keep for future / diagnostics.
             _ = title;
 
             var folder = await picker.PickSingleFolderAsync();
@@ -382,8 +1098,67 @@ public sealed class WebHostBridge
         }
     }
 
-    private static object MapGame(GameEntry g) => new
+    private async Task<object> CheckUpdateAsync()
     {
+        // Update checks are always on.
+        var check = await _services.Updater.CheckAsync(_services.AppVersion).ConfigureAwait(false);
+        return new
+        {
+            ok = true,
+            updateAvailable = check.UpdateAvailable,
+            latest = check.RemoteVersion,
+            current = check.LocalVersion,
+            message = check.Message,
+            // In-app only — no browser URL for install.
+            inApp = true,
+        };
+    }
+
+    private async Task<object> InstallUpdateAsync()
+    {
+        void Push(string status, double percent) =>
+            PostEvent("app.updateProgress", new { status, percent });
+
+        var progress = new Progress<(string status, double percent)>(p => Push(p.status, p.percent));
+        var result = await _services.Updater
+            .InstallAsync(_services.AppVersion, progress)
+            .ConfigureAwait(true);
+
+        if (result.ShouldExit)
+        {
+            Push(result.Message, 100);
+            // Let the normal Window.Closed path flush active playtime,
+            // settings, sync state, tray resources, and bridge services before
+            // the installer swaps the application directory.
+            _ = Task.Run(async () =>
+            {
+                try { await Task.Delay(350).ConfigureAwait(false); } catch { /* */ }
+                _queue.TryEnqueue(() =>
+                {
+                    try { App.MainAppWindow?.Close(); } catch { /* installer will time out safely */ }
+                    try { Microsoft.UI.Xaml.Application.Current?.Exit(); } catch { /* installer will time out safely */ }
+                });
+            });
+        }
+
+        return new
+        {
+            ok = result.Installed || result.AlreadyLatest || !result.UpdateAvailable,
+            updateAvailable = result.UpdateAvailable,
+            alreadyLatest = result.AlreadyLatest,
+            installed = result.Installed,
+            shouldExit = result.ShouldExit,
+            latest = result.RemoteVersion,
+            current = result.LocalVersion,
+            message = result.Message,
+        };
+    }
+
+    private object MapGame(GameEntry g, bool discoverExternalRunningGame = false)
+    {
+        var runState = _services.Launcher.GetGameRunState(g, discoverExternalRunningGame);
+        return new
+        {
         id = g.Id,
         title = g.Title,
         store = g.Store.ToString().ToLowerInvariant(),
@@ -394,13 +1169,79 @@ public sealed class WebHostBridge
         primaryAction = g.PrimaryAction,
         path = g.Path,
         coverUrl = g.CoverUrl,
+        coverSource = g.CoverSource,
         playtimeMinutes = g.PlaytimeMinutes,
         sizeBytes = g.SizeBytes,
         status = g.Status,
         deps = g.Deps,
         launchNote = g.LaunchNote,
         launchTarget = g.LaunchTarget,
-    };
+        lastPlayedUtc = g.LastPlayedUtc?.ToString("O"),
+        isFavorite = g.IsFavorite,
+        isAddPortable = string.Equals(g.Id, "local:add", StringComparison.OrdinalIgnoreCase),
+        isRunning = runState.IsRunning,
+        canStop = runState.CanStop,
+        };
+    }
+
+    private static object MapAchievementSnapshot(AchievementSnapshot snapshot, bool includeEntries)
+    {
+        var unlocked = snapshot.ReportedUnlocked ?? snapshot.Entries.Count(entry => entry.State.Unlocked);
+        var total = snapshot.ReportedTotal ?? snapshot.Entries.Count;
+        var complete = snapshot.Coverage is AchievementCoverageStatus.Partial or AchievementCoverageStatus.Complete;
+        var summary = complete
+            ? new
+            {
+                unlocked,
+                total,
+                completionPercent = total > 0 ? Math.Round(unlocked * 100d / total, 1) : (double?)null,
+                perfected = total > 0 && unlocked >= total && snapshot.Coverage == AchievementCoverageStatus.Complete,
+                observedAt = snapshot.ObservedAtUtc,
+            }
+            : null;
+        var entries = includeEntries
+            ? snapshot.Entries
+                .OrderByDescending(entry => entry.State.Unlocked)
+                .ThenByDescending(entry => entry.State.UnlockedAtUtc)
+                .ThenBy(entry => entry.Definition.Name, StringComparer.OrdinalIgnoreCase)
+                .Take(200)
+                .Select(entry => new
+                {
+                    id = entry.Definition.ExternalId,
+                    name = entry.Definition.Name,
+                    description = entry.Definition.Description,
+                    hidden = entry.Definition.Hidden,
+                    iconUrl = entry.Definition.IconUnlockedUrl,
+                    rarityPercent = entry.Definition.GlobalUnlockPercent,
+                    points = entry.Definition.Points,
+                    tier = entry.Definition.Tier,
+                    unlocked = entry.State.Unlocked,
+                    unlockedAt = entry.State.UnlockedAtUtc,
+                    progressCurrent = entry.State.ProgressCurrent,
+                    progressTarget = entry.State.ProgressTarget,
+                })
+                .Cast<object>()
+                .ToArray()
+            : Array.Empty<object>();
+
+        return new
+        {
+            ok = true,
+            gameId = snapshot.GameId,
+            provider = snapshot.ProviderId,
+            sourceGameId = snapshot.SourceGameId,
+            coverage = snapshot.Coverage,
+            capabilities = new
+            {
+                progress = snapshot.Capabilities.HasFlag(AchievementProviderCapabilities.Progress),
+                rarity = snapshot.Capabilities.HasFlag(AchievementProviderCapabilities.Rarity),
+                completeCatalog = snapshot.Capabilities.HasFlag(AchievementProviderCapabilities.CompleteCatalog),
+            },
+            summary,
+            achievements = entries,
+            message = snapshot.Message,
+        };
+    }
 
     private static object MapProgress(InstallProgress p) => new
     {
@@ -419,6 +1260,35 @@ public sealed class WebHostBridge
         if (!p.TryGetProperty(name, out var el)) return null;
         return el.ValueKind == JsonValueKind.String ? el.GetString() : el.ToString();
     }
+
+    private static bool? ReadBool(JsonElement p, bool hasParams, string name)
+    {
+        if (!hasParams || p.ValueKind != JsonValueKind.Object) return null;
+        if (!p.TryGetProperty(name, out var el)) return null;
+        if (el.ValueKind is JsonValueKind.True or JsonValueKind.False) return el.GetBoolean();
+        return null;
+    }
+
+    private static object MapDepAwareResult(LaunchResult result) => new
+    {
+        ok = result.Ok,
+        message = result.Message,
+        processId = result.ProcessId,
+        backendStarted = result.BackendStarted,
+        handoffOnly = result.HandoffOnly,
+        needsDependencies = result.NeedsDependencies,
+        missingDependencies = MapMissingDeps(result.MissingDependencies),
+    };
+
+    private static object MapMissingDeps(IReadOnlyList<DependencyInfo> deps) =>
+        deps.Select(d => new
+        {
+            id = d.Id,
+            name = d.Name,
+            status = d.Status,
+            canOfferInstall = d.CanOfferInstall,
+            officialUrl = d.OfficialUrl,
+        }).ToArray();
 
     private void PostResponse(string id, bool ok, object? result = null, string? error = null)
     {

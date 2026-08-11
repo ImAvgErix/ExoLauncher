@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using ExoLauncher.Helpers;
 using ExoLauncher.Services;
 using Microsoft.UI;
 using Microsoft.UI.Windowing;
@@ -7,7 +8,9 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.Web.WebView2.Core;
 using Windows.Graphics;
+using Windows.Storage.Streams;
 using WinRT.Interop;
+// DataWriter / InMemoryRandomAccessStream for cover resource handler
 
 namespace ExoLauncher;
 
@@ -21,7 +24,11 @@ public sealed partial class MainWindow : Window
     private const int FixedWindowHeight = 900;
 
     private readonly CancellationTokenSource _lifetimeCts = new();
+    private readonly Stopwatch _startupStopwatch = Stopwatch.StartNew();
     private WebHostBridge? _bridge;
+    private NotificationAreaIcon? _notificationAreaIcon;
+    private TrophyNotificationPresenter? _trophyPresenter;
+    private bool _movingToNotificationArea;
     private bool _webReady;
     private Task? _ensureWebTask;
 
@@ -74,11 +81,25 @@ public sealed partial class MainWindow : Window
 
         try { SetTitleBar(AppTitleBar); } catch { }
 
+        // Install the native minimize hook immediately so taskbar/keyboard
+        // minimize follows the same notification-area behavior as the web UI.
+        try { EnsureNotificationAreaIcon(); } catch { }
+        try
+        {
+            _trophyPresenter = new TrophyNotificationPresenter(DispatcherQueue);
+            App.Services.TrophyNotifications.Requested += OnTrophyNotificationRequested;
+            // The native presenter is ready. Pending deliveries will refresh
+            // and replay only for the currently verified provider account.
+            _ = Task.Run(App.Services.ReplayPendingAchievementNotificationsAsync);
+        }
+        catch { }
+
         RootGrid.Loaded += async (_, _) =>
         {
             ApplyFixedChrome();
             await EnsureWebAsync();
         };
+        LogStartupMilestone("window-constructed");
         Activated += (_, e) =>
         {
             if (e.WindowActivationState != WindowActivationState.Deactivated)
@@ -87,10 +108,85 @@ public sealed partial class MainWindow : Window
         Closed += (_, _) =>
         {
             _lifetimeCts.Cancel();
+            try { _notificationAreaIcon?.Dispose(); } catch { }
+            try { App.Services.TrophyNotifications.Requested -= OnTrophyNotificationRequested; } catch { }
+            try { _trophyPresenter?.Dispose(); } catch { }
             try { _bridge?.Detach(); } catch { }
+            try { App.Services.Shutdown(); } catch { }
             App.Services.Settings.Flush();
             App.MainAppWindow = null;
         };
+    }
+
+    private void OnTrophyNotificationRequested(TrophyNotificationRequest request)
+    {
+        void Show() => _trophyPresenter?.Enqueue(
+            request.Payload,
+            App.Services.Settings.Current,
+            request.OnPresented);
+        if (!DispatcherQueue.HasThreadAccess) DispatcherQueue.TryEnqueue(Show);
+        else Show();
+    }
+
+    public void HideForGameplay()
+    {
+        if (_movingToNotificationArea) return;
+        _movingToNotificationArea = true;
+        try
+        {
+            EnsureNotificationAreaIcon();
+            if (!_notificationAreaIcon!.Show())
+            {
+                if (AppWindow.Presenter is OverlappedPresenter fallbackPresenter)
+                    fallbackPresenter.Minimize();
+                return;
+            }
+
+            AppWindow.IsShownInSwitchers = false;
+            AppWindow.Hide();
+        }
+        catch
+        {
+            try
+            {
+                if (AppWindow.Presenter is OverlappedPresenter presenter)
+                    presenter.Minimize();
+            }
+            catch { }
+        }
+        finally
+        {
+            _movingToNotificationArea = false;
+        }
+    }
+
+    private void EnsureNotificationAreaIcon()
+    {
+        if (_notificationAreaIcon is not null) return;
+        var hwnd = WindowNative.GetWindowHandle(this);
+        var iconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "ExoLauncher.ico");
+        _notificationAreaIcon = new NotificationAreaIcon(
+            hwnd,
+            iconPath,
+            RestoreFromNotificationArea,
+            HideForGameplay);
+    }
+
+    private void RestoreFromNotificationArea()
+        => RestoreAndActivate();
+
+    public void RestoreAndActivate()
+    {
+        try
+        {
+            _notificationAreaIcon?.Hide();
+            AppWindow.IsShownInSwitchers = true;
+            AppWindow.Show();
+            if (AppWindow.Presenter is OverlappedPresenter presenter)
+                presenter.Restore();
+            Activate();
+        }
+        catch { }
     }
 
     private Task EnsureWebAsync()
@@ -103,11 +199,31 @@ public sealed partial class MainWindow : Window
     {
         if (_webReady) return;
         ShowBootPanel("Starting Exo Launcher…");
+        LogStartupMilestone("webview-init-start");
         try
         {
             try
             {
+                // Opt-in DOM eyes for Aether: EXO_CDP=1 → WebView2 --remote-debugging-port=9229
+                var cdp = Environment.GetEnvironmentVariable("EXO_CDP")
+                    ?? Environment.GetEnvironmentVariable("EXOOS_CDP")
+                    ?? Environment.GetEnvironmentVariable("AETHER_CDP");
+                if (string.Equals(cdp, "1", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(cdp, "true", StringComparison.OrdinalIgnoreCase))
+                {
+                    var args = Environment.GetEnvironmentVariable("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS") ?? "";
+                    if (!args.Contains("remote-debugging-port", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var port = Environment.GetEnvironmentVariable("EXO_CDP_PORT") ?? "9229";
+                        var add = $"--remote-debugging-port={port}";
+                        Environment.SetEnvironmentVariable(
+                            "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS",
+                            string.IsNullOrWhiteSpace(args) ? add : $"{args} {add}");
+                    }
+                }
+
                 await WebHost.EnsureCoreWebView2Async();
+                LogStartupMilestone("webview-core-ready");
             }
             catch
             {
@@ -126,7 +242,11 @@ public sealed partial class MainWindow : Window
 
             core.NavigationCompleted += (_, args) =>
             {
-                if (args.IsSuccess) RevealWeb();
+                if (args.IsSuccess)
+                {
+                    LogStartupMilestone("webview-navigation-complete");
+                    RevealWeb();
+                }
                 else ShowWebFallback();
             };
 
@@ -143,6 +263,8 @@ public sealed partial class MainWindow : Window
             core.Settings.IsStatusBarEnabled = false;
             core.Settings.AreDefaultContextMenusEnabled = false;
             core.Settings.IsZoomControlEnabled = false;
+            try { core.Settings.IsWebMessageEnabled = true; } catch { }
+            try { core.Settings.AreHostObjectsAllowed = false; } catch { }
 #if DEBUG
             try { core.Settings.AreDevToolsEnabled = true; } catch { }
 #else
@@ -150,15 +272,40 @@ public sealed partial class MainWindow : Window
 #endif
 
             core.SetVirtualHostNameToFolderMapping(
-                "app.exo-launcher.local",
+                WebViewTrustPolicy.TrustedAppHost,
                 www,
                 CoreWebView2HostResourceAccessKind.Allow);
+
+            core.NavigationStarting += OnWebNavigationStarting;
+            core.NewWindowRequested += OnWebNewWindowRequested;
+
+            // Local covers via virtual host + explicit resource handler (belt and suspenders).
+            try
+            {
+                Directory.CreateDirectory(Services.CoverArtService.CacheRoot);
+                core.SetVirtualHostNameToFolderMapping(
+                    Services.CoverArtService.VirtualHost,
+                    Services.CoverArtService.CacheRoot,
+                    CoreWebView2HostResourceAccessKind.Allow);
+            }
+            catch { /* handler below still serves covers */ }
+
+            try
+            {
+                core.AddWebResourceRequestedFilter(
+                    $"https://{Services.CoverArtService.VirtualHost}/*",
+                    CoreWebView2WebResourceContext.All);
+                core.WebResourceRequested += CoverResourceRequested;
+            }
+            catch { /* virtual host alone may still work */ }
 
             try { _bridge?.Detach(); } catch { }
             _bridge = new WebHostBridge(App.Services, DispatcherQueue);
             _bridge.Attach(core);
+            LogStartupMilestone("bridge-attached");
 
-            WebHost.Source = new Uri("https://app.exo-launcher.local/index.html");
+            WebHost.Source = new Uri(WebViewTrustPolicy.TrustedAppStartUri);
+            LogStartupMilestone("webview-navigation-start");
             _webReady = true;
         }
         catch
@@ -166,6 +313,26 @@ public sealed partial class MainWindow : Window
             _ensureWebTask = null;
             ShowWebFallback();
         }
+    }
+
+    private static void OnWebNavigationStarting(
+        CoreWebView2 sender,
+        CoreWebView2NavigationStartingEventArgs e)
+    {
+        if (WebViewTrustPolicy.IsTrustedAppUri(e.Uri)) return;
+
+        e.Cancel = true;
+        AppLog.Warn("Blocked an untrusted main-frame WebView navigation.");
+    }
+
+    private static void OnWebNewWindowRequested(
+        CoreWebView2 sender,
+        CoreWebView2NewWindowRequestedEventArgs e)
+    {
+        // The shell has an allowlisted native open-url RPC. No document should
+        // create another privileged or unmanaged WebView window directly.
+        e.Handled = true;
+        AppLog.Warn("Blocked a WebView new-window request.");
     }
 
     private void ShowBootPanel(string text)
@@ -181,7 +348,11 @@ public sealed partial class MainWindow : Window
         WebBootPanel.Visibility = Visibility.Collapsed;
         WebViewFallback.Visibility = Visibility.Collapsed;
         WebHost.Visibility = Visibility.Visible;
+        LogStartupMilestone("webview-visible");
     }
+
+    private void LogStartupMilestone(string milestone) =>
+        AppLog.Info($"PERF startup milestone={milestone} elapsedMs={_startupStopwatch.ElapsedMilliseconds}");
 
     private void ShowWebFallback()
     {
@@ -230,10 +401,57 @@ public sealed partial class MainWindow : Window
         return null;
     }
 
+    /// <summary>
+    /// Serve cover files from disk for https://covers.exo-launcher.local/*.
+    /// Synchronous in-memory body so WebView2 always gets a complete response.
+    /// </summary>
+    private void CoverResourceRequested(CoreWebView2 sender, CoreWebView2WebResourceRequestedEventArgs e)
+    {
+        try
+        {
+            var uri = e.Request.Uri;
+            if (string.IsNullOrWhiteSpace(uri) ||
+                !uri.Contains(Services.CoverArtService.VirtualHost, StringComparison.OrdinalIgnoreCase))
+                return;
+
+            if (!Uri.TryCreate(uri, UriKind.Absolute, out var u)) return;
+            var name = Uri.UnescapeDataString(u.AbsolutePath.TrimStart('/'));
+            if (string.IsNullOrWhiteSpace(name) || name.Contains("..", StringComparison.Ordinal) ||
+                name.Contains('/') || name.Contains('\\'))
+                return;
+
+            var path = Path.GetFullPath(Path.Combine(Services.CoverArtService.CacheRoot, name));
+            var root = Path.GetFullPath(Services.CoverArtService.CacheRoot)
+                .TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+            if (!path.StartsWith(root, StringComparison.OrdinalIgnoreCase) || !File.Exists(path))
+                return;
+
+            var bytes = File.ReadAllBytes(path);
+            if (bytes.Length < Services.CoverArtService.MinCoverBytes) return;
+
+            // Write into a MemoryStream and expose as IRandomAccessStream via AsRandomAccessStream.
+            var ms = new MemoryStream(bytes, writable: false);
+            var contentType = path.EndsWith(".png", StringComparison.OrdinalIgnoreCase) ? "image/png"
+                : path.EndsWith(".webp", StringComparison.OrdinalIgnoreCase) ? "image/webp"
+                : "image/jpeg";
+
+            e.Response = sender.Environment.CreateWebResourceResponse(
+                ms.AsRandomAccessStream(),
+                200,
+                "OK",
+                $"Content-Type: {contentType}\r\nContent-Length: {bytes.Length}\r\nAccess-Control-Allow-Origin: *\r\nCache-Control: public, max-age=86400\r\n");
+        }
+        catch
+        {
+            /* monogram fallback in UI */
+        }
+    }
+
     private void ApplyFixedChrome()
     {
         if (AppWindow.Presenter is OverlappedPresenter presenter)
         {
+            // Fixed shell — resize is not a user option.
             presenter.IsMaximizable = false;
             presenter.IsResizable = false;
             presenter.IsMinimizable = true;
@@ -245,7 +463,14 @@ public sealed partial class MainWindow : Window
                 presenter.PreferredMaximumHeight = FixedWindowHeight;
             }
             catch { }
+            // Thin system border only — no double chrome with custom titlebar.
             try { presenter.SetBorderAndTitleBar(hasBorder: true, hasTitleBar: false); }
+            catch { }
+            try
+            {
+                // Prefer a clean dark edge on Windows 11 when available.
+                AppWindow.TitleBar.PreferredHeightOption = TitleBarHeightOption.Collapsed;
+            }
             catch { }
         }
     }

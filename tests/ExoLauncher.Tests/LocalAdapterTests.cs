@@ -67,6 +67,33 @@ public class LocalAdapterTests : IDisposable
     }
 
     [Fact]
+    public async Task InstallAsync_RejectsWindowsAndVolumeRoots()
+    {
+        var adapter = new LocalAdapter();
+        var game = LocalAdapter.CreateAddPortableEntry();
+        var windows = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
+        var volume = Path.GetPathRoot(Environment.SystemDirectory)!;
+
+        var windowsResult = await adapter.InstallAsync(game, windows, null);
+        var volumeResult = await adapter.InstallAsync(game, volume, null);
+
+        Assert.False(windowsResult.Ok);
+        Assert.False(volumeResult.Ok);
+        Assert.Contains("dedicated game folder", windowsResult.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("broad system folders", volumeResult.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void PortableRootPolicy_AllowsDedicatedGameFoldersButRejectsBroadRoots()
+    {
+        Assert.True(LocalAdapter.IsSafePortableRegistrationRoot(_fixture));
+        Assert.False(LocalAdapter.IsSafePortableRegistrationRoot(
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)));
+        Assert.False(LocalAdapter.IsSafePortableRegistrationRoot(
+            Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles)));
+    }
+
+    [Fact]
     public async Task LaunchAsync_MissingExe_Fails()
     {
         var adapter = new LocalAdapter();
@@ -81,6 +108,24 @@ public class LocalAdapterTests : IDisposable
 
         var result = await adapter.LaunchAsync(game, new LaunchOptions());
         Assert.False(result.Ok);
+    }
+
+    [Fact]
+    public async Task LaunchAsync_PreCancelled_DoesNotAttemptALaunch()
+    {
+        var adapter = new LocalAdapter();
+        var game = new GameEntry
+        {
+            Id = "local:cancelled",
+            Title = "Cancelled",
+            Store = StoreKind.Local,
+            LaunchTarget = Path.Combine(_fixture, "nope.exe"),
+        };
+        using var cancelled = new CancellationTokenSource();
+        cancelled.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
+            await adapter.LaunchAsync(game, new LaunchOptions(), cancelled.Token));
     }
 
     [Fact]

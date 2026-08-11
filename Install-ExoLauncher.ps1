@@ -33,7 +33,7 @@ catch {
 }
 
 $asset = @($release.assets) |
-    Where-Object { $_.name -match 'ExoLauncher.*\\.(exe)|ExoLauncher\\.exe|^ExoLauncher\\.exe$$' } |
+    Where-Object { $_.name -in @('ExoLauncher.exe', 'ExoLauncher-Setup.exe') } |
     Select-Object -First 1
 
 if (-not $asset) {
@@ -67,21 +67,25 @@ if ($expectedDigest -match '^sha256:([0-9a-fA-F]{64})$') {
     Write-Host '[+] SHA-256 verified' -ForegroundColor Green
 }
 else {
-    Write-Host '[!] GitHub did not provide a SHA-256 digest; continuing without hash check.' -ForegroundColor Yellow
+    Remove-Item -LiteralPath $sfx -Force -ErrorAction SilentlyContinue
+    throw 'GitHub did not provide a SHA-256 digest. Nothing was installed.'
 }
 
-if ($asset.name -like '*.zip') {
-    Expand-Archive -LiteralPath $sfx -DestinationPath $destDir -Force
-    $exe = Get-ChildItem -Path $destDir -Filter 'ExoLauncher.exe' -Recurse | Select-Object -First 1
-    if (-not $exe) { throw 'Zip extracted but ExoLauncher.exe was not found.' }
-    Write-Host "[+] Installed to $($exe.FullName)" -ForegroundColor Green
-    Start-Process -FilePath $exe.FullName -WorkingDirectory $exe.DirectoryName
+$versionInfo = [Diagnostics.FileVersionInfo]::GetVersionInfo($sfx)
+if ($versionInfo.ProductName -ne 'Exo Launcher' -or
+    $versionInfo.FileDescription -ne 'Exo Launcher Setup') {
+    Remove-Item -LiteralPath $sfx -Force -ErrorAction SilentlyContinue
+    throw 'The verified release asset is not an Exo Launcher installer.'
 }
-else {
-    $target = Join-Path $destDir 'ExoLauncher.exe'
-    Move-Item -LiteralPath $sfx -Destination $target -Force
-    Write-Host "[+] Installed to $target" -ForegroundColor Green
-    Start-Process -FilePath $target -WorkingDirectory $destDir
-}
+
+# The release asset is an NSIS installer, not the installed application. Let it
+# perform its atomic app.incoming -> app swap; never rename it to ExoLauncher.exe.
+$installer = Start-Process -FilePath $sfx -ArgumentList '/S' -WorkingDirectory ([IO.Path]::GetDirectoryName($sfx)) -Wait -PassThru -WindowStyle Hidden
+if ($installer.ExitCode -ne 0) { throw "Installer failed with exit code $($installer.ExitCode)." }
+$target = Join-Path $destDir 'ExoLauncher.exe'
+if (-not (Test-Path -LiteralPath $target)) { throw 'Installer completed but ExoLauncher.exe was not found.' }
+Remove-Item -LiteralPath $sfx -Force -ErrorAction SilentlyContinue
+Write-Host "[+] Installed to $target" -ForegroundColor Green
+Start-Process -FilePath $target -WorkingDirectory $destDir
 
 Write-Host ''

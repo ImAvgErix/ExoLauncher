@@ -14,6 +14,9 @@ public static class RiotCli
         ("lion", "Teamfight Tactics"),
     ];
 
+    /// <summary>Retail patchline. Riot's local API takes this as a path segment.</summary>
+    public const string DefaultPatchline = "live";
+
     public static string LaunchArgs(string productId, string patchline = "live") =>
         $"--launch-product={productId} --launch-patchline={patchline}";
 
@@ -23,10 +26,10 @@ public static class RiotCli
     /// <summary>Bootstrap installer silent-ish flag used by official Riot installer builds.</summary>
     public static string BootstrapInstallArgs() => "--skip-to-install";
 
-    /// <summary>Processes that are Riot UI chrome — safe to soft-close. Never includes Vanguard.</summary>
+    /// <summary>Processes that are Riot UI chrome — safe to soft-close. Never includes Vanguard or game clients.</summary>
     public static readonly string[] UiProcessNames =
     [
-        "Riot Client",
+        "Riot Client", // modern Electron host (space in process name)
         "RiotClientServices",
         "RiotClientUx",
         "RiotClientUxRender",

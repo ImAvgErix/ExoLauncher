@@ -1,66 +1,58 @@
 /**
- * Exo Launcher shell — Exo OS visual parity (AMOLED ambient, CTA sweep, quiet chrome).
+ * Exo Launcher shell — installed library, pinned row, search discovers installs.
+ * CTA strings (Play | Install | Update) and cancelInstall live via DetailPanel + host.
  */
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import {
-  ArrowLeft,
-  Check,
-  Download,
-  FolderOpen,
-  Loader2,
-  Minus,
-  Play,
-  RefreshCw,
-  Search,
-  Settings,
-  Star,
-  Trash2,
-  X,
-} from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
+import { Loader2, Minus, Search, Settings, X } from 'lucide-react'
 import {
   host,
   onHostEvent,
   resolvePrimaryAction,
-  type DependencyItem,
   type Game,
   type InstallProgress,
   type LauncherSettings,
-  type SortMode,
-  type StoreId,
+  type MissingDependency,
   type StoreStatus,
 } from '../lib/host'
-import {
-  cn,
-  formatPlaytime,
-  formatSize,
-  formatSpeed,
-  monogram,
-  sortGames,
-  storeDotColor,
-  storeLabel,
-} from '../lib/utils'
-import { DetailRail, FadeIn, GridItem } from '../motion'
+import { cn, smartSearchScore, storeLabel } from '../lib/utils'
+import { DetailRail, GridItem } from '../motion'
+import { DetailPanel } from './DetailPanel'
+import { GameCard } from './GameCard'
+import { OnboardingPanel } from './OnboardingPanel'
+import { SettingsPanel, SettingsShell } from './SettingsPanel'
 
-type View = 'library' | 'settings' | 'deps'
-type StoreFilter = StoreId | 'all' | string
+type View = 'library' | 'settings'
 
-const FILTERS: { id: StoreFilter; label: string }[] = [
-  { id: 'all', label: 'All' },
-  { id: 'steam', label: 'Steam' },
-  { id: 'epic', label: 'Epic' },
-  { id: 'riot', label: 'Riot' },
-  { id: 'gog', label: 'GOG' },
-  { id: 'local', label: 'Local' },
-  { id: 'amazon', label: 'Amazon' },
-]
+type CatalogHit = {
+  id: string
+  title: string
+  store: string
+  coverUrl?: string | null
+  coverSource?: string | null
+  owned?: boolean
+  installed?: boolean
+  canInstall?: boolean
+  source?: string
+  launchTarget?: string | null
+}
 
-const SORTS: { id: SortMode; label: string }[] = [
-  { id: 'name', label: 'Name' },
-  { id: 'recent', label: 'Recent' },
-  { id: 'favorites', label: 'Pinned' },
-  { id: 'size', label: 'Size' },
-  { id: 'store', label: 'Store' },
-]
+function hitToGame(hit: CatalogHit): Game {
+  return {
+    id: hit.id,
+    title: hit.title,
+    store: hit.store,
+    installed: !!hit.installed,
+    owned: hit.owned,
+    canInstall: !!hit.canInstall,
+    primaryAction: hit.installed ? 'play' : hit.canInstall ? 'install' : 'none',
+    coverUrl: hit.coverUrl,
+    coverSource: hit.coverSource,
+    status: hit.installed ? 'Ready' : hit.owned ? 'Owned' : 'Catalog',
+    deps: [],
+    launchNote: '',
+    launchTarget: hit.launchTarget,
+  }
+}
 
 export function LauncherApp() {
   const [games, setGames] = useState<Game[]>([])
@@ -68,33 +60,69 @@ export function LauncherApp() {
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [statusMsg, setStatusMsg] = useState<string | null>(null)
+  const [statusGameId, setStatusGameId] = useState<string | null>(null)
+  // Messages that ask the user to do something must not vanish on a timer.
+  const [statusSticky, setStatusSticky] = useState(false)
   const [progress, setProgress] = useState<InstallProgress | null>(null)
   const [view, setView] = useState<View>('library')
   const [settings, setSettings] = useState<LauncherSettings | null>(null)
-  const [deps, setDeps] = useState<DependencyItem[]>([])
+  const [settingsError, setSettingsError] = useState<string | null>(null)
   const [stores, setStores] = useState<StoreStatus[]>([])
   const [query, setQuery] = useState('')
-  const [store, setStore] = useState<StoreFilter>('all')
-  const [sortMode, setSortMode] = useState<SortMode>('name')
-  const [recent, setRecent] = useState<string[]>([])
+  const [depPrompt, setDepPrompt] = useState<{
+    action: 'play' | 'install' | 'update'
+    deps: MissingDependency[]
+    awaitingContinue?: boolean
+  } | null>(null)
   const [updateBanner, setUpdateBanner] = useState<string | null>(null)
-  const [updateUrl, setUpdateUrl] = useState<string | null>(null)
+  const [updateLatest, setUpdateLatest] = useState<string | null>(null)
+  const [updateBusy, setUpdateBusy] = useState(false)
+  const [updatePercent, setUpdatePercent] = useState(0)
   const [focusIndex, setFocusIndex] = useState(0)
+  const [catalogHits, setCatalogHits] = useState<CatalogHit[]>([])
+  const [catalogSearching, setCatalogSearching] = useState(false)
+  const [authBusy, setAuthBusy] = useState<string | null>(null)
+  const [authMsg, setAuthMsg] = useState<string | null>(null)
+  const searchGen = useRef(0)
+  const searchInputRef = useRef<HTMLInputElement>(null)
+  const selectedIdRef = useRef<string | null>(null)
+  selectedIdRef.current = selectedId
+  const actionLocked = busy || !!progress?.isActive
+  const lockedGameId = progress?.isActive ? progress.gameId : statusGameId ?? selectedId
+
+  function setActionStatus(
+    message: string | null,
+    gameId = selectedIdRef.current,
+    sticky = false,
+  ) {
+    setStatusMsg(message)
+    setStatusGameId(message ? gameId ?? null : null)
+    setStatusSticky(Boolean(message) && sticky)
+  }
 
   const loadLibrary = useCallback(async (force = false) => {
     setLoading(true)
-    setStatusMsg(null)
+    setActionStatus(null, null)
     try {
       const res = await host.getLibrary(force)
-      setGames(res.games)
+      const favoriteIds = res.favorites
+        ? new Set(res.favorites.map((id) => id.toLowerCase()))
+        : null
+      setGames((prev) => {
+        const prevById = new Map(prev.map((g) => [g.id, g]))
+        return res.games.map((g) => {
+          const old = prevById.get(g.id)
+          const coverUrl = g.coverUrl || old?.coverUrl || null
+          const isFavorite = favoriteIds
+            ? favoriteIds.has(g.id.toLowerCase())
+            : !!g.isFavorite
+          return { ...g, coverUrl, isFavorite }
+        })
+      })
       if (res.stores?.length) setStores(res.stores)
       if (res.progress?.isActive) setProgress(res.progress)
-      if (res.recent) setRecent(res.recent)
-      if (res.sortMode && SORTS.some((s) => s.id === res.sortMode)) {
-        setSortMode(res.sortMode as SortMode)
-      }
     } catch (e) {
-      setStatusMsg(e instanceof Error ? e.message : 'Library load failed')
+      setActionStatus(e instanceof Error ? e.message : 'Library load failed', null)
     } finally {
       setLoading(false)
     }
@@ -104,92 +132,300 @@ export function LauncherApp() {
     try {
       const s = await host.getSettings()
       setSettings(s)
-      if (s.sortMode && SORTS.some((x) => x.id === s.sortMode)) setSortMode(s.sortMode as SortMode)
-      if (s.recent) setRecent(s.recent)
-    } catch {
-      /* ignore */
-    }
-  }, [])
-
-  const loadDeps = useCallback(async () => {
-    try {
-      const res = await host.listDeps()
-      setDeps(res.items)
-    } catch {
-      /* ignore */
+      setSettingsError(null)
+    } catch (error) {
+      setSettingsError(error instanceof Error ? error.message : 'Settings could not be loaded')
     }
   }, [])
 
   useEffect(() => {
-    void loadLibrary()
     void loadSettings()
     void host.storesMatrix().then(setStores).catch(() => {})
     void host
       .checkUpdate()
       .then((r) => {
         if (r.updateAvailable && r.message) {
+          const ver = r.latest ?? ''
+          if (ver && sessionStorage.getItem('exo.launcher.dismissed-update') === ver) return
           setUpdateBanner(r.message)
-          setUpdateUrl(r.url ?? null)
+          setUpdateLatest(ver || null)
         }
       })
       .catch(() => {})
 
+    const offUpdate = onHostEvent('app.updateProgress', (data) => {
+      const d = data as { percent?: number }
+      if (typeof d?.percent === 'number' && d.percent >= 0) {
+        setUpdatePercent(Math.min(100, Math.round(d.percent)))
+      }
+    })
+
     const offLaunch = onHostEvent('launch.status', (data) => {
-      const d = data as { message?: string; phase?: string; ok?: boolean }
-      if (d?.message) setStatusMsg(d.message)
-      if (d?.phase === 'running' || d?.phase === 'failed' || d?.phase === 'handoff') setBusy(false)
+      const d = data as { message?: string; phase?: string; ok?: boolean; gameId?: string }
+      // Detail rail owns status for the selected game — avoid a second sticky banner.
+      if (d?.message) setActionStatus(d.message, d.gameId ?? null)
+      if (
+        d?.phase === 'running' ||
+        d?.phase === 'stopped' ||
+        d?.phase === 'stopFailed' ||
+        d?.phase === 'failed' ||
+        d?.phase === 'handoff' ||
+        d?.phase === 'needsDeps' ||
+        d?.ok === false
+      ) {
+        setBusy(false)
+      }
+      if ((d?.phase === 'running' || d?.phase === 'stopped') && d.gameId) {
+        if (d.phase === 'stopped') {
+          // The native Stop result is emitted only after the exact verified
+          // game process is gone. Release the CTA immediately; the follow-up
+          // discovery scan is reconciliation, not part of the user action.
+          setGames((items) => items.map((item) => item.id === d.gameId
+            ? { ...item, isRunning: false, canStop: false }
+            : item))
+        }
+        void host.getGame(d.gameId).then((result) => {
+          if (!result.ok || !result.game) return
+          setGames((items) => items.map((item) => item.id === result.game!.id ? result.game! : item))
+        }).catch(() => {})
+      }
     })
     const offProgress = onHostEvent('install.progress', (data) => {
       const p = data as InstallProgress
       setProgress(p)
-      if (p?.status) setStatusMsg(p.status)
-      if (!p?.isActive && (p?.phase === 'completed' || p?.phase === 'failed' || p?.phase === 'cancelled')) {
+      // Do not mirror every install.progress status into sticky statusMsg when detail owns that game.
+      if (p?.isActive && p.status) {
+        const sel = selectedIdRef.current
+        if (!sel || sel !== p.gameId) setActionStatus(p.status, p.gameId)
+      }
+      if (!p?.isActive) {
         setBusy(false)
-        if (p.phase === 'completed') void loadLibrary(true)
+        if (p?.phase === 'completed' || p?.phase === 'failed' || p?.phase === 'cancelled') {
+          if (p.status) setActionStatus(p.status, p.gameId)
+          if (p.phase === 'completed') void loadLibrary(true)
+        }
       }
     })
     const offCovers = onHostEvent('library.updated', (data) => {
       const d = data as { games?: Game[] }
-      if (d?.games?.length) setGames(d.games)
+      if (!d?.games?.length) return
+      // Never wipe a good cover with null during cache warm / pin churn.
+      // Never regress isFavorite — prefer existing UI pin over host false.
+      setGames((prev) => {
+        const prevById = new Map(prev.map((g) => [g.id, g]))
+        return d.games!.map((g) => {
+          const old = prevById.get(g.id)
+          const coverUrl = g.coverUrl || old?.coverUrl || null
+          const isFavorite = !!g.isFavorite
+          return { ...old, ...g, coverUrl, isFavorite }
+        })
+      })
     })
     return () => {
       offLaunch()
       offProgress()
       offCovers()
+      offUpdate()
     }
   }, [loadLibrary, loadSettings])
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase()
-    const base = games.filter((g) => {
-      if (store !== 'all' && g.store.toLowerCase() !== String(store).toLowerCase()) return false
-      if (!q) return true
-      return (
-        g.title.toLowerCase().includes(q) ||
-        g.store.toLowerCase().includes(q) ||
-        storeLabel(g.store).toLowerCase().includes(q)
-      )
-    })
-    return sortGames(base, sortMode, recent)
-  }, [games, query, store, sortMode, recent])
+  useEffect(() => {
+    if (!progress?.isActive || !progress.gameId) return
+    setView('library')
+    setSelectedId(progress.gameId)
+  }, [progress?.gameId, progress?.isActive])
 
-  const selected = useMemo(
-    () => (selectedId ? (games.find((g) => g.id === selectedId) ?? null) : null),
-    [games, selectedId],
+  // Check only the selected title for an externally-started, safely stoppable
+  // game process. The library grid intentionally does not scan every install.
+  useEffect(() => {
+    if (!selectedId) return
+    let active = true
+    void host.getGame(selectedId).then((result) => {
+      if (!active || !result.ok || !result.game) return
+      setGames((items) => items.map((item) => item.id === result.game!.id ? result.game! : item))
+    }).catch(() => {})
+    return () => { active = false }
+  }, [selectedId])
+
+  useEffect(() => {
+    if (settings?.onboardingComplete) void loadLibrary()
+    else if (settings) setLoading(false)
+  }, [loadLibrary, settings?.onboardingComplete])
+
+  // Auto-clear terminal launch/install messages after a short delay. Anything
+  // that tells the user to go finish a step elsewhere stays until they act.
+  useEffect(() => {
+    if (!statusMsg || progress?.isActive || statusSticky) return
+    const t = window.setTimeout(() => setActionStatus(null, null), 4500)
+    return () => window.clearTimeout(t)
+  }, [statusMsg, progress?.isActive, statusSticky])
+
+  // Merge store search partials immediately.
+  useEffect(() => {
+    return onHostEvent('stores.search.partial', (data) => {
+      const d = data as { query?: string; results?: CatalogHit[]; gen?: number }
+      const q = query.trim()
+      if (!d?.results || !q || q.length < 2) return
+      if (d.query && d.query.trim().toLowerCase() !== q.toLowerCase()) return
+      const installedIds = new Set(
+        games.filter((g) => g.installed).map((g) => g.id.toLowerCase()),
+      )
+      setCatalogHits((prev) => {
+        const map = new Map<string, CatalogHit>()
+        for (const h of prev) map.set(h.id.toLowerCase(), h)
+        for (const h of d.results!) {
+          if (installedIds.has(h.id.toLowerCase()) && h.installed) continue
+          if (h.installed) continue
+          map.set(h.id.toLowerCase(), h)
+        }
+        return Array.from(map.values())
+      })
+    })
+  }, [query, games])
+
+  const runAppUpdate = useCallback(async () => {
+    if (updateBusy) return
+    setUpdateBusy(true)
+    setUpdatePercent(0)
+    try {
+      const r = await host.installUpdate()
+      if (r.shouldExit || r.installed) {
+        setUpdateBanner(r.message || 'Restarting…')
+      } else if (r.alreadyLatest) {
+        setUpdateBanner(null)
+        setUpdateLatest(null)
+      } else {
+        setUpdateBanner(r.message || 'Update failed')
+      }
+    } catch (e) {
+      setUpdateBanner(e instanceof Error ? e.message : 'Update failed')
+    } finally {
+      setUpdateBusy(false)
+    }
+  }, [updateBusy])
+
+  const installedGames = useMemo(
+    () => games.filter((g) => g.installed && !g.isAddPortable),
+    [games],
   )
+
+  const pinnedGames = useMemo(
+    () => installedGames.filter((g) => g.isFavorite),
+    [installedGames],
+  )
+
+  const libraryGrid = useMemo(() => {
+    const pinnedIds = new Set(pinnedGames.map((g) => g.id))
+    // Pinned row + remaining grid without duplicates
+    return installedGames.filter((g) => !pinnedIds.has(g.id))
+  }, [installedGames, pinnedGames])
+
+  const libraryMatches = useMemo(() => {
+    const q = query.trim()
+    if (q.length < 2) return [] as Game[]
+    return installedGames
+      .map((game) => ({
+        game,
+        score: Math.max(
+          smartSearchScore(game.title, q),
+          smartSearchScore(game.store, q),
+          smartSearchScore(storeLabel(game.store), q),
+        ),
+      }))
+      .filter(({ score }) => score >= 0)
+      .sort(
+        (a, b) =>
+          b.score - a.score ||
+          Number(!!b.game.owned) - Number(!!a.game.owned) ||
+          a.game.title.localeCompare(b.game.title, undefined, { sensitivity: 'base' }),
+      )
+      .map(({ game }) => game)
+  }, [installedGames, query])
+
+  const catalogGames = useMemo(() => catalogHits.map(hitToGame), [catalogHits])
+
+  // Catalog search — 140ms debounce; spinner only after 150ms; generation cancels stale.
+  useEffect(() => {
+    const q = query.trim()
+    if (q.length < 2) {
+      setCatalogHits([])
+      setCatalogSearching(false)
+      searchGen.current += 1
+      return
+    }
+    const gen = ++searchGen.current
+    // Results belong to the exact query that produced them. Clear the prior
+    // generation immediately so a fast replacement (for example Valorant →
+    // Mortal Shell) never shows unrelated catalog cards while the new backend
+    // search is debouncing or in flight.
+    setCatalogHits([])
+    setCatalogSearching(false)
+    let showSpinnerTimer: number | undefined
+    const t = window.setTimeout(() => {
+      showSpinnerTimer = window.setTimeout(() => {
+        if (searchGen.current === gen) setCatalogSearching(true)
+      }, 150)
+      void host
+        .storeSearch(q)
+        .then((r) => {
+          if (searchGen.current !== gen) return
+          // A cancelled generation has no trustworthy results for this query.
+          if (r.cancelled) return
+          const installedIds = new Set(
+            games.filter((g) => g.installed).map((g) => g.id.toLowerCase()),
+          )
+          const hits = (r.results ?? []).filter((h) => {
+            // Drop already-installed; keep owned-not-installed.
+            if (installedIds.has(h.id.toLowerCase())) return false
+            if (h.installed) return false
+            return true
+          })
+          setCatalogHits(hits)
+        })
+        .catch(() => {
+          if (searchGen.current === gen) setCatalogHits([])
+        })
+        .finally(() => {
+          if (showSpinnerTimer !== undefined) window.clearTimeout(showSpinnerTimer)
+          if (searchGen.current === gen) setCatalogSearching(false)
+        })
+    }, 140)
+    return () => {
+      window.clearTimeout(t)
+      if (showSpinnerTimer !== undefined) window.clearTimeout(showSpinnerTimer)
+    }
+  }, [query, games])
+
+  const selected = useMemo(() => {
+    if (!selectedId) return null
+    return (
+      games.find((g) => g.id === selectedId) ??
+      catalogGames.find((g) => g.id === selectedId) ??
+      null
+    )
+  }, [games, catalogGames, selectedId])
 
   const action = selected ? resolvePrimaryAction(selected) : 'none'
 
-  // Keyboard: / focus search, Esc close detail, Enter launch, arrows move selection
+  const navGames = useMemo(() => {
+    if (query.trim().length >= 2) {
+      return [...libraryMatches, ...catalogGames]
+    }
+    return [...pinnedGames, ...libraryGrid]
+  }, [query, libraryMatches, catalogGames, pinnedGames, libraryGrid])
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement)?.tagName
       const typing = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT'
       if (e.key === 'Escape') {
-        if (view !== 'library') setView('library')
-        else setSelectedId(null)
+        if (!actionLocked) {
+          if (view !== 'library') setView('library')
+          else setSelectedId(null)
+        }
         return
       }
+      if (actionLocked) return
       if (!typing && e.key === '/') {
         e.preventDefault()
         const el = document.querySelector<HTMLInputElement>('input.exo-search')
@@ -210,10 +446,17 @@ export function LauncherApp() {
         if (e.key === 'ArrowLeft') next -= 1
         if (e.key === 'ArrowDown') next += cols
         if (e.key === 'ArrowUp') next -= cols
-        next = Math.max(0, Math.min(filtered.length - 1, next))
+        next = Math.max(0, Math.min(navGames.length - 1, next))
         setFocusIndex(next)
-        const g = filtered[next]
-        if (g) setSelectedId(g.id)
+        const g = navGames[next]
+        if (g) {
+          setSelectedId(g.id)
+          setActionStatus(null, null)
+          window.requestAnimationFrame(() => {
+            const escapedId = CSS.escape(g.id)
+            document.querySelector<HTMLButtonElement>(`button[data-game-id="${escapedId}"]`)?.focus()
+          })
+        }
       }
       if (e.key === 'Enter' && selected && !busy) {
         e.preventDefault()
@@ -223,44 +466,41 @@ export function LauncherApp() {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [view, focusIndex, filtered, selected, busy, loadLibrary])
+  }, [view, focusIndex, navGames, selected, busy, loadLibrary, actionLocked])
 
-  async function onPrimary() {
+  async function runPrimary(skipDeps = false) {
     if (!selected || busy) return
     if (action === 'none') {
-      setStatusMsg(
+      setActionStatus(
         selected.installed
           ? 'No action available for this title.'
-          : 'Not installable from Exo yet — install the store backend or pick a supported title.',
+          : 'Not installable from Exo yet — sign in to a backend or pick a supported title.',
+        selected.id,
       )
       return
     }
     setBusy(true)
-    setStatusMsg(null)
+    setActionStatus(null, selected.id)
+    setDepPrompt(null)
     try {
       if (action === 'play') {
-        setStatusMsg('Preparing launch…')
-        const res = await host.launch(selected.id)
-        const msg = res.message || (res.ok ? 'Running' : 'Launch failed')
-        setStatusMsg(msg)
+        setActionStatus('Preparing launch…', selected.id)
+        const res = await host.launch(selected.id, { skipDeps })
+        if (res.needsDependencies && res.missingDependencies?.length) {
+          setDepPrompt({ action: 'play', deps: res.missingDependencies })
+          setActionStatus(res.message || 'Install required', selected.id)
+          setBusy(false)
+          return
+        }
+        setActionStatus(
+          res.message || (res.ok ? 'Running' : 'Launch failed'),
+          selected.id,
+          !res.ok,
+        )
         if (!res.ok) setBusy(false)
-        else {
-          setRecent((r) => [selected.id, ...r.filter((x) => x !== selected.id)].slice(0, 40))
-          // Clear busy even if host event is missed
-          setTimeout(() => setBusy(false), 4000)
-        }
+        else setTimeout(() => setBusy(false), 4000)
       } else if (action === 'install') {
-        let installPath: string | undefined
-        if (selected.store === 'local' || selected.isAddPortable) {
-          const pick = await host.pickFolder('Choose folder containing the game executable')
-          if (!pick.ok || pick.cancelled || !pick.path) {
-            setStatusMsg(pick.message ?? 'Folder selection cancelled.')
-            setBusy(false)
-            return
-          }
-          installPath = pick.path
-        }
-        setStatusMsg('Starting install…')
+        setActionStatus('Starting install…', selected.id)
         setProgress({
           gameId: selected.id,
           phase: 'preparing',
@@ -269,8 +509,15 @@ export function LauncherApp() {
           canCancel: true,
           isActive: true,
         })
-        const res = await host.install(selected.id, installPath)
-        setStatusMsg(res.message || (res.ok ? 'Install complete' : 'Install failed'))
+        const res = await host.install(selected.id, undefined, selected.title, { skipDeps })
+        if (res.needsDependencies && res.missingDependencies?.length) {
+          setDepPrompt({ action: 'install', deps: res.missingDependencies })
+          setActionStatus(res.message || 'Install required', selected.id)
+          setBusy(false)
+          setProgress(null)
+          return
+        }
+        setActionStatus(res.message || (res.ok ? 'Install complete' : 'Install failed'), selected.id)
         if (res.progress) setProgress(res.progress)
         if (!res.progress?.isActive) {
           setBusy(false)
@@ -278,9 +525,8 @@ export function LauncherApp() {
             p ? { ...p, isActive: false, canCancel: false, phase: res.ok ? 'completed' : 'failed' } : p,
           )
         }
-        if (res.ok) void loadLibrary(true)
       } else if (action === 'update') {
-        setStatusMsg('Starting update…')
+        setActionStatus('Starting update…', selected.id)
         setProgress({
           gameId: selected.id,
           phase: 'preparing',
@@ -289,8 +535,15 @@ export function LauncherApp() {
           canCancel: true,
           isActive: true,
         })
-        const res = await host.update(selected.id)
-        setStatusMsg(res.message || (res.ok ? 'Update complete' : 'Update failed'))
+        const res = await host.update(selected.id, { skipDeps })
+        if (res.needsDependencies && res.missingDependencies?.length) {
+          setDepPrompt({ action: 'update', deps: res.missingDependencies })
+          setActionStatus(res.message || 'Install required', selected.id)
+          setBusy(false)
+          setProgress(null)
+          return
+        }
+        setActionStatus(res.message || (res.ok ? 'Update complete' : 'Update failed'), selected.id)
         if (res.progress) setProgress(res.progress)
         if (!res.progress?.isActive) {
           setBusy(false)
@@ -298,35 +551,79 @@ export function LauncherApp() {
             p ? { ...p, isActive: false, canCancel: false, phase: res.ok ? 'completed' : 'failed' } : p,
           )
         }
-        if (res.ok) void loadLibrary(true)
       } else {
         setBusy(false)
       }
     } catch (e) {
-      setStatusMsg(e instanceof Error ? e.message : 'Action failed')
+      setActionStatus(e instanceof Error ? e.message : 'Action failed', selected.id)
       setBusy(false)
       setProgress((p) => (p?.isActive ? { ...p, isActive: false, canCancel: false, phase: 'failed' } : p))
     }
   }
 
-  async function onCancel() {
+  async function onPrimary() {
+    if (selected?.canStop) {
+      await onStopGame()
+      return
+    }
+    await runPrimary(false)
+  }
+
+  async function onStopGame() {
+    if (!selected || !selected.canStop || busy || progress?.isActive) return
+    setBusy(true)
+    setActionStatus(`Closing ${selected.title}…`, selected.id)
     try {
-      const res = await host.cancelInstall()
-      setStatusMsg(res.message ?? 'Cancel requested')
-    } catch (e) {
-      setStatusMsg(e instanceof Error ? e.message : 'Cancel failed')
+      const result = await host.stop(selected.id)
+      setActionStatus(result.message ?? (result.ok ? 'Game closed.' : 'Could not close the game.'), selected.id, !result.ok)
+      if (result.ok) {
+        setGames((items) => items.map((item) => item.id === selected.id
+          ? { ...item, isRunning: false, canStop: false }
+          : item))
+        // Do not keep the Stop button in a Closing state while a broad external
+        // process reconciliation runs. It is safe to reconcile in background
+        // because the native result already revalidated process identity/exit.
+        void host.getGame(selected.id).then((refreshed) => {
+          if (refreshed.ok && refreshed.game) {
+            setGames((items) => items.map((item) => item.id === refreshed.game!.id ? refreshed.game! : item))
+          }
+        }).catch(() => {})
+      }
+    } catch (error) {
+      setActionStatus(error instanceof Error ? error.message : 'Could not close the game.', selected.id, true)
+    } finally {
+      setBusy(false)
     }
   }
 
-  async function patchSettings(patch: Partial<LauncherSettings>) {
+  async function onOfferMissingDeps() {
+    if (!depPrompt) return
+    for (const d of depPrompt.deps) {
+      if (d.canOfferInstall !== false) await host.offerDepInstall(d.id)
+    }
+    // Official installer opened — keep prompt so user can Continue after install.
+    setDepPrompt((prev) => (prev ? { ...prev, awaitingContinue: true } : prev))
+    setActionStatus('Installer opened. Continue when ready.', selectedIdRef.current)
+  }
+
+  async function onContinueAfterDeps() {
+    if (!depPrompt) return
+    setDepPrompt(null)
+    await runPrimary(true)
+  }
+
+  async function onCancel() {
     try {
-      const next = await host.setSettings(patch)
-      setSettings(next)
-      if (patch.sortMode && SORTS.some((s) => s.id === patch.sortMode)) {
-        setSortMode(patch.sortMode as SortMode)
-      }
+      // cancelInstall — bridge parity
+      const res = await host.cancelInstall()
+      setBusy(false)
+      setActionStatus(res.message ?? 'Cancel requested', progress?.gameId ?? selectedIdRef.current)
+      setProgress((p) =>
+        p?.isActive ? { ...p, isActive: false, canCancel: false, phase: 'cancelled' } : p,
+      )
     } catch (e) {
-      setStatusMsg(e instanceof Error ? e.message : 'Settings save failed')
+      setBusy(false)
+      setActionStatus(e instanceof Error ? e.message : 'Cancel failed', progress?.gameId ?? selectedIdRef.current)
     }
   }
 
@@ -334,101 +631,172 @@ export function LauncherApp() {
     try {
       const res = await host.toggleFavorite(id)
       setGames((prev) =>
-        prev.map((g) => (g.id === id ? { ...g, isFavorite: !!res.isFavorite } : g)),
+        prev.map((g) =>
+          g.id === id
+            ? { ...g, isFavorite: !!res.isFavorite, coverUrl: g.coverUrl } // keep cover across pin remount
+            : g,
+        ),
       )
     } catch (e) {
-      setStatusMsg(e instanceof Error ? e.message : 'Favorite failed')
+      setActionStatus(e instanceof Error ? e.message : 'Favorite failed', id)
     }
   }
 
-  const ctaLabel =
-    action === 'play' ? 'Play' : action === 'install' ? 'Install' : action === 'update' ? 'Update' : selected && !selected.installed ? 'Not installed' : 'Unavailable'
+  const searching = query.trim().length >= 2
+  const emptyLibrary = !loading && installedGames.length === 0 && !searching
 
-  if (view === 'settings') {
+  async function runStoreAuth(storeId: string) {
+    setAuthBusy(storeId)
+    setAuthMsg('Connecting…')
+    try {
+      const r = await host.storesAuth(storeId)
+      setAuthMsg(r.message ?? (r.ok ? 'Connected' : 'Auth failed'))
+      if (r.ok && !r.requiresUserAction) await loadLibrary(true)
+      try {
+        setStores(await host.storesMatrix())
+      } catch {
+        // Keep the last known backend state when a matrix refresh fails.
+      }
+    } catch (e) {
+      setAuthMsg(e instanceof Error ? e.message : 'Auth failed')
+    } finally {
+      setAuthBusy(null)
+    }
+  }
+
+  async function finishOnboarding() {
+    try {
+      const next = await host.setSettings({ onboardingComplete: true })
+      if (!next?.onboardingComplete) {
+        setAuthMsg('Could not save settings — try again.')
+        return
+      }
+      setSettings(next)
+    } catch (e) {
+      setAuthMsg(e instanceof Error ? e.message : 'Could not save onboarding')
+    }
+  }
+
+  // Wait for settings so we don't flash library before first-run connect.
+  if (!settings) {
     return (
-      <ShellChrome
-        onRefresh={() => void loadLibrary(true)}
-        loading={loading}
-        onDeps={() => {
-          setView('deps')
-          void loadDeps()
-        }}
-        onSettings={() => setView('library')}
-      >
-        <SettingsPanel
-          settings={settings}
-          stores={stores}
-          onPatch={patchSettings}
-          onBack={() => setView('library')}
-          onAuth={(storeId) =>
-            void host.storesAuth(storeId).then((r) => setStatusMsg(r.message ?? (r.ok ? 'Signed in' : 'Auth failed')))
-          }
-          onPickInstallRoot={async () => {
-            const pick = await host.pickFolder('Default install root')
-            if (pick.ok && pick.path) await patchSettings({ defaultInstallRoot: pick.path })
-          }}
-        />
-      </ShellChrome>
+      <div className="exo-app">
+        <div className="flex flex-1 items-center justify-center px-8">
+          {settingsError ? (
+            <div className="max-w-md rounded-2xl border border-line-soft bg-elevated p-6 text-center" role="alert">
+              <h1 className="text-base font-semibold text-fg">Settings could not be loaded</h1>
+              <p className="mt-2 text-[12px] leading-relaxed text-muted">{settingsError}</p>
+              <button type="button" className="exo-cta mt-5 h-9 px-5 text-[12px]" onClick={() => void loadSettings()}>
+                Try again
+              </button>
+            </div>
+          ) : (
+            <div className="text-sm text-muted" role="status">Starting…</div>
+          )}
+        </div>
+      </div>
     )
   }
 
-  if (view === 'deps') {
+  // First-run: connect backends before the library.
+  if (!settings.onboardingComplete) {
     return (
-      <ShellChrome
-        onRefresh={() => void loadLibrary(true)}
-        loading={loading}
-        onDeps={() => setView('library')}
-        onSettings={() => setView('settings')}
-      >
-        <DepsPanel
-          items={deps}
-          onOffer={(id) => void host.offerDepInstall(id)}
+      <OnboardingPanel
+        stores={stores}
+        authBusy={authBusy}
+        authMsg={authMsg}
+        onAuth={(id) => void runStoreAuth(id)}
+        onContinue={() => void finishOnboarding()}
+        onSkip={() => void finishOnboarding()}
+      />
+    )
+  }
+
+  if (view === 'settings') {
+    return (
+      <>
+        <SettingsShell
           onBack={() => setView('library')}
-          onRefresh={() => void loadDeps()}
-        />
-      </ShellChrome>
+        >
+          <SettingsPanel
+            settings={settings}
+            stores={stores}
+            authBusy={authBusy}
+            authMsg={authMsg}
+            updateBusy={updateBusy}
+            updatePercent={updatePercent}
+            updateAvailable={!!updateBanner && !updateBusy}
+            onAuth={(storeId) => void runStoreAuth(storeId)}
+            onCheckUpdate={async () => {
+              setAuthMsg(null)
+              try {
+                const r = await host.checkUpdate()
+                if (r.updateAvailable) {
+                  setUpdateBanner(r.message || `Update v${r.latest} available`)
+                  setUpdateLatest(r.latest ?? null)
+                  setAuthMsg(r.message || 'Update available.')
+                } else {
+                  setUpdateBanner(null)
+                  setUpdateLatest(null)
+                  setAuthMsg(r.message || 'Already up to date.')
+                }
+              } catch (e) {
+                setAuthMsg(e instanceof Error ? e.message : 'Update check failed')
+              }
+            }}
+            onInstallUpdate={() => void runAppUpdate()}
+            onSettings={(next) => {
+              setSettings(next)
+            }}
+          />
+        </SettingsShell>
+      </>
     )
   }
 
   return (
-    <div className="exo-app">
-      <div className="exo-ambient" />
+    <>
+      <div className="exo-app">
       <header className="exo-titlebar">
-        <div className="exo-brand">
+        <button
+          type="button"
+          className="exo-brand exo-no-drag shrink-0"
+          title="Exo Launcher"
+          disabled={actionLocked}
+          onClick={() => {
+            setQuery('')
+            setSelectedId(null)
+            setView('library')
+          }}
+          aria-label="Home library"
+        >
           <img src="./logo.png" alt="" className="exo-brand-logo" width={28} height={28} draggable={false} />
-          <div className="exo-brand-text">
-            <span className="exo-brand-name">Exo Launcher</span>
-            <span className="exo-brand-role">Library</span>
-          </div>
-        </div>
+        </button>
 
-        <div className="relative mx-auto hidden w-full max-w-[280px] flex-1 sm:block exo-no-drag">
-          <Search className="pointer-events-none absolute left-3.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-faint" />
+        <div className="relative mx-2 min-w-0 flex-1 exo-no-drag">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-faint" />
           <input
+            ref={searchInputRef}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search  ·  /"
-            className="exo-search"
-            aria-label="Search library"
+            disabled={actionLocked}
+            placeholder="Search to install…"
+            className="exo-search max-w-none w-full"
+            aria-label="Search to install"
           />
+          {catalogSearching && (
+            <Loader2 className="pointer-events-none absolute right-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 animate-spin text-faint" />
+          )}
         </div>
 
         <div className="exo-titlebar-actions">
-          <button type="button" className="exo-winbtn" title="Refresh (F5)" onClick={() => void loadLibrary(true)}>
-            <RefreshCw size={15} strokeWidth={1.75} className={loading ? 'animate-spin' : ''} />
-          </button>
           <button
             type="button"
-            className="exo-winbtn is-wide"
-            title="Dependencies"
-            onClick={() => {
-              setView('deps')
-              void loadDeps()
-            }}
+            className="exo-winbtn"
+            title="Settings"
+            disabled={actionLocked}
+            onClick={() => setView('settings')}
           >
-            Deps
-          </button>
-          <button type="button" className="exo-winbtn" title="Settings" onClick={() => setView('settings')}>
             <Settings size={15} strokeWidth={1.75} />
           </button>
           <div className="exo-titlebar-divider" />
@@ -441,69 +809,139 @@ export function LauncherApp() {
         </div>
       </header>
 
-      {updateBanner && (
-        <div className="relative z-10 flex items-center justify-between gap-3 border-b border-line-soft bg-surface px-5 py-2 text-[12px] text-muted">
-          <span>{updateBanner}</span>
-          <div className="flex items-center gap-2">
-            {updateUrl && (
-              <button type="button" className="exo-ghost-btn" onClick={() => void host.openUrl(updateUrl)}>
-                Get update
+      {depPrompt && (
+        <div
+          className="relative z-10 flex items-center justify-between gap-3 border-b border-line-soft bg-elevated px-5 py-2.5 text-[12px]"
+          role="status"
+          aria-label="Missing dependency"
+        >
+          <p className="min-w-0 flex-1 font-medium text-fg">
+            {depPrompt.awaitingContinue
+              ? `Installed ${depPrompt.deps.map((d) => d.name).join(', ')}? Continue to retry.`
+              : `Need ${depPrompt.deps.map((d) => d.name).join(', ')}`}
+          </p>
+          <div className="flex shrink-0 items-center gap-2">
+            <button
+              type="button"
+              className="text-faint hover:text-fg"
+              onClick={() => {
+                setDepPrompt(null)
+                void runPrimary(true)
+              }}
+            >
+              Skip
+            </button>
+            {depPrompt.awaitingContinue ? (
+              <button
+                type="button"
+                className="exo-cta h-8 px-4 text-[12px]"
+                onClick={() => void onContinueAfterDeps()}
+              >
+                Continue
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="exo-cta h-8 px-4 text-[12px]"
+                onClick={() => void onOfferMissingDeps()}
+              >
+                Install
               </button>
             )}
-            <button type="button" className="text-faint hover:text-fg" onClick={() => setUpdateBanner(null)}>
-              Dismiss
-            </button>
           </div>
+        </div>
+      )}
+
+      {updateBanner && (
+        <div
+          className="relative z-10 flex items-center justify-between gap-3 border-b border-line-soft bg-elevated px-5 py-2.5 text-[12px]"
+          role="status"
+          aria-label="App update"
+        >
+          <div className="min-w-0 flex-1">
+            <p className="font-medium text-fg">{updateBanner}</p>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            {!updateBusy && (
+              <button
+                type="button"
+                className="text-faint hover:text-fg"
+                onClick={() => {
+                  if (updateLatest) {
+                    sessionStorage.setItem('exo.launcher.dismissed-update', updateLatest)
+                  }
+                  setUpdateBanner(null)
+                }}
+              >
+                Later
+              </button>
+            )}
+            <button
+              type="button"
+              className={`exo-cta exo-update-action h-8 px-4 text-[12px]${updateBusy ? ' is-active' : ''}`}
+              disabled={updateBusy}
+              onClick={() => void runAppUpdate()}
+            >
+              {updateBusy && (
+                <span
+                  className="exo-action-progress"
+                  style={{ '--progress': Math.max(0, Math.min(100, updatePercent)) / 100 } as CSSProperties}
+                  aria-hidden="true"
+                />
+              )}
+              <span className="exo-action-state">
+                <span className="exo-action-content exo-action-idle" aria-hidden={updateBusy}>
+                  <strong>Update now</strong>
+                </span>
+                <span className="exo-action-content exo-action-active" aria-hidden={!updateBusy}>
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  <strong>{`Installing… ${Math.round(updatePercent)}%`}</strong>
+                </span>
+              </span>
+              {updateBusy && (
+                <span
+                  className="sr-only"
+                  role="progressbar"
+                  aria-label="App update progress"
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={Math.round(Math.max(0, Math.min(100, updatePercent)))}
+                />
+              )}
+            </button>
+            {updateBusy && (
+              <span className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+                Installing update · {Math.round(updatePercent)}%
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
+      {statusMsg && statusGameId === null && (
+        <div
+          className="relative z-10 border-b border-line-soft px-5 py-2.5 text-[12px] text-bad"
+          role="alert"
+        >
+          {statusMsg}
         </div>
       )}
 
       <div className="relative z-10 flex min-h-0 flex-1">
         <main className={cn('min-w-0 flex-1 overflow-y-auto', selected ? 'hidden md:block' : 'block')}>
-          <div className="px-6 pb-10 pt-6 sm:px-8">
-            <div className="relative mb-5 sm:hidden">
-              <Search className="pointer-events-none absolute left-3.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-faint" />
-              <input
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search"
-                className="exo-search max-w-none"
-              />
-            </div>
-
-            <div className="mb-5 flex flex-wrap items-center gap-2">
-              <div className="flex flex-wrap gap-1.5">
-                {FILTERS.map((f) => (
-                  <button
-                    key={f.id}
-                    type="button"
-                    onClick={() => setStore(f.id)}
-                    className={cn('exo-chip', store === f.id ? 'is-on' : 'is-off')}
-                  >
-                    {f.label}
-                  </button>
-                ))}
+          <div className="px-5 pb-10 pt-4 sm:px-6">
+            <div className="mb-6 flex items-end justify-between gap-4">
+              <div>
+                <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-faint">Library</p>
+                <h1 className="mt-1 text-[24px] font-semibold tracking-[-0.03em] text-fg">
+                  Your games
+                </h1>
               </div>
-              <div className="ml-auto flex items-center gap-1.5">
-                {SORTS.map((s) => (
-                  <button
-                    key={s.id}
-                    type="button"
-                    onClick={() => {
-                      setSortMode(s.id)
-                      void patchSettings({ sortMode: s.id })
-                    }}
-                    className={cn(
-                      'rounded-full px-2.5 py-1 text-[11px]',
-                      sortMode === s.id ? 'bg-elevated text-fg' : 'text-faint hover:text-muted',
-                    )}
-                  >
-                    {s.label}
-                  </button>
-                ))}
-              </div>
+              <span className="pb-1 text-[12px] tabular-nums text-faint">
+                {installedGames.length} installed
+              </span>
             </div>
-
-            {loading && games.length === 0 ? (
+            {loading && installedGames.length === 0 ? (
               <div className="exo-enter flex flex-col items-center justify-center py-24">
                 <img
                   src="./logo.png"
@@ -515,7 +953,7 @@ export function LauncherApp() {
                 />
                 <p className="text-sm text-fg-muted">Scanning libraries…</p>
               </div>
-            ) : filtered.length === 0 ? (
+            ) : emptyLibrary ? (
               <div className="exo-enter flex flex-col items-center justify-center py-24 text-center">
                 <div
                   className="mb-5 grid size-14 place-items-center text-lg font-bold text-muted"
@@ -527,643 +965,171 @@ export function LauncherApp() {
                 >
                   ·
                 </div>
-                <p className="text-[15px] font-medium tracking-tight text-fg">Nothing here</p>
-                <p className="mt-2 max-w-xs text-[13px] leading-relaxed text-faint">
-                  Connect Steam, sign in to Legendary or gogdl in Settings, or add a portable game.
-                </p>
+                <p className="text-[15px] font-medium tracking-tight text-fg">Nothing installed</p>
+                <p className="mt-2 text-[13px] text-faint">Search the stores to install a game into Exo.</p>
+                <button
+                  type="button"
+                  className="exo-cta mt-5 h-10 px-5 text-[12px]"
+                  onClick={() => searchInputRef.current?.focus()}
+                >
+                  Search to install
+                </button>
               </div>
+            ) : searching ? (
+              <>
+                {libraryMatches.length > 0 && (
+                  <section className="mb-10">
+                    <h3 className="mb-3 text-[12px] font-medium uppercase tracking-wider text-faint">
+                      Library
+                    </h3>
+                    <div
+                      className="grid gap-x-4 gap-y-5"
+                      style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(172px, 1fr))' }}
+                    >
+                      {libraryMatches.map((game, i) => (
+                        <GridItem key={game.id} index={i}>
+                          <GameCard
+                            game={game}
+                            selected={selectedId === game.id}
+                            disabled={actionLocked && lockedGameId !== game.id}
+                            onSelect={() => {
+                              setSelectedId(game.id)
+                              setFocusIndex(i)
+                              setActionStatus(null, null)
+                            }}
+                            onToggleFavorite={() => void onToggleFavorite(game.id)}
+                          />
+                        </GridItem>
+                      ))}
+                    </div>
+                  </section>
+                )}
+
+                <section>
+                  <div className="mb-3 flex items-center gap-2">
+                    <h3 className="text-[12px] font-medium uppercase tracking-wider text-faint">
+                      Install
+                    </h3>
+                    {catalogSearching && (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin text-faint" />
+                    )}
+                  </div>
+                  {catalogGames.length === 0 && !catalogSearching ? (
+                    <p className="text-[13px] text-faint">
+                      {libraryMatches.length === 0
+                        ? `No matches for “${query.trim()}”.`
+                        : 'No installable titles for this search.'}
+                    </p>
+                  ) : (
+                    <div
+                      className="grid gap-x-4 gap-y-5"
+                      style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(172px, 1fr))' }}
+                    >
+                      {catalogGames.map((game, i) => (
+                        <GridItem key={game.id} index={i}>
+                          <GameCard
+                            game={game}
+                            selected={selectedId === game.id}
+                            disabled={actionLocked && lockedGameId !== game.id}
+                            onSelect={() => {
+                              setSelectedId(game.id)
+                              setFocusIndex(libraryMatches.length + i)
+                              setActionStatus(null, null)
+                            }}
+                          />
+                        </GridItem>
+                      ))}
+                    </div>
+                  )}
+                </section>
+              </>
             ) : (
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-                {filtered.map((game, i) => (
-                  <GridItem key={game.id} index={i}>
-                    <GameCard
-                      game={game}
-                      selected={selectedId === game.id}
-                      onSelect={() => {
-                        setSelectedId(game.id)
-                        setFocusIndex(i)
-                        setStatusMsg(null)
-                      }}
-                      onToggleFavorite={() => void onToggleFavorite(game.id)}
-                    />
-                  </GridItem>
-                ))}
-              </div>
+              <>
+                {pinnedGames.length > 0 && (
+                  <section className="mb-8">
+                    <h3 className="mb-3 text-[12px] font-medium uppercase tracking-wider text-faint">
+                      Pinned
+                    </h3>
+                    <div className="exo-pinned-row">
+                      {pinnedGames.map((game, i) => (
+                        <GameCard
+                          key={game.id}
+                          game={game}
+                          size="lg"
+                          selected={selectedId === game.id}
+                          disabled={actionLocked && lockedGameId !== game.id}
+                          onSelect={() => {
+                            setSelectedId(game.id)
+                            setFocusIndex(i)
+                            setActionStatus(null, null)
+                          }}
+                          onToggleFavorite={() => void onToggleFavorite(game.id)}
+                        />
+                      ))}
+                    </div>
+                  </section>
+                )}
+
+                {libraryGrid.length > 0 && (
+                  <section>
+                    {pinnedGames.length > 0 && (
+                      <h3 className="mb-3 text-[12px] font-medium uppercase tracking-wider text-faint">
+                        Installed
+                      </h3>
+                    )}
+                    <div
+                      className="grid gap-x-4 gap-y-5"
+                      style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(172px, 1fr))' }}
+                    >
+                      {libraryGrid.map((game, i) => (
+                        <GridItem key={game.id} index={i}>
+                          <GameCard
+                            game={game}
+                            selected={selectedId === game.id}
+                            disabled={actionLocked && lockedGameId !== game.id}
+                            onSelect={() => {
+                              setSelectedId(game.id)
+                              setFocusIndex(pinnedGames.length + i)
+                              setActionStatus(null, null)
+                            }}
+                            onToggleFavorite={() => void onToggleFavorite(game.id)}
+                          />
+                        </GridItem>
+                      ))}
+                    </div>
+                  </section>
+                )}
+
+              </>
             )}
           </div>
         </main>
 
-        <DetailRail open={!!selected}>
-          {selected && (
-            <aside className="flex h-full w-full flex-col" aria-label={`${selected.title} details`}>
-              <div className="flex items-center gap-2 border-b border-line-soft px-4 py-3 md:hidden">
-                <button
-                  type="button"
-                  onClick={() => setSelectedId(null)}
-                  className="inline-flex items-center gap-1.5 rounded-full px-2 py-1.5 text-sm text-muted hover:bg-hover hover:text-fg"
-                >
-                  <ArrowLeft className="h-4 w-4" />
-                  Library
-                </button>
-              </div>
-
-              <div className="relative h-52 shrink-0 sm:h-60" style={{ background: coverBg(selected) }}>
-                <CoverArt game={selected} className="absolute inset-0 h-full w-full" large />
-                <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black via-black/80 to-transparent px-6 pb-5 pt-20">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <h2 className="text-[22px] font-semibold tracking-tight text-fg">{selected.title}</h2>
-                      <p className="mt-1 text-[13px] text-muted">
-                        {storeLabel(selected.store)}
-                        {selected.status ? ` · ${selected.status}` : ''}
-                      </p>
-                    </div>
-                    {!selected.isAddPortable && (
-                      <button
-                        type="button"
-                        className="exo-titlebar-button"
-                        title={selected.isFavorite ? 'Unpin' : 'Pin'}
-                        onClick={() => void onToggleFavorite(selected.id)}
-                      >
-                        <Star
-                          size={16}
-                          className={selected.isFavorite ? 'fill-current text-fg' : 'text-muted'}
-                        />
-                      </button>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex flex-1 flex-col gap-4 overflow-y-auto px-6 py-6">
-                <button
-                  type="button"
-                  disabled={busy || action === 'none'}
-                  onClick={() => void onPrimary()}
-                  className="exo-cta w-full"
-                  aria-label={ctaLabel}
-                >
-                  {busy ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : action === 'install' || action === 'update' ? (
-                    <Download className="h-4 w-4" />
-                  ) : (
-                    <Play className="h-4 w-4 fill-current" />
-                  )}
-                  {ctaLabel}
-                </button>
-
-                {(busy || statusMsg || (progress?.isActive && progress.gameId === selected.id)) && (
-                  <FadeIn>
-                    <div className="exo-status" aria-live="polite">
-                      <div className="flex items-center gap-2 text-xs">
-                        {(busy || progress?.isActive) && (
-                          <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-fg" />
-                        )}
-                        {!busy && !progress?.isActive && statusMsg === 'Running' && (
-                          <Check className="h-3.5 w-3.5 shrink-0 text-good" />
-                        )}
-                        <span className="text-fg">
-                          {progress?.isActive ? progress.status || progress.phase : statusMsg || 'Working…'}
-                        </span>
-                        {progress?.isActive && progress.bytesPerSecond != null && (
-                          <span className="ml-auto tabular-nums text-faint">
-                            {formatSpeed(progress.bytesPerSecond)}
-                          </span>
-                        )}
-                      </div>
-                      {progress?.isActive && progress.percent != null && (
-                        <div className="mt-2 h-1 overflow-hidden rounded-full bg-black/50">
-                          <div
-                            className="h-full rounded-full bg-fg transition-[width] duration-300"
-                            style={{ width: `${Math.max(0, Math.min(100, progress.percent))}%` }}
-                          />
-                        </div>
-                      )}
-                      {progress?.canCancel && progress.isActive && (
-                        <button
-                          type="button"
-                          className="mt-2 text-[11px] text-faint hover:text-fg"
-                          onClick={() => void onCancel()}
-                        >
-                          Cancel
-                        </button>
-                      )}
-                    </div>
-                  </FadeIn>
-                )}
-
-                {!selected.isAddPortable && (
-                  <div className="flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      className="exo-ghost-btn"
-                      onClick={() =>
-                        void host.openFolder(selected.id).then((r) => {
-                          if (!r.ok) setStatusMsg(r.message ?? 'Folder not found')
-                        })
-                      }
-                    >
-                      <FolderOpen className="h-3.5 w-3.5" />
-                      Folder
-                    </button>
-                    <button
-                      type="button"
-                      className="exo-ghost-btn"
-                      onClick={() =>
-                        void host.uninstall(selected.id).then((r) => {
-                          setStatusMsg(r.message ?? (r.ok ? 'Uninstalled' : 'Uninstall failed'))
-                          if (r.ok) {
-                            setSelectedId(null)
-                            void loadLibrary(true)
-                          }
-                        })
-                      }
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                      Uninstall
-                    </button>
-                  </div>
-                )}
-
-                <div className="space-y-3 text-sm">
-                  <Row label="Playtime" value={formatPlaytime(selected.playtimeMinutes)} />
-                  <Row label="Size" value={formatSize(selected.sizeBytes)} />
-                  <Row
-                    label="Status"
-                    value={selected.status || (selected.installed ? 'Ready' : 'Install required')}
-                  />
-                </div>
-
-                {selected.deps?.length > 0 && (
-                  <div className="flex flex-wrap gap-1.5">
-                    {selected.deps.map((d) => (
-                      <span key={d} className="exo-badge">
-                        {d}
-                      </span>
-                    ))}
-                  </div>
-                )}
-
-                <p className="text-[13px] leading-relaxed text-fg-subtle">
-                  {selected.launchNote || 'No launch note.'}
-                </p>
-
-                <button
-                  type="button"
-                  onClick={() => setSelectedId(null)}
-                  className="mt-auto hidden text-left text-xs text-fg-subtle hover:text-fg md:block"
-                >
-                  Close
-                </button>
-              </div>
-            </aside>
-          )}
-        </DetailRail>
-      </div>
-    </div>
-  )
-}
-
-function GameCard({
-  game,
-  selected,
-  onSelect,
-  onToggleFavorite,
-}: {
-  game: Game
-  selected: boolean
-  onSelect: () => void
-  onToggleFavorite: () => void
-}) {
-  const isAdd = game.isAddPortable || game.id === 'local:add'
-  return (
-    <div className="group relative w-full text-left">
-      <button type="button" onClick={onSelect} className="w-full text-left" aria-label={game.title}>
-        <div
-          className={cn(
-            'exo-cover group aspect-[3/4]',
-            selected && 'is-selected',
-            isAdd && 'exo-add-tile',
-          )}
-          style={!isAdd ? { background: coverBg(game) } : undefined}
-        >
-          {isAdd ? (
-            <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-muted">
-              <div
-                className="grid size-12 place-items-center text-xl font-light text-fg"
-                style={{
-                  borderRadius: 14,
-                  border: '1px solid #2a2a2a',
-                  background: 'linear-gradient(160deg,#222 0%,#0c0c0c 100%)',
+        {selected && (
+          <div className="flex shrink-0 items-stretch py-3 pr-3 pl-1">
+            <DetailRail open>
+              <DetailPanel
+                selected={selected}
+                busy={busy}
+                statusMsg={statusGameId === selected.id ? statusMsg : null}
+                progress={progress}
+                onPrimary={() => void onPrimary()}
+                onStop={() => void onStopGame()}
+                onCancel={() => void onCancel()}
+                onClose={() => setSelectedId(null)}
+                onToggleFavorite={(id) => void onToggleFavorite(id)}
+                onStatus={(message) => setActionStatus(message, selected.id)}
+                onUninstalled={() => {
+                  setSelectedId(null)
+                  void loadLibrary(true)
                 }}
-              >
-                +
-              </div>
-              <span className="text-[11px] text-faint">Portable</span>
-            </div>
-          ) : (
-            <>
-              <CoverArt game={game} className="absolute inset-0 h-full w-full" />
-              {!game.installed && <div className="absolute inset-0 bg-black/45" />}
-              <div className="pointer-events-none absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-black/85 via-black/25 to-transparent" />
-              <div className="absolute left-2 top-2 flex gap-1">
-                {game.isFavorite && (
-                  <span className="rounded-full bg-black/55 px-1.5 py-0.5 text-[10px] text-fg">Pinned</span>
-                )}
-                {game.updateAvailable && <span className="exo-badge is-warn">Update</span>}
-                {!game.installed && !game.isAddPortable && (
-                  <span className="exo-badge">Install</span>
-                )}
-              </div>
-            </>
-          )}
-        </div>
-        <div className="mt-2.5 px-0.5">
-          <div className="truncate text-[13px] font-medium tracking-tight text-fg">{game.title}</div>
-          <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-faint">
-            <span className="h-1 w-1 rounded-full" style={{ background: storeDotColor(game.store) }} />
-            <span>{storeLabel(game.store)}</span>
+                closeDisabled={actionLocked}
+              />
+            </DetailRail>
           </div>
-        </div>
-      </button>
-      {!isAdd && (
-        <button
-          type="button"
-          className="absolute right-2 top-2 rounded-full bg-black/50 p-1.5 text-muted opacity-0 transition-opacity group-hover:opacity-100"
-          title={game.isFavorite ? 'Unpin' : 'Pin'}
-          onClick={(e) => {
-            e.stopPropagation()
-            onToggleFavorite()
-          }}
-        >
-          <Star size={12} className={game.isFavorite ? 'fill-current text-fg' : ''} />
-        </button>
-      )}
-    </div>
-  )
-}
-
-/**
- * Cover art: monogram is always underneath.
- * Image only becomes visible after onLoad — never a broken-image glyph.
- * Allow data:, blob:, and our covers virtual host only (CDN blocked).
- */
-function isSafeCoverUrl(url: string | null | undefined): url is string {
-  if (!url) return false
-  if (url.startsWith('data:image/')) return true
-  if (url.startsWith('blob:')) return true
-  if (url.startsWith('https://covers.exo-launcher.local/')) return true
-  return false
-}
-
-function CoverArt({ game, className, large }: { game: Game; className?: string; large?: boolean }) {
-  const [loaded, setLoaded] = useState(false)
-  const [failed, setFailed] = useState(false)
-  const safeUrl = isSafeCoverUrl(game.coverUrl) ? game.coverUrl : null
-
-  useEffect(() => {
-    setLoaded(false)
-    setFailed(false)
-  }, [safeUrl, game.id])
-
-  const showImg = !!safeUrl && !failed
-  return (
-    <div className={cn('relative overflow-hidden', className)}>
-      <div
-        className={cn('exo-cover-mono', loaded && showImg && 'is-under')}
-        style={{ fontSize: large ? 42 : 28 }}
-        aria-hidden
-      >
-        {monogram(game.title)}
-      </div>
-      {showImg && (
-        <img
-          key={safeUrl}
-          src={safeUrl}
-          alt=""
-          className={cn(
-            'absolute inset-0 h-full w-full object-cover transition-opacity duration-300',
-            loaded ? 'opacity-100' : 'opacity-0 pointer-events-none',
-          )}
-          draggable={false}
-          loading="lazy"
-          decoding="async"
-          onLoad={() => setLoaded(true)}
-          onError={() => {
-            setFailed(true)
-            setLoaded(false)
-          }}
-        />
-      )}
-    </div>
-  )
-}
-
-function ShellChrome({
-  children,
-  onRefresh,
-  loading,
-  onDeps,
-  onSettings,
-}: {
-  children: React.ReactNode
-  onRefresh: () => void
-  loading: boolean
-  onDeps: () => void
-  onSettings: () => void
-}) {
-  return (
-    <div className="exo-app">
-      <div className="exo-ambient" />
-      <header className="exo-titlebar">
-        <div className="flex items-center gap-2.5">
-          <div
-            className="flex h-8 w-8 items-center justify-center text-[12px] font-bold"
-            style={{
-              borderRadius: 11,
-              background: 'linear-gradient(160deg,#303034 0%,#121214 55%,#050505 100%)',
-              border: '1px solid #2a2a2a',
-            }}
-          >
-            Ex
-          </div>
-          <span className="text-[13px] font-semibold tracking-tight">Exo Launcher</span>
-        </div>
-        <div className="ml-auto flex items-center gap-1">
-          <button type="button" className="exo-titlebar-button" onClick={onRefresh}>
-            <RefreshCw size={15} className={loading ? 'animate-spin' : ''} />
-          </button>
-          <button type="button" className="exo-titlebar-button is-wide" onClick={onDeps}>
-            <span className="text-[11px]">Deps</span>
-          </button>
-          <button type="button" className="exo-titlebar-button" onClick={onSettings}>
-            <Settings size={15} />
-          </button>
-          <button type="button" className="exo-titlebar-button" onClick={() => void host.minimize()}>
-            <Minus size={15} />
-          </button>
-          <button type="button" className="exo-titlebar-button is-close" onClick={() => void host.close()}>
-            <X size={15} />
-          </button>
-        </div>
-      </header>
-      <div className="relative z-10 min-h-0 flex-1 overflow-y-auto">{children}</div>
-    </div>
-  )
-}
-
-function coverBg(game: Game) {
-  const hue = hashHue(game.id + game.title)
-  return `linear-gradient(160deg,
-    hsl(${hue} 42% 28%) 0%,
-    hsl(${(hue + 18) % 360} 38% 18%) 50%,
-    #050505 100%)`
-}
-
-function hashHue(s: string) {
-  let h = 0
-  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0
-  return h % 360
-}
-
-function Row({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex items-center justify-between border-b border-border pb-3 last:border-0 last:pb-0">
-      <span className="text-fg-subtle">{label}</span>
-      <span className="tabular-nums text-fg">{value}</span>
-    </div>
-  )
-}
-
-function SettingsPanel({
-  settings,
-  stores,
-  onPatch,
-  onBack,
-  onAuth,
-  onPickInstallRoot,
-}: {
-  settings: LauncherSettings | null
-  stores: StoreStatus[]
-  onPatch: (p: Partial<LauncherSettings>) => void
-  onBack: () => void
-  onAuth: (store: string) => void
-  onPickInstallRoot: () => void
-}) {
-  return (
-    <div className="px-10 py-10">
-      <button type="button" className="mb-8 text-xs text-fg-subtle hover:text-fg" onClick={onBack}>
-        Back to library
-      </button>
-      <h2 className="text-2xl font-semibold tracking-tight">Settings</h2>
-      <p className="mt-2 max-w-lg text-sm text-fg-muted">Quiet defaults. Anti-cheat safe mode is always on.</p>
-
-      <div className="mt-10 max-w-xl space-y-3 text-sm">
-        <Toggle
-          title="Close store clients after launch"
-          value={settings?.closeStoreClientsAfterLaunch ?? true}
-          onChange={(v) => onPatch({ closeStoreClientsAfterLaunch: v })}
-        />
-        <Toggle
-          title="Auto-install redistributables"
-          hint="Still opens the official page — never silent-force"
-          value={settings?.autoInstallRedistributables ?? false}
-          onChange={(v) => onPatch({ autoInstallRedistributables: v })}
-        />
-        <Toggle
-          title="Minimize while playing"
-          value={settings?.minimizeWhilePlaying ?? true}
-          onChange={(v) => onPatch({ minimizeWhilePlaying: v })}
-        />
-        <Toggle
-          title="Copy portable games into Exo library"
-          hint="Off = register folder in place"
-          value={settings?.copyPortableIntoLibrary ?? false}
-          onChange={(v) => onPatch({ copyPortableIntoLibrary: v })}
-        />
-        <Toggle
-          title="Allow window resize"
-          value={settings?.allowResize ?? true}
-          onChange={(v) => onPatch({ allowResize: v })}
-        />
-        <Toggle
-          title="Check for updates"
-          value={settings?.checkForUpdates ?? true}
-          onChange={(v) => onPatch({ checkForUpdates: v })}
-        />
-      </div>
-
-      <div className="mt-10 max-w-xl">
-        <h3 className="text-sm font-medium text-fg">Default install root</h3>
-        <p className="mt-1 text-xs text-faint">{settings?.defaultInstallRoot || 'Not set — uses Exo AppData paths'}</p>
-        <button type="button" className="exo-ghost-btn mt-3" onClick={onPickInstallRoot}>
-          Choose folder
-        </button>
-      </div>
-
-      <div className="mt-12 max-w-xl">
-        <h3 className="text-sm font-medium text-fg">Exo family</h3>
-        <p className="mt-1 text-xs text-faint">Same quiet shell. Presence without weight.</p>
-        <div className="mt-3 flex flex-wrap gap-2">
-          {(
-            [
-              ['Exo Hub', 'https://github.com/ImAvgErix/ExoHub/releases/latest'],
-              ['Exo OS', 'https://github.com/ImAvgErix/ExoOS/releases/latest'],
-              ['Exo Link', 'https://github.com/ImAvgErix/ExoLink/releases/latest'],
-            ] as const
-          ).map(([label, url]) => (
-            <button
-              key={label}
-              type="button"
-              className="exo-ghost-btn"
-              onClick={() => void host.openUrl(url)}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <div className="mt-12 max-w-xl">
-        <h3 className="text-sm font-medium text-fg">Store agents</h3>
-        <p className="mt-1 text-xs text-faint">Sign in for Legendary / gogdl when present.</p>
-        <ul className="mt-4 space-y-2">
-          {(stores.length
-            ? stores
-            : [
-                { store: 'local', displayName: 'Local', agentPresent: true },
-                { store: 'steam', displayName: 'Steam', agentPresent: false },
-                { store: 'epic', displayName: 'Epic', agentPresent: false },
-                { store: 'gog', displayName: 'GOG', agentPresent: false },
-              ]
-          ).map((s) => (
-            <li
-              key={s.store}
-              className="flex items-center justify-between gap-3 rounded-xl border border-border bg-surface px-4 py-3"
-            >
-              <div>
-                <div className="text-sm">{s.displayName}</div>
-                <div className="mt-0.5 text-[11px] text-faint">
-                  {s.agentPresent ? (
-                    <span className="text-good">Agent present</span>
-                  ) : (
-                    <span>Not found</span>
-                  )}
-                </div>
-              </div>
-              {(s.store === 'epic' || s.store === 'gog') && (
-                <button type="button" className="exo-ghost-btn" onClick={() => onAuth(s.store)}>
-                  Sign in
-                </button>
-              )}
-            </li>
-          ))}
-        </ul>
-      </div>
-
-      <p className="mt-16 text-[11px] text-fg-subtle">Exo Launcher {settings?.appVersion ?? '—'} · MIT</p>
-    </div>
-  )
-}
-
-function Toggle({
-  title,
-  hint,
-  value,
-  onChange,
-}: {
-  title: string
-  hint?: string
-  value: boolean
-  onChange: (v: boolean) => void
-}) {
-  return (
-    <button
-      type="button"
-      className="flex w-full items-center justify-between rounded-xl border border-border bg-surface px-4 py-3 text-left transition-colors hover:border-line"
-      onClick={() => onChange(!value)}
-    >
-      <div>
-        <span>{title}</span>
-        {hint && <p className="mt-0.5 text-[11px] text-faint">{hint}</p>}
-      </div>
-      <span
-        className={cn(
-          'relative h-6 w-11 shrink-0 rounded-full border transition-colors',
-          value ? 'border-white/30 bg-primary' : 'border-border bg-surface-2',
         )}
-      >
-        <span
-          className="absolute top-0.5 h-[18px] w-[18px] rounded-full transition-all"
-          style={{ left: value ? 22 : 3, background: value ? '#0a0a0a' : '#63636b' }}
-        />
-      </span>
-    </button>
-  )
-}
-
-function DepsPanel({
-  items,
-  onOffer,
-  onBack,
-  onRefresh,
-}: {
-  items: DependencyItem[]
-  onOffer: (id: string) => void
-  onBack: () => void
-  onRefresh: () => void
-}) {
-  return (
-    <div className="px-10 py-10">
-      <button type="button" className="mb-8 text-xs text-fg-subtle hover:text-fg" onClick={onBack}>
-        Back to library
-      </button>
-      <div className="flex items-end justify-between gap-4">
-        <div>
-          <h2 className="text-2xl font-semibold tracking-tight">Dependencies</h2>
-          <p className="mt-2 text-sm text-fg-muted">Official installers only — nothing forced.</p>
         </div>
-        <button type="button" className="exo-ghost-btn" onClick={onRefresh}>
-          Rescan
-        </button>
       </div>
-      <ul className="mt-10 max-w-2xl space-y-2">
-        {items.length === 0 ? (
-          <li className="text-sm text-fg-muted">No results yet. Press Rescan.</li>
-        ) : (
-          items.map((d) => (
-            <li
-              key={d.id}
-              className="flex items-center justify-between gap-4 rounded-xl border border-border bg-surface px-5 py-4"
-            >
-              <div>
-                <div className="text-sm font-medium">
-                  {d.name}{' '}
-                  <span
-                    className={cn(
-                      'text-[10px] uppercase',
-                      d.status === 'Present' ? 'text-good' : 'text-fg-subtle',
-                    )}
-                  >
-                    {d.status}
-                  </span>
-                </div>
-                <p className="mt-1 text-xs text-fg-subtle">{d.detail}</p>
-              </div>
-              {d.canOfferInstall && d.status !== 'Present' && (
-                <button
-                  type="button"
-                  className="exo-cta shrink-0 !h-9 !px-4 !text-xs"
-                  onClick={() => onOffer(d.id)}
-                >
-                  Official installer
-                </button>
-              )}
-            </li>
-          ))
-        )}
-      </ul>
-    </div>
+    </>
   )
 }

@@ -6,8 +6,8 @@ using Xunit;
 namespace ExoLauncher.Tests;
 
 /// <summary>
-/// Product path: library exposes real local:add (not mock:*) → InstallAsync with folder
-/// completes through LaunchOrchestrator → LocalAdapter.
+/// Local/portable adapter is a first-class DRM-free backend. The UI keeps the
+/// uninstalled local:add action out of the installed-only library view.
 /// </summary>
 public class LocalAddPortableTests : IDisposable
 {
@@ -23,7 +23,6 @@ public class LocalAddPortableTests : IDisposable
     public void Dispose()
     {
         try { Directory.Delete(_fixture, recursive: true); } catch { }
-        // Also clean any copy under Exo library if Install registered there.
         try
         {
             var lib = Path.Combine(
@@ -47,14 +46,22 @@ public class LocalAddPortableTests : IDisposable
     }
 
     [Fact]
-    public async Task GetLibraryAsync_AlwaysIncludesAddPortable()
+    public async Task GetLibraryAsync_IncludesLocalAddPortableAction()
     {
         var adapter = new LocalAdapter();
-        var library = new LibraryService(new IStoreAdapter[] { adapter });
+        var library = new LibraryService(new IStoreAdapter[] { adapter }, new SettingsService());
         var games = await library.GetLibraryAsync(force: true);
+        Assert.Contains(games, g => g.Id == LocalAdapter.AddPortableId);
+        Assert.All(games, g => Assert.Equal(StoreKind.Local, g.Store));
+    }
+
+    [Fact]
+    public async Task LocalAdapter_StillExposesAddPortableEntry()
+    {
+        var adapter = new LocalAdapter();
+        var games = await adapter.GetLibraryAsync();
         var add = Assert.Single(games, g => g.Id == LocalAdapter.AddPortableId);
         Assert.True(add.CanInstall);
-        Assert.False(add.Installed);
     }
 
     [Fact]
@@ -77,7 +84,6 @@ public class LocalAddPortableTests : IDisposable
         Assert.NotNull(result.Path);
         Assert.True(Directory.Exists(result.Path));
 
-        // Direct adapter path still reports completion for the same entry.
         var direct = await adapter.InstallAsync(entry, _fixture, new Progress<InstallProgress>(p => last = p));
         Assert.True(direct.Ok, direct.Message);
     }

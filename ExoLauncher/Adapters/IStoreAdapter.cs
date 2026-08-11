@@ -44,6 +44,24 @@ public interface IStoreAdapter
     Task CleanupAfterExitAsync(GameEntry game, LaunchOptions options, CancellationToken ct = default);
 }
 
+/// <summary>
+/// Marks an adapter whose installed Steam entries come from local appmanifests.
+/// Remote catalog/search providers must not implement this proof boundary.
+/// </summary>
+public interface IInstalledSteamManifestSource
+{
+}
+
+/// <summary>
+/// Separates a vendor's visible desktop client from Exo's headless backend.
+/// A bundled helper can make installs possible without meaning the vendor
+/// client itself is installed or can be opened from Settings.
+/// </summary>
+public interface IStoreClientPresence
+{
+    bool IsClientPresent();
+}
+
 /// <summary>Legacy alias used during discovery scans.</summary>
 public static class StoreAdapterExtensions
 {

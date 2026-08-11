@@ -1,49 +1,104 @@
-# Exo Launcher
+<p align="center">
+  <img src="docs/media/logo.png" alt="Exo Launcher" width="104" />
+</p>
+
+<h1 align="center">Exo Launcher</h1>
+
+<p align="center"><strong>Your PC games. One calm home.</strong></p>
 
 <p align="center">
-  <img src="docs/media/logo.png" alt="Exo Launcher" width="96" />
+  A focused AMOLED launcher for Steam, Epic Games, GOG, Riot, and portable Windows games.
 </p>
-**Presence without weight.**
-
-Exo Launcher is **one calm library** for your games. Other store clients become **invisible backends** — install, update, and play from one place instead of juggling windows.
-
-[![Download](https://img.shields.io/github/v/release/ImAvgErix/ExoLauncher?style=flat-square&label=download&color=111)](https://github.com/ImAvgErix/ExoLauncher/releases/latest)
-[![License](https://img.shields.io/github/license/ImAvgErix/ExoLauncher?style=flat-square)](LICENSE)
 
 <p align="center">
-  <a href="https://github.com/ImAvgErix/ExoLauncher/releases/latest"><strong>Download Exo Launcher</strong></a>
+  <a href="https://github.com/ImAvgErix/ExoLauncher/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/ImAvgErix/ExoLauncher?style=flat-square&label=release&color=79f2c0" /></a>
+  <a href="https://github.com/ImAvgErix/ExoLauncher/releases/latest"><img alt="Downloads" src="https://img.shields.io/github/downloads/ImAvgErix/ExoLauncher/total?style=flat-square&color=111111" /></a>
+  <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/github/license/ImAvgErix/ExoLauncher?style=flat-square&color=111111" /></a>
 </p>
-## What it does for you
 
-| | |
-| --- | --- |
-| **One library** | See your games together — covers, status, play |
-| **Stores stay in the background** | Steam, Epic, GOG, Riot, and more orchestrated — not another desktop full of launchers |
-| **Install & update here** | Progress in Exo — not a pile of foreign UIs as the main experience |
-| **Honest about limits** | Closed anti-cheat ecosystems still need their own pieces; Exo does not crack or bypass them |
+<p align="center">
+  <a href="https://github.com/ImAvgErix/ExoLauncher/releases/latest/download/ExoLauncher-Setup.exe"><strong>Download for Windows</strong></a>
+  ·
+  <a href="https://github.com/ImAvgErix/ExoLauncher/issues">Report an issue</a>
+  ·
+  <a href="https://www.buymeacoffee.com/UhhErix">Support development</a>
+</p>
 
-## How you use it
+Exo Launcher gives supported PC games one installed-first library and one obvious action: **Play**, **Install**, or **Update**. The official stores still own authentication, licenses, downloads, DRM, and anti-cheat; Exo coordinates them and keeps their chrome out of the way when it safely can.
 
-1. Download **ExoLauncher.exe** from [Releases](https://github.com/ImAvgErix/ExoLauncher/releases/latest)  
-2. Run the Windows installer  
-3. Open the library → install or play  
+There is no Exo account, profile, cloud sync, ad platform, or analytics layer. Install it, let it discover the launchers already on the PC, and play.
 
-Windows 11 x64. Optional backends (Legendary, gogdl, …) when you need them.
+## One library instead of launcher clutter
 
-## Privacy
+- **Installed-first home** — covers, favorites, recent games, and live running/update state without a wall of store filters.
+- **One game action** — launch, install, update, uninstall, cancel, or stop the exact selected game from its Exo detail view.
+- **Smart discovery** — typo-tolerant, punctuation-insensitive search can find titles even when the query is not exact.
+- **High-quality artwork** — portrait cover discovery and local caching prefer provider and catalog art, with a clean fallback when no real cover exists.
+- **Lifetime context where providers expose it** — native store playtime wins; Exo records local sessions only as a fallback.
+- **Native achievement moments** — Steam and Epic unlocks can use real achievement art, provider-aware rarity, exact screen placement, and a compact reward cue.
+- **Quiet game sessions** — supported store windows and store audio are kept in the background during Exo-driven sessions, then restored without terminating protected services, overlays, or anti-cheat.
+- **Portable games welcome** — add a local game folder without handing ownership of the original files to Exo.
+- **Built-in updates** — Exo can check GitHub Releases, verify the published installer digest, and perform an atomic per-user update.
 
-Local-first — see [PRIVACY.md](PRIVACY.md).
+## What is new in 1.0.23
 
-## Family
+Version 1.0.23 is the largest Launcher checkpoint since the first public build:
 
-| Product | Role |
-| --- | --- |
-| **[Exo Hub](https://github.com/ImAvgErix/ExoHub)** | Gaming optimizers |
-| **[Exo OS](https://github.com/ImAvgErix/ExoOS)** | Windows gaming transform |
-| **[Exo Link](https://github.com/ImAvgErix/ExoLink)** | Desktop chat & voice |
-| **[Exo Launcher](https://github.com/ImAvgErix/ExoLauncher)** | Game library |
+- Added **Stop** for running games with executable, install-root, process-instance, launcher, overlay, and anti-cheat safeguards.
+- Reworked Steam updates so the selected app—not an unrelated queued title—is the only eligible target.
+- Added fuzzy title search, including misspellings and sequel-number mistakes.
+- Moved playtime into game details, removed redundant status copy, and made update badges easier to see over bright cover art.
+- Removed Launcher profiles, Exo sign-in, profile syncing, and their backend/persistence paths; social identity remains an Exo Link concern.
+- Added durable, account-scoped achievement delivery so a confirmed unlock can survive an Exo restart without replaying another account's event.
+- Added validated caching for real Steam and Epic achievement images plus Bronze, Silver, Gold, and Platinum presentation.
+- Separated official-client presence from optional Legendary/gogdl availability, so an absent Epic or GOG client is no longer presented as installed merely because a headless backend exists.
+- Reduced startup work by deferring cover networking, taking Epic remote playtime off the first-paint path, and avoiding unchanged derived-state refreshes.
 
----
+Read the complete [changelog](CHANGELOG.md).
+
+## Store reality, stated plainly
+
+Exo is a launcher—not a DRM, ownership, or anti-cheat bypass.
+
+- Steam, Epic Games, GOG, and Riot are the official store/client families wired into this release; portable games launch directly.
+- Store clients and required services may still be needed for authentication, licensing, patching, multiplayer, or anti-cheat.
+- Optional helpers such as Legendary and gogdl are used only for supported actions that need them. See the [vendor/backend notes](docs/VENDORS.md).
+- Achievement reading and Exo achievement notifications currently cover **Steam and Epic** data. Unsupported providers are not reported as if they had zero achievements.
+- Quiet Game Mode is best-effort store-window and store-audio control. Vendor overlays, chat messages, game notifications, and Windows notifications remain owned by those systems.
+
+## Install
+
+1. Download **[ExoLauncher-Setup.exe](https://github.com/ImAvgErix/ExoLauncher/releases/latest/download/ExoLauncher-Setup.exe)**.
+2. Run the installer. Exo installs per-user under `%LOCALAPPDATA%\ExoLauncher\app`.
+3. Open Exo Launcher and let the library discover supported installed games.
+
+**Requirement:** Windows 11 x64.
+
+The current public installer is not code-signed, so Windows SmartScreen may ask for confirmation. GitHub publishes a SHA-256 digest beside the release asset; verify it when you want an independent integrity check.
+
+## Local-first by design
+
+Launcher settings, library metadata, cover caches, achievement baselines, and fallback sessions stay on the PC. Exo Launcher does not require an Exo identity and does not upload store credentials, machine paths, friends, chat, or gameplay telemetry to an Exo service.
+
+Read the full [privacy statement](PRIVACY.md).
+
+## Build from source
+
+The desktop host is WinUI 3 on .NET 10; the embedded interface is React, TypeScript, and Vite.
+
+```powershell
+npm --prefix ui ci
+npm --prefix ui run build
+dotnet test ExoLauncher.sln -c Debug -p:Platform=x64
+dotnet run --project ExoLauncher/ExoLauncher.csproj -c Debug -p:Platform=x64
+```
+
+## Support and the Exo family
+
+- Found a bug or a bad game match? [Open an issue](https://github.com/ImAvgErix/ExoLauncher/issues).
+- Want to help keep Exo free? [Buy me a coffee](https://www.buymeacoffee.com/UhhErix).
+- Related projects: [Exo Hub](https://github.com/ImAvgErix/ExoHub) · [Exo OS](https://github.com/ImAvgErix/ExoOS) · [Exo Link](https://github.com/ImAvgErix/ExoLink)
+
 ## License
 
 MIT © 2026 Erix ([ImAvgErix](https://github.com/ImAvgErix))
