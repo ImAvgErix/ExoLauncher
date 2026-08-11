@@ -10,9 +10,11 @@ namespace ExoLauncher.Services;
 /// </summary>
 public sealed class LaunchOrchestrator
 {
+    private static readonly TimeSpan AchievementBaselineBudget = TimeSpan.FromSeconds(2);
     private readonly IReadOnlyList<IStoreAdapter> _adapters;
     private readonly SettingsService _settings;
     private readonly DependencyService _deps;
+    private readonly Func<GameEntry, IReadOnlyList<DependencyInfo>> _missingDependencies;
     private readonly AchievementService _achievements;
     private readonly GameProcessRegistry _runningGames = new();
     private readonly Func<GameEntry, CancellationToken, Task<GameStopResult>> _stopGame;
@@ -116,7 +118,8 @@ public sealed class LaunchOrchestrator
         DependencyService deps,
         AchievementService? achievements,
         Func<GameEntry, CancellationToken, Task<GameStopResult>>? stopGame,
-        Func<StoreKind, IDisposable>? beginQuietGameSession = null)
+        Func<StoreKind, IDisposable>? beginQuietGameSession = null,
+        Func<GameEntry, IReadOnlyList<DependencyInfo>>? missingDependencies = null)
     {
         _adapters = adapters;
         _settings = settings;
@@ -124,6 +127,7 @@ public sealed class LaunchOrchestrator
         _achievements = achievements ?? new AchievementService();
         _stopGame = stopGame ?? _runningGames.StopAsync;
         _beginQuietGameSession = beginQuietGameSession ?? Adapters.HiddenStoreRuntime.GameSession;
+        _missingDependencies = missingDependencies ?? _deps.GetMissingRequired;
     }
 
     public InstallProgress CurrentProgress
@@ -178,7 +182,7 @@ public sealed class LaunchOrchestrator
         {
             if (!skipDeps && _settings.Current.AutoInstallRedistributables)
             {
-                var missing = _deps.GetMissingRequired(game);
+                var missing = _missingDependencies(game);
                 if (missing.Count > 0)
                 {
                     return new LaunchResult
@@ -196,6 +200,28 @@ public sealed class LaunchOrchestrator
             using var launchCts = CancellationTokenSource.CreateLinkedTokenSource(ct, session.StopCts.Token);
             try
             {
+                // Take the authoritative before-snapshot before the vendor can
+                // start the game. Bound the wait so a slow/offline provider can
+                // never hold launch hostage; without a baseline Exo simply does
+                // not claim unlocks from this session.
+                try
+                {
+                    using var baselineCts = CancellationTokenSource.CreateLinkedTokenSource(launchCts.Token);
+                    baselineCts.CancelAfter(AchievementBaselineBudget);
+                    _ = await _achievements.PrepareSessionAsync(game, baselineCts.Token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (!launchCts.IsCancellationRequested)
+                {
+                    AppLog.Debug($"Achievement baseline timed out for '{game.Title}'.");
+                }
+                catch (Exception ex)
+                {
+                    AppLog.Debug($"Achievement baseline unavailable for '{game.Title}': {ex.Message}");
+                }
+
+                if (launchCts.IsCancellationRequested)
+                    return new LaunchResult { Ok = false, Message = "Launch stopped." };
+
                 // Exo is driving: suppression is active for the duration of the launch.
                 using var driving = Adapters.HiddenStoreRuntime.Operation();
                 // Register the provider before sibling cleanup starts. The cleanup
@@ -215,10 +241,10 @@ public sealed class LaunchOrchestrator
                     {
                         return new LaunchResult { Ok = false, Message = "Launch stopped." };
                     }
+                    _achievements.ActivatePreparedSession(game.Id);
                     _runningGames.ObserveLaunch(game, result.ProcessId);
                     try { _settings.RecordLaunch(game.Id); } catch { /* */ }
                     try { PlaytimeService.BeginSession(game.Id); } catch { /* */ }
-                    var achievementSession = _achievements.BeginSessionAsync(game, CancellationToken.None);
                     // Keep every vendor window suppressed for the complete game
                     // session, not only the initial handoff. This catches delayed
                     // store popups and keeps Exo as the sole visible launcher.
@@ -238,7 +264,6 @@ public sealed class LaunchOrchestrator
                         game,
                         options,
                         result.ProcessId,
-                        achievementSession,
                         session);
                 }
                 return result;
@@ -257,6 +282,8 @@ public sealed class LaunchOrchestrator
         {
             if (!keepSessionRegistration)
             {
+                try { await _achievements.CancelSessionAsync(game.Id).ConfigureAwait(false); }
+                catch { /* launch failure cleanup is best-effort */ }
                 CompleteGameSession(session);
             }
         }
@@ -287,7 +314,6 @@ public sealed class LaunchOrchestrator
         GameEntry game,
         LaunchOptions options,
         int? processId,
-        Task<AchievementSnapshot> achievementSession,
         GameSessionState session)
     {
         if (!session.TryBeginWatching())
@@ -369,11 +395,10 @@ public sealed class LaunchOrchestrator
                         // Do not make Stop wait on a provider refresh. It is safe to
                         // reconcile it in the background after the foreground
                         // session has already released its ownership.
-                        _ = FinalizeStoppedAchievementSessionAsync(game.Id, achievementSession);
+                        _ = FinalizeStoppedAchievementSessionAsync(game.Id);
                     }
                     else
                     {
-                        _ = await achievementSession.ConfigureAwait(false);
                         _ = await _achievements.EndSessionAsync(game.Id, CancellationToken.None)
                             .ConfigureAwait(false);
                     }
@@ -397,13 +422,10 @@ public sealed class LaunchOrchestrator
         }
     }
 
-    private async Task FinalizeStoppedAchievementSessionAsync(
-        string gameId,
-        Task<AchievementSnapshot> achievementSession)
+    private async Task FinalizeStoppedAchievementSessionAsync(string gameId)
     {
         try
         {
-            _ = await achievementSession.ConfigureAwait(false);
             _ = await _achievements.EndSessionAsync(gameId, CancellationToken.None).ConfigureAwait(false);
         }
         catch (Exception ex)
@@ -503,20 +525,11 @@ public sealed class LaunchOrchestrator
             };
         }
 
-        if (!skipDeps && _settings.Current.AutoInstallRedistributables)
-        {
-            var missing = _deps.GetMissingRequired(game);
-            if (missing.Count > 0)
-            {
-                return new InstallResult
-                {
-                    Ok = false,
-                    NeedsDependencies = true,
-                    MissingDependencies = missing,
-                    Message = "Install required: " + string.Join(", ", missing.Select(d => d.Name)),
-                };
-            }
-        }
+        // A store install is itself the authoritative dependency workflow.
+        // Never let Exo's generic runtime detector intercept the user's exact
+        // title request before Steam/Epic/GOG/Riot receives it. The retained
+        // skipDeps parameter is part of the stable bridge contract.
+        _ = skipDeps;
 
         path ??= PathHelper.GamesRoot;
 
@@ -526,20 +539,10 @@ public sealed class LaunchOrchestrator
 
     public async Task<InstallResult> UpdateAsync(GameEntry game, bool skipDeps = false, CancellationToken outer = default)
     {
-        if (!skipDeps && _settings.Current.AutoInstallRedistributables)
-        {
-            var missing = _deps.GetMissingRequired(game);
-            if (missing.Count > 0)
-            {
-                return new InstallResult
-                {
-                    Ok = false,
-                    NeedsDependencies = true,
-                    MissingDependencies = missing,
-                    Message = "Install required: " + string.Join(", ", missing.Select(d => d.Name)),
-                };
-            }
-        }
+        // Updates must target the selected vendor title directly. Store clients
+        // own their redistributable/update prerequisites and can adjudicate them
+        // without Exo opening an unrelated dependency installer first.
+        _ = skipDeps;
 
         return await RunJobAsync(game, async (adapter, progress, ct) =>
             await adapter.UpdateAsync(game, progress, ct).ConfigureAwait(false), outer).ConfigureAwait(false);

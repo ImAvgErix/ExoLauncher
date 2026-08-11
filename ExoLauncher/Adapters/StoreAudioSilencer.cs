@@ -12,6 +12,9 @@ namespace ExoLauncher.Adapters;
 /// </summary>
 internal sealed class StoreAudioSilencer : IDisposable
 {
+    internal static readonly TimeSpan ActiveSweepInterval = TimeSpan.FromMilliseconds(250);
+    internal static readonly TimeSpan IdleSweepInterval = TimeSpan.FromSeconds(5);
+
     private static readonly IReadOnlyDictionary<StoreKind, string[]> s_processNames =
         new Dictionary<StoreKind, string[]>
         {
@@ -19,6 +22,14 @@ internal sealed class StoreAudioSilencer : IDisposable
             [StoreKind.Epic] = ["EpicGamesLauncher", "EpicWebHelper"],
             [StoreKind.Gog] = ["GalaxyClient", "GOG Galaxy Notifications"],
             [StoreKind.Riot] = ["Riot Client", "RiotClientUx", "RiotClientUxRender"],
+            [StoreKind.Xbox] = ["XboxPcApp", "GamingApp"],
+            [StoreKind.Ea] = ["EADesktop"],
+            [StoreKind.Ubisoft] = ["UbisoftConnect", "upc", "UplayWebCore"],
+            [StoreKind.BattleNet] = ["Battle.net"],
+            [StoreKind.Amazon] = ["Amazon Games", "AmazonGames", "AmazonGamesUI"],
+            // Do not mute RockstarService or SocialClubHelper: unlike the
+            // launcher's named frame they can participate in a game session.
+            [StoreKind.Rockstar] = ["Launcher", "LauncherPatcher"],
         };
 
     private readonly Func<StoreKind, bool> _shouldMute;
@@ -102,17 +113,22 @@ internal sealed class StoreAudioSilencer : IDisposable
             Sweep();
             while (!(_cts?.IsCancellationRequested ?? true))
             {
-                // Audio endpoint changes are not delivered through the session
-                // manager. Rebind all active render endpoints as recovery; new
-                // sessions on an already-bound endpoint use the immediate COM
-                // callback below.
-                if (DateTimeOffset.UtcNow >= nextEndpointRefresh)
+                var allowedNames = ActiveProcessNames();
+                var shouldEnumerate = ShouldEnumerateSessions(allowedNames.Count, _exoMuted.Count);
+                if (shouldEnumerate)
                 {
-                    RebindSessionNotifications(notificationManagers);
-                    nextEndpointRefresh = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(1);
+                    // Audio endpoint changes are not delivered through the session
+                    // manager. Rebind all active render endpoints as recovery; new
+                    // sessions on an already-bound endpoint use the immediate COM
+                    // callback below.
+                    if (DateTimeOffset.UtcNow >= nextEndpointRefresh)
+                    {
+                        RebindSessionNotifications(notificationManagers);
+                        nextEndpointRefresh = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(1);
+                    }
+                    try { Sweep(allowedNames); } catch { /* an audio endpoint can restart at any time */ }
                 }
-                try { Sweep(); } catch { /* an audio endpoint can restart at any time */ }
-                _wake.Wait(TimeSpan.FromMilliseconds(250));
+                _wake.Wait(shouldEnumerate ? ActiveSweepInterval : IdleSweepInterval);
                 _wake.Reset();
             }
         }
@@ -126,9 +142,16 @@ internal sealed class StoreAudioSilencer : IDisposable
         }
     }
 
-    private void Sweep()
+    internal static bool ShouldEnumerateSessions(int activeProcessNameCount, int ownedMuteCount) =>
+        activeProcessNameCount > 0 || ownedMuteCount > 0;
+
+    private void Sweep() => Sweep(ActiveProcessNames());
+
+    private void Sweep(HashSet<string> allowedNames)
     {
-        var allowedNames = ActiveProcessNames();
+        // At idle there is nothing to mute or restore. Avoid constructing Core
+        // Audio endpoint/session COM graphs until an Exo operation is active.
+        if (!ShouldEnumerateSessions(allowedNames.Count, _exoMuted.Count)) return;
         var sessions = GetSessions();
         try
         {

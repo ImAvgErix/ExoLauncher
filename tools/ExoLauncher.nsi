@@ -84,6 +84,16 @@ Function CloseApp
   FileOpen $1 "$R2" w
   FileWrite $1 "$$ErrorActionPreference = 'SilentlyContinue'$\r$\n"
   FileWrite $1 "$$target = [IO.Path]::GetFullPath('$INSTDIR\ExoLauncher.exe')$\r$\n"
+  FileWrite $1 "$$webViewRoot = [IO.Path]::GetFullPath('$INSTDIR\ExoLauncher.exe.WebView2')$\r$\n"
+  FileWrite $1 "function Stop-ExoWebView {$\r$\n"
+  FileWrite $1 "  $$webDeadline = [DateTime]::UtcNow.AddSeconds(5)$\r$\n"
+  FileWrite $1 "  do {$\r$\n"
+  FileWrite $1 "    $$web = @(Get-CimInstance Win32_Process | Where-Object { $$_.Name -eq 'msedgewebview2.exe' -and $$_.CommandLine -and $$_.CommandLine.Contains($$webViewRoot, [StringComparison]::OrdinalIgnoreCase) })$\r$\n"
+  FileWrite $1 "    foreach ($$process in $$web) { Stop-Process -Id $$process.ProcessId -Force }$\r$\n"
+  FileWrite $1 "    if ($$web.Count -eq 0) { return }$\r$\n"
+  FileWrite $1 "    Start-Sleep -Milliseconds 100$\r$\n"
+  FileWrite $1 "  } while ([DateTime]::UtcNow -lt $$webDeadline)$\r$\n"
+  FileWrite $1 "}$\r$\n"
   ; An in-app update starts setup before the WebView bridge can return and run
   ; Exo's normal Closed cleanup. Give that exact installed process time to
   ; flush sessions/settings and exit itself before using the bounded fallback.
@@ -91,7 +101,7 @@ Function CloseApp
   FileWrite $1 "  $$graceDeadline = [DateTime]::UtcNow.AddSeconds(8)$\r$\n"
   FileWrite $1 "  do {$\r$\n"
   FileWrite $1 "    $$matches = @(Get-CimInstance Win32_Process | Where-Object { $$_.Name -eq 'ExoLauncher.exe' -and $$_.ExecutablePath -and [StringComparer]::OrdinalIgnoreCase.Equals([IO.Path]::GetFullPath($$_.ExecutablePath), $$target) })$\r$\n"
-  FileWrite $1 "    if ($$matches.Count -eq 0) { exit 0 }$\r$\n"
+  FileWrite $1 "    if ($$matches.Count -eq 0) { Stop-ExoWebView; exit 0 }$\r$\n"
   FileWrite $1 "    Start-Sleep -Milliseconds 200$\r$\n"
   FileWrite $1 "  } while ([DateTime]::UtcNow -lt $$graceDeadline)$\r$\n"
   FileWrite $1 "}$\r$\n"
@@ -99,11 +109,12 @@ Function CloseApp
   FileWrite $1 "do {$\r$\n"
   FileWrite $1 "  $$matches = @(Get-CimInstance Win32_Process | Where-Object { $$_.Name -eq 'ExoLauncher.exe' -and $$_.ExecutablePath -and [StringComparer]::OrdinalIgnoreCase.Equals([IO.Path]::GetFullPath($$_.ExecutablePath), $$target) })$\r$\n"
   FileWrite $1 "  foreach ($$process in $$matches) { Stop-Process -Id $$process.ProcessId -Force }$\r$\n"
-  FileWrite $1 "  if ($$matches.Count -eq 0) { exit 0 }$\r$\n"
+  FileWrite $1 "  if ($$matches.Count -eq 0) { Stop-ExoWebView; exit 0 }$\r$\n"
   FileWrite $1 "  Start-Sleep -Milliseconds 200$\r$\n"
   FileWrite $1 "} while ([DateTime]::UtcNow -lt $$deadline)$\r$\n"
   FileWrite $1 "$$remaining = @(Get-CimInstance Win32_Process | Where-Object { $$_.Name -eq 'ExoLauncher.exe' -and $$_.ExecutablePath -and [StringComparer]::OrdinalIgnoreCase.Equals([IO.Path]::GetFullPath($$_.ExecutablePath), $$target) })$\r$\n"
   FileWrite $1 "if ($$remaining.Count -gt 0) { exit 1 }$\r$\n"
+  FileWrite $1 "Stop-ExoWebView$\r$\n"
   FileClose $1
   nsExec::ExecToLog 'powershell.exe -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File "$R2"'
   Pop $0

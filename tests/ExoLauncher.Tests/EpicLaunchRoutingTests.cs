@@ -67,6 +67,54 @@ public sealed class EpicLaunchRoutingTests
     }
 
     [Fact]
+    public async Task ColdEpicLaunch_WaitsForCommandListenerBeforeSubmittingRocketLeagueUri()
+    {
+        var probe = 0;
+        var delays = new List<TimeSpan>();
+
+        var ready = await EpicAdapter.WaitForEpicCommandListenerAsync(
+            launcherRunning: () => probe >= 1,
+            webHelperRunning: () => probe >= 2,
+            delayAsync: (delay, _) =>
+            {
+                delays.Add(delay);
+                if (delay == TimeSpan.FromMilliseconds(350)) probe++;
+                return Task.CompletedTask;
+            },
+            CancellationToken.None,
+            maxPolls: 5);
+
+        Assert.True(ready);
+        Assert.Equal(
+            [
+                TimeSpan.FromMilliseconds(350),
+                TimeSpan.FromMilliseconds(350),
+                TimeSpan.FromMilliseconds(750),
+            ],
+            delays);
+    }
+
+    [Fact]
+    public async Task ColdEpicLaunch_ReadinessProbeIsBoundedWhenClientNeverStarts()
+    {
+        var waits = 0;
+
+        var ready = await EpicAdapter.WaitForEpicCommandListenerAsync(
+            launcherRunning: static () => false,
+            webHelperRunning: static () => false,
+            delayAsync: (_, _) =>
+            {
+                waits++;
+                return Task.CompletedTask;
+            },
+            CancellationToken.None,
+            maxPolls: 3);
+
+        Assert.False(ready);
+        Assert.Equal(3, waits);
+    }
+
+    [Fact]
     public async Task ExistingProcessCandidate_IsNotCreditedAsANewEpicLaunch()
     {
         var confirmed = await ProcessHelper.ConfirmNewProcessCandidateAsync(

@@ -31,6 +31,7 @@ export function DetailPanel({
   onCancel,
   onClose,
   onToggleFavorite,
+  onSelectSource,
   onStatus,
   onUninstalled,
   closeDisabled = false,
@@ -44,6 +45,8 @@ export function DetailPanel({
   onCancel: () => void
   onClose: () => void
   onToggleFavorite: (id: string) => void
+  /** Switches the exact store entry behind a grouped library card. */
+  onSelectSource?: (id: string) => void
   onStatus: (msg: string | null) => void
   onUninstalled: () => void
   closeDisabled?: boolean
@@ -131,6 +134,35 @@ export function DetailPanel({
             <p className="mt-0.5 text-[11px] text-muted">
               {storeLabel(selected.store)}
             </p>
+            {selected.variants && selected.variants.length > 1 && onSelectSource && (
+              <div
+                className="mt-2 flex flex-wrap gap-1"
+                role="group"
+                aria-label="Choose game source"
+              >
+                {selected.variants.map((variant) => {
+                  const active = variant.id === selected.id
+                  return (
+                    <button
+                      key={variant.id}
+                      type="button"
+                      disabled={busy}
+                      onClick={() => onSelectSource(variant.id)}
+                      aria-pressed={active}
+                      className={`rounded-full border px-2 py-1 text-[10px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+                        active
+                          ? 'border-fg bg-fg text-black'
+                          : 'border-line-soft bg-black text-muted hover:border-muted hover:text-fg'
+                      }`}
+                    >
+                      {variant.updateAvailable
+                        ? `${storeLabel(variant.store)} · Update`
+                        : storeLabel(variant.store)}
+                    </button>
+                  )
+                })}
+              </div>
+            )}
           </div>
           {selected.installed && !selected.isAddPortable && (
             <button
@@ -342,13 +374,17 @@ function Row({ label, value }: { label: string; value: string }) {
 
 /** Buy via store client / browser — Exo does not host checkout. */
 function storeBuyUrl(game: Game): string | null {
-  if (game.installed || game.canInstall) return null
+  // Account-proven ownership is never a purchase CTA, even when the backing
+  // client is temporarily unavailable to accept an install request.
+  if (game.installed || game.canInstall || game.owned) return null
   const target = (game.launchTarget || '').trim()
   // Steam: open the desktop client's store page (not the browser).
   if (game.store === 'steam' && /^\d+$/.test(target))
     return `steam://store/${target}`
   if (game.store === 'gog' && target)
     return `https://www.gog.com/en/game/${encodeURIComponent(target)}`
+  if (game.store === 'epic' && game.id.startsWith('epic:catalog:') && target)
+    return `https://store.epicgames.com/en-US/p/${encodeURIComponent(target)}`
   if (game.id.startsWith('steam:')) {
     const id = game.id.slice('steam:'.length)
     if (/^\d+$/.test(id)) return `steam://store/${id}`

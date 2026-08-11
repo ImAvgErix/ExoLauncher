@@ -289,6 +289,27 @@ public class CliHelperTests
     }
 
     [Fact]
+    public void Legendary_ParseLibrary_CarriesCategoriesAndOfficialTallKeyArt()
+    {
+        const string json = """
+            [{
+              "app_name": "Fortnite",
+              "title": "Fortnite",
+              "metadata": { "categories": ["games", "applications"] },
+              "keyImages": [{
+                "type": "DieselGameBoxTall",
+                "url": "https://cdn2.unrealengine.com/fortnite-1200x1600.jpg"
+              }]
+            }]
+            """;
+
+        var row = Assert.Single(LegendaryCli.ParseLibraryJson(json, forceInstalled: false));
+
+        Assert.Equal(["games", "applications"], row.Categories);
+        Assert.Equal("https://cdn2.unrealengine.com/fortnite-1200x1600.jpg", row.CoverUrl);
+    }
+
+    [Fact]
     public void Gogdl_ParseOwnedLibrary_AndMerge()
     {
         const string owned = """

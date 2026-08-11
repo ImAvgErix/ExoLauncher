@@ -16,10 +16,13 @@ public sealed class InstallerContractTests
         Assert.Contains("Stop-Process -Id $$process.ProcessId -Force", script, StringComparison.Ordinal);
         Assert.Contains("-File \"$R2\"", script, StringComparison.Ordinal);
         Assert.Contains("!searchparse /file \"..\\VERSION\"", script, StringComparison.Ordinal);
+        Assert.Contains("msedgewebview2.exe", script, StringComparison.Ordinal);
+        Assert.Contains("ExoLauncher.exe.WebView2", script, StringComparison.Ordinal);
+        Assert.Contains("StringComparison]::OrdinalIgnoreCase", script, StringComparison.Ordinal);
         Assert.Contains("$$env:EXO_SILENT_INSTALL -eq '1'", script, StringComparison.Ordinal);
         Assert.True(
             script.IndexOf("$$graceDeadline", StringComparison.Ordinal) <
-            script.IndexOf("Stop-Process -Id $$process.ProcessId -Force", StringComparison.Ordinal),
+            script.IndexOf("foreach ($$process in $$matches) { Stop-Process", StringComparison.Ordinal),
             "In-app setup must wait for Exo's normal shutdown before its exact-path force-stop fallback.");
     }
 

@@ -9,6 +9,51 @@ namespace ExoLauncher.Tests;
 public sealed class OrchestratorCancelTests
 {
     [Fact]
+    public async Task StoreInstall_ReachesExactAdapter_WhenGenericRuntimeProbeReportsMissing()
+    {
+        var adapter = new DependencyBoundaryAdapter(StoreKind.Steam);
+        var orchestrator = CreateWithMissingRuntime(adapter);
+        var game = new GameEntry
+        {
+            Id = "steam:1620730",
+            Title = "Hell is Us",
+            Store = StoreKind.Steam,
+            LaunchTarget = "1620730",
+            CanInstall = true,
+        };
+
+        var result = await orchestrator.InstallAsync(game);
+
+        Assert.True(result.Ok);
+        Assert.Equal(1, adapter.InstallCalls);
+        Assert.Equal("1620730", adapter.LastLaunchTarget);
+        Assert.False(result.NeedsDependencies);
+    }
+
+    [Fact]
+    public async Task StoreUpdate_ReachesSelectedAdapter_WhenGenericRuntimeProbeReportsMissing()
+    {
+        var adapter = new DependencyBoundaryAdapter(StoreKind.Steam);
+        var orchestrator = CreateWithMissingRuntime(adapter);
+        var game = new GameEntry
+        {
+            Id = "steam:1817070",
+            Title = "Marvel's Spider-Man Remastered",
+            Store = StoreKind.Steam,
+            LaunchTarget = "1817070",
+            Installed = true,
+            UpdateAvailable = true,
+        };
+
+        var result = await orchestrator.UpdateAsync(game);
+
+        Assert.True(result.Ok);
+        Assert.Equal(1, adapter.UpdateCalls);
+        Assert.Equal("1817070", adapter.LastLaunchTarget);
+        Assert.False(result.NeedsDependencies);
+    }
+
+    [Fact]
     public async Task CancelledWorkCannotPublishCompletedAfterCancel()
     {
         var adapter = new IgnoringCancelAdapter();
@@ -268,6 +313,25 @@ public sealed class OrchestratorCancelTests
     private static SettingsService SettingsWithoutAutomaticDependencies() =>
         new(new AppSettings { AutoInstallRedistributables = false });
 
+    private static LaunchOrchestrator CreateWithMissingRuntime(IStoreAdapter adapter) =>
+        new(
+            new[] { adapter },
+            new SettingsService(new AppSettings { AutoInstallRedistributables = true }),
+            new DependencyService(),
+            achievements: null,
+            stopGame: null,
+            beginQuietGameSession: null,
+            missingDependencies: _ =>
+            [
+                new DependencyInfo
+                {
+                    Id = "fixture-runtime",
+                    Name = "Fixture runtime",
+                    Status = "Missing",
+                    CanOfferInstall = true,
+                },
+            ]);
+
     private static bool GetOk(object result) =>
         (bool)result.GetType().GetProperty("ok")!.GetValue(result)!;
 
@@ -286,6 +350,55 @@ public sealed class OrchestratorCancelTests
             ReleaseDispose.Task.GetAwaiter().GetResult();
             DisposeCompleted.TrySetResult();
         }
+    }
+
+    private sealed class DependencyBoundaryAdapter(StoreKind store) : IStoreAdapter
+    {
+        public int InstallCalls;
+        public int UpdateCalls;
+        public string? LastLaunchTarget;
+
+        public StoreKind Store { get; } = store;
+        public string Id => Store.ToString().ToLowerInvariant();
+        public string DisplayName => Store.ToString();
+        public bool IsAgentPresent() => true;
+        public Task<AuthResult> AuthenticateAsync(CancellationToken ct = default) =>
+            Task.FromResult(new AuthResult { Ok = true });
+        public Task<IReadOnlyList<GameEntry>> GetLibraryAsync(CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyList<GameEntry>>(Array.Empty<GameEntry>());
+        public Task<InstallResult> InstallAsync(
+            GameEntry game,
+            string? installPath,
+            IProgress<InstallProgress>? progress,
+            CancellationToken ct = default)
+        {
+            Interlocked.Increment(ref InstallCalls);
+            LastLaunchTarget = game.LaunchTarget;
+            return Task.FromResult(new InstallResult { Ok = true, Message = "Handed to store." });
+        }
+        public Task<InstallResult> UpdateAsync(
+            GameEntry game,
+            IProgress<InstallProgress>? progress,
+            CancellationToken ct = default)
+        {
+            Interlocked.Increment(ref UpdateCalls);
+            LastLaunchTarget = game.LaunchTarget;
+            return Task.FromResult(new InstallResult { Ok = true, Message = "Handed to store." });
+        }
+        public Task<LaunchResult> LaunchAsync(
+            GameEntry game,
+            LaunchOptions options,
+            CancellationToken ct = default) =>
+            Task.FromResult(new LaunchResult { Ok = false, Message = "not used" });
+        public Task<InstallResult> UninstallAsync(GameEntry game, CancellationToken ct = default) =>
+            Task.FromResult(new InstallResult { Ok = false, Message = "not used" });
+        public InstallProgress GetDownloadProgress(string gameId) =>
+            new() { GameId = gameId, Phase = InstallPhase.Idle };
+        public Task CleanupAfterExitAsync(
+            GameEntry game,
+            LaunchOptions options,
+            CancellationToken ct = default) =>
+            Task.CompletedTask;
     }
 
     private sealed class IgnoringCancelAdapter : IStoreAdapter

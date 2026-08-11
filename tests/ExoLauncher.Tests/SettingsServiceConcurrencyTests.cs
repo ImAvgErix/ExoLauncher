@@ -67,6 +67,25 @@ public sealed class SettingsServiceConcurrencyTests
         });
     }
 
+    [Fact]
+    public async Task SetFavoriteState_ClearsEveryVariantInOnePersistedSnapshot()
+    {
+        await InIsolatedDataDirectory(async _ =>
+        {
+            var settings = new SettingsService();
+            settings.SetFavoriteState(["steam:252950", "epic:Sugar"], isFavorite: true);
+            Assert.True(settings.IsFavorite("steam:252950"));
+            Assert.True(settings.IsFavorite("epic:Sugar"));
+
+            settings.SetFavoriteState(["steam:252950", "epic:Sugar"], isFavorite: false);
+
+            Assert.False(settings.IsFavorite("steam:252950"));
+            Assert.False(settings.IsFavorite("epic:Sugar"));
+            using var persisted = JsonDocument.Parse(await File.ReadAllTextAsync(PathHelper.SettingsPath));
+            Assert.Empty(persisted.RootElement.GetProperty("favorites").EnumerateArray());
+        });
+    }
+
     private static async Task InIsolatedDataDirectory(Func<string, Task> test)
     {
         var previous = Environment.GetEnvironmentVariable(PathHelper.DataDirOverrideVariable);

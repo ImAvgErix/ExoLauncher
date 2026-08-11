@@ -45,6 +45,7 @@ public static class EpicEglMerge
                 CanInstall = false,
                 Path = g.Path ?? cur.Path,
                 CoverUrl = cur.CoverUrl ?? g.CoverUrl,
+                CoverSource = cur.CoverSource ?? g.CoverSource,
                 PlaytimeMinutes = cur.PlaytimeMinutes ?? g.PlaytimeMinutes,
                 SizeBytes = g.SizeBytes ?? cur.SizeBytes,
                 Status = "Ready",

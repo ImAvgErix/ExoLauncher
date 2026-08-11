@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.0.24 - 2026-08-11
+
+**Exact source control · session-true trophies · broader honest client support.**
+
+- Kept exact same-title Steam and Epic copies on one card while retaining source-specific ownership, installation, updates, playtime, account scope, achievement lookups, and Play/Install/Update/Stop/Uninstall routing
+- Isolated Steam and Epic cache state by active account, and kept machine-proven installs visible without turning unknown account identity into a false ownership claim
+- Sent Steam install/update requests directly to the selected app ID instead of letting missing generic runtimes divert the action, and added a bounded Epic cold-start readiness handoff for exact game URIs
+- Prepared the achievement baseline before vendor handoff, activated attribution only after a successful launch, and prevented manual/detail refreshes or failed launches from fabricating unlock notifications
+- Rebuilt the achievement cue as an original 1.18-second 48 kHz stereo Exo sound and aligned the in-app preview with the native 432×122 AMOLED plate, real achievement art, rarity accents, scale-and-fade motion, and exact nine-point anchoring
+- Expanded quiet-mode client catalogs to Xbox, EA app, Ubisoft Connect, Battle.net, Amazon Games, and Rockstar Games Launcher while explicitly protecting services, overlays, anti-cheat, game processes, and user-opened client windows
+- Added honest Installed/Not installed and Open-only integrations for those official clients without inventing libraries, account state, or unsupported per-game actions
+- Reworked Settings into a compact two-pane workspace with support links, restored card hover lift and clear store wording, constrained pinned-game overflow, upgraded undersized cover art, and made remaining app surfaces pure AMOLED black
+- Removed idle Core Audio enumeration and endpoint rebinding while preserving fast 250 ms suppression during active Exo-driven operations
+- Moved WebView2 state outside the replaceable application tree and bounded shutdown to Exo-owned WebView children so atomic updates do not strand cache-only rollback folders
+
 ## 1.0.23 - 2026-08-11
 
 **Reliable trophies · honest store status · faster first paint.**
@@ -201,6 +216,7 @@
 Phase 1 public release + polish pass.
 
 ### Product
+
 - Fixed 1400×900 AMOLED shell (WinUI 3 + React + WebView2); optional resize
 - Library UI: covers (cached + monogram fallback), title, store dot, favorites, sort, recents
 - Detail rail: **Play | Install | Update**, secondary actions (folder, uninstall, favorite), install speed
@@ -219,6 +235,7 @@ Phase 1 public release + polish pass.
 - Tests: CLI helpers, LocalAdapter fixture, bridge parity
 
 ### Fixes
+
 - Cover art virtual host + progressive warm
 - Test fixture pollution filtered from Local library
 - Version pipeline aligned to 1.0.0

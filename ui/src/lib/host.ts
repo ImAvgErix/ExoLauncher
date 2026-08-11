@@ -10,14 +10,43 @@ export type StoreId =
   | 'ubisoft'
   | 'battlenet'
   | 'amazon'
+  | 'rockstar'
 
 export type PrimaryAction = 'play' | 'install' | 'update' | 'none'
 export type SortMode = 'name' | 'recent' | 'size' | 'store' | 'favorites'
+
+/** One exact store entry represented by a grouped library card. */
+export interface GameVariant {
+  id: string
+  store: StoreId | string
+  installed: boolean
+  owned?: boolean
+  updateAvailable?: boolean
+  canInstall?: boolean
+  primaryAction?: PrimaryAction | string
+  path?: string | null
+  launchTarget?: string | null
+  playtimeMinutes?: number | null
+  lastPlayedUtc?: string | null
+  status: string
+  /** Only true when Exo has revalidated this source's game process. */
+  isRunning?: boolean
+  /** Never offered for launcher, overlay, anti-cheat, or service processes. */
+  canStop?: boolean
+}
 
 export interface Game {
   id: string
   title: string
   store: StoreId | string
+  /** Every store variant represented by this library entry. */
+  stores?: Array<StoreId | string>
+  /** Opaque display grouping key; never send it back as an action id. */
+  canonicalTitleKey?: string | null
+  /** Exact source projected into this card before the user chooses another source. */
+  selectedVariantId?: string | null
+  /** Exact sources available for the grouped card. */
+  variants?: GameVariant[]
   installed: boolean
   owned?: boolean
   updateAvailable?: boolean

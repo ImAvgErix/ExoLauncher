@@ -12,7 +12,10 @@ namespace ExoLauncher.Services;
 /// </summary>
 internal sealed class SteamOwnershipCatalog
 {
-    private const int CurrentVersion = 1;
+    private const int CurrentVersion = 2;
+    // Compatibility-only scope for direct unit tests/old internal callers.
+    // Production always passes the active opaque Steam scope.
+    private const string LegacyScope = "legacy-unscoped";
     private static readonly object FileGate = new();
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -43,18 +46,23 @@ internal sealed class SteamOwnershipCatalog
     }
 
     /// <summary>Record only manifest-backed, currently installed Steam entries.</summary>
-    internal void RememberInstalled(IEnumerable<GameEntry> games)
+    internal void RememberInstalled(IEnumerable<GameEntry> games) => RememberInstalled(LegacyScope, games);
+
+    /// <summary>Record manifest proof only for one active opaque Steam account scope.</summary>
+    internal void RememberInstalled(string accountScope, IEnumerable<GameEntry> games)
     {
         ArgumentNullException.ThrowIfNull(games);
+        if (string.IsNullOrWhiteSpace(accountScope)) return;
         lock (_gate)
         {
             var changed = false;
             foreach (var game in games)
             {
-                if (!TryCreateEntry(game, out var entry)) continue;
-                if (_entries.TryGetValue(entry.AppId, out var existing) && existing == entry)
+                if (!TryCreateEntry(accountScope, game, out var entry)) continue;
+                var key = EntryKey(entry.AccountScope, entry.AppId);
+                if (_entries.TryGetValue(key, out var existing) && existing == entry)
                     continue;
-                _entries[entry.AppId] = entry;
+                _entries[key] = entry;
                 changed = true;
             }
 
@@ -72,15 +80,21 @@ internal sealed class SteamOwnershipCatalog
     }
 
     /// <summary>Return proven-owned titles absent from the current manifest scan.</summary>
-    internal IReadOnlyList<GameEntry> RestoreMissing(IEnumerable<GameEntry> currentGames)
+    internal IReadOnlyList<GameEntry> RestoreMissing(IEnumerable<GameEntry> currentGames) =>
+        RestoreMissing(LegacyScope, currentGames);
+
+    /// <summary>Return only the current account's manifest-proven titles.</summary>
+    internal IReadOnlyList<GameEntry> RestoreMissing(string accountScope, IEnumerable<GameEntry> currentGames)
     {
         ArgumentNullException.ThrowIfNull(currentGames);
+        if (string.IsNullOrWhiteSpace(accountScope)) return Array.Empty<GameEntry>();
         lock (_gate)
         {
             var present = currentGames
                 .Select(game => game.Id)
                 .ToHashSet(StringComparer.OrdinalIgnoreCase);
             return _entries.Values
+                .Where(entry => string.Equals(entry.AccountScope, accountScope, StringComparison.Ordinal))
                 .Where(entry => !present.Contains("steam:" + entry.AppId))
                 .OrderBy(entry => entry.Title, StringComparer.OrdinalIgnoreCase)
                 .Select(ToUninstalledGame)
@@ -136,7 +150,7 @@ internal sealed class SteamOwnershipCatalog
                 return false;
             entries = document.Games
                 .Where(IsValidEntry)
-                .GroupBy(entry => entry.AppId, StringComparer.OrdinalIgnoreCase)
+                .GroupBy(entry => EntryKey(entry.AccountScope, entry.AppId), StringComparer.Ordinal)
                 .Select(group => group.Last())
                 .ToList();
             return true;
@@ -152,7 +166,7 @@ internal sealed class SteamOwnershipCatalog
     {
         _entries.Clear();
         foreach (var entry in entries)
-            _entries[entry.AppId] = entry;
+            _entries[EntryKey(entry.AccountScope, entry.AppId)] = entry;
     }
 
     private void Save()
@@ -189,7 +203,7 @@ internal sealed class SteamOwnershipCatalog
         }
     }
 
-    private static bool TryCreateEntry(GameEntry game, out CatalogEntry entry)
+    private static bool TryCreateEntry(string accountScope, GameEntry game, out CatalogEntry entry)
     {
         entry = default!;
         if (game.Store != StoreKind.Steam || !game.Installed || !game.Owned)
@@ -200,11 +214,12 @@ internal sealed class SteamOwnershipCatalog
             return false;
         var title = (game.Title ?? "").Trim();
         if (title.Length is 0 or > 512) return false;
-        entry = new CatalogEntry(appId, title, game.SizeBytes);
+        entry = new CatalogEntry(accountScope, appId, title, game.SizeBytes);
         return true;
     }
 
     private static bool IsValidEntry(CatalogEntry entry) =>
+        !string.IsNullOrWhiteSpace(entry.AccountScope) && entry.AccountScope.Length <= 128 &&
         IsValidAppId(entry.AppId) &&
         !string.IsNullOrWhiteSpace(entry.Title) &&
         entry.Title.Length <= 512;
@@ -236,5 +251,7 @@ internal sealed class SteamOwnershipCatalog
         public List<CatalogEntry>? Games { get; init; }
     }
 
-    private sealed record CatalogEntry(string AppId, string Title, long? SizeBytes);
+    private static string EntryKey(string accountScope, string appId) => accountScope + "\0" + appId;
+
+    private sealed record CatalogEntry(string AccountScope, string AppId, string Title, long? SizeBytes);
 }

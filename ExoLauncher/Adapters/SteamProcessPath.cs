@@ -58,6 +58,7 @@ internal static class SteamProcessPath
         return processId > 0 &&
                !string.IsNullOrWhiteSpace(processName) &&
                !LaunchHelperNames.Contains(processName) &&
+               !ProcessHelper.IsNonGameProcessName(processName) &&
                !string.IsNullOrWhiteSpace(executablePath) &&
                !string.IsNullOrWhiteSpace(installPath) &&
                IsWithinInstall(installPath, executablePath);

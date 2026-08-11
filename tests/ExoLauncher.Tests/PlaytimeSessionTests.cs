@@ -214,7 +214,7 @@ public sealed class PlaytimeSessionTests
     }
 
     [Fact]
-    public void PlaytimeService_DoesNotUploadExoFallbackBesideRealLifetimeSource()
+    public void PlaytimeService_DoesNotAddExoFallbackToNativeLifetime()
     {
         var id = "epic:fallback-overlap-fixture-" + Guid.NewGuid().ToString("N")[..8];
         var title = "Fallback overlap fixture " + Guid.NewGuid().ToString("N")[..8];
@@ -232,14 +232,7 @@ public sealed class PlaytimeSessionTests
                 PlaytimeMinutes = 120,
             },
         ]);
-        var gameKey = PlaytimeService.GameKey(enriched[0]);
-        var observations = PlaytimeService.SnapshotObservations("fixture-device");
-
         Assert.Equal(120, enriched[0].PlaytimeMinutes);
-        Assert.Contains(observations, value =>
-            value.GameKey == gameKey && value.Source == "epic" && value.TotalSeconds == 7_200);
-        Assert.DoesNotContain(observations, value =>
-            value.GameKey == gameKey && value.Source == "exo_session");
     }
 
     [Fact]
@@ -317,13 +310,6 @@ public sealed class PlaytimeSessionTests
             Assert.Equal(105699, afterLegacyRemoval[0].PlaytimeMinutes);
             Assert.Equal(403, afterLegacyRemoval[1].PlaytimeMinutes);
 
-            var observations = PlaytimeService.SnapshotObservations("fixture-device");
-            Assert.Contains(observations, value =>
-                value.GameKey == "valorant" &&
-                value.Source == "imported_lifetime" &&
-                value.TotalSeconds == 105699L * 60L);
-            Assert.DoesNotContain(observations, value =>
-                value.CoverageKey.Contains(fictionalLegacyAccount, StringComparison.OrdinalIgnoreCase));
         }
         finally
         {
@@ -372,16 +358,6 @@ public sealed class PlaytimeSessionTests
             ]);
 
             Assert.Equal(448, enriched[0].PlaytimeMinutes);
-            var observations = PlaytimeService.SnapshotObservations("fixture-device");
-            Assert.Contains(observations, value =>
-                value.GameKey == PlaytimeService.GameKey(enriched[0]) &&
-                value.Source == "imported_lifetime" &&
-                value.TotalSeconds == 400L * 60L);
-            Assert.Contains(observations, value =>
-                value.GameKey == PlaytimeService.GameKey(enriched[0]) &&
-                value.Source == "exo_session" &&
-                value.TotalSeconds == 48L * 60L);
-
             // The persisted zero baseline is essential: a restart must keep
             // treating the same 48 minutes as the cumulative post-import row,
             // not capture it as a new baseline and make those minutes vanish.

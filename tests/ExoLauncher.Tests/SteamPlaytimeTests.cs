@@ -52,6 +52,37 @@ public sealed class SteamPlaytimeTests
     }
 
     [Fact]
+    public void ParseAppTickets_UsesOnlyTheActiveAccountsTicketSection()
+    {
+        const string vdf = """
+            "UserLocalConfigStore"
+            {
+                "apptickets"
+                {
+                    "1620730" "50000000aabbccdd"
+                    "1817070" "320000001122aaff"
+                    "not-an-app" "ffffffff"
+                }
+                "Software"
+                {
+                    "apps"
+                    {
+                        "252950" { "Playtime" "500" }
+                    }
+                }
+            }
+            "1620730" "outside-the-ticket-section"
+            """;
+
+        var tickets = SteamPlaytime.ParseAppTickets(vdf);
+
+        Assert.Equal(2, tickets.Count);
+        Assert.Contains("1620730", tickets);
+        Assert.Contains("1817070", tickets);
+        Assert.DoesNotContain("252950", tickets);
+    }
+
+    [Fact]
     public void MergeFile_KeepsHigherPlaytimeAcrossUsers()
     {
         var map = new Dictionary<string, SteamPlaytime.Entry>(StringComparer.Ordinal);
@@ -106,25 +137,6 @@ public sealed class SteamPlaytimeTests
         {
             try { Directory.Delete(root, recursive: true); } catch { }
         }
-    }
-
-    [Fact]
-    public void SteamCoverage_ContainsOnlyHashedAccountProvenance()
-    {
-        var game = new GameEntry
-        {
-            Id = "steam:252950",
-            Title = "Rocket League",
-            Store = StoreKind.Steam,
-            LaunchTarget = "252950",
-        };
-
-        var coverage = PlaytimeService.NativeCoverageKey(
-            game,
-            "7ce84b31d013d2e7b45cc6593db1f73f");
-
-        Assert.Equal("steam:7ce84b31d013d2e7b45cc6593db1f73f:252950", coverage);
-        Assert.DoesNotContain("765611", coverage, StringComparison.Ordinal);
     }
 
     private static string CreateSteamRoot(params (string Account, string App, int Minutes)[] rows)

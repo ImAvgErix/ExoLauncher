@@ -5,6 +5,8 @@ namespace ExoLauncher.Adapters;
 /// </summary>
 public sealed class SteamAdapter
 {
+    public bool IsAgentPresent() => false;
+
     internal static bool IsNonGameSteamEntry(string appId, string name, string? installDir)
     {
         _ = appId;

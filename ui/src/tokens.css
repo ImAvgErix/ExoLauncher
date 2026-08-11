@@ -6,12 +6,12 @@
 
 @theme {
   --color-bg: #000000;
-  --color-surface: #0c0c0c;
-  --color-elevated: #141414;
-  --color-hover: #1c1c1c;
-  --color-bg-elevated: #0c0c0c;
-  --color-surface-2: #141414;
-  --color-surface-3: #1c1c1c;
+  --color-surface: #000000;
+  --color-elevated: #000000;
+  --color-hover: #080808;
+  --color-bg-elevated: #000000;
+  --color-surface-2: #000000;
+  --color-surface-3: #080808;
   --color-line: #222222;
   --color-line-soft: #161616;
   --color-border: #161616;
@@ -25,8 +25,8 @@
   --color-primary-fg: #0a0a0a;
   --color-good: #3dd68c;
   --color-bad: #ff5c5c;
-  --color-card: #0c0c0c;
-  --color-raised: #141414;
+  --color-card: #000000;
+  --color-raised: #000000;
   --font-sans: "Geist Variable", "Geist", "Inter", "SF Pro Display", system-ui, -apple-system, sans-serif;
   --font-mono: "Geist Mono Variable", "Geist Mono", ui-monospace, monospace;
   --radius-ui: 14px;
@@ -152,7 +152,7 @@
   height: 50%;
   left: 15%;
   top: 0;
-  background: radial-gradient(ellipse at center, rgba(255, 255, 255, 0.05) 0%, transparent 70%);
+  background: radial-gradient(ellipse at center, rgba(255, 255, 255, 0.018) 0%, transparent 70%);
 }
 
 .exo-ambient::after {
@@ -162,7 +162,7 @@
   height: 45%;
   right: 0;
   bottom: 8%;
-  background: radial-gradient(ellipse at center, rgba(61, 214, 140, 0.035) 0%, transparent 70%);
+  background: radial-gradient(ellipse at center, rgba(61, 214, 140, 0.018) 0%, transparent 70%);
 }
 
 .exo-titlebar {
@@ -235,21 +235,87 @@
 }
 
 /* Pinned row — quiet horizontal strip above installed grid */
+.exo-pinned-section {
+  min-width: 0;
+  max-width: 100%;
+  /* The rail owns its x-axis clipping. Its focus ring and hover lift need
+     room outside the scrollport so a long pinned list never looks cut off. */
+  overflow: visible;
+}
+
+.exo-pinned-viewport {
+  position: relative;
+  min-width: 0;
+}
+
 .exo-pinned-row {
+  position: relative;
   display: flex;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
   gap: 16px;
   overflow-x: auto;
   overflow-y: hidden;
-  /* Room for hover lift — otherwise the top of pinned cards gets clipped */
-  padding-top: 8px;
-  margin-top: -4px;
-  padding-bottom: 8px;
+  overscroll-behavior-x: contain;
+  scroll-behavior: smooth;
+  /* Room for hover lift — otherwise the top of pinned cards gets clipped. */
+  padding: 8px 10px 12px 2px;
   scroll-snap-type: x proximity;
   -webkit-overflow-scrolling: touch;
+  contain: layout style;
 }
 
 .exo-pinned-row > * {
+  flex: 0 0 auto;
   scroll-snap-align: start;
+}
+
+.exo-pinned-edge {
+  position: absolute;
+  top: 8px;
+  bottom: 12px;
+  z-index: 3;
+  pointer-events: none;
+  background: #000;
+}
+
+.exo-pinned-edge.is-left {
+  left: 0;
+  width: var(--pinned-left-edge-width, 0px);
+}
+
+.exo-pinned-edge.is-right {
+  right: 0;
+  width: var(--pinned-right-edge-width, 0px);
+}
+
+.exo-pinned-nav-button {
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--color-line-soft);
+  border-radius: 999px;
+  color: var(--color-fg);
+  background: #000;
+  transition: border-color 140ms var(--ease-out), opacity 140ms var(--ease-out);
+}
+
+.exo-pinned-nav-button:hover:not(:disabled) {
+  border-color: var(--color-muted);
+}
+
+.exo-pinned-nav-button:disabled {
+  opacity: .28;
+}
+
+.exo-pinned-row:focus-visible {
+  outline: 1.5px solid rgba(255, 255, 255, 0.75);
+  outline-offset: 3px;
+  border-radius: 12px;
 }
 
 .exo-cover {
@@ -257,21 +323,17 @@
   overflow: hidden;
   border-radius: 12px;
   border: none;
-  background: #0a0a0a;
+  background: #000;
   box-shadow: none;
-  transition: transform 220ms var(--ease-out);
-}
-
-@media (hover: hover) and (pointer: fine) {
-  .group:hover .exo-cover:not(.is-not-installed) {
-    transform: translateY(-3px);
-  }
 }
 
 .exo-cover img {
   image-rendering: auto;
+  object-fit: cover;
+  object-position: center;
   -webkit-backface-visibility: hidden;
   backface-visibility: hidden;
+  transform: translateZ(0);
 }
 
 .exo-cover.is-selected {
@@ -297,7 +359,7 @@
   color: rgba(242, 242, 242, 0.42);
   background:
     radial-gradient(ellipse at 40% 25%, rgba(255, 255, 255, 0.06) 0%, transparent 55%),
-    linear-gradient(160deg, #1c1c22 0%, #0a0a0c 55%, #050505 100%);
+    linear-gradient(160deg, #050505 0%, #000 55%, #000 100%);
   transition: opacity 280ms var(--ease-snap);
 }
 
@@ -309,7 +371,7 @@
   border: 1px dashed #2a2a2a;
   background:
     radial-gradient(ellipse at 50% 30%, rgba(255, 255, 255, 0.05), transparent 60%),
-    linear-gradient(165deg, #101014 0%, #080808 100%);
+    linear-gradient(165deg, #050505 0%, #000 100%);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
 }
 
@@ -318,7 +380,7 @@
     border-color: #3a3a3a;
     background:
       radial-gradient(ellipse at 50% 30%, rgba(255, 255, 255, 0.08), transparent 60%),
-      linear-gradient(165deg, #141418 0%, #0a0a0a 100%);
+      linear-gradient(165deg, #080808 0%, #000 100%);
   }
 }
 
@@ -456,11 +518,8 @@
 .exo-detail-rail {
   border-radius: 16px;
   border: 1px solid rgba(255, 255, 255, 0.055);
-  background:
-    linear-gradient(165deg, #121214 0%, #0c0c0e 45%, #09090a 100%);
-  box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.045) inset,
-    0 18px 44px rgba(0, 0, 0, 0.42);
+  background: #000;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.045) inset;
   overflow: hidden;
 }
 
@@ -519,17 +578,48 @@
 }
 
 .exo-badge.is-warn {
-  border: 1px solid rgba(255, 239, 191, 0.96);
+  border: 1px solid #ffd36f;
   background: #ffb020;
   color: #1b1200;
   box-shadow:
-    0 0 0 2px rgba(20, 13, 0, 0.72),
-    0 4px 14px rgba(0, 0, 0, 0.68);
+    0 0 0 2px rgba(0, 0, 0, 0.88),
+    0 3px 10px rgba(0, 0, 0, 0.82);
   font-size: 11px;
   font-weight: 800;
   letter-spacing: 0.055em;
   padding: 3px 9px;
+  text-shadow: none;
 }
+
+.exo-settings-link {
+  display: inline-flex;
+  min-height: 34px;
+  min-width: 0;
+  align-items: center;
+  gap: 7px;
+  overflow: hidden;
+  border: 1px solid var(--color-line-soft);
+  border-radius: 9px;
+  background: #000;
+  padding: 7px 9px;
+  color: var(--color-muted);
+  font-size: 11px;
+  text-align: left;
+  transition: transform 150ms var(--ease-out), background 150ms var(--ease-out), border-color 150ms var(--ease-out), color 150ms var(--ease-out);
+}
+
+.exo-settings-link svg { flex: 0 0 auto; }
+
+.exo-settings-link:active { transform: translateY(1px); }
+
+@media (hover: hover) and (pointer: fine) {
+  .exo-settings-link:hover {
+    border-color: var(--color-line);
+    background: var(--color-hover);
+    color: var(--color-fg);
+  }
+}
+
 
 /* Entrance uses shell .exo-enter (200ms ease-out). Product override removed. */
 

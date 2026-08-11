@@ -1,4 +1,6 @@
 using ExoLauncher.Models;
+using ExoLauncher.Adapters;
+using ExoLauncher.Adapters.Cli;
 using ExoLauncher.Services;
 using Xunit;
 
@@ -6,12 +8,83 @@ namespace ExoLauncher.Tests;
 
 public class StoreSearchServiceTests
 {
+    [Fact]
+    public void BuildSteamCatalogHit_UnknownOwnershipRemainsAPurchaseAction()
+    {
+        const string appId = "999999991";
+        var hit = StoreSearchService.BuildSteamCatalogHit(
+            appId,
+            "Catalog Only Test Game",
+            Array.Empty<GameEntry>());
+
+        Assert.Equal("steam:" + appId, hit.Id);
+        Assert.Equal(appId, hit.LaunchTarget);
+        Assert.False(hit.Owned);
+        Assert.False(hit.Installed);
+        Assert.False(hit.CanInstall);
+    }
+
+    [Fact]
+    public void BuildSteamCatalogHit_PreservesLocallyProvenOwnershipWithoutSteamClient()
+    {
+        var library = new[]
+        {
+            new GameEntry
+            {
+                Id = "steam:1817070",
+                Title = "Marvel's Spider-Man Remastered",
+                Store = StoreKind.Steam,
+                LaunchTarget = "1817070",
+                Owned = true,
+                Installed = false,
+                CanInstall = true,
+            },
+        };
+
+        var hit = StoreSearchService.BuildSteamCatalogHit(
+            "1817070",
+            "Marvel's Spider-Man Remastered",
+            library);
+
+        Assert.True(hit.Owned);
+        Assert.False(hit.Installed);
+        Assert.True(hit.CanInstall);
+    }
+
+    [Theory]
+    [InlineData("1620730", "Hell is Us")]
+    [InlineData("1817070", "Marvel's Spider-Man Remastered")]
+    [InlineData("252950", "Rocket League")]
+    public void BuildSteamCatalogHit_UsesAccountProvenOwnershipForAnyExactAppId(string appId, string title)
+    {
+        var library = new[]
+        {
+            new GameEntry
+            {
+                Id = "steam:" + appId,
+                Title = title,
+                Store = StoreKind.Steam,
+                LaunchTarget = appId,
+                Owned = true,
+                Installed = false,
+                CanInstall = true,
+            },
+        };
+
+        var hit = StoreSearchService.BuildSteamCatalogHit(appId, title, library);
+
+        Assert.True(hit.Owned);
+        Assert.True(hit.CanInstall);
+        Assert.False(hit.Installed);
+    }
+
     [Theory]
     [InlineData("Mortal Shell", "mortal shell 2")]
     [InlineData("Mortal Shell", "mrotal sheel")]
     [InlineData("NieR:Automata", "nier automata")]
     [InlineData("Café Owner Simulator", "cafe owner")]
     [InlineData("Red Dead Redemption 2", "red redemption dead")]
+    [InlineData("Marvel's Spider-Man Remastered", "spiderman remastered")]
     public void TitleMatchesQuery_AcceptsBoundedHumanSearchMistakes(string title, string query)
     {
         Assert.True(StoreSearchService.TitleMatchesQuery(title, query));
@@ -36,6 +109,16 @@ public class StoreSearchServiceTests
 
         Assert.True(exact > prefix);
         Assert.True(prefix > fuzzy);
+    }
+
+    [Fact]
+    public void TitleMatchScore_RanksConcatenatedHyphenatedTitleAsARealMatch()
+    {
+        var match = StoreSearchService.TitleMatchScore("Marvel's Spider-Man Remastered", "spiderman remastered");
+        var unrelated = StoreSearchService.TitleMatchScore("Marvel's Guardians of the Galaxy", "spiderman remastered");
+
+        Assert.True(match >= 0);
+        Assert.True(unrelated < 0);
     }
 
     [Fact]
@@ -73,6 +156,29 @@ public class StoreSearchServiceTests
         Assert.True(hit.Installed);
     }
 
+    [Fact]
+    public async Task SearchAsync_ExcludesTheAddPortableUtilityRow()
+    {
+        var service = new StoreSearchService(
+            _ => Task.FromResult(new List<StoreSearchHit>()),
+            (_, _, _) => Task.FromResult<IReadOnlyList<StoreSearchHit>>(Array.Empty<StoreSearchHit>()));
+        var library = new[]
+        {
+            new GameEntry
+            {
+                Id = LocalAdapter.AddPortableId,
+                Title = "Add portable game",
+                Store = StoreKind.Local,
+                Owned = true,
+                CanInstall = true,
+            },
+        };
+
+        var hits = await service.SearchAsync("portable", library);
+
+        Assert.Empty(hits);
+    }
+
     [Theory]
     [InlineData("")]
     [InlineData(" ")]
@@ -85,13 +191,14 @@ public class StoreSearchServiceTests
     }
 
     [Fact]
-    public async Task SearchAsync_FirstQueryIncludesNewlyWarmedEpicOwnedHit()
+    public async Task SearchAsync_FinalResultWaitsForDelayedEpicOwnedProvider()
     {
         var releaseLoader = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var epicPartial = new TaskCompletionSource<StoreSearchHit>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var loaderStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var service = new StoreSearchService(
             async ct =>
             {
+                loaderStarted.TrySetResult();
                 await releaseLoader.Task.WaitAsync(ct);
                 return
                 [
@@ -110,22 +217,127 @@ public class StoreSearchServiceTests
             },
             (_, _, _) => Task.FromResult<IReadOnlyList<StoreSearchHit>>(Array.Empty<StoreSearchHit>()));
 
-        var initial = await service.SearchAsync(
+        var search = service.SearchAsync(
             "Fortnite",
+            Array.Empty<GameEntry>(),
+            CancellationToken.None,
+            _ => { });
+        await loaderStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        Assert.False(search.IsCompleted);
+
+        releaseLoader.SetResult();
+
+        var hit = Assert.Single(await search.WaitAsync(TimeSpan.FromSeconds(2)));
+        Assert.Equal("epic:Fortnite", hit.Id);
+        Assert.True(hit.Owned);
+        Assert.True(hit.CanInstall);
+    }
+
+    [Fact]
+    public async Task SearchAsync_PublishesSteamResultWhileOwnedProviderFinishes()
+    {
+        var releaseLoader = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var loaderStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var steamPartial = new TaskCompletionSource<StoreSearchHit>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var service = new StoreSearchService(
+            async ct =>
+            {
+                loaderStarted.TrySetResult();
+                await releaseLoader.Task.WaitAsync(ct);
+                return [];
+            },
+            (_, _, _) => Task.FromResult<IReadOnlyList<StoreSearchHit>>(
+            [
+                new StoreSearchHit
+                {
+                    Id = "steam:393080",
+                    Title = "Call of the Sea",
+                    Store = StoreKind.Steam,
+                    LaunchTarget = "393080",
+                    CanInstall = true,
+                    Source = "steam",
+                },
+            ]));
+
+        var search = service.SearchAsync(
+            "Call of the Sea",
             Array.Empty<GameEntry>(),
             CancellationToken.None,
             hits =>
             {
-                var match = hits.FirstOrDefault(item => item.Id == "epic:Fortnite");
-                if (match is not null) epicPartial.TrySetResult(match);
+                var match = hits.FirstOrDefault(item => item.Id == "steam:393080");
+                if (match is not null) steamPartial.TrySetResult(match);
             });
-        Assert.Empty(initial);
-        releaseLoader.SetResult();
 
-        var hit = await epicPartial.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        await loaderStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        var painted = await steamPartial.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        Assert.Equal("Call of the Sea", painted.Title);
+        Assert.False(search.IsCompleted);
+
+        releaseLoader.SetResult();
+        Assert.Contains(await search.WaitAsync(TimeSpan.FromSeconds(2)), item => item.Id == "steam:393080");
+    }
+
+    [Fact]
+    public async Task SearchAsync_AccountProvenEpicOwnershipIsInstallable()
+    {
+        var service = new StoreSearchService(
+            _ => Task.FromResult(new List<StoreSearchHit>()),
+            (_, _, _) => Task.FromResult<IReadOnlyList<StoreSearchHit>>(Array.Empty<StoreSearchHit>()));
+
+        var hits = await service.SearchAsync("Fortnite",
+        [
+            new GameEntry
+            {
+                Id = "epic:Fortnite",
+                Title = "Fortnite",
+                Store = StoreKind.Epic,
+                LaunchTarget = "Fortnite",
+                Owned = true,
+                Installed = false,
+                CanInstall = true,
+            },
+        ]);
+
+        var hit = Assert.Single(hits);
         Assert.Equal("epic:Fortnite", hit.Id);
         Assert.True(hit.Owned);
         Assert.True(hit.CanInstall);
+    }
+
+    [Theory]
+    [InlineData("Fortnite")]
+    [InlineData("Rocket League")]
+    public void IsSearchableEpicTitle_AllowsGames(string title)
+    {
+        Assert.True(StoreSearchService.IsSearchableEpicTitle(title));
+    }
+
+    [Theory]
+    [InlineData("Wait For Players System")]
+    [InlineData("AI for NPC, MetaHuman Framework")]
+    [InlineData("Unreal Engine Blueprint Toolkit Sample")]
+    public void IsSearchableEpicTitle_RejectsDeveloperAssets(string title)
+    {
+        Assert.False(StoreSearchService.IsSearchableEpicTitle(title));
+    }
+
+    [Fact]
+    public void IsSearchableEpicRow_UsesMetadataCategoriesAndHasAnExplicitUnknownPolicy()
+    {
+        var game = new LegendaryCli.GameRow("Fortnite", "Fortnite", null, null, false)
+        {
+            Categories = ["games"],
+        };
+        var asset = new LegendaryCli.GameRow("BlandAsset", "Creative Pack", null, null, false)
+        {
+            Categories = ["assets"],
+        };
+        var unknown = new LegendaryCli.GameRow("Unknown", "Rocket League", null, null, false);
+
+        Assert.True(StoreSearchService.IsSearchableEpicRow(game));
+        Assert.False(StoreSearchService.IsSearchableEpicRow(asset));
+        Assert.True(StoreSearchService.IsSearchableEpicRow(unknown));
     }
 
     [Fact]
@@ -154,12 +366,13 @@ public class StoreSearchServiceTests
             (_, _, _) => Task.FromResult<IReadOnlyList<StoreSearchHit>>(Array.Empty<StoreSearchHit>()));
         using var cancelled = new CancellationTokenSource();
 
-        _ = await service.SearchAsync(
+        var firstSearch = service.SearchAsync(
             "Fort",
             Array.Empty<GameEntry>(),
             cancelled.Token,
             hits => cancelledReceivedHit |= hits.Any(item => item.Id == "epic:Fortnite"));
-        _ = await service.SearchAsync(
+        await Task.Yield();
+        var currentSearch = service.SearchAsync(
             "Fortnite",
             Array.Empty<GameEntry>(),
             CancellationToken.None,
@@ -171,7 +384,9 @@ public class StoreSearchServiceTests
 
         cancelled.Cancel();
         releaseLoader.SetResult();
-        _ = await currentPartial.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        var final = await currentSearch.WaitAsync(TimeSpan.FromSeconds(2));
+        Assert.Contains(final, item => item.Id == "epic:Fortnite");
+        try { await firstSearch; } catch (OperationCanceledException) { }
         await Task.Yield();
 
         Assert.False(cancelledReceivedHit);

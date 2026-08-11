@@ -37,7 +37,18 @@ export function isSafeCoverUrl(url: string | null | undefined): url is string {
   if (url.startsWith('data:image/')) return true
   if (url.startsWith('https://covers.exo-launcher.local/')) return true
   if (isOfficialSteamPortraitCdn(url)) return true
+  if (isOfficialEpicPortraitCdn(url)) return true
   return false
+}
+
+function isOfficialEpicPortraitCdn(url: string): boolean {
+  try {
+    const parsed = new URL(url)
+    return parsed.protocol === 'https:' &&
+      (parsed.hostname === 'cdn1.epicgames.com' || parsed.hostname === 'cdn2.unrealengine.com')
+  } catch {
+    return false
+  }
 }
 
 /** Tiny store capsules / known landscape CDN names — never show on 2:3 tiles. */
@@ -54,9 +65,9 @@ function isRejectedCoverUrl(url: string): boolean {
   )
 }
 
-/** True when the bitmap is a portrait poster (≈2:3 or taller). */
+/** True when the bitmap is a poster large enough for a 172px library tile. */
 function isPortraitBitmap(width: number, height: number): boolean {
-  if (width <= 0 || height <= 0) return false
+  if (width < 300 || height < 450) return false
   return width / height <= 1.12
 }
 
@@ -73,8 +84,13 @@ export function CoverArt({
     const raw = game.coverUrl
     if (!raw || !isSafeCoverUrl(raw) || isRejectedCoverUrl(raw)) return []
     const list = [raw]
-    // Steam 2x → 1x fallback when newer CDN path 404s.
-    if (raw.includes('library_600x900_2x')) {
+    // Prefer the native 2x Steam poster when a 1x URL was supplied. This is a
+    // source-quality choice, not browser upscaling; the 1x poster remains the
+    // bounded fallback when that CDN variant is unavailable.
+    if (raw.includes('library_600x900') && !raw.includes('library_600x900_2x')) {
+      const twoX = raw.replace('library_600x900', 'library_600x900_2x')
+      if (twoX !== raw && isSafeCoverUrl(twoX)) list.unshift(twoX)
+    } else if (raw.includes('library_600x900_2x')) {
       const oneX = raw.replace('library_600x900_2x', 'library_600x900')
       if (oneX !== raw && isSafeCoverUrl(oneX)) list.push(oneX)
     }

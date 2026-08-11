@@ -4,7 +4,7 @@ namespace ExoLauncher.Adapters;
 
 /// <summary>
 /// Shared store surface. Prefer shelling out to mature open backends
-/// (Legendary, gogdl, Nile) over re-implementing store protocols.
+/// (Legendary and gogdl) over re-implementing store protocols.
 /// No adapter edits game binaries or anti-cheat.
 /// </summary>
 public interface IStoreAdapter
@@ -60,6 +60,29 @@ public interface IInstalledSteamManifestSource
 public interface IStoreClientPresence
 {
     bool IsClientPresent();
+}
+
+/// <summary>
+/// Optional account boundary for adapters whose on-disk catalog, playtime, or
+/// entitlement data is tied to the currently signed-in vendor user. The value
+/// must be an opaque one-way tag: never a display name, account id, token, or
+/// other bridge-visible identity.
+/// </summary>
+public interface IStoreAccountScope
+{
+    /// <summary>Opaque active-account tag, or null when account authority cannot be proven.</summary>
+    string? GetActiveAccountScope();
+}
+
+/// <summary>
+/// An official desktop client that Exo can safely reveal on request. This is a
+/// presence/open contract only; it does not imply that Exo can read its library
+/// or drive installs, updates, achievements, or title launches.
+/// </summary>
+public interface IOfficialStoreClient : IStoreClientPresence
+{
+    IReadOnlyList<string> ClientProcessNames { get; }
+    StoreClientLaunchCommand? GetClientLaunchCommand();
 }
 
 /// <summary>Legacy alias used during discovery scans.</summary>

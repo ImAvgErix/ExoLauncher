@@ -11,7 +11,8 @@ public enum StoreKind
     Ea,
     Ubisoft,
     BattleNet,
-    Amazon
+    Amazon,
+    Rockstar
 }
 
 /// <summary>Canonical game model shared by adapters and the UI.</summary>
@@ -42,6 +43,23 @@ public sealed class GameEntry
     public DateTimeOffset? LastPlayedUtc { get; init; }
     /// <summary>User-pinned favorite (from settings overlay).</summary>
     public bool IsFavorite { get; init; }
+    /// <summary>
+    /// Stable, display-only key used to group exact title matches from different
+    /// stores. It is never an account identifier and must not be used for a
+    /// launch, install, achievement, or playtime lookup.
+    /// </summary>
+    public string? CanonicalTitleKey { get; init; }
+    /// <summary>
+    /// The exact store entry currently projected into this backwards-compatible
+    /// top-level row. It always equals <see cref="Id"/> for grouped cards.
+    /// </summary>
+    public string? SelectedVariantId { get; init; }
+    /// <summary>
+    /// Other exact store entries represented by this visual card. These entries
+    /// are presentation metadata only; callers must resolve their id through
+    /// the library before performing a store action.
+    /// </summary>
+    public IReadOnlyList<GameVariant> Variants { get; init; } = Array.Empty<GameVariant>();
     /// <summary>Primary action the UI should offer: play | install | update | none.</summary>
     public string PrimaryAction
     {
@@ -55,6 +73,71 @@ public sealed class GameEntry
             return "none";
         }
     }
+}
+
+/// <summary>
+/// A store-specific source behind a canonical library card. Every id, launch
+/// target, install path, and state remains source-specific so cross-store cards
+/// never turn into a synthetic game that an adapter cannot safely act on.
+/// </summary>
+public sealed record GameVariant
+{
+    public required string Id { get; init; }
+    public required StoreKind Store { get; init; }
+    public bool Installed { get; init; }
+    public bool Owned { get; init; }
+    public bool UpdateAvailable { get; init; }
+    public bool CanInstall { get; init; }
+    public string? Path { get; init; }
+    public string? LaunchTarget { get; init; }
+    public int? PlaytimeMinutes { get; init; }
+    public DateTimeOffset? LastPlayedUtc { get; init; }
+    public string Status { get; init; } = "Ready";
+    public string PrimaryAction =>
+        Installed && UpdateAvailable ? "update" :
+        Installed ? "play" :
+        CanInstall || Owned ? "install" : "none";
+
+    internal static GameVariant FromGame(GameEntry game) => new()
+    {
+        Id = game.Id,
+        Store = game.Store,
+        Installed = game.Installed,
+        Owned = game.Owned,
+        UpdateAvailable = game.UpdateAvailable,
+        CanInstall = game.CanInstall,
+        Path = game.Path,
+        LaunchTarget = game.LaunchTarget,
+        PlaytimeMinutes = game.PlaytimeMinutes,
+        LastPlayedUtc = game.LastPlayedUtc,
+        Status = game.Status,
+    };
+
+    internal GameEntry ToGameEntry(GameEntry card) => new()
+    {
+        Id = Id,
+        Title = card.Title,
+        Store = Store,
+        Installed = Installed,
+        Owned = Owned,
+        UpdateAvailable = UpdateAvailable,
+        CanInstall = CanInstall,
+        Path = Path,
+        CoverUrl = card.CoverUrl,
+        CoverSource = card.CoverSource,
+        PlaytimeMinutes = PlaytimeMinutes,
+        SizeBytes = card.SizeBytes,
+        Status = Status,
+        Deps = card.Deps,
+        LaunchNote = card.LaunchNote,
+        LaunchTarget = LaunchTarget,
+        LastPlayedUtc = LastPlayedUtc,
+        // Preserve the canonical card's pin while variants are expanded for a
+        // refresh. The settings overlay can still add the exact source pin.
+        IsFavorite = card.IsFavorite,
+        CanonicalTitleKey = card.CanonicalTitleKey,
+        SelectedVariantId = Id,
+    };
 }
 
 public sealed class DependencyInfo

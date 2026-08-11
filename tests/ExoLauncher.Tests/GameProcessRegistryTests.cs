@@ -25,6 +25,49 @@ public sealed class GameProcessRegistryTests
     public void OrdinaryGameExecutableName_IsNotReserved() =>
         Assert.False(GameProcessRegistry.IsReservedProcessName("Game-Win64-Shipping"));
 
+    [Theory]
+    [InlineData(StoreKind.Steam)]
+    [InlineData(StoreKind.Epic)]
+    [InlineData(StoreKind.Gog)]
+    [InlineData(StoreKind.Riot)]
+    [InlineData(StoreKind.Local)]
+    public void GameOperationBackendsSupportExactProcessControl(StoreKind store) =>
+        Assert.True(GameProcessRegistry.SupportsGameProcessControl(store));
+
+    [Theory]
+    [InlineData(StoreKind.Xbox)]
+    [InlineData(StoreKind.Ea)]
+    [InlineData(StoreKind.Ubisoft)]
+    [InlineData(StoreKind.BattleNet)]
+    [InlineData(StoreKind.Amazon)]
+    [InlineData(StoreKind.Rockstar)]
+    public void PresenceOnlyClientsNeverGainPerGameStopFromAnInstallPath(StoreKind store)
+    {
+        var root = Path.Combine(Path.GetTempPath(), "exo-stop-presence-only", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            var game = Game(root, store, "catalog-id");
+
+            Assert.False(GameProcessRegistry.SupportsGameProcessControl(store));
+            Assert.False(GameProcessRegistry.IsEligibleExecutableForStop(
+                game, "Game-Win64-Shipping", Path.Combine(root, "bin", "Game-Win64-Shipping.exe")));
+        }
+        finally
+        {
+            try { Directory.Delete(root, recursive: true); } catch { }
+        }
+    }
+
+    [Theory]
+    [InlineData("GameOverlayUI64")]
+    [InlineData("EADesktop")]
+    [InlineData("UbisoftConnect")]
+    [InlineData("Battle.net")]
+    [InlineData("RockstarService")]
+    public void StoreClientsAndOverlaysRemainReservedEvenWhenNamedLikeGameProcesses(string processName) =>
+        Assert.True(GameProcessRegistry.IsReservedProcessName(processName));
+
     [Fact]
     public void StopEligibilityRequiresAnExecutableInsideTheExactInstallRoot()
     {
@@ -72,6 +115,41 @@ public sealed class GameProcessRegistryTests
         finally
         {
             try { Directory.Delete(root, recursive: true); } catch { }
+        }
+    }
+
+    [Fact]
+    public void StopForSelectedStoreVariant_CannotReachTheSameTitlesOtherStoreInstall()
+    {
+        var parent = Path.Combine(Path.GetTempPath(), "exo-stop-variant", Guid.NewGuid().ToString("N"));
+        var epicRoot = Path.Combine(parent, "RocketLeague-Epic");
+        var steamRoot = Path.Combine(parent, "RocketLeague-Steam");
+        Directory.CreateDirectory(epicRoot);
+        Directory.CreateDirectory(steamRoot);
+        try
+        {
+            var selectedEpic = new GameEntry
+            {
+                Id = "epic:Sugar",
+                Title = "Rocket League",
+                Store = StoreKind.Epic,
+                Installed = true,
+                Path = epicRoot,
+                LaunchTarget = "Sugar",
+            };
+
+            Assert.True(GameProcessRegistry.IsEligibleExecutableForStop(
+                selectedEpic,
+                "RocketLeague",
+                Path.Combine(epicRoot, "Binaries", "Win64", "RocketLeague.exe")));
+            Assert.False(GameProcessRegistry.IsEligibleExecutableForStop(
+                selectedEpic,
+                "RocketLeague",
+                Path.Combine(steamRoot, "Binaries", "Win64", "RocketLeague.exe")));
+        }
+        finally
+        {
+            try { Directory.Delete(parent, recursive: true); } catch { }
         }
     }
 

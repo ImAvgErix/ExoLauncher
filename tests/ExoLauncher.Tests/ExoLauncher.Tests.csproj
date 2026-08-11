@@ -21,6 +21,7 @@
     <Compile Include="..\..\ExoLauncher\Models\GameEntry.cs" Link="Models\GameEntry.cs" />
     <Compile Include="..\..\ExoLauncher\Models\AchievementModels.cs" Link="Models\AchievementModels.cs" />
     <Compile Include="..\..\ExoLauncher\Adapters\IStoreAdapter.cs" Link="Adapters\IStoreAdapter.cs" />
+    <Compile Include="..\..\ExoLauncher\Adapters\AgentPresentAdapters.cs" Link="Adapters\AgentPresentAdapters.cs" />
     <Compile Include="..\..\ExoLauncher\Adapters\ProcessHelper.cs" Link="Adapters\ProcessHelper.cs" />
     <Compile Include="..\..\ExoLauncher\Adapters\StoreClientCleanup.cs" Link="Adapters\StoreClientCleanup.cs" />
     <Compile Include="..\..\ExoLauncher\Adapters\StoreWindowHider.cs" Link="Adapters\StoreWindowHider.cs" />

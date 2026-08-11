@@ -18,7 +18,7 @@ internal delegate Task<(int ExitCode, string StdOut, string StdErr)> GogdlComman
 /// GOG via heroic-gogdl when present; offline registry titles launch as local exes.
 /// https://github.com/Heroic-Games-Launcher/heroic-gogdl
 /// </summary>
-public sealed class GogAdapter : IStoreAdapter, IStoreClientPresence
+public sealed class GogAdapter : IStoreAdapter, IStoreClientPresence, IStoreAccountScope
 {
     internal const string ManagedInstallStagingPrefix = ".exo-gog-partial-";
 
@@ -61,6 +61,18 @@ public sealed class GogAdapter : IStoreAdapter, IStoreClientPresence
     // make Settings claim that the separately installed Galaxy client exists.
     public bool IsAgentPresent() => ResolveGogdl() is not null || ResolveGalaxy() is not null;
     public bool IsClientPresent() => ResolveGalaxy() is not null;
+
+    /// <summary>
+    /// Keeps the shared library cache on the currently authenticated GOG user.
+    /// The adapter already keeps owned titles in per-user cache files; exposing
+    /// the same opaque scope here prevents a successful scan for one local GOG
+    /// user being shown after a different user signs in.
+    /// </summary>
+    public string? GetActiveAccountScope()
+    {
+        var authPath = GogAuthService.FindExistingAuthConfigPath();
+        return authPath is null ? null : AccountScopeFor(ReadCredentials(authPath));
+    }
 
     public async Task<AuthResult> AuthenticateAsync(CancellationToken ct = default)
     {
@@ -431,6 +443,14 @@ public sealed class GogAdapter : IStoreAdapter, IStoreClientPresence
         {
             return null;
         }
+    }
+
+    internal static string? AccountScopeFor(GogdlCli.AuthCredentials? credentials)
+    {
+        var userId = credentials?.UserId?.Trim();
+        return string.IsNullOrWhiteSpace(userId) || userId.Length > 256 || userId.Any(char.IsControl)
+            ? null
+            : GogOwnedLibraryService.AccountKeyForUser(userId);
     }
 
     private static async Task<GogdlCli.AuthCredentials?> RefreshCredentialsWithGogdlAsync(

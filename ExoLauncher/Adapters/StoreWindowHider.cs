@@ -58,6 +58,20 @@ internal sealed class StoreWindowHider : IDisposable
         "Riot Client", "RiotClientUx", "RiotClientUxRender",
     ];
 
+    // These are exact, user-facing official-client processes only. Do not add
+    // installers, background services, game executables, overlays, or
+    // anti-cheat helpers here: quiet mode may hide client chrome, never a
+    // component required to keep a game running safely.
+    public static readonly string[] XboxClientProcessNames = ["XboxPcApp", "GamingApp"];
+    public static readonly string[] EaClientProcessNames = ["EADesktop"];
+    public static readonly string[] UbisoftClientProcessNames = ["UbisoftConnect", "upc", "UplayWebCore"];
+    public static readonly string[] BattleNetClientProcessNames = ["Battle.net"];
+    public static readonly string[] AmazonClientProcessNames = ["Amazon Games", "AmazonGames", "AmazonGamesUI"];
+    // RockstarService and SocialClubHelper are intentionally excluded: they
+    // are support components, not launcher chrome, and may be required by a
+    // game session.
+    public static readonly string[] RockstarClientProcessNames = ["Launcher", "LauncherPatcher"];
+
     /// <summary>
     /// Legacy alias used by hide-all paths. Prefer <see cref="RiotUiProcessNames"/> for launch
     /// so we do not hide LeagueClient / the game the user just started.
@@ -219,6 +233,12 @@ internal sealed class StoreWindowHider : IDisposable
             .Concat(EpicProcessNames)
             .Concat(GalaxyProcessNames)
             .Concat(RiotUiProcessNames)
+            .Concat(XboxClientProcessNames)
+            .Concat(EaClientProcessNames)
+            .Concat(UbisoftClientProcessNames)
+            .Concat(BattleNetClientProcessNames)
+            .Concat(AmazonClientProcessNames)
+            .Concat(RockstarClientProcessNames)
             .ToArray(),
         HiddenStoreRuntime.IsStoreSurfaceSuppressed);
 
@@ -465,7 +485,17 @@ internal sealed class StoreWindowHider : IDisposable
     {
         var names = processNames.Length > 0
             ? processNames
-            : SteamProcessNames.Concat(EpicProcessNames).Concat(GalaxyProcessNames).Concat(RiotUiProcessNames).ToArray();
+            : SteamProcessNames
+                .Concat(EpicProcessNames)
+                .Concat(GalaxyProcessNames)
+                .Concat(RiotUiProcessNames)
+                .Concat(XboxClientProcessNames)
+                .Concat(EaClientProcessNames)
+                .Concat(UbisoftClientProcessNames)
+                .Concat(BattleNetClientProcessNames)
+                .Concat(AmazonClientProcessNames)
+                .Concat(RockstarClientProcessNames)
+                .ToArray();
         RevealProcessWindows(names);
     }
 

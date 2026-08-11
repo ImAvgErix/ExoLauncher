@@ -1,4 +1,5 @@
 using ExoLauncher.Adapters;
+using ExoLauncher.Adapters.Cli;
 using ExoLauncher.Models;
 using Xunit;
 
@@ -6,6 +7,24 @@ namespace ExoLauncher.Tests;
 
 public class EpicEglMergeTests
 {
+    [Fact]
+    public void MapInstalledRow_DoesNotTurnMachineInstallIntoAccountOwnership()
+    {
+        var row = new LegendaryCli.GameRow(
+            "Sugar",
+            "Rocket League",
+            @"C:\Games\RocketLeague",
+            1234,
+            Installed: true);
+
+        var game = EpicAdapter.MapInstalledRow(row, hasLegendary: true);
+
+        Assert.True(game.Installed);
+        Assert.False(game.Owned);
+        Assert.False(game.CanInstall);
+        Assert.Equal("Sugar", game.LaunchTarget);
+    }
+
     [Fact]
     public void Overlay_PromotesLegendaryOwned_WhenEglInstalled()
     {

@@ -18,6 +18,17 @@ public sealed class SteamUpdateCommandPlanTests
         Assert.DoesNotContain("4704690", string.Join(' ', request.Arguments), StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData("1620730", "Hell is Us")]
+    [InlineData("1817070", "Marvel's Spider-Man Remastered")]
+    public void SteamCatalogInstall_RequestKeepsTheExactPurchasedTitleAppId(string appId, string _)
+    {
+        var request = Assert.Single(SteamUpdateCommandPlan.BuildNudge(appId));
+
+        Assert.Equal($"steam://install/{appId}", request.Arguments[^1]);
+        Assert.DoesNotContain("steam://install/0", request.Arguments);
+    }
+
     [Fact]
     public void ActiveUpdate_DoesNotNavigateAwayFromTheCurrentSteamContext()
     {

@@ -1,19 +1,13 @@
-import { Loader2 } from 'lucide-react'
 import type { StoreStatus } from '../lib/host'
-import { cn } from '../lib/utils'
 
 export function OnboardingPanel({
   stores,
-  authBusy,
-  authMsg,
-  onAuth,
+  message,
   onContinue,
   onSkip,
 }: {
   stores: StoreStatus[]
-  authBusy: string | null
-  authMsg: string | null
-  onAuth: (store: string) => void
+  message: string | null
   onContinue: () => void
   onSkip: () => void
 }) {
@@ -25,7 +19,7 @@ export function OnboardingPanel({
         { store: 'gog', displayName: 'GOG', agentPresent: false },
         { store: 'riot', displayName: 'Riot', agentPresent: false },
       ]
-  ).filter((s) => s.store !== 'local')
+  ).filter((store) => store.store !== 'local')
 
   return (
     <div className="exo-app">
@@ -36,79 +30,26 @@ export function OnboardingPanel({
             <span className="text-lg font-semibold tracking-tight">Exo</span>
           </div>
 
-          <h1 className="text-[28px] font-semibold tracking-tight text-fg">Connect</h1>
+          <h1 className="text-[28px] font-semibold tracking-tight text-fg">Your library, in one place</h1>
+          <p className="mt-2 max-w-md text-[13px] leading-relaxed text-faint">Exo finds installed store apps and keeps your library local.</p>
 
-          {authMsg && (
-            <div className="mt-5 rounded-xl border border-line-soft bg-elevated px-4 py-3 text-[13px] text-fg">
-              {authMsg}
-            </div>
-          )}
+          {message && <div className="mt-5 border-l-2 border-line bg-elevated px-4 py-3 text-[13px] text-fg" role="status">{message}</div>}
 
-          <ul className="mt-8 space-y-2">
-            {rows.map((s) => {
-              const clientInstalled = s.clientPresent ?? s.agentPresent
-              const backendAvailable = !!s.agentPresent
-              // A bundled/headless backend is not proof that the vendor's
-              // visible client is installed.
-              const accountConnected = backendAvailable && !!s.signedIn
-              const connected = clientInstalled && accountConnected
-              const needsAuth = s.store === 'epic' || s.store === 'gog'
+          <ul className="mt-7 grid grid-cols-2 gap-x-6">
+            {rows.map((store) => {
+              const clientInstalled = store.clientPresent ?? store.agentPresent
               return (
-                <li
-                  key={s.store}
-                  className="flex items-center justify-between gap-3 rounded-xl border border-border bg-surface px-4 py-3.5"
-                >
-                  <div className="min-w-0">
-                    <div className="text-sm font-medium text-fg">{s.displayName}</div>
-                    <div className="mt-0.5 text-[11px] text-faint">
-                      {connected ? (
-                        <span className="text-good">Connected</span>
-                      ) : clientInstalled ? (
-                        'Found'
-                      ) : (
-                        'Not installed'
-                      )}
-                    </div>
-                  </div>
-                  {needsAuth && backendAvailable ? (
-                    <button
-                      type="button"
-                      className="exo-ghost-btn shrink-0"
-                      disabled={authBusy === s.store}
-                      onClick={() => onAuth(s.store)}
-                    >
-                      {authBusy === s.store ? (
-                        <span className="inline-flex items-center gap-1.5">
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" /> Working…
-                        </span>
-                      ) : accountConnected ? (
-                        'Reconnect'
-                      ) : (
-                        'Connect'
-                      )}
-                    </button>
-                  ) : (
-                    <span
-                      className={cn(
-                        'shrink-0 text-[11px] uppercase tracking-wide',
-                        connected ? 'text-good' : 'text-fg-subtle',
-                      )}
-                    >
-                      {connected ? 'Connected' : clientInstalled ? 'Ready' : 'Not installed'}
-                    </span>
-                  )}
+                <li key={store.store} className="flex items-center justify-between gap-3 border-t border-line-soft py-3">
+                  <span className="text-sm font-medium text-fg">{store.displayName}</span>
+                  <span className={clientInstalled ? 'text-[11px] text-good' : 'text-[11px] text-faint'}>{clientInstalled ? 'Installed' : 'Not installed'}</span>
                 </li>
               )
             })}
           </ul>
 
           <div className="mt-8 flex flex-wrap items-center gap-3">
-            <button type="button" className="exo-cta h-11 px-6" onClick={onContinue}>
-              Open library
-            </button>
-            <button type="button" className="text-[12px] text-faint hover:text-fg" onClick={onSkip}>
-              Skip
-            </button>
+            <button type="button" className="exo-cta h-11 px-6" onClick={onContinue}>Open library</button>
+            <button type="button" className="text-[12px] text-faint hover:text-fg" onClick={onSkip}>Skip</button>
           </div>
         </div>
       </div>

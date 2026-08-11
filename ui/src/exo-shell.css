@@ -16,9 +16,9 @@
 
 :root {
   --exo-bg: #000000;
-  --exo-surface: #0c0c0c;
-  --exo-elevated: #141414;
-  --exo-hover: #1c1c1c;
+  --exo-surface: #000000;
+  --exo-elevated: #000000;
+  --exo-hover: #080808;
   --exo-line: #222222;
   --exo-line-soft: #161616;
   --exo-fg: #f2f2f2;

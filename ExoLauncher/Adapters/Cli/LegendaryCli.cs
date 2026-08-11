@@ -16,7 +16,13 @@ public static partial class LegendaryCli
         string Title,
         string? InstallPath,
         long? SizeBytes,
-        bool Installed);
+        bool Installed)
+    {
+        /// <summary>Catalog categories, when Legendary exposes them.</summary>
+        public IReadOnlyList<string> Categories { get; init; } = Array.Empty<string>();
+        /// <summary>Official tall key art from the Legendary catalog row.</summary>
+        public string? CoverUrl { get; init; }
+    }
 
     public static string[] AuthArgs() => ["auth"];
 
@@ -221,12 +227,61 @@ public static partial class LegendaryCli
             var installed = forceInstalled
                 || (!string.IsNullOrWhiteSpace(installPath) && Directory.Exists(installPath));
 
-            return new GameRow(appName!, title!, installPath, size, installed);
+            return new GameRow(appName!, title!, installPath, size, installed)
+            {
+                Categories = ReadCategories(el),
+                CoverUrl = ReadTallKeyImage(el),
+            };
         }
         catch
         {
             return null;
         }
+    }
+
+    private static IReadOnlyList<string> ReadCategories(JsonElement el)
+    {
+        JsonElement source = el;
+        if (el.TryGetProperty("metadata", out var metadata) && metadata.ValueKind == JsonValueKind.Object)
+            source = metadata;
+        if (!source.TryGetProperty("categories", out var categories) ||
+            categories.ValueKind != JsonValueKind.Array)
+            return Array.Empty<string>();
+
+        var result = new List<string>();
+        foreach (var category in categories.EnumerateArray())
+        {
+            var value = category.ValueKind == JsonValueKind.String ? category.GetString()
+                : category.ValueKind == JsonValueKind.Object && category.TryGetProperty("path", out var path)
+                    ? path.GetString()
+                    : null;
+            if (!string.IsNullOrWhiteSpace(value)) result.Add(value.Trim());
+        }
+        return result;
+    }
+
+    private static string? ReadTallKeyImage(JsonElement el)
+    {
+        if (!el.TryGetProperty("keyImages", out var images) &&
+            !(el.TryGetProperty("metadata", out var metadata) &&
+              metadata.ValueKind == JsonValueKind.Object &&
+              metadata.TryGetProperty("keyImages", out images)))
+            return null;
+        if (images.ValueKind != JsonValueKind.Array) return null;
+        foreach (var image in images.EnumerateArray())
+        {
+            var type = image.TryGetProperty("type", out var typeValue) ? typeValue.GetString() : null;
+            var url = image.TryGetProperty("url", out var urlValue) ? urlValue.GetString() : null;
+            if (string.IsNullOrWhiteSpace(type) || string.IsNullOrWhiteSpace(url) ||
+                !type.Contains("Tall", StringComparison.OrdinalIgnoreCase))
+                continue;
+            if (Uri.TryCreate(url, UriKind.Absolute, out var uri) &&
+                uri.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase) &&
+                (uri.Host.Equals("cdn1.epicgames.com", StringComparison.OrdinalIgnoreCase) ||
+                 uri.Host.Equals("cdn2.unrealengine.com", StringComparison.OrdinalIgnoreCase)))
+                return url;
+        }
+        return null;
     }
 
     [GeneratedRegex(@"Progress:\s*([0-9]+(?:\.[0-9]+)?)\s*%", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]

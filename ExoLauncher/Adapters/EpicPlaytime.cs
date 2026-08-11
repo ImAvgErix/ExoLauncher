@@ -1,4 +1,6 @@
 using System.Net.Http.Headers;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using ExoLauncher.Helpers;
 using ExoLauncher.Models;
@@ -29,9 +31,47 @@ internal static class EpicPlaytime
     /// first paint. Return the last verified snapshot immediately and refresh
     /// it in the background instead.
     /// </summary>
-    internal static IReadOnlyDictionary<string, int> GetCachedMinutes() => Cache.Snapshot();
+    internal static IReadOnlyDictionary<string, int> GetCachedMinutes()
+    {
+        var scope = GetActiveAccountScope();
+        if (string.IsNullOrWhiteSpace(scope))
+        {
+            Cache.Clear();
+            return new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        }
+        return Cache.Snapshot(scope);
+    }
 
-    internal static void RefreshCachedMinutes() => _ = Cache.RefreshIfStaleAsync();
+    internal static void RefreshCachedMinutes()
+    {
+        var scope = GetActiveAccountScope();
+        if (string.IsNullOrWhiteSpace(scope)) { Cache.Clear(); return; }
+        _ = Cache.RefreshIfStaleAsync(scope);
+    }
+
+    /// <summary>
+    /// Reads only the active Legendary session and returns an opaque, one-way
+    /// tag. It is used to quarantine in-memory cache entries on shared PCs;
+    /// the raw Epic account id never reaches a model, log, or bridge payload.
+    /// </summary>
+    internal static string? GetActiveAccountScope()
+    {
+        var userPath = ResolveLegendaryUserPath();
+        if (userPath is null) return null;
+        try
+        {
+            var session = ParseSessionJson(File.ReadAllText(userPath));
+            if (session is null) return null;
+            return AccountScopeFor(session.AccountId);
+        }
+        catch { return null; }
+    }
+
+    private static string AccountScopeFor(string accountId)
+    {
+        var bytes = SHA256.HashData(Encoding.UTF8.GetBytes("epic\0" + accountId));
+        return Convert.ToHexString(bytes).ToLowerInvariant()[..20];
+    }
 
     internal static event Action? CachedMinutesUpdated
     {
@@ -90,7 +130,7 @@ internal static class EpicPlaytime
             // payload. Treat it as a failed refresh rather than overwriting the
             // last verified playtime map with an empty one.
             return TryParseMinutesJson(json, out var minutes)
-                ? new EpicPlaytimeFetchResult(true, minutes)
+                ? new EpicPlaytimeFetchResult(true, minutes, AccountScopeFor(session.AccountId))
                 : EpicPlaytimeFetchResult.Failed;
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -299,7 +339,8 @@ internal static class EpicPlaytime
 
 internal readonly record struct EpicPlaytimeFetchResult(
     bool Succeeded,
-    IReadOnlyDictionary<string, int> Minutes)
+    IReadOnlyDictionary<string, int> Minutes,
+    string? AccountScope = null)
 {
     public static EpicPlaytimeFetchResult Failed { get; } = new(
         false,
@@ -323,6 +364,7 @@ internal sealed class EpicPlaytimeCache
     private DateTimeOffset _freshAt = DateTimeOffset.MinValue;
     private DateTimeOffset _retryAfter = DateTimeOffset.MinValue;
     private Task? _refresh;
+    private string? _accountScope;
 
     public EpicPlaytimeCache(
         Func<CancellationToken, Task<EpicPlaytimeFetchResult>> loader,
@@ -338,26 +380,53 @@ internal sealed class EpicPlaytimeCache
 
     public event Action? Updated;
 
-    public IReadOnlyDictionary<string, int> Snapshot()
-    {
-        lock (_gate) return _minutes;
-    }
-
-    public Task RefreshIfStaleAsync()
+    public IReadOnlyDictionary<string, int> Snapshot(string? accountScope = null)
     {
         lock (_gate)
         {
+            return string.IsNullOrWhiteSpace(accountScope) ||
+                   string.Equals(_accountScope, accountScope, StringComparison.Ordinal)
+                ? _minutes
+                : new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        }
+    }
+
+    public Task RefreshIfStaleAsync(string? accountScope = null)
+    {
+        lock (_gate)
+        {
+            if (!string.Equals(_accountScope, accountScope, StringComparison.Ordinal))
+            {
+                // Never carry a last-good map from one Epic user into another
+                // user's first paint. An in-flight old-user fetch is discarded
+                // below when its scope no longer matches this request.
+                _accountScope = accountScope;
+                _minutes = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+                _freshAt = DateTimeOffset.MinValue;
+                _retryAfter = DateTimeOffset.MinValue;
+            }
             var now = _utcNow();
             if (_refresh is { IsCompleted: false }) return _refresh;
             if (_freshAt != DateTimeOffset.MinValue && now - _freshAt < _ttl)
                 return Task.CompletedTask;
             if (now < _retryAfter) return Task.CompletedTask;
-            _refresh = Task.Run(RefreshAsync);
+            _refresh = Task.Run(() => RefreshAsync(accountScope));
             return _refresh;
         }
     }
 
-    private async Task RefreshAsync()
+    public void Clear()
+    {
+        lock (_gate)
+        {
+            _accountScope = null;
+            _minutes = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            _freshAt = DateTimeOffset.MinValue;
+            _retryAfter = DateTimeOffset.MinValue;
+        }
+    }
+
+    private async Task RefreshAsync(string? expectedAccountScope)
     {
         EpicPlaytimeFetchResult result;
         try
@@ -379,6 +448,10 @@ internal sealed class EpicPlaytimeCache
                 _retryAfter = now + _failureRetry;
                 return;
             }
+            if (!string.Equals(_accountScope, expectedAccountScope, StringComparison.Ordinal) ||
+                (expectedAccountScope is not null &&
+                 !string.Equals(result.AccountScope, expectedAccountScope, StringComparison.Ordinal)))
+                return;
 
             var next = new Dictionary<string, int>(result.Minutes, StringComparer.OrdinalIgnoreCase);
             notify = !SameMinutes(_minutes, next);
