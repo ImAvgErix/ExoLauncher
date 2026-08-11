@@ -1,7 +1,7 @@
 import { Star } from 'lucide-react'
 import { resolvePrimaryAction, type Game } from '../lib/host'
 import { CardMotion } from '../motion'
-import { cn, storeDotColor, storeLabel } from '../lib/utils'
+import { cn, storeLabel } from '../lib/utils'
 import { CoverArt, coverBg } from './CoverArt'
 
 export { CoverArt, coverBg }
@@ -25,6 +25,17 @@ export function GameCard({
 }) {
   const installed = !!game.installed
   const primaryAction = resolvePrimaryAction(game)
+  // A grouped card keeps one deterministic default source, but an update on a
+  // second installed source must still be visible before the detail picker is
+  // opened. The picker names the exact source that owns that update.
+  const hasUpdate = primaryAction === 'update' || !!game.variants?.some((variant) => variant.updateAvailable)
+  const stores = Array.from(
+    new Set(
+      (game.stores?.length ? game.stores : [game.store])
+        .map((store) => store.trim().toLowerCase())
+        .filter(Boolean),
+    ),
+  )
   return (
     <CardMotion
       className={cn('group relative w-full text-left', size === 'lg' && 'w-[172px] shrink-0')}
@@ -50,19 +61,17 @@ export function GameCard({
           <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[2] h-20 bg-gradient-to-t from-black/85 via-black/25 to-transparent" />
           {/* Badges are for things needing attention. Pinned is already obvious
               from the row the card sits in. */}
-          <div className="absolute left-2 top-2 z-[2] flex gap-1">
-            {primaryAction === 'update' && <span className="exo-badge is-warn">Update</span>}
-            {primaryAction === 'install' && <span className="exo-badge">Install</span>}
+          <div className="absolute left-2 top-2 z-[2] flex items-center gap-1">
+            {hasUpdate && <span className="exo-badge is-warn">Update</span>}
+            {!hasUpdate && primaryAction === 'install' && <span className="exo-badge">Install</span>}
           </div>
         </div>
         <div className={cn('mt-2.5 px-0.5', !installed && 'opacity-75')}>
           <div className="truncate text-[13px] font-medium tracking-tight text-fg outline-none [text-shadow:none]">
             {game.title}
           </div>
-          <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[11px] text-faint">
-            <span className="h-1 w-1 rounded-full" style={{ background: storeDotColor(game.store) }} />
-            <span className="truncate">{storeLabel(game.store)}</span>
-            {!installed && <span>· Not installed</span>}
+          <div className="mt-0.5 truncate text-[11px] text-faint">
+            {stores.map(storeLabel).join(' · ')}
           </div>
         </div>
       </button>

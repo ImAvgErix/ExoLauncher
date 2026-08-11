@@ -183,6 +183,21 @@ public sealed class AchievementService : IDisposable
         GameEntry game,
         CancellationToken cancellationToken = default)
     {
+        // A detail refresh proves current account data, but it does not prove
+        // that Exo observed this game being played. Do not turn a delayed
+        // provider sync, another device's unlock, or an account correction
+        // into an on-screen toast. Session polls opt in below.
+        return await RefreshCoreAsync(
+            game,
+            allowNotificationTransitions: IsSessionActive(game.Id),
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<AchievementSnapshot> RefreshCoreAsync(
+        GameEntry game,
+        bool allowNotificationTransitions,
+        CancellationToken cancellationToken)
+    {
         ObjectDisposedException.ThrowIf(_disposed, this);
         var provider = FindProvider(game);
         if (provider is null)
@@ -218,7 +233,7 @@ public sealed class AchievementService : IDisposable
                     if (!string.Equals(snapshot.ProviderId, provider.Id, StringComparison.OrdinalIgnoreCase))
                         throw new InvalidDataException("Achievement provider identity does not match the selected source.");
                     ValidateSnapshot(snapshot);
-                    unlocks = ApplySnapshot(game.Id, snapshot);
+                    unlocks = ApplySnapshot(game.Id, snapshot, allowNotificationTransitions);
                     deliveries = PrepareDeliveryDispatches(snapshot);
                 }
                 catch (InvalidDataException ex)
@@ -248,10 +263,30 @@ public sealed class AchievementService : IDisposable
     /// <summary>Primes a baseline, then starts low-frequency polling for this game only.</summary>
     public async Task<AchievementSnapshot> BeginSessionAsync(
         GameEntry game,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) =>
+        await BeginSessionCoreAsync(game, activate: true, cancellationToken).ConfigureAwait(false);
+
+    /// <summary>
+    /// Captures the before-handoff baseline without allowing notifications or
+    /// polling until <see cref="ActivatePreparedSession"/> confirms launch.
+    /// </summary>
+    public async Task<AchievementSnapshot> PrepareSessionAsync(
+        GameEntry game,
+        CancellationToken cancellationToken = default) =>
+        await BeginSessionCoreAsync(game, activate: false, cancellationToken).ConfigureAwait(false);
+
+    private async Task<AchievementSnapshot> BeginSessionCoreAsync(
+        GameEntry game,
+        bool activate,
+        CancellationToken cancellationToken)
     {
         await StopPollingOnlyAsync(game.Id).ConfigureAwait(false);
-        var initial = await RefreshAsync(game, cancellationToken).ConfigureAwait(false);
+        // Establish the before-session account baseline without presenting any
+        // historical/provider-delayed transitions as an unlock from this run.
+        var initial = await RefreshCoreAsync(
+            game,
+            allowNotificationTransitions: false,
+            cancellationToken).ConfigureAwait(false);
         if (initial.Coverage is not (AchievementCoverageStatus.Partial or AchievementCoverageStatus.Complete))
             return initial;
 
@@ -265,9 +300,27 @@ public sealed class AchievementService : IDisposable
                 throw new ObjectDisposedException(nameof(AchievementService));
             }
             _sessions[game.Id] = session;
-            session.PollTask = PollSessionAsync(session);
+            if (activate)
+            {
+                session.Active = true;
+                session.PollTask = PollSessionAsync(session);
+            }
         }
         return initial;
+    }
+
+    /// <summary>Marks a prepared baseline as a real launched session.</summary>
+    public bool ActivatePreparedSession(string gameId)
+    {
+        if (string.IsNullOrWhiteSpace(gameId)) return false;
+        lock (_sessionGate)
+        {
+            if (!_sessions.TryGetValue(gameId, out var session)) return false;
+            if (session.Active) return true;
+            session.Active = true;
+            session.PollTask = PollSessionAsync(session);
+            return true;
+        }
     }
 
     /// <summary>Stops polling and performs one final source refresh.</summary>
@@ -279,12 +332,29 @@ public sealed class AchievementService : IDisposable
         if (session is null) return null;
         try
         {
-            return await RefreshAsync(session.Game, cancellationToken).ConfigureAwait(false);
+            // The final after-session sample is part of the same observed
+            // launch, even though the polling registration is already gone.
+            return await RefreshCoreAsync(
+                session.Game,
+                allowNotificationTransitions: session.Active,
+                cancellationToken).ConfigureAwait(false);
         }
         finally
         {
             session.Cts.Dispose();
         }
+    }
+
+    /// <summary>
+    /// Stops a prepared session without taking an after-snapshot. Used when a
+    /// game handoff fails or is cancelled after the before-snapshot was taken.
+    /// Historical/provider-delayed changes must not be attributed to a game
+    /// that never actually launched.
+    /// </summary>
+    public async Task CancelSessionAsync(string gameId)
+    {
+        var session = await RemoveAndStopSessionAsync(gameId).ConfigureAwait(false);
+        session?.Cts.Dispose();
     }
 
     private async Task PollSessionAsync(SessionState session)
@@ -315,7 +385,10 @@ public sealed class AchievementService : IDisposable
         }
     }
 
-    private List<AchievementUnlock> ApplySnapshot(string gameId, AchievementSnapshot snapshot)
+    private List<AchievementUnlock> ApplySnapshot(
+        string gameId,
+        AchievementSnapshot snapshot,
+        bool allowNotificationTransitions)
     {
         lock (_stateGate)
         {
@@ -365,6 +438,7 @@ public sealed class AchievementService : IDisposable
                 if (gameState.BaselineEstablished &&
                     !previous.State.Unlocked &&
                     incoming.State.Unlocked &&
+                    allowNotificationTransitions &&
                     gameState.NotifiedUnlockedExternalIds.Add(externalId))
                 {
                     var unlock = new AchievementUnlock
@@ -385,6 +459,14 @@ public sealed class AchievementService : IDisposable
                     };
                     _state.PendingNotificationDeliveries[delivery.DeliveryId] = delivery;
                 }
+                else if (incoming.State.Unlocked)
+                {
+                    // This is a real provider correction, but Exo did not
+                    // observe the game session that produced it. Keep the
+                    // baseline current and make the achievement permanently
+                    // ineligible for a duplicate historical toast.
+                    gameState.NotifiedUnlockedExternalIds.Add(externalId);
+                }
             }
 
             // Partial Steam/Epic responses may first expose an achievement after
@@ -393,7 +475,8 @@ public sealed class AchievementService : IDisposable
             // established account summary rose by exactly one and this response
             // contains exactly one previously unseen unlocked row. In that case
             // the source itself identifies the row responsible for the delta.
-            var canIdentifyFirstSeenUnlock = gameState.BaselineEstablished &&
+            var canIdentifyFirstSeenUnlock = allowNotificationTransitions &&
+                                              gameState.BaselineEstablished &&
                                               snapshot.Coverage == AchievementCoverageStatus.Partial &&
                                               previousReportedUnlocked is >= 0 &&
                                               snapshot.ReportedUnlocked == previousReportedUnlocked + 1 &&
@@ -776,6 +859,13 @@ public sealed class AchievementService : IDisposable
         return session;
     }
 
+    private bool IsSessionActive(string gameId)
+    {
+        if (string.IsNullOrWhiteSpace(gameId)) return false;
+        lock (_sessionGate)
+            return _sessions.TryGetValue(gameId, out var session) && session.Active;
+    }
+
     private PersistentState LoadState(string path)
     {
         try
@@ -880,6 +970,7 @@ public sealed class AchievementService : IDisposable
         public GameEntry Game { get; } = game;
         public CancellationTokenSource Cts { get; } = cts;
         public Task PollTask { get; set; } = Task.CompletedTask;
+        public bool Active { get; set; }
     }
 
     private sealed class PersistentState

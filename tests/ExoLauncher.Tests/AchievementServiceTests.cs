@@ -46,7 +46,7 @@ public sealed class AchievementServiceTests
             using (var service = new AchievementService([provider], path, TimeSpan.FromHours(1)))
             {
                 service.AchievementUnlocked += notifications.Add;
-                await service.RefreshAsync(Game());
+                await service.BeginSessionAsync(Game());
                 await service.RefreshAsync(Game());
                 await service.RefreshAsync(Game());
             }
@@ -85,7 +85,7 @@ public sealed class AchievementServiceTests
             var notifications = new List<AchievementUnlock>();
             service.AchievementUnlocked += notifications.Add;
 
-            await service.RefreshAsync(Game());
+            await service.BeginSessionAsync(Game());
             await service.RefreshAsync(Game());
             var corrected = await service.RefreshAsync(Game());
             var persistedCorrection = service.GetLatestSnapshot(Game().Id);
@@ -493,6 +493,118 @@ public sealed class AchievementServiceTests
     }
 
     [Fact]
+    public async Task ManualRefreshTransitionIsReconciledWithoutANotification()
+    {
+        var path = TempStatePath();
+        try
+        {
+            var provider = new SequenceProvider(
+                Snapshot(unlocked: false),
+                Snapshot(unlocked: true),
+                Snapshot(unlocked: true));
+            using var service = new AchievementService([provider], path, TimeSpan.FromHours(1));
+            var notifications = new List<AchievementUnlock>();
+            var deliveries = new List<AchievementNotificationDelivery>();
+            service.AchievementUnlocked += notifications.Add;
+            service.NotificationDeliveryRequested += deliveries.Add;
+
+            // Opening a details panel can refresh provider data. That must
+            // never claim the resulting transition happened in an Exo launch.
+            await service.RefreshAsync(Game());
+            await service.RefreshAsync(Game());
+            Assert.Empty(notifications);
+            Assert.Empty(deliveries);
+            Assert.Empty(service.GetPendingNotificationDeliveries());
+
+            // Starting a later session with the already-unlocked provider
+            // row must not replay the historical unlock either.
+            await service.BeginSessionAsync(Game());
+            Assert.Empty(notifications);
+            Assert.Empty(deliveries);
+        }
+        finally
+        {
+            DeleteStateDirectory(path);
+        }
+    }
+
+    [Fact]
+    public async Task FinalAfterSessionRefreshCanDeliverAnObservedUnlock()
+    {
+        var path = TempStatePath();
+        try
+        {
+            var provider = new SequenceProvider(
+                Snapshot(unlocked: false),
+                Snapshot(unlocked: true));
+            using var service = new AchievementService([provider], path, TimeSpan.FromHours(1));
+            var deliveries = new List<AchievementNotificationDelivery>();
+            service.NotificationDeliveryRequested += deliveries.Add;
+
+            await service.BeginSessionAsync(Game());
+            var final = await service.EndSessionAsync(Game().Id);
+
+            Assert.NotNull(final);
+            var delivery = Assert.Single(deliveries);
+            Assert.Equal("ACH_ONE", delivery.Unlock.Entry.Definition.ExternalId);
+            Assert.Single(service.GetPendingNotificationDeliveries());
+        }
+        finally
+        {
+            DeleteStateDirectory(path);
+        }
+    }
+
+    [Fact]
+    public async Task PreparedBaseline_DeliversOnlyAfterLaunchIsActivated()
+    {
+        var path = TempStatePath();
+        try
+        {
+            using var service = new AchievementService(
+                [new SequenceProvider(Snapshot(unlocked: false), Snapshot(unlocked: true))],
+                path,
+                TimeSpan.FromHours(1));
+            var deliveries = new List<AchievementNotificationDelivery>();
+            service.NotificationDeliveryRequested += deliveries.Add;
+
+            await service.PrepareSessionAsync(Game());
+            Assert.True(service.ActivatePreparedSession(Game().Id));
+            _ = await service.EndSessionAsync(Game().Id);
+
+            Assert.Single(deliveries);
+        }
+        finally
+        {
+            DeleteStateDirectory(path);
+        }
+    }
+
+    [Fact]
+    public async Task PreparedBaseline_DoesNotAttributeUnlockWhenLaunchNeverActivates()
+    {
+        var path = TempStatePath();
+        try
+        {
+            using var service = new AchievementService(
+                [new SequenceProvider(Snapshot(unlocked: false), Snapshot(unlocked: true))],
+                path,
+                TimeSpan.FromHours(1));
+            var deliveries = new List<AchievementNotificationDelivery>();
+            service.NotificationDeliveryRequested += deliveries.Add;
+
+            await service.PrepareSessionAsync(Game());
+            _ = await service.EndSessionAsync(Game().Id);
+
+            Assert.Empty(deliveries);
+        }
+        finally
+        {
+            DeleteStateDirectory(path);
+        }
+    }
+
+    [Fact]
     public async Task NotificationDeliveryOutbox_ReplaysAfterRestartUntilNativePresenterAcknowledges()
     {
         var path = TempStatePath();
@@ -512,7 +624,7 @@ public sealed class AchievementServiceTests
                     Assert.Contains(delivery.DeliveryId, File.ReadAllText(path), StringComparison.Ordinal);
                     delivered.Add(delivery);
                 };
-                await service.RefreshAsync(Game());
+                await service.BeginSessionAsync(Game());
                 await service.RefreshAsync(Game());
 
                 var first = Assert.Single(delivered);
@@ -558,7 +670,7 @@ public sealed class AchievementServiceTests
                        path,
                        TimeSpan.FromHours(1)))
             {
-                await service.RefreshAsync(Game());
+                await service.BeginSessionAsync(Game());
                 await service.RefreshAsync(Game());
                 Assert.Single(service.GetPendingNotificationDeliveries());
             }
@@ -584,7 +696,7 @@ public sealed class AchievementServiceTests
     }
 
     [Fact]
-    public async Task VersionOneState_MigratesItsBaselineWithoutRebaselining()
+    public async Task VersionOneState_MigratesItsBaselineWithoutCreatingAHistoricalNotification()
     {
         var path = TempStatePath();
         try
@@ -599,13 +711,12 @@ public sealed class AchievementServiceTests
 
             using var migrated = new AchievementService(
                 [new SequenceProvider(Snapshot(unlocked: true))], path, TimeSpan.FromHours(1));
-            var delivered = new List<AchievementNotificationDelivery>();
-            migrated.NotificationDeliveryRequested += delivered.Add;
-
+            // A data refresh after an upgrade is not an Exo-observed game
+            // session. It reconciles the saved baseline but must not play a
+            // historical toast solely because the application restarted.
             await migrated.RefreshAsync(Game());
 
-            Assert.Single(delivered);
-            Assert.Equal("ACH_ONE", delivered[0].Unlock.Entry.Definition.ExternalId);
+            Assert.Empty(migrated.GetPendingNotificationDeliveries());
         }
         finally
         {
@@ -631,7 +742,7 @@ public sealed class AchievementServiceTests
             var deliveries = new List<AchievementNotificationDelivery>();
             service.NotificationDeliveryRequested += deliveries.Add;
 
-            await service.RefreshAsync(Game());
+            await service.BeginSessionAsync(Game());
             await service.RefreshAsync(Game());
 
             var delivery = Assert.Single(deliveries);

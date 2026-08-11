@@ -49,6 +49,27 @@ public sealed class EpicPlaytimeTests
     }
 
     [Fact]
+    public async Task Cache_QuarantinesLastGoodMinutesWhenTheActiveEpicAccountChanges()
+    {
+        var call = 0;
+        var cache = new EpicPlaytimeCache(
+            _ => Task.FromResult(++call == 1
+                ? new EpicPlaytimeFetchResult(true,
+                    new Dictionary<string, int> { ["Sugar"] = 120 }, "account-a")
+                : new EpicPlaytimeFetchResult(true,
+                    new Dictionary<string, int> { ["Sugar"] = 900 }, "account-b")),
+            TimeSpan.FromHours(1), TimeSpan.FromMinutes(1));
+
+        await cache.RefreshIfStaleAsync("account-a");
+        Assert.Equal(120, cache.Snapshot("account-a")["Sugar"]);
+
+        await cache.RefreshIfStaleAsync("account-b");
+
+        Assert.Empty(cache.Snapshot("account-a"));
+        Assert.Equal(900, cache.Snapshot("account-b")["Sugar"]);
+    }
+
+    [Fact]
     public void ParseMinutesJson_ReadsEpicSecondsByArtifact()
     {
         const string json = """

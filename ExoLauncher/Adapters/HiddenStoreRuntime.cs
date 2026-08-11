@@ -13,6 +13,7 @@ public sealed class HiddenStoreRuntime : IDisposable
     private readonly StoreAudioSilencer _audioSilencer = new(
         store => IsExoDriving && !IsSuspended(store));
     private Timer? _timer;
+    private int _audioWakeState;
     private bool _disposed;
 
     /// <summary>Store → UTC time until which suppression is paused.</summary>
@@ -201,6 +202,18 @@ public sealed class HiddenStoreRuntime : IDisposable
             return !IsSuspended(StoreKind.Gog);
         if (StoreWindowHider.RiotUiProcessNames.Any(name => string.Equals(name, processName, StringComparison.OrdinalIgnoreCase)))
             return !IsSuspended(StoreKind.Riot);
+        if (StoreWindowHider.XboxClientProcessNames.Any(name => string.Equals(name, processName, StringComparison.OrdinalIgnoreCase)))
+            return !IsSuspended(StoreKind.Xbox);
+        if (StoreWindowHider.EaClientProcessNames.Any(name => string.Equals(name, processName, StringComparison.OrdinalIgnoreCase)))
+            return !IsSuspended(StoreKind.Ea);
+        if (StoreWindowHider.UbisoftClientProcessNames.Any(name => string.Equals(name, processName, StringComparison.OrdinalIgnoreCase)))
+            return !IsSuspended(StoreKind.Ubisoft);
+        if (StoreWindowHider.BattleNetClientProcessNames.Any(name => string.Equals(name, processName, StringComparison.OrdinalIgnoreCase)))
+            return !IsSuspended(StoreKind.BattleNet);
+        if (StoreWindowHider.AmazonClientProcessNames.Any(name => string.Equals(name, processName, StringComparison.OrdinalIgnoreCase)))
+            return !IsSuspended(StoreKind.Amazon);
+        if (StoreWindowHider.RockstarClientProcessNames.Any(name => string.Equals(name, processName, StringComparison.OrdinalIgnoreCase)))
+            return !IsSuspended(StoreKind.Rockstar);
         return false;
     }
 
@@ -233,17 +246,26 @@ public sealed class HiddenStoreRuntime : IDisposable
 
     private void Sweep()
     {
-        // The audio worker owns restoration. Wake it promptly when the last
-        // Exo operation ends rather than leaving a client muted until its next
-        // periodic scan.
-        _audioSilencer.Refresh();
-        if (!IsExoDriving) return;
+        var driving = IsExoDriving;
+        var wasDriving = Interlocked.Exchange(ref _audioWakeState, driving ? 1 : 0) != 0;
+        // The audio worker owns restoration. Wake throughout active operations,
+        // and once more on the active → idle edge so Exo-owned mutes are promptly
+        // restored. Pure idle ticks no longer wake the Core Audio worker.
+        if (driving || wasDriving)
+            _audioSilencer.Refresh();
+        if (!driving) return;
         try
         {
             SweepStore(StoreKind.Steam, StoreWindowHider.SteamProcessNames);
             SweepStore(StoreKind.Epic, StoreWindowHider.EpicProcessNames);
             SweepStore(StoreKind.Gog, StoreWindowHider.GalaxyProcessNames);
             SweepStore(StoreKind.Riot, StoreWindowHider.RiotUiProcessNames);
+            SweepStore(StoreKind.Xbox, StoreWindowHider.XboxClientProcessNames);
+            SweepStore(StoreKind.Ea, StoreWindowHider.EaClientProcessNames);
+            SweepStore(StoreKind.Ubisoft, StoreWindowHider.UbisoftClientProcessNames);
+            SweepStore(StoreKind.BattleNet, StoreWindowHider.BattleNetClientProcessNames);
+            SweepStore(StoreKind.Amazon, StoreWindowHider.AmazonClientProcessNames);
+            SweepStore(StoreKind.Rockstar, StoreWindowHider.RockstarClientProcessNames);
         }
         catch
         {

@@ -263,26 +263,6 @@ public static class PlaytimeService
             }
         }
 
-        // Steam still exposes the pre-free-to-play Rocket League lifetime even
-        // when that title is no longer returned as an installed Steam card.
-        var rocketLeagueRow = rows.FirstOrDefault(row => IsRocketLeague(row.Game));
-        if (steamAccountKey is not null &&
-            rocketLeagueRow is not null &&
-            steam.TryGetValue("252950", out var rocketLeagueSteam) &&
-            rocketLeagueSteam.Minutes > 0)
-        {
-            native.Add(new LocalPlaytimeObservation(
-                "rocket-league",
-                "steam",
-                $"steam:{steamAccountKey}:252950",
-                checked((long)rocketLeagueSteam.Minutes * 60L),
-                rocketLeagueSteam.LastPlayedUtc ?? now,
-                "steam",
-                "252950",
-                rocketLeagueRow.Game.Title,
-                rocketLeagueRow.Game.CoverUrl));
-        }
-
         // A repeated reading for one native account/product is overlapping,
         // while different stores are genuinely distinct purchases/histories.
         native = native
@@ -377,36 +357,50 @@ public static class PlaytimeService
             _lastObservations = native.Concat(exoObservations).ToList();
         }
 
-        var lastPlayedByGame = rows
-            .GroupBy(row => row.GameKey, StringComparer.Ordinal)
-            .ToDictionary(
-                group => group.Key,
-                group => group
-                    .SelectMany(row => new[] { row.StoreLastPlayed, row.ExoLastPlayed })
-                    .Where(value => value is not null)
-                    .Select(value => value!.Value)
-                    .DefaultIfEmpty()
-                    .Max(),
-                StringComparer.Ordinal);
-
         return rows.Select(row =>
         {
-            nativeTotals.TryGetValue(row.GameKey, out var nativeSeconds);
-            exoTotals.TryGetValue(row.GameKey, out var exoSeconds);
-            var localSeconds = checked(nativeSeconds + exoSeconds);
+            // Library rows are source variants, not a cross-store identity.
+            // Never show Epic hours on a Steam variant (or vice versa), even
+            // when the titles normalize to the same canonical card. A provider
+            // may define a safe within-source dedupe rule via CoverageKey; no
+            // generic cross-store/account sum is valid for the UI.
+            var nativeMinutes = row.StoreMinutes.GetValueOrDefault();
+            var importedMinutes = row.Game.Store == StoreKind.Riot && importedLifetime is not null
+                ? importedLifetime.MinutesByGameId.GetValueOrDefault(row.Game.Id)
+                : 0;
+            nativeMinutes = Math.Max(nativeMinutes, importedMinutes);
+            var hasNativeLifetime = nativeMinutes > 0 &&
+                (IsNativeLifetimeStore(row.Game.Store) || importedMinutes > 0);
+
+            var exoMinutes = row.ExoMinutes;
+            if (hasNativeLifetime)
+            {
+                // Only a migrated Riot import has an explicit session baseline
+                // that can safely be added. Live vendor counters already include
+                // play recorded in that vendor and must not be inflated.
+                exoMinutes = importedMinutes > 0 && importedLifetime is not null
+                    ? Math.Max(0, exoMinutes - importedLifetime.ExoSessionBaselineMinutesByGameId
+                        .GetValueOrDefault(row.Game.Id, exoMinutes))
+                    : 0;
+            }
+            var localSeconds = checked((long)Math.Max(0, nativeMinutes + exoMinutes) * 60L);
             var localMinutes = localSeconds > 0
                 ? (int)Math.Min(localSeconds / 60L, int.MaxValue)
                 : 0;
             int? best = localMinutes > 0
                 ? localMinutes
                 : null;
-            var last = lastPlayedByGame.GetValueOrDefault(row.GameKey);
-            DateTimeOffset? effectiveLast = last == default ? null : last;
+            var effectiveLast = new[] { row.StoreLastPlayed, row.ExoLastPlayed }
+                .Where(value => value is not null)
+                .Select(value => value!.Value)
+                .DefaultIfEmpty()
+                .Max();
+            DateTimeOffset? effectiveLastPlayed = effectiveLast == default ? null : effectiveLast;
 
-            if (best == row.Game.PlaytimeMinutes && effectiveLast == row.Game.LastPlayedUtc)
+            if (best == row.Game.PlaytimeMinutes && effectiveLastPlayed == row.Game.LastPlayedUtc)
                 return row.Game;
 
-            return Clone(row.Game, best, effectiveLast);
+            return Clone(row.Game, best, effectiveLastPlayed);
         }).ToList();
     }
 

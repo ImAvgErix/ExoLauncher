@@ -8,7 +8,7 @@ import { cn } from './lib/utils'
 /** Match CSS --ease-out */
 const ease = [0.23, 1, 0.32, 1] as const
 const easeDrawer = [0.32, 0.72, 0, 1] as const
-const easeSpring = { type: 'spring' as const, stiffness: 420, damping: 32, mass: 0.85 }
+const cardSpring = { type: 'spring' as const, stiffness: 470, damping: 30, mass: 0.8 }
 
 export function FadeIn({
   children,
@@ -119,7 +119,7 @@ export function SoftPress({
 }
 
 /**
- * Card wrapper — hover lift only.
+ * Card wrapper — one clean lift for the entire card.
  * No shared layoutId: pin moves md↔lg and layout morph flashed covers.
  */
 export function CardMotion({
@@ -135,8 +135,9 @@ export function CardMotion({
   return (
     <motion.div
       className={className}
-      whileHover={{ y: -3 }}
-      transition={easeSpring}
+      whileHover={{ y: -5 }}
+      whileTap={{ y: -1 }}
+      transition={cardSpring}
       style={{ willChange: 'transform' }}
     >
       {children}

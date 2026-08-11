@@ -616,12 +616,32 @@ public sealed class WebHostBridge
         var gameId = ReadString(p, hasParams, "id");
         if (string.IsNullOrWhiteSpace(gameId))
             return new { ok = false, message = "Missing game id." };
-        _services.Settings.ToggleFavorite(gameId!);
+
+        var card = _services.Library.PeekCachedLibrary().FirstOrDefault(candidate =>
+            string.Equals(candidate.Id, gameId, StringComparison.OrdinalIgnoreCase) ||
+            candidate.Variants.Any(variant =>
+                string.Equals(variant.Id, gameId, StringComparison.OrdinalIgnoreCase)));
+        var sourceIds = card is { Variants.Count: > 0 }
+            ? card.Variants.Select(variant => variant.Id).ToArray()
+            : new[] { gameId! };
+        var wasFavorite = sourceIds.Any(_services.Settings.IsFavorite);
+        if (wasFavorite)
+        {
+            // A grouped card is one visible pin. Clearing it must not leave a
+            // hidden alternate-store favorite that reappears on refresh.
+            _services.Settings.SetFavoriteState(sourceIds, isFavorite: false);
+        }
+        else
+        {
+            // Persist the exact source the user acted on. OverlayUserPrefs
+            // projects that pin back onto the canonical card on every scan.
+            _services.Settings.SetFavoriteState([gameId!], isFavorite: true);
+        }
         var settings = _services.Settings.Current;
         return new
         {
             ok = true,
-            isFavorite = _services.Settings.IsFavorite(gameId!),
+            isFavorite = !wasFavorite,
             favorites = settings.Favorites,
         };
     }
@@ -937,8 +957,8 @@ public sealed class WebHostBridge
     }
 
     /// <summary>
-    /// Settings → Open Steam / Epic / GOG / Riot. Suspends hide for that store,
-    /// starts the client if needed, and reveals its chrome.
+    /// Settings → Open a verified installed store client. This is deliberately
+    /// an Open action only; it does not imply library or game control support.
     /// </summary>
     private async Task<object> ShowStoreAsync(JsonElement p, bool hasParams)
     {
@@ -952,27 +972,29 @@ public sealed class WebHostBridge
                 "steam" => OpenVendorClient(
                     StoreKind.Steam,
                     StoreWindowHider.SteamMainProcessNames,
-                    SteamAdapter.TryResolveSteamExePublic(),
-                    args: "",
+                    ExecutableCommand(SteamAdapter.TryResolveSteamExePublic()),
                     missing: "Steam not found."),
                 "epic" => OpenVendorClient(
                     StoreKind.Epic,
                     StoreWindowHider.EpicProcessNames,
-                    ResolveEpicLauncherExe(),
-                    args: "",
+                    ExecutableCommand(ResolveEpicLauncherExe()),
                     missing: "Epic Games Launcher not found."),
                 "gog" => OpenVendorClient(
                     StoreKind.Gog,
                     StoreWindowHider.GalaxyProcessNames,
-                    ResolveGalaxyExe(),
-                    args: "",
+                    ExecutableCommand(ResolveGalaxyExe()),
                     missing: "GOG Galaxy not found."),
                 "riot" => OpenVendorClient(
                     StoreKind.Riot,
                     StoreWindowHider.RiotUiProcessNames,
-                    ResolveRiotClientExe(),
-                    args: "",
+                    ExecutableCommand(ResolveRiotClientExe()),
                     missing: "Riot Client not found."),
+                "xbox" => OpenOfficialClient("xbox", StoreKind.Xbox, "Xbox app is not installed."),
+                "ea" => OpenOfficialClient("ea", StoreKind.Ea, "EA app is not installed."),
+                "ubisoft" => OpenOfficialClient("ubisoft", StoreKind.Ubisoft, "Ubisoft Connect is not installed."),
+                "battlenet" => OpenOfficialClient("battlenet", StoreKind.BattleNet, "Battle.net is not installed."),
+                "amazon" => OpenOfficialClient("amazon", StoreKind.Amazon, "Amazon Games is not installed."),
+                "rockstar" => OpenOfficialClient("rockstar", StoreKind.Rockstar, "Rockstar Games Launcher is not installed."),
                 _ => new { ok = false, message = "Unknown store." },
             };
         }
@@ -985,14 +1007,14 @@ public sealed class WebHostBridge
     private static object OpenVendorClient(
         StoreKind kind,
         string[] processNames,
-        string? exe,
-        string args,
+        StoreClientLaunchCommand? command,
         string missing)
     {
         // Do not fight the user for a while after they asked to open the client.
         HiddenStoreRuntime.SuspendFor(kind, TimeSpan.FromMinutes(30));
 
-        if (string.IsNullOrWhiteSpace(exe) || !File.Exists(exe))
+        if (command is null ||
+            (!command.IsAppx && (string.IsNullOrWhiteSpace(command.FileName) || !File.Exists(command.FileName))))
             return new { ok = false, message = missing };
 
         // Cold Epic/Riot clients can spend several seconds starting helpers.
@@ -1008,10 +1030,10 @@ public sealed class WebHostBridge
                 // the explicit Settings -> Open action.
                 using var started = Process.Start(new ProcessStartInfo
                 {
-                    FileName = exe,
-                    Arguments = args,
+                    FileName = command.FileName,
+                    Arguments = command.Arguments,
                     UseShellExecute = true,
-                    WorkingDirectory = Path.GetDirectoryName(exe) ?? "",
+                    WorkingDirectory = command.IsAppx ? "" : Path.GetDirectoryName(command.FileName) ?? "",
                 });
 
                 var deadline = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(15);
@@ -1031,6 +1053,36 @@ public sealed class WebHostBridge
         });
         return new { ok = true, message = $"Opening {kind}…" };
     }
+
+    private object OpenOfficialClient(string adapterId, StoreKind kind, string missing)
+    {
+        var adapter = _services.FindAdapterById(adapterId) as IOfficialStoreClient;
+        return adapter is null
+            ? new { ok = false, message = "Official client backend is unavailable." }
+            : OpenVendorClient(kind, OfficialClientUiProcessNames(kind), adapter.GetClientLaunchCommand(), missing);
+    }
+
+    /// <summary>
+    /// Settings → Open is allowed to reveal only named launcher chrome. Keep
+    /// this independent from an adapter's wider process observation list:
+    /// helpers and services can be necessary for a game and must never be
+    /// foregrounded merely because the user opened the launcher.
+    /// </summary>
+    private static string[] OfficialClientUiProcessNames(StoreKind kind) => kind switch
+    {
+        StoreKind.Xbox => StoreWindowHider.XboxClientProcessNames,
+        StoreKind.Ea => StoreWindowHider.EaClientProcessNames,
+        StoreKind.Ubisoft => StoreWindowHider.UbisoftClientProcessNames,
+        StoreKind.BattleNet => StoreWindowHider.BattleNetClientProcessNames,
+        StoreKind.Amazon => StoreWindowHider.AmazonClientProcessNames,
+        StoreKind.Rockstar => StoreWindowHider.RockstarClientProcessNames,
+        _ => [],
+    };
+
+    private static StoreClientLaunchCommand? ExecutableCommand(string? executable) =>
+        string.IsNullOrWhiteSpace(executable) || !File.Exists(executable)
+            ? null
+            : new StoreClientLaunchCommand(executable);
 
     private static string? ResolveEpicLauncherExe() =>
         CliRunner.FirstExisting(
@@ -1162,6 +1214,36 @@ public sealed class WebHostBridge
         id = g.Id,
         title = g.Title,
         store = g.Store.ToString().ToLowerInvariant(),
+        // `store` remains the deterministic selected source. `stores` and
+        // `variants` let a card show alternate active sources without exposing
+        // account identity or replacing any exact action ids.
+        stores = (g.Variants.Count == 0 ? new[] { g.Store } : g.Variants.Select(v => v.Store))
+            .Distinct()
+            .Select(store => store.ToString().ToLowerInvariant())
+            .ToArray(),
+        canonicalTitleKey = g.CanonicalTitleKey,
+        selectedVariantId = g.SelectedVariantId ?? g.Id,
+        variants = g.Variants.Select(variant =>
+        {
+            var variantRunState = _services.Launcher.GetGameRunState(variant.ToGameEntry(g));
+            return new
+            {
+                id = variant.Id,
+                store = variant.Store.ToString().ToLowerInvariant(),
+                installed = variant.Installed,
+                owned = variant.Owned,
+                updateAvailable = variant.UpdateAvailable,
+                canInstall = variant.CanInstall,
+                primaryAction = variant.PrimaryAction,
+                path = variant.Path,
+                launchTarget = variant.LaunchTarget,
+                playtimeMinutes = variant.PlaytimeMinutes,
+                lastPlayedUtc = variant.LastPlayedUtc?.ToString("O"),
+                status = variant.Status,
+                isRunning = variantRunState.IsRunning,
+                canStop = variantRunState.CanStop,
+            };
+        }).ToArray(),
         installed = g.Installed,
         owned = g.Owned,
         updateAvailable = g.UpdateAvailable,

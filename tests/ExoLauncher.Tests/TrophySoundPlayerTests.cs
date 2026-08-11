@@ -17,13 +17,13 @@ public sealed class TrophySoundPlayerTests
         var format = FindChunk(wave, "fmt ");
         var data = FindChunk(wave, "data");
         Assert.Equal((short)1, BitConverter.ToInt16(wave, format.Offset));
-        Assert.Equal((short)1, BitConverter.ToInt16(wave, format.Offset + 2));
-        Assert.Equal(44_100, BitConverter.ToInt32(wave, format.Offset + 4));
+        Assert.Equal((short)2, BitConverter.ToInt16(wave, format.Offset + 2));
+        Assert.Equal(48_000, BitConverter.ToInt32(wave, format.Offset + 4));
         Assert.Equal((short)16, BitConverter.ToInt16(wave, format.Offset + 14));
 
         var channels = BitConverter.ToInt16(wave, format.Offset + 2);
-        var durationSeconds = data.Length / (44_100d * channels * sizeof(short));
-        Assert.InRange(durationSeconds, 0.70, 0.73);
+        var durationSeconds = data.Length / (48_000d * channels * sizeof(short));
+        Assert.InRange(durationSeconds, 1.15, 1.21);
 
         var peak = 0;
         var sumSquares = 0d;
@@ -36,15 +36,17 @@ public sealed class TrophySoundPlayerTests
         }
 
         var rms = Math.Sqrt(sumSquares / sampleCount);
-        Assert.InRange(peak, 28_000, 30_000);
+        Assert.InRange(peak, 20_000, 24_000);
         Assert.InRange(rms, 3_500d, 5_000d);
 
-        // The final 5 ms should be effectively silent so the cue cannot click.
+        // The final 5 ms stays below roughly -66 dBFS and the final frame lands
+        // on zero, so Windows playback cannot end on an audible click.
         var tailPeak = 0;
-        var tailBytes = 44_100 / 200 * channels * sizeof(short);
+        var tailBytes = 48_000 / 200 * channels * sizeof(short);
         for (var offset = data.Offset + data.Length - tailBytes; offset < data.Offset + data.Length; offset += sizeof(short))
             tailPeak = Math.Max(tailPeak, Math.Abs((int)BitConverter.ToInt16(wave, offset)));
-        Assert.InRange(tailPeak, 0, 2);
+        Assert.InRange(tailPeak, 0, 16);
+        Assert.Equal((short)0, BitConverter.ToInt16(wave, data.Offset + data.Length - sizeof(short)));
     }
 
     [Fact]
@@ -60,9 +62,6 @@ public sealed class TrophySoundPlayerTests
 
         var project = File.ReadAllText(FindRepositoryFile("ExoLauncher", "ExoLauncher.csproj"));
         Assert.Contains("Assets\\**\\*", project, StringComparison.Ordinal);
-        var license = File.ReadAllText(FindRepositoryFile("ExoLauncher", "Assets", "Audio", "LICENSE-KENNEY.txt"));
-        Assert.Contains("Creative Commons Zero", license, StringComparison.Ordinal);
-        Assert.Contains("glass_004.wav", license, StringComparison.Ordinal);
         var installer = File.ReadAllText(FindRepositoryFile("tools", "ExoLauncher.nsi"));
         Assert.Contains("File /r \"${PAYLOAD_DIR}\\*.*\"", installer, StringComparison.Ordinal);
     }

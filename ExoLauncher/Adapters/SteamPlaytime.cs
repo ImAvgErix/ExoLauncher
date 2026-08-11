@@ -22,7 +22,8 @@ internal static partial class SteamPlaytime
     public readonly record struct Entry(int Minutes, DateTimeOffset? LastPlayedUtc);
     public sealed record AccountSnapshot(
         string AccountKey,
-        IReadOnlyDictionary<string, Entry> Entries);
+        IReadOnlyDictionary<string, Entry> Entries,
+        IReadOnlySet<string> AppTicketIds);
 
     public static int? TryGetMinutes(string steamRoot, string appId)
     {
@@ -41,6 +42,17 @@ internal static partial class SteamPlaytime
         return snapshot is not null && snapshot.Entries.TryGetValue(appId, out var e) ? e : null;
     }
 
+    /// <summary>
+    /// Positive, active-account evidence that Steam has issued an app ticket.
+    /// Absence is deliberately treated as unknown rather than not owned because
+    /// Steam does not guarantee a ticket for every dormant entitlement.
+    /// </summary>
+    public static bool HasActiveAppTicket(string steamRoot, string appId)
+    {
+        if (string.IsNullOrWhiteSpace(appId) || !appId.All(char.IsDigit)) return false;
+        return LoadActiveAccount(steamRoot)?.AppTicketIds.Contains(appId) == true;
+    }
+
     /// <summary>All app ids for the active Steam account only.</summary>
     public static IReadOnlyDictionary<string, Entry> LoadAll(string steamRoot) =>
         LoadActiveAccount(steamRoot)?.Entries ?? new Dictionary<string, Entry>();
@@ -49,14 +61,28 @@ internal static partial class SteamPlaytime
     {
         if (string.IsNullOrWhiteSpace(steamRoot)) return null;
         var root = NormalizeRoot(steamRoot);
+        // Resolve before consulting the short-lived cache. The prior cache
+        // check keyed only by Steam root, so a shared PC could keep displaying
+        // the previous account's localconfig for up to two minutes.
+        var accountId = ResolveActiveAccountId(root, ReadRegistryActiveAccountId());
+        if (!IsSafeAccountId(accountId)) return null;
         lock (Gate)
         {
             if (_snapshot is not null &&
                 string.Equals(_loadedRoot, root, StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(_loadedAccountId, accountId, StringComparison.Ordinal) &&
                 DateTime.UtcNow - _loadedUtc < TimeSpan.FromMinutes(2))
                 return _snapshot;
         }
-        return LoadAccount(root, ResolveActiveAccountId(root, ReadRegistryActiveAccountId()));
+        return LoadAccount(root, accountId);
+    }
+
+    /// <summary>Returns a one-way tag for Steam's active local account only.</summary>
+    internal static string? GetActiveAccountScope(string steamRoot)
+    {
+        if (string.IsNullOrWhiteSpace(steamRoot)) return null;
+        var accountId = ResolveActiveAccountId(steamRoot, ReadRegistryActiveAccountId());
+        return IsSafeAccountId(accountId) ? HashAccountId(accountId!) : null;
     }
 
     /// <summary>Explicit account loader used by tests and trusted callers that
@@ -78,10 +104,16 @@ internal static partial class SteamPlaytime
                 return _snapshot;
 
             var map = new Dictionary<string, Entry>(StringComparer.Ordinal);
-            try { MergeFile(map, File.ReadAllText(config)); }
+            IReadOnlySet<string> appTickets;
+            try
+            {
+                var text = File.ReadAllText(config);
+                MergeFile(map, text);
+                appTickets = ParseAppTickets(text);
+            }
             catch { return null; }
 
-            _snapshot = new AccountSnapshot(HashAccountId(accountId!), map);
+            _snapshot = new AccountSnapshot(HashAccountId(accountId!), map, appTickets);
             _loadedRoot = root;
             _loadedAccountId = accountId;
             _loadedUtc = DateTime.UtcNow;
@@ -190,6 +222,23 @@ internal static partial class SteamPlaytime
         }
     }
 
+    internal static IReadOnlySet<string> ParseAppTickets(string text)
+    {
+        var result = new HashSet<string>(StringComparer.Ordinal);
+        if (string.IsNullOrWhiteSpace(text)) return result;
+
+        var section = AppTicketsOpenRegex().Match(text);
+        if (!section.Success) return result;
+        var open = section.Index + section.Length - 1;
+        if (open < 0 || open >= text.Length || text[open] != '{') return result;
+        var block = SliceBraceBlock(text, open);
+        if (block is null) return result;
+
+        foreach (Match ticket in AppTicketEntryRegex().Matches(block))
+            result.Add(ticket.Groups[1].Value);
+        return result;
+    }
+
     private static int? ReadInt(string block, Regex re)
     {
         var m = re.Match(block);
@@ -218,6 +267,12 @@ internal static partial class SteamPlaytime
 
     [GeneratedRegex(@"""(\d{1,10})""\s*\{", RegexOptions.CultureInvariant)]
     private static partial Regex AppIdOpenRegex();
+
+    [GeneratedRegex(@"""apptickets""\s*\{", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex AppTicketsOpenRegex();
+
+    [GeneratedRegex(@"(?m)^\s*""(\d{1,10})""\s+""[0-9a-f]+""\s*$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex AppTicketEntryRegex();
 
     [GeneratedRegex(@"""Playtime(?:Forever)?""\s+""(\d+)""", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex PlaytimeRegex();

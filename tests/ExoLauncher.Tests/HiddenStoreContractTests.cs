@@ -100,6 +100,12 @@ public sealed class HiddenStoreContractTests
         Assert.Contains("steam", StoreAudioSilencer.ProcessNamesFor(StoreKind.Steam), StringComparer.OrdinalIgnoreCase);
         Assert.Contains("GOG Galaxy Notifications", StoreAudioSilencer.ProcessNamesFor(StoreKind.Gog), StringComparer.OrdinalIgnoreCase);
         Assert.Contains("RiotClientUx", StoreAudioSilencer.ProcessNamesFor(StoreKind.Riot), StringComparer.OrdinalIgnoreCase);
+        Assert.Contains("XboxPcApp", StoreAudioSilencer.ProcessNamesFor(StoreKind.Xbox), StringComparer.OrdinalIgnoreCase);
+        Assert.Contains("EADesktop", StoreAudioSilencer.ProcessNamesFor(StoreKind.Ea), StringComparer.OrdinalIgnoreCase);
+        Assert.Contains("UbisoftConnect", StoreAudioSilencer.ProcessNamesFor(StoreKind.Ubisoft), StringComparer.OrdinalIgnoreCase);
+        Assert.Contains("Battle.net", StoreAudioSilencer.ProcessNamesFor(StoreKind.BattleNet), StringComparer.OrdinalIgnoreCase);
+        Assert.Contains("AmazonGames", StoreAudioSilencer.ProcessNamesFor(StoreKind.Amazon), StringComparer.OrdinalIgnoreCase);
+        Assert.Contains("Launcher", StoreAudioSilencer.ProcessNamesFor(StoreKind.Rockstar), StringComparer.OrdinalIgnoreCase);
 
         var all = Enum.GetValues<StoreKind>()
             .SelectMany(StoreAudioSilencer.ProcessNamesFor)
@@ -107,6 +113,8 @@ public sealed class HiddenStoreContractTests
         Assert.DoesNotContain(all, name => name.Contains("overlay", StringComparison.OrdinalIgnoreCase));
         Assert.DoesNotContain(all, name => name.Contains("EasyAntiCheat", StringComparison.OrdinalIgnoreCase));
         Assert.DoesNotContain(all, name => name is "vgc" or "vgk");
+        Assert.DoesNotContain(all, name => name.Contains("service", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(all, name => name.Contains("socialclub", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]
@@ -135,6 +143,30 @@ public sealed class HiddenStoreContractTests
     }
 
     [Fact]
+    public void IdleAudioGuardSkipsSessionEnumerationAndUsesLowFrequencyWakeups()
+    {
+        Assert.False(StoreAudioSilencer.ShouldEnumerateSessions(
+            activeProcessNameCount: 0,
+            ownedMuteCount: 0));
+        Assert.True(StoreAudioSilencer.ShouldEnumerateSessions(
+            activeProcessNameCount: 1,
+            ownedMuteCount: 0));
+        Assert.True(StoreAudioSilencer.ShouldEnumerateSessions(
+            activeProcessNameCount: 0,
+            ownedMuteCount: 1));
+
+        var activeChecksPerMinute = (int)(TimeSpan.FromMinutes(1).Ticks /
+            StoreAudioSilencer.ActiveSweepInterval.Ticks);
+        var idleChecksPerMinute = (int)(TimeSpan.FromMinutes(1).Ticks /
+            StoreAudioSilencer.IdleSweepInterval.Ticks);
+
+        Assert.Equal(240, activeChecksPerMinute);
+        Assert.InRange(idleChecksPerMinute, 1, 12);
+        Assert.True(idleChecksPerMinute <= activeChecksPerMinute / 20,
+            $"Idle audio checks regressed to {idleChecksPerMinute}/minute.");
+    }
+
+    [Fact]
     public void GameSessionWindowGuardExcludesInGameOverlays()
     {
         var hider = File.ReadAllText(FindRepoFile(
@@ -150,6 +182,31 @@ public sealed class HiddenStoreContractTests
         Assert.Contains("_windowGuard.StartUntilStopped", runtime, StringComparison.Ordinal);
         Assert.Contains("IsStoreSurfaceSuppressed", runtime, StringComparison.Ordinal);
         Assert.Contains("!IsSuspended(StoreKind.Steam)", runtime, StringComparison.Ordinal);
+        Assert.Contains("StoreWindowHider.XboxClientProcessNames", runtime, StringComparison.Ordinal);
+        Assert.Contains("StoreWindowHider.EaClientProcessNames", runtime, StringComparison.Ordinal);
+        Assert.Contains("StoreWindowHider.UbisoftClientProcessNames", runtime, StringComparison.Ordinal);
+        Assert.Contains("StoreWindowHider.BattleNetClientProcessNames", runtime, StringComparison.Ordinal);
+        Assert.Contains("StoreWindowHider.AmazonClientProcessNames", runtime, StringComparison.Ordinal);
+        Assert.Contains("StoreWindowHider.RockstarClientProcessNames", runtime, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ExplicitOfficialClientOpenNeverRestoresRockstarSupportProcesses()
+    {
+        var bridge = File.ReadAllText(FindRepoFile(
+            Path.Combine("ExoLauncher", "Services", "WebHostBridge.cs")));
+        var openStart = bridge.IndexOf("private object OpenOfficialClient", StringComparison.Ordinal);
+        var openEnd = bridge.IndexOf("private static string[] OfficialClientUiProcessNames", StringComparison.Ordinal);
+        var officialOpen = bridge[openStart..openEnd];
+        var processMap = bridge[openEnd..];
+
+        Assert.True(openStart >= 0 && openEnd > openStart);
+        Assert.Contains("OfficialClientUiProcessNames(kind)", officialOpen, StringComparison.Ordinal);
+        Assert.DoesNotContain("adapter.ClientProcessNames", officialOpen, StringComparison.Ordinal);
+        Assert.Contains("StoreKind.Rockstar => StoreWindowHider.RockstarClientProcessNames", processMap,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("RockstarService", processMap, StringComparison.Ordinal);
+        Assert.DoesNotContain("SocialClubHelper", processMap, StringComparison.Ordinal);
     }
 
     private static string FindRepoFile(string relative)

@@ -8,10 +8,14 @@ Exo Launcher prefers shelling out to mature open tools over re-implementing stor
 | --- | --- | --- | --- |
 | [Legendary](https://github.com/derrod/legendary) | Epic | GPL-3.0 | User-installed CLI on PATH, or drop `legendary.exe` into `%LocalAppData%\ExoLauncher\tools\` or `ExoLauncher/tools/` |
 | [heroic-gogdl](https://github.com/Heroic-Games-Launcher/heroic-gogdl) | GOG | GPL-3.0 | Same: PATH or `tools/gogdl.exe` |
-| [Nile](https://github.com/imLinguin/nile) | Amazon | GPL-3.0 | Optional phase-2; PATH or Amazon Games app fallback |
-| Official clients | Steam, Riot, Xbox, EA, Ubisoft, Battle.net | Proprietary | Detected on disk; started minimized; never redistributed by Exo |
+| Official clients | Steam, Epic Games, GOG Galaxy, Riot, Xbox, EA app, Ubisoft Connect, Battle.net, Amazon Games, Rockstar Games Launcher | Proprietary | Detected from exact executables/registration; never redistributed by Exo |
 
 Exo does **not** vendor GPL binaries into the MIT app binary. Users install backends themselves. Adapters fail honestly when a backend is missing.
+
+Steam, Epic, GOG, and Riot have wired game-library actions. Xbox, EA app,
+Ubisoft Connect, Battle.net, Amazon Games, and Rockstar Games Launcher are
+presence/Open-only integrations in 1.0.24: Exo does not invent their libraries,
+account state, ownership, install state, achievements, or per-game actions.
 
 ## Legendary (Epic)
 

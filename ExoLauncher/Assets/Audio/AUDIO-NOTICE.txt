@@ -1,0 +1,5 @@
+Exo Launcher achievement notification sound
+
+exo-achievement-unlock.wav is an original, procedurally synthesized Exo
+Launcher asset. It contains no third-party samples and requires no external
+attribution.

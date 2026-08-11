@@ -76,6 +76,41 @@ public sealed class GameProcessRegistryTests
     }
 
     [Fact]
+    public void StopForSelectedStoreVariant_CannotReachTheSameTitlesOtherStoreInstall()
+    {
+        var parent = Path.Combine(Path.GetTempPath(), "exo-stop-variant", Guid.NewGuid().ToString("N"));
+        var epicRoot = Path.Combine(parent, "RocketLeague-Epic");
+        var steamRoot = Path.Combine(parent, "RocketLeague-Steam");
+        Directory.CreateDirectory(epicRoot);
+        Directory.CreateDirectory(steamRoot);
+        try
+        {
+            var selectedEpic = new GameEntry
+            {
+                Id = "epic:Sugar",
+                Title = "Rocket League",
+                Store = StoreKind.Epic,
+                Installed = true,
+                Path = epicRoot,
+                LaunchTarget = "Sugar",
+            };
+
+            Assert.True(GameProcessRegistry.IsEligibleExecutableForStop(
+                selectedEpic,
+                "RocketLeague",
+                Path.Combine(epicRoot, "Binaries", "Win64", "RocketLeague.exe")));
+            Assert.False(GameProcessRegistry.IsEligibleExecutableForStop(
+                selectedEpic,
+                "RocketLeague",
+                Path.Combine(steamRoot, "Binaries", "Win64", "RocketLeague.exe")));
+        }
+        finally
+        {
+            try { Directory.Delete(parent, recursive: true); } catch { }
+        }
+    }
+
+    [Fact]
     public void RiotStopAllowsTheGameButNeverThePersistentLeagueClient()
     {
         var root = Path.Combine(Path.GetTempPath(), "exo-stop-riot", Guid.NewGuid().ToString("N"));

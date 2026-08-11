@@ -12,13 +12,19 @@ namespace ExoLauncher.Adapters;
 /// Steam runtime usually remains installed; user should not need to open Steam day-to-day.
 /// Anonymous SteamCMD is NOT used for owned paid games.
 /// </summary>
-public sealed class SteamAdapter : IStoreAdapter, IInstalledSteamManifestSource
+public sealed class SteamAdapter : IStoreAdapter, IInstalledSteamManifestSource, IStoreAccountScope
 {
     private readonly ConcurrentDictionary<string, InstallProgress> _progress = new(StringComparer.OrdinalIgnoreCase);
 
     public StoreKind Store => StoreKind.Steam;
     public string Id => "steam";
     public string DisplayName => "Steam";
+
+    public string? GetActiveAccountScope()
+    {
+        var root = ResolveSteamRoot();
+        return root is null ? null : SteamPlaytime.GetActiveAccountScope(root);
+    }
 
     public bool IsAgentPresent() => ResolveSteamExe() is not null;
 
@@ -38,6 +44,7 @@ public sealed class SteamAdapter : IStoreAdapter, IInstalledSteamManifestSource
         var steamRoot = ResolveSteamRoot();
         if (steamRoot is null)
             return Task.FromResult<IReadOnlyList<GameEntry>>(games);
+        var activeAccount = SteamPlaytime.LoadActiveAccount(steamRoot);
 
         foreach (var lib in CollectLibraryFolders(steamRoot))
         {
@@ -66,7 +73,15 @@ public sealed class SteamAdapter : IStoreAdapter, IInstalledSteamManifestSource
                     // StateFlags is a bitfield — do not compare to the string "4".
                     var stateFlags = SteamProtocol.MatchAcfField(text, "StateFlags");
                     var updateAvailable = SteamStateFlags.IsUpdateAvailable(stateFlags, installed);
-                    var play = SteamPlaytime.TryGet(steamRoot, appId);
+                    var play = activeAccount is not null &&
+                               activeAccount.Entries.TryGetValue(appId, out var accountPlay)
+                        ? accountPlay
+                        : (SteamPlaytime.Entry?)null;
+                    // An appmanifest proves that the title is installed on this
+                    // machine, not that the currently active Steam account owns
+                    // it. A current app ticket is positive account evidence;
+                    // missing tickets remain unknown rather than false.
+                    var ownedByActiveAccount = activeAccount?.AppTicketIds.Contains(appId) == true;
 
                     games.Add(new GameEntry
                     {
@@ -74,7 +89,7 @@ public sealed class SteamAdapter : IStoreAdapter, IInstalledSteamManifestSource
                         Title = name,
                         Store = StoreKind.Steam,
                         Installed = installed,
-                        Owned = true,
+                        Owned = ownedByActiveAccount,
                         CanInstall = true,
                         UpdateAvailable = updateAvailable,
                         Path = path,

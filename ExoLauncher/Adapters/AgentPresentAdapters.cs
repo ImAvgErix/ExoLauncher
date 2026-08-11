@@ -1,282 +1,383 @@
-using System.Collections.Concurrent;
+using Microsoft.Win32;
 using ExoLauncher.Models;
 
 namespace ExoLauncher.Adapters;
 
 /// <summary>
-/// Phase-2 stubs: ensure agent present → start minimized → best-effort protocol.
-/// Compile-ready shapes for Xbox / EA / Ubisoft / Battle.net / Amazon (Nile).
+/// Installed official-store clients that Exo can identify and surface, but does
+/// not yet use as a game-library or game-operation backend. This deliberately
+/// keeps an empty official library empty instead of inventing owned titles,
+/// installs, achievements, or account state.
 /// </summary>
-public abstract class AgentPresentAdapterBase : IStoreAdapter
+public abstract class AgentPresentAdapterBase : IStoreAdapter, IOfficialStoreClient
 {
-    private readonly ConcurrentDictionary<string, InstallProgress> _progress = new(StringComparer.OrdinalIgnoreCase);
-
     public abstract StoreKind Store { get; }
     public abstract string Id { get; }
     public abstract string DisplayName { get; }
-    protected abstract string[] ProcessNames { get; }
-    protected abstract string[] AgentPaths { get; }
-    protected abstract string LaunchNote { get; }
-    protected abstract string[] DefaultDeps { get; }
+    protected abstract OfficialClientDefinition ClientDefinition { get; }
+    public abstract IReadOnlyList<string> ClientProcessNames { get; }
 
-    public bool IsAgentPresent() => AgentPaths.Any(File.Exists);
+    public bool IsAgentPresent() => GetClientLaunchCommand() is not null;
 
-    public virtual Task<AuthResult> AuthenticateAsync(CancellationToken ct = default) =>
+    public bool IsClientPresent() => IsAgentPresent();
+
+    public StoreClientLaunchCommand? GetClientLaunchCommand() =>
+        OfficialClientLocator.Resolve(ClientDefinition);
+
+    public Task<AuthResult> AuthenticateAsync(CancellationToken ct = default) =>
         Task.FromResult(new AuthResult
         {
-            Ok = IsAgentPresent(),
-            RequiresUserAction = true,
+            Ok = false,
+            RequiresUserAction = false,
             Message = IsAgentPresent()
-                ? $"{DisplayName} agent present. Full auth wiring is phase 2."
-                : $"{DisplayName} agent not found.",
+                ? $"{DisplayName} sign-in is handled only in the official client. Select Open to continue there."
+                : $"{DisplayName} is not installed.",
         });
 
-    public virtual Task<IReadOnlyList<GameEntry>> GetLibraryAsync(CancellationToken ct = default) =>
+    public Task<IReadOnlyList<GameEntry>> GetLibraryAsync(CancellationToken ct = default) =>
         Task.FromResult<IReadOnlyList<GameEntry>>(Array.Empty<GameEntry>());
 
-    public virtual Task<InstallResult> InstallAsync(
+    public Task<InstallResult> InstallAsync(
         GameEntry game,
         string? installPath,
         IProgress<InstallProgress>? progress,
-        CancellationToken ct = default)
-    {
-        if (!IsAgentPresent())
-        {
-            return Task.FromResult(new InstallResult
-            {
-                Ok = false,
-                Message = $"{DisplayName} agent not found. Install the official client; Exo does not replace it.",
-            });
-        }
+        CancellationToken ct = default) =>
+        Task.FromResult(UnsupportedOperation("install games"));
 
-        var agent = AgentPaths.First(File.Exists);
-        try
-        {
-            progress?.Report(new InstallProgress
-            {
-                GameId = game.Id,
-                Phase = InstallPhase.Preparing,
-                Percent = 5,
-                Status = $"Opening {DisplayName} minimized (phase-2 install path)…",
-            });
-            ProcessHelper.StartHidden(agent);
-            // Honest: we only opened the agent — not a completed Exo install.
-            return Task.FromResult(new InstallResult
-            {
-                Ok = false,
-                HandoffOnly = true,
-                Message = $"{DisplayName} agent opened minimized. Full install-in-Exo is not wired yet — finish in the official client.",
-            });
-        }
-        catch (Exception ex)
-        {
-            return Task.FromResult(new InstallResult { Ok = false, Message = ex.Message });
-        }
-    }
+    public Task<InstallResult> UpdateAsync(
+        GameEntry game,
+        IProgress<InstallProgress>? progress,
+        CancellationToken ct = default) =>
+        Task.FromResult(UnsupportedOperation("update games"));
 
-    public Task<InstallResult> UpdateAsync(GameEntry game, IProgress<InstallProgress>? progress, CancellationToken ct = default) =>
-        InstallAsync(game, game.Path, progress, ct);
-
-    public virtual Task<LaunchResult> LaunchAsync(GameEntry game, LaunchOptions options, CancellationToken ct = default)
-    {
-        if (!IsAgentPresent())
-        {
-            return Task.FromResult(new LaunchResult
-            {
-                Ok = false,
-                Message = $"{DisplayName} agent not found. Install the official client; Exo does not replace it.",
-            });
-        }
-
-        var agent = AgentPaths.First(File.Exists);
-        try
-        {
-            var p = ProcessHelper.StartHidden(agent);
-            return Task.FromResult(new LaunchResult
-            {
-                // Handoff-only: agent opened; title-specific launch is phase 2.
-                Ok = false,
-                HandoffOnly = true,
-                Message = p is not null
-                    ? $"{DisplayName} agent opened. Full title launch from Exo is not wired yet."
-                    : "Agent did not start.",
-                ProcessId = p?.Id,
-                BackendStarted = Id,
-            });
-        }
-        catch (Exception ex)
-        {
-            return Task.FromResult(new LaunchResult { Ok = false, Message = ex.Message });
-        }
-    }
-
-    public Task<InstallResult> UninstallAsync(GameEntry game, CancellationToken ct = default) =>
-        Task.FromResult(new InstallResult
+    public Task<LaunchResult> LaunchAsync(GameEntry game, LaunchOptions options, CancellationToken ct = default) =>
+        Task.FromResult(new LaunchResult
         {
             Ok = false,
-            Message = $"{DisplayName} uninstall is phase 2 — use the official client for now.",
+            Message = $"Exo can open {DisplayName}, but cannot launch individual {DisplayName} games yet.",
         });
 
-    public InstallProgress GetDownloadProgress(string gameId) =>
-        _progress.TryGetValue(gameId, out var p) ? p : new InstallProgress { GameId = gameId, Phase = InstallPhase.Idle };
+    public Task<InstallResult> UninstallAsync(GameEntry game, CancellationToken ct = default) =>
+        Task.FromResult(UnsupportedOperation("uninstall games"));
 
-    public Task CleanupAfterExitAsync(GameEntry game, LaunchOptions options, CancellationToken ct = default)
+    public InstallProgress GetDownloadProgress(string gameId) =>
+        new() { GameId = gameId, Phase = InstallPhase.Idle };
+
+    public Task CleanupAfterExitAsync(GameEntry game, LaunchOptions options, CancellationToken ct = default) =>
+        Task.CompletedTask;
+
+    private InstallResult UnsupportedOperation(string operation) => new()
     {
-        if (options.CloseStoreUiAfterExit)
-            StoreWindowHider.CollapseOrphanSurfaces(ProcessNames);
-        return Task.CompletedTask;
-    }
+        Ok = false,
+        Message = $"Exo can open {DisplayName}, but cannot {operation} through it yet.",
+    };
 }
 
 public sealed class XboxAdapter : AgentPresentAdapterBase
 {
+    private static readonly OfficialClientDefinition Definition = new(
+        ExecutableNames: ["XboxPcApp.exe"],
+        DefaultPaths:
+        [
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "Microsoft", "WindowsApps", "XboxPcApp.exe"),
+        ],
+        UninstallDisplayNames: ["Xbox"],
+        AppxPackagePrefix: "Microsoft.GamingApp_",
+        AppxApplicationUserModelId: "Microsoft.GamingApp_8wekyb3d8bbwe!Microsoft.XboxPcApp");
+
     public override StoreKind Store => StoreKind.Xbox;
     public override string Id => "xbox";
-    public override string DisplayName => "Xbox";
-    protected override string[] ProcessNames => ["GamingServices", "GameBar", "XboxPcAppFT"];
-    protected override string[] AgentPaths =>
-    [
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "Microsoft", "WindowsApps", "XboxPcApp.exe"),
-    ];
-    protected override string LaunchNote =>
-        "Xbox / Microsoft Store titles need Gaming Services. Exo is the UI; the agent stays installed.";
-    protected override string[] DefaultDeps => ["Gaming Services", "Xbox app (optional)"];
+    public override string DisplayName => "Xbox app";
+    protected override OfficialClientDefinition ClientDefinition => Definition;
+    public override IReadOnlyList<string> ClientProcessNames => ["XboxPcApp", "GamingApp"];
 }
 
 public sealed class EaAdapter : AgentPresentAdapterBase
 {
+    private static readonly OfficialClientDefinition Definition = new(
+        ExecutableNames: ["EADesktop.exe"],
+        DefaultPaths:
+        [
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+                "Electronic Arts", "EA Desktop", "EA Desktop", "EADesktop.exe"),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
+                "Electronic Arts", "EA Desktop", "EA Desktop", "EADesktop.exe"),
+        ],
+        UninstallDisplayNames: ["EA app", "EA Desktop"]);
+
     public override StoreKind Store => StoreKind.Ea;
     public override string Id => "ea";
-    public override string DisplayName => "EA";
-    protected override string[] ProcessNames => ["EADesktop", "EABackgroundService"];
-    protected override string[] AgentPaths =>
-    [
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
-            "Electronic Arts", "EA Desktop", "EA Desktop", "EADesktop.exe"),
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
-            "Electronic Arts", "EA Desktop", "EA Desktop", "EADesktop.exe"),
-    ];
-    protected override string LaunchNote =>
-        "EA Desktop remains the backend. Anti-cheat (EAC) may also be required.";
-    protected override string[] DefaultDeps => ["EA Desktop"];
+    public override string DisplayName => "EA app";
+    protected override OfficialClientDefinition ClientDefinition => Definition;
+    public override IReadOnlyList<string> ClientProcessNames => ["EADesktop"];
 }
 
 public sealed class UbisoftAdapter : AgentPresentAdapterBase
 {
+    private static readonly OfficialClientDefinition Definition = new(
+        ExecutableNames: ["UbisoftConnect.exe", "upc.exe"],
+        DefaultPaths:
+        [
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
+                "Ubisoft", "Ubisoft Game Launcher", "UbisoftConnect.exe"),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
+                "Ubisoft", "Ubisoft Game Launcher", "upc.exe"),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+                "Ubisoft", "Ubisoft Game Launcher", "UbisoftConnect.exe"),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+                "Ubisoft", "Ubisoft Game Launcher", "upc.exe"),
+        ],
+        UninstallDisplayNames: ["Ubisoft Connect", "Ubisoft Game Launcher"]);
+
     public override StoreKind Store => StoreKind.Ubisoft;
     public override string Id => "ubisoft";
-    public override string DisplayName => "Ubisoft";
-    protected override string[] ProcessNames => ["upc", "UplayWebCore", "UbisoftGameLauncher"];
-    protected override string[] AgentPaths =>
-    [
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
-            "Ubisoft", "Ubisoft Game Launcher", "upc.exe"),
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
-            "Ubisoft", "Ubisoft Game Launcher", "upc.exe"),
-    ];
-    protected override string LaunchNote =>
-        "Ubisoft Connect stays as the ownership/DRM backend. Exo does not replace upc.exe.";
-    protected override string[] DefaultDeps => ["Ubisoft Connect"];
+    public override string DisplayName => "Ubisoft Connect";
+    protected override OfficialClientDefinition ClientDefinition => Definition;
+    public override IReadOnlyList<string> ClientProcessNames => ["UbisoftConnect", "upc", "UplayWebCore"];
 }
 
 public sealed class BattleNetAdapter : AgentPresentAdapterBase
 {
+    private static readonly OfficialClientDefinition Definition = new(
+        ExecutableNames: ["Battle.net.exe"],
+        DefaultPaths:
+        [
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
+                "Battle.net", "Battle.net.exe"),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+                "Battle.net", "Battle.net.exe"),
+        ],
+        UninstallDisplayNames: ["Battle.net"]);
+
     public override StoreKind Store => StoreKind.BattleNet;
     public override string Id => "battlenet";
     public override string DisplayName => "Battle.net";
-    protected override string[] ProcessNames => ["Battle.net", "Agent"];
-    protected override string[] AgentPaths =>
-    [
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
-            "Battle.net", "Battle.net.exe"),
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
-            "Battle.net", "Battle.net.exe"),
-    ];
-    protected override string LaunchNote =>
-        "Battle.net agent required for Blizzard titles. Exo never bypasses Battle.net DRM.";
-    protected override string[] DefaultDeps => ["Battle.net"];
+    protected override OfficialClientDefinition ClientDefinition => Definition;
+    public override IReadOnlyList<string> ClientProcessNames => ["Battle.net"];
 }
 
-/// <summary>Amazon Games via Nile when present — optional first-class if low cost.</summary>
 public sealed class AmazonAdapter : AgentPresentAdapterBase
 {
+    private static readonly OfficialClientDefinition Definition = new(
+        ExecutableNames: ["Amazon Games.exe", "AmazonGames.exe"],
+        DefaultPaths:
+        [
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "Amazon Games", "App", "Amazon Games.exe"),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+                "Amazon Games", "Amazon Games.exe"),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
+                "Amazon Games", "Amazon Games.exe"),
+        ],
+        UninstallDisplayNames: ["Amazon Games", "Amazon Games App"]);
+
     public override StoreKind Store => StoreKind.Amazon;
     public override string Id => "amazon";
-    public override string DisplayName => "Amazon";
-    protected override string[] ProcessNames => ["Amazon Games", "AmazonGamesUI"];
-    protected override string[] AgentPaths
-    {
-        get
-        {
-            var nile = ResolveNile();
-            var list = new List<string>();
-            if (nile is not null) list.Add(nile);
-            list.Add(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "Amazon Games", "App", "Amazon Games.exe"));
-            return list.ToArray();
-        }
-    }
-    protected override string LaunchNote =>
-        "Prefer Nile (https://github.com/imLinguin/nile) when present. Amazon Games app is the fallback agent.";
-    protected override string[] DefaultDeps => ["Nile (preferred)", "Amazon Games"];
+    public override string DisplayName => "Amazon Games";
+    protected override OfficialClientDefinition ClientDefinition => Definition;
+    public override IReadOnlyList<string> ClientProcessNames => ["Amazon Games", "AmazonGames", "AmazonGamesUI"];
+}
 
-    public override async Task<AuthResult> AuthenticateAsync(CancellationToken ct = default)
+public sealed class RockstarAdapter : AgentPresentAdapterBase
+{
+    private static readonly OfficialClientDefinition Definition = new(
+        ExecutableNames: ["Launcher.exe"],
+        DefaultPaths:
+        [
+            // Rockstar documents this as the launcher's default location.
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+                "Rockstar Games", "Launcher", "Launcher.exe"),
+        ],
+        UninstallDisplayNames: ["Rockstar Games Launcher"]);
+
+    public override StoreKind Store => StoreKind.Rockstar;
+    public override string Id => "rockstar";
+    public override string DisplayName => "Rockstar Games Launcher";
+    protected override OfficialClientDefinition ClientDefinition => Definition;
+    public override IReadOnlyList<string> ClientProcessNames =>
+        ["Launcher", "LauncherPatcher", "RockstarService", "SocialClubHelper"];
+}
+
+/// <summary>Known official-client evidence. Every positive file result must match one of <see cref="ExecutableNames"/>.</summary>
+public sealed record OfficialClientDefinition(
+    IReadOnlyList<string> ExecutableNames,
+    IReadOnlyList<string> DefaultPaths,
+    IReadOnlyList<string> UninstallDisplayNames,
+    string? AppxPackagePrefix = null,
+    string? AppxApplicationUserModelId = null);
+
+/// <summary>Safe command to open a verified official client. AppX commands are opened via Explorer's AppsFolder verb.</summary>
+public sealed record StoreClientLaunchCommand(string FileName, string Arguments = "", bool IsAppx = false);
+
+/// <summary>
+/// Resolves only an existing, named official executable from known install paths,
+/// App Paths, or matching uninstall records. Xbox may instead use a registered
+/// Gaming App package's documented AppsFolder activation target.
+/// </summary>
+public static class OfficialClientLocator
+{
+    private static readonly string[] UninstallKeyPaths =
+    [
+        @"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall",
+        @"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall",
+    ];
+
+    private static readonly string[] AppPathKeyRoots =
+    [
+        @"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\",
+        @"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\App Paths\",
+    ];
+
+    public static StoreClientLaunchCommand? Resolve(OfficialClientDefinition definition)
     {
-        var nile = ResolveNile() ?? await EnsureNileAsync(ct).ConfigureAwait(false);
-        if (nile is not null)
+        var appPaths = ReadAppPathValues(definition.ExecutableNames);
+        var uninstallEntries = ReadUninstallEntries();
+        var packages = ReadAppxPackageNames();
+        return ResolveFromEvidence(definition, File.Exists, appPaths, uninstallEntries, packages);
+    }
+
+    /// <summary>Pure resolution seam used by tests; no registry or machine state is required.</summary>
+    public static StoreClientLaunchCommand? ResolveFromEvidence(
+        OfficialClientDefinition definition,
+        Func<string, bool> fileExists,
+        IEnumerable<string?> appPathValues,
+        IEnumerable<OfficialClientUninstallEntry> uninstallEntries,
+        IEnumerable<string> appxPackageNames)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+        ArgumentNullException.ThrowIfNull(fileExists);
+
+        foreach (var path in definition.DefaultPaths)
         {
-            ProcessHelper.StartAuthConsole(nile, "auth");
-            return new AuthResult
+            var command = ToVerifiedExecutable(definition, path, fileExists);
+            if (command is not null) return command;
+        }
+
+        foreach (var value in appPathValues)
+        {
+            var command = ToVerifiedExecutable(definition, ExtractExecutablePath(value), fileExists);
+            if (command is not null) return command;
+        }
+
+        foreach (var entry in uninstallEntries)
+        {
+            if (!definition.UninstallDisplayNames.Any(name =>
+                    string.Equals(name, entry.DisplayName, StringComparison.OrdinalIgnoreCase)))
+                continue;
+
+            foreach (var executable in definition.ExecutableNames)
             {
-                Ok = true,
-                RequiresUserAction = true,
-                Message = "Nile sign-in opened. Complete login in the console, then Refresh.",
-            };
+                var fromInstallLocation = string.IsNullOrWhiteSpace(entry.InstallLocation)
+                    ? null
+                    : Path.Combine(entry.InstallLocation, executable);
+                var command = ToVerifiedExecutable(definition, fromInstallLocation, fileExists)
+                    ?? ToVerifiedExecutable(definition, ExtractExecutablePath(entry.DisplayIcon), fileExists);
+                if (command is not null) return command;
+            }
         }
-        return await base.AuthenticateAsync(ct).ConfigureAwait(false);
+
+        if (!string.IsNullOrWhiteSpace(definition.AppxPackagePrefix) &&
+            !string.IsNullOrWhiteSpace(definition.AppxApplicationUserModelId) &&
+            appxPackageNames.Any(package => package.StartsWith(
+                definition.AppxPackagePrefix, StringComparison.OrdinalIgnoreCase)))
+        {
+            return new StoreClientLaunchCommand(
+                "explorer.exe",
+                $"shell:AppsFolder\\{definition.AppxApplicationUserModelId}",
+                IsAppx: true);
+        }
+
+        return null;
     }
 
-    private static string? ResolveNile()
+    private static StoreClientLaunchCommand? ToVerifiedExecutable(
+        OfficialClientDefinition definition,
+        string? path,
+        Func<string, bool> fileExists)
     {
-        var tools = Path.Combine(Helpers.PathHelper.AppDataDir, "tools", "nile.exe");
-        if (File.Exists(tools)) return tools;
-        return Cli.CliRunner.ResolveOnPath("nile.exe") ?? Cli.CliRunner.ResolveOnPath("nile");
+        if (string.IsNullOrWhiteSpace(path) || !fileExists(path)) return null;
+        var name = Path.GetFileName(path);
+        return definition.ExecutableNames.Any(expected =>
+            string.Equals(expected, name, StringComparison.OrdinalIgnoreCase))
+            ? new StoreClientLaunchCommand(path)
+            : null;
     }
 
-    /// <summary>Download Nile windows binary into Exo tools when missing (user consented via Connect).</summary>
-    private static async Task<string?> EnsureNileAsync(CancellationToken ct)
+    private static IEnumerable<string?> ReadAppPathValues(IEnumerable<string> executableNames)
+    {
+        var values = new List<string?>();
+        foreach (var root in new[] { Registry.CurrentUser, Registry.LocalMachine })
+        foreach (var appPathRoot in AppPathKeyRoots)
+        foreach (var executable in executableNames)
+        {
+            try
+            {
+                using var key = root.OpenSubKey(appPathRoot + executable);
+                values.Add(key?.GetValue(null) as string);
+            }
+            catch { values.Add(null); }
+        }
+        return values;
+    }
+
+    private static IEnumerable<OfficialClientUninstallEntry> ReadUninstallEntries()
+    {
+        var entries = new List<OfficialClientUninstallEntry>();
+        foreach (var root in new[] { Registry.CurrentUser, Registry.LocalMachine })
+        foreach (var keyPath in UninstallKeyPaths)
+        {
+            RegistryKey? uninstall = null;
+            try { uninstall = root.OpenSubKey(keyPath); }
+            catch { /* unavailable registry view */ }
+            if (uninstall is null) continue;
+            using (uninstall)
+            {
+                foreach (var name in uninstall.GetSubKeyNames())
+                {
+                    try
+                    {
+                        using var entry = uninstall.OpenSubKey(name);
+                        var displayName = entry?.GetValue("DisplayName") as string;
+                        if (string.IsNullOrWhiteSpace(displayName)) continue;
+                        entries.Add(new OfficialClientUninstallEntry(
+                            displayName,
+                            entry?.GetValue("InstallLocation") as string,
+                            entry?.GetValue("DisplayIcon") as string));
+                    }
+                    catch { /* ignore one malformed uninstall entry */ }
+                }
+            }
+        }
+        return entries;
+    }
+
+    private static IEnumerable<string> ReadAppxPackageNames()
     {
         try
         {
-            var tools = Path.Combine(Helpers.PathHelper.AppDataDir, "tools");
-            Directory.CreateDirectory(tools);
-            var dest = Path.Combine(tools, "nile.exe");
-            if (File.Exists(dest) && new FileInfo(dest).Length > 1_000_000) return dest;
+            using var packages = Registry.CurrentUser.OpenSubKey(@"Software\Classes\ActivatableClasses\Package");
+            return packages?.GetSubKeyNames() ?? Array.Empty<string>();
+        }
+        catch { return Array.Empty<string>(); }
+    }
 
-            // Latest release asset name can shift; prefer the documented windows x64 build.
-            var url = "https://github.com/imLinguin/nile/releases/latest/download/nile_windows_x86_64.exe";
-            using var http = new HttpClient { Timeout = TimeSpan.FromMinutes(3) };
-            http.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "ExoLauncher/1.0");
-            var tmp = Path.Combine(tools, "nile-dl.tmp");
-            await using (var fs = File.Create(tmp))
-            {
-                using var stream = await http.GetStreamAsync(url, ct).ConfigureAwait(false);
-                await stream.CopyToAsync(fs, ct).ConfigureAwait(false);
-            }
-            if (new FileInfo(tmp).Length < 1_000_000)
-            {
-                try { File.Delete(tmp); } catch { /* */ }
-                return null;
-            }
-            File.Copy(tmp, dest, overwrite: true);
-            try { File.Delete(tmp); } catch { /* */ }
-            return File.Exists(dest) ? dest : null;
-        }
-        catch (Exception ex)
+    private static string? ExtractExecutablePath(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return null;
+        var trimmed = value.Trim();
+        if (trimmed.StartsWith('"'))
         {
-            Helpers.AppLog.Warn("EnsureNile failed: " + ex.Message);
-            return null;
+            var closingQuote = trimmed.IndexOf('"', 1);
+            return closingQuote > 1 ? trimmed[1..closingQuote] : null;
         }
+
+        var exeEnd = trimmed.IndexOf(".exe", StringComparison.OrdinalIgnoreCase);
+        return exeEnd < 0 ? trimmed : trimmed[..(exeEnd + 4)];
     }
 }
+
+public sealed record OfficialClientUninstallEntry(
+    string DisplayName,
+    string? InstallLocation,
+    string? DisplayIcon);

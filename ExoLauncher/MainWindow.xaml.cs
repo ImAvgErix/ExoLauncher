@@ -222,7 +222,15 @@ public sealed partial class MainWindow : Window
                     }
                 }
 
-                await WebHost.EnsureCoreWebView2Async();
+                // Keep WebView state outside the replaceable application tree.
+                // Otherwise a short-lived Edge child can hold the previous
+                // version's app folder open during an atomic installer swap.
+                var webViewUserData = Path.Combine(PathHelper.AppDataDir, "webview");
+                var webViewEnvironment = await CoreWebView2Environment.CreateWithOptionsAsync(
+                    browserExecutableFolder: null,
+                    userDataFolder: webViewUserData,
+                    options: new CoreWebView2EnvironmentOptions());
+                await WebHost.EnsureCoreWebView2Async(webViewEnvironment);
                 LogStartupMilestone("webview-core-ready");
             }
             catch

@@ -79,10 +79,9 @@ internal static class TrophySoundPlayer
 
     private static bool IsExpectedWave(byte[] bytes)
     {
-        const int sampleRate = 44_100;
         const short bitsPerSample = 16;
         const int minimumDurationMilliseconds = 250;
-        const int maximumDurationMilliseconds = 1_000;
+        const int maximumDurationMilliseconds = 1_250;
 
         if (bytes.Length < 44
             || Encoding.ASCII.GetString(bytes, 0, 4) != "RIFF"
@@ -91,6 +90,7 @@ internal static class TrophySoundPlayer
             return false;
 
         short channels = 0;
+        var sampleRate = 0;
         var formatIsValid = false;
         var dataLength = 0;
         for (var offset = 12; offset <= bytes.Length - 8;)
@@ -104,10 +104,11 @@ internal static class TrophySoundPlayer
             if (chunkId == "fmt " && chunkLength >= 16)
             {
                 channels = BitConverter.ToInt16(bytes, chunkData + 2);
+                sampleRate = BitConverter.ToInt32(bytes, chunkData + 4);
                 var blockAlign = BitConverter.ToInt16(bytes, chunkData + 12);
                 formatIsValid = BitConverter.ToInt16(bytes, chunkData) == 1
                     && channels is 1 or 2
-                    && BitConverter.ToInt32(bytes, chunkData + 4) == sampleRate
+                    && sampleRate is 44_100 or 48_000
                     && BitConverter.ToInt32(bytes, chunkData + 8) == sampleRate * channels * (bitsPerSample / 8)
                     && blockAlign == channels * (bitsPerSample / 8)
                     && BitConverter.ToInt16(bytes, chunkData + 14) == bitsPerSample;

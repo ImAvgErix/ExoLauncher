@@ -7,7 +7,7 @@
 <p align="center"><strong>Your PC games. One calm home.</strong></p>
 
 <p align="center">
-  A focused AMOLED launcher for Steam, Epic Games, GOG, Riot, and portable Windows games.
+  A focused AMOLED home for Steam, Epic Games, GOG, Riot, and portable Windows games.
 </p>
 
 <p align="center">
@@ -40,19 +40,17 @@ There is no Exo account, profile, cloud sync, ad platform, or analytics layer. I
 - **Portable games welcome** — add a local game folder without handing ownership of the original files to Exo.
 - **Built-in updates** — Exo can check GitHub Releases, verify the published installer digest, and perform an atomic per-user update.
 
-## What is new in 1.0.23
+## What is new in 1.0.24
 
-Version 1.0.23 is the largest Launcher checkpoint since the first public build:
+Version 1.0.24 turns the last large feature pass into a safer everyday launcher:
 
-- Added **Stop** for running games with executable, install-root, process-instance, launcher, overlay, and anti-cheat safeguards.
-- Reworked Steam updates so the selected app—not an unrelated queued title—is the only eligible target.
-- Added fuzzy title search, including misspellings and sequel-number mistakes.
-- Moved playtime into game details, removed redundant status copy, and made update badges easier to see over bright cover art.
-- Removed Launcher profiles, Exo sign-in, profile syncing, and their backend/persistence paths; social identity remains an Exo Link concern.
-- Added durable, account-scoped achievement delivery so a confirmed unlock can survive an Exo restart without replaying another account's event.
-- Added validated caching for real Steam and Epic achievement images plus Bronze, Silver, Gold, and Platinum presentation.
-- Separated official-client presence from optional Legendary/gogdl availability, so an absent Epic or GOG client is no longer presented as installed merely because a headless backend exists.
-- Reduced startup work by deferring cover networking, taking Epic remote playtime off the first-paint path, and avoiding unchanged derived-state refreshes.
+- **Exact store actions** — Steam install and update requests reach the selected app ID without being intercepted by generic runtime setup; Epic cold launches wait for the official client's command listener before handing off the exact game URI.
+- **Multi-store games without double cards** — exact same-title Steam/Epic entries share one card while every source keeps its own install, update, playtime, account scope, and action target.
+- **Account-safe discovery** — active Steam/Epic account caches are isolated; a machine-wide install can remain visible when account identity is unknown without being presented as owned.
+- **Session-true achievement moments** — Exo snapshots progress before handoff and only attributes a new unlock after a successful Exo-driven game session. Manual refreshes reconcile silently.
+- **A new Exo reward cue** — an original 1.18-second futuristic stereo sound replaces the generic sample, paired with a unified AMOLED trophy plate, real provider artwork, rarity color, directional motion, and exact nine-point placement.
+- **Broader official-client awareness** — Settings honestly detects and opens Xbox, EA app, Ubisoft Connect, Battle.net, Amazon Games, and Rockstar Games Launcher without inventing libraries, accounts, or unsupported game actions.
+- **Cleaner, faster surfaces** — compact no-waste Settings, high-resolution cover upgrades, restored card lift, constrained pinned-game overflow, pure-black surfaces, and zero idle Core Audio enumeration when Exo is not driving a store.
 
 Read the complete [changelog](CHANGELOG.md).
 
@@ -60,7 +58,8 @@ Read the complete [changelog](CHANGELOG.md).
 
 Exo is a launcher—not a DRM, ownership, or anti-cheat bypass.
 
-- Steam, Epic Games, GOG, and Riot are the official store/client families wired into this release; portable games launch directly.
+- Steam, Epic Games, GOG, and Riot provide Exo's wired game-library actions; portable games launch directly.
+- Xbox, EA app, Ubisoft Connect, Battle.net, Amazon Games, and Rockstar Games Launcher are honest presence/Open integrations in this release. Exo does not claim unsupported libraries, account connections, installs, or launches for them.
 - Store clients and required services may still be needed for authentication, licensing, patching, multiplayer, or anti-cheat.
 - Optional helpers such as Legendary and gogdl are used only for supported actions that need them. See the [vendor/backend notes](docs/VENDORS.md).
 - Achievement reading and Exo achievement notifications currently cover **Steam and Epic** data. Unsupported providers are not reported as if they had zero achievements.

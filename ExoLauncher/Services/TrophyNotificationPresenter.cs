@@ -34,6 +34,7 @@ internal sealed class TrophyNotificationPresenter : IDisposable
     private const int NotificationWidth = 432;
     private const int NotificationHeight = 122;
     private static readonly TimeSpan NotificationDuration = TimeSpan.FromMilliseconds(3500);
+    private static readonly Color TrophySurface = Color.FromArgb(255, 0, 0, 0);
 
     private readonly Queue<(TrophyNotificationPayload Payload, TrophyNotificationOptions Options, Action? OnPresented)> _queue = new();
     private readonly DispatcherQueue _dispatcher;
@@ -66,13 +67,14 @@ internal sealed class TrophyNotificationPresenter : IDisposable
         {
             var window = new Window { Title = "Achievement notification" };
             var card = BuildCard(payload);
-            window.Content = new Grid
+            window.Content = new Border
             {
-                // The backing surface matches the card exactly. Together with
-                // the DWM outer corner preference this prevents square black
-                // corners flashing behind the rounded toast silhouette.
-                Background = new SolidColorBrush(Color.FromArgb(255, 11, 12, 15)),
-                Children = { card },
+                // The backing surface, card, and DWM corner treatment share
+                // one 12px silhouette. This avoids a darker square appearing
+                // around the inner plate during entry/exit frames.
+                Background = new SolidColorBrush(TrophySurface),
+                CornerRadius = new CornerRadius(12),
+                Child = card,
             };
 
             var hwnd = WindowNative.GetWindowHandle(window);
@@ -211,7 +213,7 @@ internal sealed class TrophyNotificationPresenter : IDisposable
 
         return new Border
         {
-            Background = new SolidColorBrush(Color.FromArgb(255, 11, 12, 15)),
+            Background = new SolidColorBrush(TrophySurface),
             BorderBrush = visual.OutlineBrush,
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(12),
@@ -232,7 +234,10 @@ internal sealed class TrophyNotificationPresenter : IDisposable
             {
                 var image = new Image
                 {
-                    Source = new BitmapImage(uri) { DecodePixelWidth = 88 },
+                    // Icons are rendered at 64 DIPs. Decode above that target
+                    // so native achievement art stays crisp on high-DPI panels
+                    // without claiming to invent detail from a poor source.
+                    Source = new BitmapImage(uri) { DecodePixelWidth = 128 },
                     Stretch = Stretch.UniformToFill,
                     Opacity = 0,
                 };

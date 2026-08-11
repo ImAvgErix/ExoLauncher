@@ -200,6 +200,7 @@ export function storeLabel(store: string): string {
     ubisoft: 'Ubisoft',
     battlenet: 'Battle.net',
     amazon: 'Amazon',
+    rockstar: 'Rockstar',
   }
   return map[store.toLowerCase()] ?? store
 }

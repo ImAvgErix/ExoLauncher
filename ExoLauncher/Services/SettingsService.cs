@@ -388,6 +388,30 @@ public sealed class SettingsService
             throw new InvalidOperationException(err ?? "Could not save favorites.");
     }
 
+    public void SetFavoriteState(IEnumerable<string> gameIds, bool isFavorite)
+    {
+        ArgumentNullException.ThrowIfNull(gameIds);
+        var ids = gameIds
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        if (ids.Length == 0) return;
+
+        lock (_stateGate)
+        {
+            foreach (var id in ids)
+                _current.Favorites.RemoveAll(existing =>
+                    string.Equals(existing, id, StringComparison.OrdinalIgnoreCase));
+            if (isFavorite)
+                _current.Favorites.InsertRange(0, ids);
+            if (_current.Favorites.Count > 200)
+                _current.Favorites.RemoveRange(200, _current.Favorites.Count - 200);
+            _revision++;
+        }
+        if (!TryPersistLatest(out var err))
+            throw new InvalidOperationException(err ?? "Could not save favorites.");
+    }
+
     public void RecordLaunch(string gameId)
     {
         if (string.IsNullOrWhiteSpace(gameId)) return;

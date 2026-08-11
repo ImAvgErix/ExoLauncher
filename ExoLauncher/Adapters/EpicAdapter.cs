@@ -13,7 +13,7 @@ namespace ExoLauncher.Adapters;
 /// Epic via Legendary CLI — true no-Epic-GUI path when Legendary is present.
 /// https://github.com/derrod/legendary
 /// </summary>
-public sealed class EpicAdapter : IStoreAdapter, IStoreClientPresence
+public sealed class EpicAdapter : IStoreAdapter, IStoreClientPresence, IStoreAccountScope
 {
     private readonly ConcurrentDictionary<string, InstallProgress> _progress = new(StringComparer.OrdinalIgnoreCase);
     private static readonly TimeSpan LegendaryAuthTimeout = TimeSpan.FromMinutes(10);
@@ -29,6 +29,8 @@ public sealed class EpicAdapter : IStoreAdapter, IStoreClientPresence
     public StoreKind Store => StoreKind.Epic;
     public string Id => "epic";
     public string DisplayName => "Epic";
+
+    public string? GetActiveAccountScope() => EpicPlaytime.GetActiveAccountScope();
 
     // Legendary is an intentionally headless backend. Do not let it make
     // Settings claim that the separately installed Epic Games Launcher exists.
@@ -268,7 +270,7 @@ public sealed class EpicAdapter : IStoreAdapter, IStoreClientPresence
             Array.Empty<LegendaryCli.GameRow>(),
             installed);
         var hasLegendary = legendary is not null;
-        var games = merged.Select(row => MapRow(row, hasLegendary)).ToList();
+        var games = merged.Select(row => MapInstalledRow(row, hasLegendary)).ToList();
 
         // EGL manifests + LauncherInstalled.dat win when Legendary still says not installed.
         var egl = ReadEpicManifests(hasLegendary).Concat(ReadLauncherInstalled(games)).ToList();
@@ -314,7 +316,7 @@ public sealed class EpicAdapter : IStoreAdapter, IStoreClientPresence
         catch { /* best-effort */ }
     }
 
-    private static GameEntry MapRow(LegendaryCli.GameRow row, bool hasLegendary)
+    internal static GameEntry MapInstalledRow(LegendaryCli.GameRow row, bool hasLegendary)
     {
         return new GameEntry
         {
@@ -322,7 +324,9 @@ public sealed class EpicAdapter : IStoreAdapter, IStoreClientPresence
             Title = row.Title,
             Store = StoreKind.Epic,
             Installed = row.Installed,
-            Owned = true,
+            // `legendary list-installed` is machine-local install evidence. It
+            // does not prove that the active Epic account owns this title.
+            Owned = false,
             CanInstall = !row.Installed && hasLegendary,
             Path = row.InstallPath,
             LaunchTarget = row.AppName,
@@ -651,6 +655,14 @@ public sealed class EpicAdapter : IStoreAdapter, IStoreClientPresence
                 {
                     ct.ThrowIfCancellationRequested();
                     ProcessHelper.StartHidden(epic, "-silent");
+                    // A protocol request issued while a cold client is still
+                    // constructing its command listener can be accepted by
+                    // Windows yet silently discarded by Epic. Wait for the
+                    // launcher handoff surface before submitting this exact
+                    // title's URI. This is intentionally bounded; the normal
+                    // URI retry path below still owns a slow or unhealthy
+                    // client.
+                    await WaitForEpicCommandListenerAsync(ct).ConfigureAwait(false);
                 }
                 StoreWindowHider.HideOnce(StoreWindowHider.EpicProcessNames);
 
@@ -766,6 +778,55 @@ public sealed class EpicAdapter : IStoreAdapter, IStoreClientPresence
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Gives a cold Epic client a short, bounded chance to create the command
+    /// listener which receives <c>com.epicgames.launcher://</c> launch URIs.
+    /// A launcher process alone is not enough on a cold start: it can exist
+    /// before its web helper is ready to dispatch title-specific requests.
+    /// </summary>
+    private static Task<bool> WaitForEpicCommandListenerAsync(CancellationToken ct) =>
+        WaitForEpicCommandListenerAsync(
+            () => ProcessHelper.IsProcessRunning("EpicGamesLauncher"),
+            () => ProcessHelper.IsProcessRunning("EpicWebHelper"),
+            static (delay, token) => Task.Delay(delay, token),
+            ct);
+
+    internal static async Task<bool> WaitForEpicCommandListenerAsync(
+        Func<bool> launcherRunning,
+        Func<bool> webHelperRunning,
+        Func<TimeSpan, CancellationToken, Task> delayAsync,
+        CancellationToken ct,
+        int maxPolls = 20)
+    {
+        ArgumentNullException.ThrowIfNull(launcherRunning);
+        ArgumentNullException.ThrowIfNull(webHelperRunning);
+        ArgumentNullException.ThrowIfNull(delayAsync);
+        if (maxPolls <= 0) throw new ArgumentOutOfRangeException(nameof(maxPolls));
+
+        var launcherSeen = false;
+        for (var attempt = 0; attempt < maxPolls; attempt++)
+        {
+            ct.ThrowIfCancellationRequested();
+            var launcherReady = launcherRunning();
+            var helperReady = webHelperRunning();
+
+            // Some healthy Epic builds do not keep a separately observable
+            // web helper. Once the launcher has survived one probe, accept it
+            // as the bounded fallback instead of holding the user's launch for
+            // the full timeout. A helper, when present, is the stronger signal.
+            if (launcherReady && (helperReady || launcherSeen))
+            {
+                await delayAsync(TimeSpan.FromMilliseconds(750), ct).ConfigureAwait(false);
+                return true;
+            }
+
+            launcherSeen |= launcherReady;
+            await delayAsync(TimeSpan.FromMilliseconds(350), ct).ConfigureAwait(false);
+        }
+
+        return false;
     }
 
     private sealed record EpicManifestMeta(
@@ -954,7 +1015,9 @@ public sealed class EpicAdapter : IStoreAdapter, IStoreClientPresence
                     Title = title,
                     Store = StoreKind.Epic,
                     Installed = installed,
-                    Owned = true,
+                    // EGL manifests are machine-install evidence, not proof
+                    // that the currently active Epic account owns the title.
+                    Owned = false,
                     CanInstall = !installed && hasLegendary,
                     Path = install,
                     LaunchTarget = appName,
@@ -1023,7 +1086,10 @@ public sealed class EpicAdapter : IStoreAdapter, IStoreClientPresence
                         Title = title,
                         Store = StoreKind.Epic,
                         Installed = true,
-                        Owned = true,
+                        // LauncherInstalled.dat is shared machine state. Keep
+                        // the playable install without leaking another user's
+                        // entitlement into the active account.
+                        Owned = false,
                         CanInstall = false,
                         Path = install,
                         LaunchTarget = appName,

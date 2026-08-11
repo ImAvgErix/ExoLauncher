@@ -52,6 +52,37 @@ public sealed class SteamPlaytimeTests
     }
 
     [Fact]
+    public void ParseAppTickets_UsesOnlyTheActiveAccountsTicketSection()
+    {
+        const string vdf = """
+            "UserLocalConfigStore"
+            {
+                "apptickets"
+                {
+                    "1620730" "50000000aabbccdd"
+                    "1817070" "320000001122aaff"
+                    "not-an-app" "ffffffff"
+                }
+                "Software"
+                {
+                    "apps"
+                    {
+                        "252950" { "Playtime" "500" }
+                    }
+                }
+            }
+            "1620730" "outside-the-ticket-section"
+            """;
+
+        var tickets = SteamPlaytime.ParseAppTickets(vdf);
+
+        Assert.Equal(2, tickets.Count);
+        Assert.Contains("1620730", tickets);
+        Assert.Contains("1817070", tickets);
+        Assert.DoesNotContain("252950", tickets);
+    }
+
+    [Fact]
     public void MergeFile_KeepsHigherPlaytimeAcrossUsers()
     {
         var map = new Dictionary<string, SteamPlaytime.Entry>(StringComparer.Ordinal);

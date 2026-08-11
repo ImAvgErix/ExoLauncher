@@ -6,6 +6,64 @@ namespace ExoLauncher.Tests;
 
 public class StoreSearchServiceTests
 {
+    [Fact]
+    public void BuildSteamCatalogHit_UsesSteamHandoffWithoutClaimingUnknownOwnership()
+    {
+        var hit = StoreSearchService.BuildSteamCatalogHit(
+            "1620730",
+            "Hell is Us",
+            Array.Empty<GameEntry>(),
+            steamClientPresent: true);
+
+        Assert.Equal("steam:1620730", hit.Id);
+        Assert.Equal("1620730", hit.LaunchTarget);
+        Assert.False(hit.Owned);
+        Assert.False(hit.Installed);
+        Assert.True(hit.CanInstall);
+    }
+
+    [Fact]
+    public void BuildSteamCatalogHit_DoesNotOfferInstallWhenSteamIsAbsentAndOwnershipIsUnknown()
+    {
+        var hit = StoreSearchService.BuildSteamCatalogHit(
+            "1817070",
+            "Marvel's Spider-Man Remastered",
+            Array.Empty<GameEntry>(),
+            steamClientPresent: false);
+
+        Assert.False(hit.Owned);
+        Assert.False(hit.Installed);
+        Assert.False(hit.CanInstall);
+    }
+
+    [Fact]
+    public void BuildSteamCatalogHit_PreservesLocallyProvenOwnershipWithoutSteamClient()
+    {
+        var library = new[]
+        {
+            new GameEntry
+            {
+                Id = "steam:1817070",
+                Title = "Marvel's Spider-Man Remastered",
+                Store = StoreKind.Steam,
+                LaunchTarget = "1817070",
+                Owned = true,
+                Installed = false,
+                CanInstall = true,
+            },
+        };
+
+        var hit = StoreSearchService.BuildSteamCatalogHit(
+            "1817070",
+            "Marvel's Spider-Man Remastered",
+            library,
+            steamClientPresent: false);
+
+        Assert.True(hit.Owned);
+        Assert.False(hit.Installed);
+        Assert.True(hit.CanInstall);
+    }
+
     [Theory]
     [InlineData("Mortal Shell", "mortal shell 2")]
     [InlineData("Mortal Shell", "mrotal sheel")]

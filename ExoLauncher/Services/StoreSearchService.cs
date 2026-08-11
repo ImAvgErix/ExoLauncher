@@ -275,17 +275,21 @@ public sealed class StoreSearchService
     private static async Task<IReadOnlyList<StoreSearchHit>> SearchSteamAsync(
         string q, IReadOnlyList<GameEntry> ownedLibrary, CancellationToken ct)
     {
+        // A catalog hit cannot prove an entitlement. It can, however, safely hand
+        // the exact app id to an installed Steam client, which is the authority
+        // that will accept or reject the install request for the active account.
+        var steamClientPresent = SteamAdapter.TryResolveSteamExePublic() is not null;
         var directId = TryParseSteamAppId(q);
         if (directId is not null)
-            return new[] { MakeSteamHit(directId, "Steam app " + directId, ownedLibrary) };
+            return new[] { BuildSteamCatalogHit(directId, "Steam app " + directId, ownedLibrary, steamClientPresent) };
 
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct);
         linked.CancelAfter(TimeSpan.FromSeconds(5));
         var token = linked.Token;
 
         // Prefer SearchApps (better relevance) — run in parallel with store JSON.
-        var appsTask = SearchSteamAppsAsync(q, ownedLibrary, token);
-        var storeTask = SearchSteamStoreJsonAsync(q, ownedLibrary, token);
+        var appsTask = SearchSteamAppsAsync(q, ownedLibrary, steamClientPresent, token);
+        var storeTask = SearchSteamStoreJsonAsync(q, ownedLibrary, steamClientPresent, token);
 
         var results = new ConcurrentBag<StoreSearchHit>();
         try
@@ -312,8 +316,8 @@ public sealed class StoreSearchService
                 relaxedTimeout.CancelAfter(TimeSpan.FromSeconds(3));
                 var relaxedResults = new ConcurrentBag<StoreSearchHit>();
                 await Task.WhenAll(
-                    Absorb(SearchSteamAppsAsync(relaxed, ownedLibrary, relaxedTimeout.Token), relaxedResults),
-                    Absorb(SearchSteamStoreJsonAsync(relaxed, ownedLibrary, relaxedTimeout.Token), relaxedResults))
+                    Absorb(SearchSteamAppsAsync(relaxed, ownedLibrary, steamClientPresent, relaxedTimeout.Token), relaxedResults),
+                    Absorb(SearchSteamStoreJsonAsync(relaxed, ownedLibrary, steamClientPresent, relaxedTimeout.Token), relaxedResults))
                     .ConfigureAwait(false);
                 foreach (var h in relaxedResults) results.Add(h);
             }
@@ -338,7 +342,7 @@ public sealed class StoreSearchService
     }
 
     private static async Task<IReadOnlyList<StoreSearchHit>> SearchSteamAppsAsync(
-        string q, IReadOnlyList<GameEntry> ownedLibrary, CancellationToken ct)
+        string q, IReadOnlyList<GameEntry> ownedLibrary, bool steamClientPresent, CancellationToken ct)
     {
         var list = new List<StoreSearchHit>();
         var enc = Uri.EscapeDataString(q);
@@ -358,14 +362,14 @@ public sealed class StoreSearchService
             if (string.IsNullOrWhiteSpace(id) || string.IsNullOrWhiteSpace(name)) continue;
             if (!TitleMatchesQuery(name, q)) continue;
             if (SteamAdapter.IsNonGameSteamEntry(id, name, null)) continue;
-            list.Add(MakeSteamHit(id!, name!, ownedLibrary));
+            list.Add(BuildSteamCatalogHit(id!, name!, ownedLibrary, steamClientPresent));
             if (list.Count >= 20) break;
         }
         return list;
     }
 
     private static async Task<IReadOnlyList<StoreSearchHit>> SearchSteamStoreJsonAsync(
-        string q, IReadOnlyList<GameEntry> ownedLibrary, CancellationToken ct)
+        string q, IReadOnlyList<GameEntry> ownedLibrary, bool steamClientPresent, CancellationToken ct)
     {
         var list = new List<StoreSearchHit>();
         var enc = Uri.EscapeDataString(q);
@@ -389,17 +393,27 @@ public sealed class StoreSearchService
             // Store JSON pads with unrelated recommendations — require title match.
             if (!TitleMatchesQuery(name, q)) continue;
             if (SteamAdapter.IsNonGameSteamEntry(id, name, null)) continue;
-            list.Add(MakeSteamHit(id, name, ownedLibrary));
+            list.Add(BuildSteamCatalogHit(id, name, ownedLibrary, steamClientPresent));
             if (list.Count >= 20) break;
         }
         return list;
     }
 
-    private static StoreSearchHit MakeSteamHit(string id, string name, IReadOnlyList<GameEntry> ownedLibrary)
+    /// <summary>
+    /// Builds a Steam catalog result without treating catalog metadata as an
+    /// ownership assertion. When Steam is installed, the exact app id remains
+    /// installable so Steam can adjudicate the active account at handoff time.
+    /// </summary>
+    internal static StoreSearchHit BuildSteamCatalogHit(
+        string id,
+        string name,
+        IReadOnlyList<GameEntry> ownedLibrary,
+        bool steamClientPresent)
     {
         var owned = ownedLibrary.Any(g =>
             g.Store == StoreKind.Steam &&
-            string.Equals(g.LaunchTarget, id, StringComparison.Ordinal));
+            string.Equals(g.LaunchTarget, id, StringComparison.Ordinal) &&
+            (g.Owned || g.Installed));
         var installed = ownedLibrary.Any(g =>
             g.Store == StoreKind.Steam &&
             string.Equals(g.LaunchTarget, id, StringComparison.Ordinal) &&
@@ -413,7 +427,9 @@ public sealed class StoreSearchService
             CoverUrl = SteamCover(id),
             Owned = owned,
             Installed = installed,
-            CanInstall = owned,
+            // This means Exo can ask Steam to install the exact app id; it does
+            // not mean Exo has independently verified ownership.
+            CanInstall = owned || steamClientPresent,
             Source = "steam",
         };
     }

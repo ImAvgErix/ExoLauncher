@@ -28,14 +28,21 @@ public sealed class AppServices
         Achievements.NotificationDeliveryRequested += OnAchievementNotificationDeliveryRequested;
         // Always overwrite settings.json version with the running build (not a stale 1.0.0).
         Settings.SyncAppVersion(AppVersion);
-        // Local is a first-class DRM-free backend. Phase-2 agent adapters stay unwired
-        // until they can report owned titles and launch/install outcomes honestly.
+        // Local is a first-class DRM-free backend. The official-client adapters
+        // below are intentionally presence/Open-only: they never claim a
+        // library, title launch, install, update, or achievement integration.
         Adapters =
         [
             new SteamAdapter(),
             new EpicAdapter(),
             new GogAdapter(GogAuth, GogOwnedLibrary),
             new RiotAdapter(),
+            new XboxAdapter(),
+            new EaAdapter(),
+            new UbisoftAdapter(),
+            new BattleNetAdapter(),
+            new AmazonAdapter(),
+            new RockstarAdapter(),
             new LocalAdapter(Settings),
         ];
         Library = new LibraryService(Adapters, Settings);
