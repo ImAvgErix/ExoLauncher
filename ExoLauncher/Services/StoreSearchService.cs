@@ -622,7 +622,7 @@ public sealed class StoreSearchService
     private static int TokenMatchQuality(string titleToken, string queryToken)
     {
         if (titleToken == queryToken) return 3;
-        if (queryToken.Length >= 3 &&
+        if (queryToken.Length >= 3 && titleToken.Length >= 3 &&
             (titleToken.StartsWith(queryToken, StringComparison.Ordinal) ||
              queryToken.StartsWith(titleToken, StringComparison.Ordinal))) return 2;
         if (queryToken.Length < 4 || titleToken.Length < 4) return 0;

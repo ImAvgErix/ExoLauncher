@@ -95,6 +95,8 @@ public class StoreSearchServiceTests
     [InlineData("Mortal Shell", "mortal shell 22")]
     [InlineData("Far Cry 6", "war")]
     [InlineData("Control", "contour")]
+    [InlineData("Marvel's Spider-Man Remastered", "steam")]
+    [InlineData("Tom Clancy's Rainbow Six Siege", "steam")]
     public void TitleMatchesQuery_RejectsUnrelatedOrOverFuzzyResults(string title, string query)
     {
         Assert.False(StoreSearchService.TitleMatchesQuery(title, query));
