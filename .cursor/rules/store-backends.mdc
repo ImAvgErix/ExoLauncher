@@ -1,0 +1,11 @@
+---
+description: Official store clients are backends. Do not copy them into Exo or click their UI.
+alwaysApply: true
+---
+
+# Store backends
+
+- Detect the installed official client. Command it. Do not copy Steam/Epic/GOG/Riot trees into Exo.
+- Steam install/update/uninstall goes through `ExoLauncher.SteamIpc` (`steamclient64.dll` IPC). Not OCR, not SendInput, not DepotDownloader, not nesting Steam under Exo.
+- Epic = Legendary. GOG = gogdl. Riot = RiotClientServices patch API. Xbox/EA/Ubisoft/Battle.net/Amazon/Rockstar = list + launch only until an official agent exists.
+- Progress lives in Exo. Store chrome stays hidden. Anti-cheat processes are never killed.

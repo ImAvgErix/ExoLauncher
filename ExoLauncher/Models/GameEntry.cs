@@ -214,7 +214,7 @@ public sealed class AppSettings
     public string? DefaultInstallRoot { get; set; }
     /// <summary>Legacy field; Local portable path removed — always false.</summary>
     public bool CopyPortableIntoLibrary { get; set; } = false;
-    /// <summary>Always false — fixed 1400×900 shell.</summary>
+    /// <summary>Unused. The window is always resizable.</summary>
     public bool AllowResize { get; set; } = false;
     /// <summary>Always true — in-app update checks on start.</summary>
     public bool CheckForUpdates { get; set; } = true;

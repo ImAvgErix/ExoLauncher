@@ -181,6 +181,62 @@
   backdrop-filter: blur(14px);
 }
 
+.exo-titlebar-home .exo-titlebar-actions {
+  margin-left: auto;
+}
+
+.exo-titlebar-search {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  width: max-content;
+  max-width: calc(100% - 220px);
+  padding: 0 10px 0 8px;
+  border-radius: 999px;
+  border: 1px solid var(--color-line-soft);
+  background: var(--color-surface);
+  transform: translate(-50%, -50%);
+}
+
+.exo-titlebar-search:focus-within {
+  border-color: var(--color-line);
+}
+
+.exo-search-glyph {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  color: var(--color-faint);
+  pointer-events: none;
+}
+
+.exo-titlebar-search .exo-search {
+  width: 6ch;
+  max-width: none;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font-size: 12px;
+  caret-color: var(--color-muted);
+  transition: width 220ms var(--ease-out);
+}
+
+.exo-titlebar-search.is-open .exo-search,
+.exo-titlebar-search:focus-within .exo-search {
+  width: 18ch;
+}
+
+.exo-titlebar-search .exo-search:focus {
+  border-color: transparent;
+  background: transparent;
+}
+
 .exo-titlebar-button,
 .exo-titlebar input,
 .exo-titlebar button,
@@ -234,97 +290,391 @@
   }
 }
 
-/* Pinned row — quiet horizontal strip above installed grid */
+/* Home — cards inset so rounded edges aren’t sliced by the window. */
+.exo-home {
+  padding: 12px 0 48px;
+  overflow: visible;
+}
+.exo-home-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+  padding: 0 16px;
+}
+.exo-section-label {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--color-faint);
+}
+.exo-now-wrap {
+  padding: 8px 16px 22px;
+}
+.exo-now {
+  position: relative;
+  overflow: hidden;
+  height: min(42vh, 400px);
+  min-height: 280px;
+  border-radius: 20px;
+  background: #050505;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08);
+  transition: box-shadow 200ms var(--ease-out);
+  cursor: pointer;
+}
+.exo-now:hover {
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.14);
+}
+.exo-now-wash {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.exo-now-wash-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+  opacity: 0;
+  transform: translateZ(0);
+  transition: opacity 280ms var(--ease-out);
+}
+.exo-now-wash-img.is-on { opacity: 0.55; }
+.exo-now-veil {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, rgba(0, 0, 0, 0.9) 0%, rgba(0, 0, 0, 0.58) 38%, rgba(0, 0, 0, 0.18) 100%);
+  pointer-events: none;
+}
+.exo-now-body {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 26px;
+  height: 100%;
+  padding: 28px 32px;
+}
+.exo-now-open {
+  display: flex;
+  align-items: center;
+  gap: 26px;
+  min-width: 0;
+  flex: 1;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.exo-now-poster {
+  position: relative;
+  flex: 0 0 auto;
+  width: 168px;
+  height: 252px;
+  overflow: hidden;
+  border-radius: 14px;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.1), 0 22px 48px rgba(0, 0, 0, 0.58);
+}
+.exo-now-copy { min-width: 0; }
+.exo-now-kicker {
+  margin: 0 0 10px;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--color-faint);
+}
+.exo-now-title {
+  margin: 0;
+  max-width: 22ch;
+  font-size: 34px;
+  font-weight: 600;
+  letter-spacing: -0.035em;
+  line-height: 1.04;
+  color: var(--color-fg);
+}
+.exo-now-meta {
+  margin: 12px 0 0;
+  font-size: 13px;
+  color: var(--color-muted);
+}
+.exo-now-cta {
+  pointer-events: auto;
+  margin-top: 0;
+  min-height: 44px;
+  flex: 0 0 auto;
+}
+.exo-now-meter {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 3;
+  height: 3px;
+  pointer-events: none;
+  background: rgba(255, 255, 255, 0.08);
+}
+.exo-now-meter::before {
+  content: "";
+  display: block;
+  height: 100%;
+  width: calc(var(--progress, 0) * 100%);
+  background: #f2f2f2;
+  transition: width 360ms linear;
+}
+.exo-now-meter.is-unknown::before {
+  width: 36%;
+  animation: exo-progress-unknown 1.1s var(--ease-in-out) infinite;
+}
+@media (max-width: 720px) {
+  .exo-now { height: auto; min-height: 240px; }
+  .exo-now-body { flex-direction: column; align-items: flex-start; padding: 20px; }
+  .exo-now-poster { width: 120px; height: 180px; }
+  .exo-now-title { font-size: 24px; }
+}
+
+.exo-rail-count {
+  font-size: 11px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-faint);
+}
+
+.exo-game-grid {
+  display: grid;
+  gap: 1.15rem 0.85rem;
+  padding: 0 16px 20px;
+  grid-template-columns: repeat(auto-fill, minmax(118px, 1fr));
+}
+.exo-pin-track {
+  display: grid;
+  gap: 1.15rem 0.85rem;
+  padding: 0 16px 20px;
+  justify-content: start;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 112px));
+}
+@media (min-width: 640px) {
+  .exo-game-grid {
+    grid-template-columns: repeat(auto-fill, minmax(136px, 1fr));
+    gap: 1.2rem 0.9rem;
+  }
+  .exo-pin-track {
+    grid-template-columns: repeat(auto-fill, minmax(108px, 124px));
+    gap: 1.2rem 0.9rem;
+  }
+}
+@media (min-width: 1100px) {
+  .exo-game-grid {
+    grid-template-columns: repeat(auto-fill, minmax(156px, 1fr));
+    gap: 1.25rem 1rem;
+  }
+  .exo-pin-track {
+    grid-template-columns: repeat(auto-fill, minmax(116px, 128px));
+    gap: 1.25rem 1rem;
+  }
+}
+
 .exo-pinned-section {
   min-width: 0;
-  max-width: 100%;
-  /* The rail owns its x-axis clipping. Its focus ring and hover lift need
-     room outside the scrollport so a long pinned list never looks cut off. */
+  margin-bottom: 20px;
   overflow: visible;
 }
 
-.exo-pinned-viewport {
+.exo-tile {
   position: relative;
+  isolation: isolate;
   min-width: 0;
+  transition: transform 180ms var(--ease-out);
 }
-
-.exo-pinned-row {
-  position: relative;
-  display: flex;
+.exo-tile-hit {
+  display: block;
   width: 100%;
-  max-width: 100%;
-  min-width: 0;
-  box-sizing: border-box;
-  gap: 16px;
-  overflow-x: auto;
-  overflow-y: hidden;
-  overscroll-behavior-x: contain;
-  scroll-behavior: smooth;
-  /* Room for hover lift — otherwise the top of pinned cards gets clipped. */
-  padding: 8px 10px 12px 2px;
-  scroll-snap-type: x proximity;
-  -webkit-overflow-scrolling: touch;
-  contain: layout style;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  color: inherit;
+  border-radius: 14px;
 }
-
-.exo-pinned-row > * {
-  flex: 0 0 auto;
-  scroll-snap-align: start;
+.exo-tile-frame {
+  position: relative;
+  aspect-ratio: 2 / 3;
+  border-radius: 14px;
+  overflow: hidden;
+  background: #050505;
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.07),
+    0 12px 28px rgba(0, 0, 0, 0.4);
+  transition: box-shadow 180ms var(--ease-out);
 }
-
-.exo-pinned-edge {
+.exo-tile.is-update .exo-tile-frame {
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.42),
+    0 12px 28px rgba(0, 0, 0, 0.4);
+}
+.exo-tile.is-selected .exo-tile-frame {
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.22),
+    0 12px 28px rgba(0, 0, 0, 0.4);
+}
+.exo-tile-media {
   position: absolute;
-  top: 8px;
-  bottom: 12px;
+  inset: 0;
+  overflow: hidden;
+  border-radius: inherit;
+  transform: translateZ(0);
+}
+.exo-tile-media img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  pointer-events: none;
+  transform: translateZ(0);
+}
+.exo-tile-progress {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  left: 10px;
+  z-index: 4;
+  height: 3px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.16);
+  pointer-events: none;
+}
+.exo-tile-progress::before {
+  content: "";
+  display: block;
+  height: 100%;
+  transform: scaleX(var(--progress, 0));
+  transform-origin: left center;
+  background: #f2f2f2;
+  transition: transform 360ms linear;
+}
+.exo-tile-progress.is-unknown::before {
+  width: 36%;
+  transform: none;
+  animation: exo-progress-unknown 1.1s var(--ease-in-out) infinite;
+}
+.exo-tile-shine {
+  position: absolute;
+  inset: 0;
   z-index: 3;
   pointer-events: none;
-  background: #000;
+  border-radius: inherit;
+  overflow: hidden;
+  opacity: 0;
 }
-
-.exo-pinned-edge.is-left {
+.exo-tile-shine::before {
+  content: "";
+  position: absolute;
+  top: -10%;
+  bottom: -10%;
   left: 0;
-  width: var(--pinned-left-edge-width, 0px);
+  width: 42%;
+  background: linear-gradient(
+    105deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.05) 38%,
+    rgba(255, 255, 255, 0.22) 50%,
+    rgba(255, 255, 255, 0.05) 62%,
+    transparent 100%
+  );
+  transform: translateX(-130%);
 }
-
-.exo-pinned-edge.is-right {
-  right: 0;
-  width: var(--pinned-right-edge-width, 0px);
+.exo-tile-frame::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  pointer-events: none;
+  border-radius: inherit;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14);
 }
-
-.exo-pinned-nav-button {
-  display: inline-flex;
-  width: 28px;
-  height: 28px;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid var(--color-line-soft);
+.exo-tile-pin {
+  position: absolute;
+  z-index: 6;
+  top: 10px;
+  right: 10px;
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
   border-radius: 999px;
-  color: var(--color-fg);
-  background: #000;
-  transition: border-color 140ms var(--ease-out), opacity 140ms var(--ease-out);
+  background: rgba(0, 0, 0, 0.55);
+  color: rgba(255, 255, 255, 0.55);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.1);
+  opacity: 0;
+  border: 0;
+  transform: scale(0.92);
+  transition:
+    opacity 180ms var(--ease-out),
+    transform 180ms var(--ease-out),
+    background 180ms ease,
+    color 180ms ease;
+}
+.exo-tile-pin.is-on {
+  opacity: 1;
+  transform: none;
+  color: #fff;
+  background: rgba(12, 12, 14, 0.72);
+}
+.exo-tile.is-dim .exo-tile-frame {
+  filter: saturate(0.75) brightness(0.88);
 }
 
-.exo-pinned-nav-button:hover:not(:disabled) {
-  border-color: var(--color-muted);
+@media (hover: hover) and (pointer: fine) {
+  .exo-tile:hover {
+    transform: translateY(-5px);
+  }
+  .exo-tile:hover .exo-tile-frame {
+    box-shadow:
+      0 0 0 1px rgba(255, 255, 255, 0.14),
+      0 22px 44px rgba(0, 0, 0, 0.5);
+  }
+  .exo-tile-frame:hover .exo-tile-shine {
+    opacity: 1;
+  }
+  .exo-tile-frame:hover .exo-tile-shine::before {
+    animation: exo-tile-sweep 720ms var(--ease-out);
+  }
+  .exo-tile:hover .exo-tile-pin {
+    opacity: 1;
+    transform: none;
+  }
+  .exo-tile-pin:hover {
+    color: #fff;
+    background: rgba(255, 255, 255, 0.14);
+    transform: scale(1.06);
+  }
+  .exo-tile-pin:active {
+    transform: scale(0.96);
+  }
 }
 
-.exo-pinned-nav-button:disabled {
-  opacity: .28;
-}
-
-.exo-pinned-row:focus-visible {
-  outline: 1.5px solid rgba(255, 255, 255, 0.75);
-  outline-offset: 3px;
-  border-radius: 12px;
+@keyframes exo-tile-sweep {
+  to {
+    transform: translateX(280%);
+  }
 }
 
 .exo-cover {
   position: relative;
   overflow: hidden;
-  border-radius: 12px;
+  border-radius: 14px;
   border: none;
   background: #000;
-  box-shadow: none;
+  transform: translateZ(0);
 }
 
 .exo-cover img {
@@ -336,9 +686,68 @@
   transform: translateZ(0);
 }
 
-.exo-cover.is-selected {
-  /* Quiet selected cue — no outline/ring on the tile */
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.18);
+.exo-cover-meta {
+  pointer-events: none;
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  z-index: 3;
+  padding: 36px 10px 10px;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.92) 0%, rgba(0, 0, 0, 0.42) 58%, transparent 100%);
+}
+
+.exo-card-meta {
+  margin-top: 8px;
+  padding: 0 2px;
+}
+
+.exo-card-title {
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.25;
+  color: #f2f2f2;
+}
+
+.exo-card-store {
+  margin-top: 3px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--color-faint);
+}
+
+.exo-cover-title {
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.25;
+  color: #f2f2f2;
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.65);
+}
+
+.exo-store-dots {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 7px;
+}
+
+.exo-store-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 99px;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.45);
 }
 
 /* Not installed: a hint, not a blackout. Search is where the art has to sell
@@ -402,9 +811,90 @@
   color: var(--color-faint);
 }
 
+.exo-search:focus::placeholder {
+  color: transparent;
+}
+
 .exo-search:focus {
   border-color: var(--color-line);
   background: var(--color-elevated);
+}
+
+.exo-sort-select {
+  height: 30px;
+  max-width: 148px;
+  border-radius: 999px;
+  border: 1px solid var(--color-line-soft);
+  background: #000;
+  padding: 0 28px 0 12px;
+  font-size: 12px;
+  color: var(--color-muted);
+  outline: none;
+  cursor: pointer;
+  appearance: none;
+  background-image:
+    linear-gradient(45deg, transparent 50%, #8a8a8a 50%),
+    linear-gradient(135deg, #8a8a8a 50%, transparent 50%);
+  background-position:
+    calc(100% - 14px) 12px,
+    calc(100% - 9px) 12px;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+}
+
+.exo-sort-select:focus {
+  border-color: var(--color-line);
+  color: var(--color-fg);
+}
+
+.exo-sort-select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.exo-sort-link {
+  border: 0;
+  background: none;
+  padding: 0;
+  font-size: 12px;
+  color: var(--color-faint);
+  transition: color 140ms var(--ease-out);
+}
+
+.exo-sort-link.is-active,
+.exo-sort-link:hover:not(:disabled) {
+  color: var(--color-fg);
+}
+
+.exo-sort-link:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.exo-toggle {
+  width: 18px;
+  height: 18px;
+  accent-color: #f2f2f2;
+  cursor: pointer;
+}
+
+.exo-cover.is-playing {
+  box-shadow: 0 0 0 1.5px rgba(61, 214, 140, 0.72);
+}
+
+.exo-cover.is-playing::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow: inset 0 0 0 1px rgba(61, 214, 140, 0.28);
+  animation: exo-playing-pulse 2.6s var(--ease-out) infinite;
+}
+
+@keyframes exo-playing-pulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
 }
 
 /* Primary actions carry their own progress so the control never jumps away. */
@@ -420,8 +910,26 @@
   background: rgba(0, 0, 0, 0.16);
   transform: scaleX(var(--progress));
   transform-origin: left center;
-  transition: transform 200ms var(--ease-in-out);
+  transition: transform 360ms linear;
   pointer-events: none;
+}
+
+.exo-action-progress.is-unknown {
+  transform: none;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(0, 0, 0, 0.22) 45%,
+    transparent 100%
+  );
+  background-size: 42% 100%;
+  background-repeat: no-repeat;
+  animation: exo-progress-unknown 1.1s var(--ease-in-out) infinite;
+}
+
+@keyframes exo-progress-unknown {
+  0% { background-position: -40% 0; transform: translateX(-40%); }
+  100% { background-position: 140% 0; transform: translateX(140%); }
 }
 
 .exo-action-content {
@@ -474,7 +982,7 @@
   overflow: hidden;
   max-width: 100%;
   margin-top: 3px;
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 500;
   line-height: 1;
   text-overflow: ellipsis;
@@ -514,30 +1022,302 @@
   background: var(--color-surface);
 }
 
-/* Detail rail — soft floating sheet, same curve language as cards. */
+/* Detail rail — unused; game page is full-bleed. Kept for reduced-motion rail fallback. */
 .exo-detail-rail {
-  border-radius: 16px;
+  border-radius: 18px;
   border: 1px solid rgba(255, 255, 255, 0.055);
   background: #000;
   box-shadow: 0 1px 0 rgba(255, 255, 255, 0.045) inset;
   overflow: hidden;
 }
 
-/* Portrait inset: full 2:3 poster (no max-height crop). */
 .exo-detail-cover {
-  width: min(100%, calc((100vh - 390px) * 2 / 3));
-  min-width: 156px;
-  margin-inline: auto;
+  width: 100%;
   aspect-ratio: 2 / 3;
-  border-radius: 12px;
+  border-radius: 14px;
   box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.04) inset,
-    0 14px 32px rgba(0, 0, 0, 0.4);
+    0 0 0 1px rgba(255, 255, 255, 0.12),
+    0 28px 56px rgba(0, 0, 0, 0.62);
 }
 
 .exo-detail-cover img {
   object-fit: cover;
   object-position: center center;
+}
+
+.exo-boot {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  background: #000;
+}
+.exo-boot .exo-mark {
+  width: 56px;
+  height: 56px;
+  border-radius: 16px;
+  box-shadow: 0 0 0 1px #222;
+}
+.exo-mark {
+  position: relative;
+  display: block;
+  flex-shrink: 0;
+  overflow: hidden;
+  background: #050505;
+  border-radius: 9px;
+}
+.exo-mark-bar {
+  position: absolute;
+  display: block;
+  margin: 0;
+  font-style: normal;
+  height: 14%;
+  background: #f2f2f2;
+  transform: skewX(-18deg);
+  transform-origin: 0 50%;
+  pointer-events: none;
+  transition: left 220ms var(--ease-out), width 220ms var(--ease-out), top 220ms var(--ease-out);
+}
+.exo-mark-bar-1 { top: 20%; left: 26%; width: 54%; }
+.exo-mark-bar-2 { top: 43%; left: 22%; width: 36%; }
+.exo-mark-bar-3 { top: 66%; left: 17%; width: 54%; }
+.exo-mark.is-alive .exo-mark-bar-1 { top: 18.5%; left: 31%; width: 54%; }
+.exo-mark.is-alive .exo-mark-bar-2 { top: 43.25%; left: 22%; width: 54%; }
+.exo-mark.is-alive .exo-mark-bar-3 { top: 68%; left: 13%; width: 54%; }
+.exo-mark.is-alive .exo-mark-bar {
+  will-change: transform;
+  transition: none;
+}
+.exo-mark.is-alive .exo-mark-bar-1 {
+  animation:
+    exo-mark-in 500ms var(--ease-out) both,
+    exo-mark-wave 1.45s 500ms var(--ease-in-out) infinite;
+}
+.exo-mark.is-alive .exo-mark-bar-2 {
+  animation:
+    exo-mark-in 500ms 90ms var(--ease-out) both,
+    exo-mark-wave 1.45s 590ms var(--ease-in-out) infinite;
+}
+.exo-mark.is-alive .exo-mark-bar-3 {
+  animation:
+    exo-mark-in 500ms 180ms var(--ease-out) both,
+    exo-mark-wave 1.45s 680ms var(--ease-in-out) infinite;
+}
+@keyframes exo-mark-in {
+  from { transform: skewX(-18deg) scaleX(0); opacity: 0; }
+  to { transform: skewX(-18deg) scaleX(1); opacity: 1; }
+}
+@keyframes exo-mark-wave {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+.exo-boot-bar {
+  width: 88px;
+  height: 2px;
+  overflow: hidden;
+  border-radius: 99px;
+  background: rgba(255, 255, 255, 0.08);
+}
+.exo-boot-bar i {
+  display: block;
+  width: 40%;
+  height: 100%;
+  background: rgba(255, 255, 255, 0.55);
+  animation: exo-boot-sweep 1.1s var(--ease-in-out) infinite;
+}
+@keyframes exo-boot-sweep {
+  0% { transform: translateX(-120%); }
+  100% { transform: translateX(280%); }
+}
+
+.exo-library-pane {
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+.exo-library-pane.is-overlay-open {
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.exo-game-overlay {
+  position: fixed;
+  top: var(--exo-titlebar-h, 52px);
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 28px 24px;
+  background: transparent;
+}
+.exo-game-overlay:focus {
+  outline: none;
+}
+.exo-game-overlay-scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border: 0;
+  padding: 0;
+  background: rgba(0, 0, 0, 0.48);
+  backdrop-filter: blur(22px) saturate(1.05);
+  -webkit-backdrop-filter: blur(22px) saturate(1.05);
+  cursor: default;
+}
+.exo-game-overlay-scrim:disabled {
+  cursor: default;
+}
+
+.exo-game-page {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  width: min(920px, 100%);
+  max-height: 100%;
+  min-width: 0;
+  overflow: hidden;
+  border-radius: 22px;
+  background: #0a0a0a;
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.08),
+    0 36px 90px rgba(0, 0, 0, 0.72);
+}
+
+.exo-game-page-inner {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 28px 32px 32px;
+}
+
+.exo-game-close {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  z-index: 20;
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--color-muted);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+.exo-game-close:hover {
+  color: var(--color-fg);
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.exo-game-page-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 28px;
+  padding: 12px 8px 8px;
+}
+@media (min-width: 820px) {
+  .exo-game-page-body {
+    flex-direction: row;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 40px;
+  }
+}
+
+.exo-game-poster-col {
+  width: min(240px, 58vw);
+  flex-shrink: 0;
+  position: relative;
+  z-index: 1;
+}
+
+.exo-game-info {
+  min-width: 0;
+  width: min(100%, 540px);
+  text-align: center;
+  position: relative;
+  z-index: 1;
+}
+@media (min-width: 820px) {
+  .exo-game-info {
+    text-align: left;
+    flex: 0 1 540px;
+  }
+}
+
+.exo-game-kicker {
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+}
+
+.exo-game-title {
+  font-size: 36px;
+  font-weight: 600;
+  letter-spacing: -0.04em;
+  line-height: 1.05;
+  color: #fff;
+}
+
+.exo-game-stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px 18px;
+  margin-top: 26px;
+  padding: 18px 0 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  text-align: left;
+}
+@media (min-width: 520px) {
+  .exo-game-stats {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+.exo-game-stat-label {
+  display: block;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--color-faint);
+}
+
+.exo-game-stat-value {
+  display: block;
+  margin-top: 6px;
+  font-size: 15px;
+  color: var(--color-fg);
+}
+
+.exo-ach-bar {
+  display: block;
+  height: 3px;
+  margin-top: 8px;
+  overflow: hidden;
+  border-radius: 99px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.exo-ach-bar > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: #3dd68c;
 }
 
 .exo-ghost-btn {
@@ -559,36 +1339,50 @@
   border-color: var(--color-line);
 }
 
+.exo-game-info .exo-ghost-btn {
+  background: rgba(0, 0, 0, 0.58);
+  color: #f2f2f2;
+  border-color: rgba(255, 255, 255, 0.16);
+}
+.exo-game-info .exo-ghost-btn:hover {
+  background: rgba(0, 0, 0, 0.78);
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.28);
+}
+
 .exo-badge {
   display: inline-flex;
   align-items: center;
   border-radius: 999px;
-  padding: 2px 8px;
-  font-size: 10px;
+  padding: 1px 6px;
+  font-size: 9px;
   font-weight: 500;
-  letter-spacing: 0.02em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
+  background: rgba(0, 0, 0, 0.55);
+  color: rgba(255, 255, 255, 0.82);
+}
+
+.exo-badge.is-good {
+  color: #fff;
+  background: rgba(0, 0, 0, 0.55);
+}
+
+.exo-badge.is-warn {
   background: rgba(255, 255, 255, 0.06);
   color: var(--color-muted);
 }
 
-.exo-badge.is-good {
-  color: var(--color-good);
-  background: rgba(61, 214, 140, 0.1);
+.exo-badge.is-update {
+  color: #fff;
+  background: rgba(0, 0, 0, 0.72);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.45);
+  animation: exo-update-breathe 2.4s var(--ease-in-out) infinite;
 }
 
-.exo-badge.is-warn {
-  border: 1px solid #ffd36f;
-  background: #ffb020;
-  color: #1b1200;
-  box-shadow:
-    0 0 0 2px rgba(0, 0, 0, 0.88),
-    0 3px 10px rgba(0, 0, 0, 0.82);
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 0.055em;
-  padding: 3px 9px;
-  text-shadow: none;
+@keyframes exo-update-breathe {
+  0%, 100% { box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.28); }
+  50% { box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.7); }
 }
 
 .exo-settings-link {
@@ -641,13 +1435,46 @@
 
   .exo-cover,
   .exo-cover img,
-  .exo-add-tile {
+  .exo-add-tile,
+  .exo-tile-hit,
+  .exo-tile-media img,
+  .exo-tile-shine,
+  .exo-tile-shine::before {
     transition-property: background, color, opacity, border-color, box-shadow !important;
     transform: none !important;
+    animation: none !important;
+  }
+
+  .exo-boot-bar i {
+    animation: none;
+    width: 100%;
+    opacity: 0.45;
+  }
+
+  .exo-mark.is-alive .exo-mark-bar-1,
+  .exo-mark.is-alive .exo-mark-bar-2,
+  .exo-mark.is-alive .exo-mark-bar-3 {
+    animation: none;
+  }
+
+  .exo-badge.is-update,
+  .exo-game-page,
+  .exo-game-overlay,
+  .exo-now-wash-img,
+  .exo-now-meter.is-unknown::before,
+  .exo-tile-progress.is-unknown::before,
+  .exo-action-progress.is-unknown {
+    animation: none !important;
   }
 
   .exo-cover:hover,
-  .group:hover .exo-cover img {
+  .exo-tile:hover,
+  .exo-tile-frame:hover .exo-tile-shine {
     transform: none !important;
+  }
+
+  .exo-titlebar-search,
+  .exo-titlebar-search .exo-search {
+    transition: none;
   }
 }

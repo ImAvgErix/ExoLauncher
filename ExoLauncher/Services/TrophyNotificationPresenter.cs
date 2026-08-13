@@ -33,7 +33,7 @@ internal sealed class TrophyNotificationPresenter : IDisposable
     private const int DwmWindowCornerPreferenceRound = 2;
     private const int NotificationWidth = 432;
     private const int NotificationHeight = 122;
-    private static readonly TimeSpan NotificationDuration = TimeSpan.FromMilliseconds(3500);
+    private static readonly TimeSpan NotificationDuration = TimeSpan.FromMilliseconds(4200);
     private static readonly Color TrophySurface = Color.FromArgb(255, 0, 0, 0);
 
     private readonly Queue<(TrophyNotificationPayload Payload, TrophyNotificationOptions Options, Action? OnPresented)> _queue = new();
@@ -140,10 +140,10 @@ internal sealed class TrophyNotificationPresenter : IDisposable
         };
         copy.Children.Add(new TextBlock
         {
-            Text = "EXO // UNLOCKED",
-            FontSize = 8,
+            Text = "Unlocked",
+            FontSize = 10,
             FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
-            CharacterSpacing = 140,
+            CharacterSpacing = 80,
             Foreground = visual.MutedAccentBrush,
         });
         copy.Children.Add(new TextBlock
@@ -410,8 +410,8 @@ internal sealed class TrophyNotificationPresenter : IDisposable
         {
             // The window bounds cannot accommodate a translated child without
             // clipping it. A small pop/fade stays fully inside the one surface.
-            ScaleX = 0.97,
-            ScaleY = 0.97,
+            ScaleX = 0.94,
+            ScaleY = 0.94,
             CenterX = NotificationWidth / 2d,
             CenterY = NotificationHeight / 2d,
         };
@@ -426,9 +426,9 @@ internal sealed class TrophyNotificationPresenter : IDisposable
         }
 
         var storyboard = new Storyboard();
-        storyboard.Children.Add(CreateAnimation(target, "Opacity", 0, 1, 220, EasingMode.EaseOut));
-        storyboard.Children.Add(CreateAnimation(transform, "ScaleX", 0.97, 1, 260, EasingMode.EaseOut));
-        storyboard.Children.Add(CreateAnimation(transform, "ScaleY", 0.97, 1, 260, EasingMode.EaseOut));
+        storyboard.Children.Add(CreateAnimation(target, "Opacity", 0, 1, 280, EasingMode.EaseOut));
+        storyboard.Children.Add(CreateAnimation(transform, "ScaleX", 0.94, 1, 340, EasingMode.EaseOut));
+        storyboard.Children.Add(CreateAnimation(transform, "ScaleY", 0.94, 1, 340, EasingMode.EaseOut));
         storyboard.Begin();
     }
 
@@ -447,9 +447,9 @@ internal sealed class TrophyNotificationPresenter : IDisposable
         var transform = _card.RenderTransform as CompositeTransform ?? new CompositeTransform();
         _card.RenderTransform = transform;
         var storyboard = new Storyboard();
-        storyboard.Children.Add(CreateAnimation(_card, "Opacity", 1, 0, 160, EasingMode.EaseInOut));
-        storyboard.Children.Add(CreateAnimation(transform, "ScaleX", 1, 0.97, 160, EasingMode.EaseInOut));
-        storyboard.Children.Add(CreateAnimation(transform, "ScaleY", 1, 0.97, 160, EasingMode.EaseInOut));
+        storyboard.Children.Add(CreateAnimation(_card, "Opacity", 1, 0, 200, EasingMode.EaseInOut));
+        storyboard.Children.Add(CreateAnimation(transform, "ScaleX", 1, 0.96, 200, EasingMode.EaseInOut));
+        storyboard.Children.Add(CreateAnimation(transform, "ScaleY", 1, 0.96, 200, EasingMode.EaseInOut));
         storyboard.Completed += OnExitAnimationCompleted;
         _exitStoryboard = storyboard;
         storyboard.Begin();

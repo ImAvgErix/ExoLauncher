@@ -52,6 +52,25 @@ public sealed class SteamPlaytimeTests
     }
 
     [Fact]
+    public void MergeFile_PrefersPlaytimeForeverOverTwoWeekPlaytime()
+    {
+        var map = new Dictionary<string, SteamPlaytime.Entry>(StringComparer.Ordinal);
+        SteamPlaytime.MergeFile(map, """
+            "apps"
+            {
+                "730"
+                {
+                    "Playtime" "120"
+                    "PlaytimeForever" "25336"
+                    "LastPlayed" "1785089911"
+                }
+            }
+            """);
+
+        Assert.Equal(25336, map["730"].Minutes);
+    }
+
+    [Fact]
     public void ParseAppTickets_UsesOnlyTheActiveAccountsTicketSection()
     {
         const string vdf = """

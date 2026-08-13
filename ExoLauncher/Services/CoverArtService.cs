@@ -13,9 +13,10 @@ public static class CoverArtService
 {
     // Keep first paint clear of speculative cover downloads. Search explicitly
     // opts out because those results were requested by the user just now.
-    internal static readonly TimeSpan FirstPaintCoverWarmDelay = TimeSpan.FromMilliseconds(750);
-    internal const int BackgroundWarmConcurrency = 4;
-    internal const int RequestedWarmConcurrency = 12;
+    // Keep first-paint delay tiny — users want posters immediately, not monograms.
+    internal static readonly TimeSpan FirstPaintCoverWarmDelay = TimeSpan.FromMilliseconds(50);
+    internal const int BackgroundWarmConcurrency = 8;
+    internal const int RequestedWarmConcurrency = 16;
 
     private static readonly HttpClient CoverHttp = CreateCoverHttpClient();
 
@@ -39,20 +40,21 @@ public static class CoverArtService
     public const int MinCoverBytes = 12_000;
 
     /// <summary>
-    /// Vertical Steam library posters only (2:3). Prefer 2x, then 1x, multi-CDN.
+    /// Vertical Steam library posters only (2:3). Prefer 1x tile size so WebView
+    /// does not decode 1200×1800 bitmaps for 200px cards. 2x is last-resort.
     /// Never header/capsule — those are landscape and look bad on portrait cards.
     /// </summary>
     private static readonly string[] SteamPosterTemplates =
     [
-        "https://cdn.cloudflare.steamstatic.com/steam/apps/{0}/library_600x900_2x.jpg",
-        "https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/{0}/library_600x900_2x.jpg",
-        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{0}/library_600x900_2x.jpg",
-        "https://steamcdn-a.akamaihd.net/steam/apps/{0}/library_600x900_2x.jpg",
         "https://cdn.cloudflare.steamstatic.com/steam/apps/{0}/library_600x900.jpg",
         "https://cdn.akamai.steamstatic.com/steam/apps/{0}/library_600x900.jpg",
         "https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/{0}/library_600x900.jpg",
         "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{0}/library_600x900.jpg",
         "https://steamcdn-a.akamaihd.net/steam/apps/{0}/library_600x900.jpg",
+        "https://cdn.cloudflare.steamstatic.com/steam/apps/{0}/library_600x900_2x.jpg",
+        "https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/{0}/library_600x900_2x.jpg",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{0}/library_600x900_2x.jpg",
+        "https://steamcdn-a.akamaihd.net/steam/apps/{0}/library_600x900_2x.jpg",
     ];
 
     // No landscape fallbacks. Library tiles are portrait-only; wide heroes are never shown.
@@ -190,7 +192,7 @@ public static class CoverArtService
     }
 
     /// <summary>
-    /// Immediate official Steam portrait URL (library_600x900_2x) for search / first paint.
+    /// Immediate official Steam portrait URL (library_600x900) for search / first paint.
     /// Disk cache + virtual host still win via <see cref="ResolvePreferredUrl"/> when present.
     /// </summary>
     public static string? ProvisionalSteamPosterUrl(GameEntry g)
@@ -201,7 +203,7 @@ public static class CoverArtService
     }
 
     public static string SteamPortraitCdnUrl(string appId) =>
-        $"https://cdn.cloudflare.steamstatic.com/steam/apps/{appId}/library_600x900_2x.jpg";
+        $"https://cdn.cloudflare.steamstatic.com/steam/apps/{appId}/library_600x900.jpg";
 
     /// <summary>True for official Steam portrait CDN paths (not heroes / wide capsules).</summary>
     public static bool IsOfficialSteamPortraitCdn(string? url)
@@ -228,9 +230,21 @@ public static class CoverArtService
         if (string.IsNullOrWhiteSpace(url)) return false;
         if (!url.StartsWith("https://", StringComparison.OrdinalIgnoreCase)) return false;
         if (IsOfficialSteamPortraitCdn(url) || IsOfficialEpicPortraitCdn(url)) return true;
-        return url.Contains("ddragon.leagueoflegends.com", StringComparison.OrdinalIgnoreCase)
-               || url.Contains("images.gog-statics.com", StringComparison.OrdinalIgnoreCase)
-               || url.Contains("gog-statics.com", StringComparison.OrdinalIgnoreCase);
+        return HttpsHostIs(url, "ddragon.leagueoflegends.com")
+               || HttpsHostIs(url, "images.gog-statics.com", "gog-statics.com");
+    }
+
+    private static bool HttpsHostIs(string url, params string[] hosts)
+    {
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri)) return false;
+        if (!string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
+            return false;
+        foreach (var host in hosts)
+        {
+            if (uri.Host.Equals(host, StringComparison.OrdinalIgnoreCase)) return true;
+            if (uri.Host.EndsWith("." + host, StringComparison.OrdinalIgnoreCase)) return true;
+        }
+        return false;
     }
 
     /// <summary>
@@ -248,8 +262,8 @@ public static class CoverArtService
         var appId = SteamAppId(g) ?? MappedSteamAppId(g);
         if (appId is not null)
         {
-            candidates.Add(Path.Combine(CacheRoot, appId + "_2x.jpg"));
             candidates.Add(Path.Combine(CacheRoot, appId + ".jpg"));
+            candidates.Add(Path.Combine(CacheRoot, appId + "_2x.jpg"));
         }
 
         // Riot ships no public cover endpoint; its art arrives from the Epic
@@ -449,7 +463,9 @@ public static class CoverArtService
         if (string.IsNullOrWhiteSpace(url)) return false;
         if (url.StartsWith("data:image/", StringComparison.OrdinalIgnoreCase)) return true;
         if (url.StartsWith("blob:", StringComparison.OrdinalIgnoreCase)) return true;
-        if (IsOfficialSteamPortraitCdn(url)) return true;
+        // Steam + Epic + GOG + Riot CDNs that the WebView CSP allows (and UI CoverArt accepts).
+        // Previously Epic/GOG remote portraits were stripped here → permanent monograms.
+        if (IsAllowlistedCdnCover(url)) return true;
         if (url.StartsWith(VirtualHostOrigin + "/", StringComparison.OrdinalIgnoreCase))
         {
             var rest = url[(VirtualHostOrigin.Length + 1)..];
@@ -531,6 +547,46 @@ public static class CoverArtService
                     return (w, h);
                 }
                 return null;
+            }
+
+            // WebP: RIFF....WEBP + VP8X / VP8  chunk. GOG vertical covers are often webp.
+            if (sig[0] == (byte)'R' && sig[1] == (byte)'I' && sig[2] == (byte)'F' && sig[3] == (byte)'F')
+            {
+                fs.Position = 8;
+                var four = br.ReadBytes(4);
+                if (four.Length == 4 && four[0] == (byte)'W' && four[1] == (byte)'E'
+                    && four[2] == (byte)'B' && four[3] == (byte)'P')
+                {
+                    var chunk = br.ReadBytes(4);
+                    _ = br.ReadInt32();
+                    if (chunk.Length == 4)
+                    {
+                        int w = 0, h = 0;
+                        var tag = System.Text.Encoding.ASCII.GetString(chunk);
+                        if (tag == "VP8X")
+                        {
+                            _ = br.ReadBytes(4);
+                            var wMinus = br.ReadByte() | (br.ReadByte() << 8) | (br.ReadByte() << 16);
+                            var hMinus = br.ReadByte() | (br.ReadByte() << 8) | (br.ReadByte() << 16);
+                            w = wMinus + 1;
+                            h = hMinus + 1;
+                        }
+                        else if (tag == "VP8 ")
+                        {
+                            _ = br.ReadBytes(3);
+                            if (br.ReadByte() == 0x9D && br.ReadByte() == 0x01 && br.ReadByte() == 0x2A)
+                            {
+                                w = br.ReadUInt16() & 0x3FFF;
+                                h = br.ReadUInt16() & 0x3FFF;
+                            }
+                        }
+                        if (w > 0 && h > 0)
+                        {
+                            ImageSizeCache[path] = (len, mtime, w, h);
+                            return (w, h);
+                        }
+                    }
+                }
             }
 
             // JPEG: walk SOF markers. Prefer the largest frame — many Steam/Epic
@@ -623,7 +679,8 @@ public static class CoverArtService
         if (aspect > MaxCoverAspect) return 0;
         double shape = aspect <= 0.75 ? 3000 : 2500;
         var sharp = w >= MinCoverWidth ? 80 : 0;
-        return shape + h + sharp;
+        var tile = path.EndsWith("_2x.jpg", StringComparison.OrdinalIgnoreCase) ? 0 : 80;
+        return shape + Math.Min(h, 900) + sharp + tile;
     }
 
     /// <summary>True when the file is a 2:3 (or taller) poster. Unknown size = no.</summary>
@@ -658,11 +715,7 @@ public static class CoverArtService
             Span<byte> header = stackalloc byte[12];
             var n = fs.Read(header);
             if (n < 3) return false;
-            if (header[0] == (byte)'<') return false;
-            var isJpeg = header[0] == 0xFF && header[1] == 0xD8;
-            var isPng = n >= 4 && header[0] == 0x89 && header[1] == 0x50;
-            var isWebp = n >= 12 && header[0] == (byte)'R' && header[8] == (byte)'W';
-            return isJpeg || isPng || isWebp;
+            return IsCoverImageBytes(header[..n]);
         }
         catch
         {
@@ -841,8 +894,6 @@ public static class CoverArtService
 
     private static async Task<bool> WarmOneAsync(HttpClient http, GameEntry g, bool requested)
     {
-        var downloaded = false;
-
         // Steam native app id
         var appId = SteamAppId(g);
         if (appId is not null)
@@ -857,8 +908,11 @@ public static class CoverArtService
             return ok;
         }
 
-        // Mapped Steam CDN art for Epic / Local / multi-store titles (covers only).
+        // Mapped Steam CDN art for every other store (covers only). Seed map
+        // first, then live title search — that is what fills Xbox / EA / GOG /
+        // Ubisoft / Battle.net / Amazon / Rockstar / local tiles.
         var mapped = MappedSteamAppId(g);
+        mapped ??= await ResolveSteamAppIdByTitleAsync(http, g).ConfigureAwait(false);
         if (mapped is not null)
         {
             var ok = await DownloadSteamPosterAsync(http, mapped, g.Id).ConfigureAwait(false);
@@ -879,61 +933,7 @@ public static class CoverArtService
             return await DownloadRiotThemeArtAsync(http, g).ConfigureAwait(false);
         }
 
-        // GOG product art
-        var gogId = GogProductId(g);
-        if (gogId is not null)
-        {
-            var dest = Path.Combine(CacheRoot, "gog_" + gogId + ".jpg");
-            if (IsValidImageFile(dest) && IsPortraitCover(dest))
-                downloaded = true;
-            else
-            {
-                DiscardIfLandscape(dest);
-                // Prefer tall-ish assets; landscape tiles are discarded after download.
-                var urls = new[]
-                {
-                    $"https://images.gog-statics.com/{gogId}_product_tile_256_2x.jpg",
-                    $"https://api.gog.com/products/{gogId}",
-                };
-                if (await TryDownloadAnyAsync(http, urls.Take(1), dest).ConfigureAwait(false))
-                {
-                    if (IsPortraitCover(dest)) downloaded = true;
-                    else DiscardIfLandscape(dest);
-                }
-                if (!downloaded)
-                {
-                    try
-                    {
-                        using var resp = await http.GetAsync(urls[1]).ConfigureAwait(false);
-                        if (resp.IsSuccessStatusCode)
-                        {
-                            var json = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
-                            using var doc = JsonDocument.Parse(json);
-                            if (doc.RootElement.TryGetProperty("images", out var images))
-                            {
-                                foreach (var key in new[] { "logo2x", "logo", "icon", "sidebarIcon2x", "sidebarIcon" })
-                                {
-                                    if (!images.TryGetProperty(key, out var el)) continue;
-                                    var path = el.GetString();
-                                    if (string.IsNullOrWhiteSpace(path)) continue;
-                                    if (path.StartsWith("//", StringComparison.Ordinal))
-                                        path = "https:" + path;
-                                    if (await TryDownloadAnyAsync(http, new[] { path }, dest).ConfigureAwait(false))
-                                    {
-                                        if (IsPortraitCover(dest)) { downloaded = true; break; }
-                                        DiscardIfLandscape(dest);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        AppLog.Debug("GOG cover API fail: " + ex.Message);
-                    }
-                }
-            }
-        }
+        var downloaded = await DownloadGogArtAsync(http, g).ConfigureAwait(false);
 
         // Local folder files
         if (!string.IsNullOrWhiteSpace(g.Path) && Directory.Exists(g.Path))
@@ -943,6 +943,137 @@ public static class CoverArtService
             downloaded = await DownloadEpicPortraitAsync(http, g, requested).ConfigureAwait(false);
 
         return downloaded;
+    }
+
+    /// <summary>
+    /// Library tiles that should get a disk cover. Engine plugins and the
+    /// Add-portable row never go online.
+    /// </summary>
+    public static bool ShouldWarmLibraryCover(GameEntry game)
+    {
+        if (string.Equals(game.Id, "local:add", StringComparison.OrdinalIgnoreCase))
+            return false;
+        if (string.Equals(game.Title, "Add portable game", StringComparison.OrdinalIgnoreCase))
+            return false;
+        if (LooksLikeEngineAsset(game.Title)) return false;
+        return game.Installed || game.IsFavorite || game.CanInstall || game.Owned;
+    }
+
+    /// <summary>Official GOG statics already on the row, never an invented {id}_product_tile URL.</summary>
+    internal static IReadOnlyList<string> GogCoverCandidateUrls(GameEntry g)
+    {
+        var list = new List<string>();
+        var raw = g.CoverUrl;
+        if (string.IsNullOrWhiteSpace(raw)) return list;
+        if (raw.StartsWith("//", StringComparison.Ordinal))
+            raw = "https:" + raw;
+        if (!IsAllowlistedCdnCover(raw)) return list;
+        list.Add(raw);
+        if (raw.EndsWith(".webp", StringComparison.OrdinalIgnoreCase))
+            list.Add(raw[..^5] + ".jpg");
+        return list;
+    }
+
+    /// <summary>GOG Galaxy v2 image hrefs with {formatter} expanded to a tall cover.</summary>
+    internal static IReadOnlyList<string> ParseGogV2CoverUrls(string json)
+    {
+        var urls = new List<string>();
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            if (!doc.RootElement.TryGetProperty("_links", out var links))
+                return urls;
+            foreach (var key in new[] { "boxArtImage", "image" })
+            {
+                if (!links.TryGetProperty(key, out var node)) continue;
+                var href = node.TryGetProperty("href", out var h) ? h.GetString() : null;
+                if (string.IsNullOrWhiteSpace(href)) continue;
+                foreach (var fmt in new[] { "_glx_vertical_cover", "_product_tile_256_2x", "" })
+                {
+                    var url = href.Replace("{formatter}", fmt, StringComparison.Ordinal);
+                    if (url.Contains("{formatter}", StringComparison.Ordinal)) continue;
+                    urls.Add(url);
+                    if (url.EndsWith(".webp", StringComparison.OrdinalIgnoreCase))
+                        urls.Add(url[..^5] + ".jpg");
+                }
+            }
+        }
+        catch
+        {
+            // Malformed payload — caller tries the next source.
+        }
+        return urls;
+    }
+
+    internal static bool IsCoverImageBytes(ReadOnlySpan<byte> bytes)
+    {
+        if (bytes.Length < 3) return false;
+        if (bytes[0] == (byte)'<') return false;
+        if (bytes[0] == 0xFF && bytes[1] == 0xD8) return true;
+        if (bytes.Length >= 4 && bytes[0] == 0x89 && bytes[1] == 0x50) return true;
+        return bytes.Length >= 12 && bytes[0] == (byte)'R' && bytes[8] == (byte)'W';
+    }
+
+    private static async Task<bool> DownloadGogArtAsync(HttpClient http, GameEntry g)
+    {
+        var gogId = GogProductId(g);
+        if (gogId is null) return false;
+
+        var dest = Path.Combine(CacheRoot, "gog_" + gogId + ".jpg");
+        if (IsValidImageFile(dest) && IsPortraitCover(dest))
+            return true;
+        DiscardIfLandscape(dest);
+
+        if (await TryDownloadAnyAsync(http, GogCoverCandidateUrls(g), dest).ConfigureAwait(false))
+        {
+            if (IsPortraitCover(dest)) return true;
+            DiscardIfLandscape(dest);
+        }
+
+        try
+        {
+            using var v2 = await http.GetAsync("https://api.gog.com/v2/games/" + gogId).ConfigureAwait(false);
+            if (v2.IsSuccessStatusCode)
+            {
+                var json = await v2.Content.ReadAsStringAsync().ConfigureAwait(false);
+                if (await TryDownloadAnyAsync(http, ParseGogV2CoverUrls(json), dest).ConfigureAwait(false))
+                {
+                    if (IsPortraitCover(dest)) return true;
+                    DiscardIfLandscape(dest);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            AppLog.Debug("GOG v2 cover fail: " + ex.Message);
+        }
+
+        try
+        {
+            using var resp = await http.GetAsync("https://api.gog.com/products/" + gogId).ConfigureAwait(false);
+            if (!resp.IsSuccessStatusCode) return false;
+            var json = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+            using var doc = JsonDocument.Parse(json);
+            if (!doc.RootElement.TryGetProperty("images", out var images)) return false;
+            foreach (var key in new[] { "logo2x", "logo", "icon", "sidebarIcon2x", "sidebarIcon" })
+            {
+                if (!images.TryGetProperty(key, out var el)) continue;
+                var path = el.GetString();
+                if (string.IsNullOrWhiteSpace(path)) continue;
+                if (path.StartsWith("//", StringComparison.Ordinal))
+                    path = "https:" + path;
+                if (!await TryDownloadAnyAsync(http, new[] { path }, dest).ConfigureAwait(false))
+                    continue;
+                if (IsPortraitCover(dest)) return true;
+                DiscardIfLandscape(dest);
+            }
+        }
+        catch (Exception ex)
+        {
+            AppLog.Debug("GOG cover API fail: " + ex.Message);
+        }
+
+        return false;
     }
 
     /// <summary>
@@ -966,14 +1097,22 @@ public static class CoverArtService
     private static bool ShouldSeekOnlineArt(GameEntry g, bool requested)
     {
         if (LooksLikeEngineAsset(g.Title)) return false;
-        // Installed titles are on the shelf; a search hit was asked for by name.
-        return requested || g.Installed || g.Store == StoreKind.Riot;
+        // Installed / favorite / installable titles, Riot's small catalog, or a
+        // user search hit. Engine assets never reach here.
+        return requested || g.Installed || g.IsFavorite || g.CanInstall || g.Store == StoreKind.Riot;
+    }
+
+    /// <summary>True when a 600×900-class poster is cached (not only a 2x file).</summary>
+    private static bool HasTilePoster(string appId)
+    {
+        var path = Path.Combine(CacheRoot, appId + ".jpg");
+        return IsValidImageFile(path) && IsPortraitCover(path);
     }
 
     /// <summary>True when a real portrait poster is already cached for this app id.</summary>
     private static bool HasPortraitArt(string appId)
     {
-        foreach (var name in new[] { appId + "_2x.jpg", appId + ".jpg" })
+        foreach (var name in new[] { appId + ".jpg", appId + "_2x.jpg" })
         {
             var path = Path.Combine(CacheRoot, name);
             if (IsValidImageFile(path) && IsPortraitCover(path)) return true;
@@ -1114,14 +1253,14 @@ public static class CoverArtService
         PurgeTinyCover(dest);
         PurgeTinyCover(Path.Combine(CacheRoot, "steam_" + appId + ".jpg"));
 
-        if (HasPortraitArt(appId))
+        if (HasTilePoster(appId))
         {
             SyncSlugPortrait(appId, gameId, dest2x, dest);
             return true;
         }
 
         // Instant: Steam client already cached the capsule.
-        if (TryCopyLocalSteamLibraryCapsule(appId, dest2x, dest) && HasPortraitArt(appId))
+        if (TryCopyLocalSteamLibraryCapsule(appId, dest2x, dest) && HasTilePoster(appId))
         {
             SyncSlugPortrait(appId, gameId, dest2x, dest);
             return true;
@@ -1130,11 +1269,11 @@ public static class CoverArtService
         var ok = false;
 
         // Newer apps: hashed library_capsule first (classic library_600x900 often 404s).
-        // Race one classic 2x URL in parallel so older apps stay fast.
+        // Race one classic 1x URL in parallel so older apps stay fast without 2x RAM.
         var classicFirst = string.Format(SteamPosterTemplates[0], appId);
-        var classicTask = IsHighResPoster(dest2x)
+        var classicTask = IsValidImageFile(dest) && IsPortraitCover(dest)
             ? Task.FromResult(true)
-            : TryDownloadAnyAsync(http, new[] { classicFirst }, dest2x);
+            : TryDownloadAnyAsync(http, new[] { classicFirst }, dest);
         var capsuleTask = DownloadSteamLibraryCapsuleAsync(http, appId, dest2x, dest);
         await Task.WhenAll(classicTask, capsuleTask).ConfigureAwait(false);
         ok = await classicTask.ConfigureAwait(false) | await capsuleTask.ConfigureAwait(false);
@@ -1498,10 +1637,10 @@ public static class CoverArtService
 
     private static string CleanSearchTitle(string title)
     {
-        var searchTitle = title
+        var searchTitle = SplitCamelTitle(title
             .Replace("™", "", StringComparison.Ordinal)
             .Replace("®", "", StringComparison.Ordinal)
-            .Replace("©", "", StringComparison.Ordinal);
+            .Replace("©", "", StringComparison.Ordinal));
         foreach (var junk in new[]
                  {
                      " - Deluxe Edition", " Deluxe Edition", " - Ultimate Edition", " Ultimate Edition",
@@ -1515,6 +1654,20 @@ public static class CoverArtService
             if (idx > 0) searchTitle = searchTitle[..idx].Trim();
         }
         return searchTitle.Trim();
+    }
+
+    /// <summary>Xbox folder names like HaloInfinite still search as Halo Infinite.</summary>
+    private static string SplitCamelTitle(string title)
+    {
+        if (string.IsNullOrEmpty(title)) return title;
+        var chars = new List<char>(title.Length + 4);
+        for (var i = 0; i < title.Length; i++)
+        {
+            if (i > 0 && char.IsUpper(title[i]) && char.IsLower(title[i - 1]))
+                chars.Add(' ');
+            chars.Add(title[i]);
+        }
+        return new string(chars.ToArray());
     }
 
     private delegate void ScoreSink(string appId, int score);
@@ -1630,10 +1783,13 @@ public static class CoverArtService
         catch { return false; }
     }
 
-    private static int ScoreTitleMatch(string want, string got)
+    internal static int ScoreTitleMatch(string want, string got)
     {
         if (string.IsNullOrEmpty(want) || string.IsNullOrEmpty(got)) return 0;
         if (want == got) return 100;
+        var compactWant = want.Replace(" ", "", StringComparison.Ordinal);
+        var compactGot = got.Replace(" ", "", StringComparison.Ordinal);
+        if (compactWant.Length >= 8 && compactWant == compactGot) return 100;
         // Prefix only when both sides are long enough — "war"≠"warhammer".
         var minLen = Math.Min(want.Length, got.Length);
         if (minLen >= 10 &&
@@ -1672,10 +1828,7 @@ public static class CoverArtService
                 if (!resp.IsSuccessStatusCode) continue;
                 var bytes = await resp.Content.ReadAsByteArrayAsync().ConfigureAwait(false);
                 if (bytes.Length < MinCoverBytes || bytes.Length > 8 * 1024 * 1024) continue;
-                if (bytes[0] == (byte)'<') continue;
-                var okJpeg = bytes[0] == 0xFF && bytes[1] == 0xD8;
-                var okPng = bytes[0] == 0x89 && bytes[1] == 0x50;
-                if (!okJpeg && !okPng) continue;
+                if (!IsCoverImageBytes(bytes)) continue;
                 Directory.CreateDirectory(Path.GetDirectoryName(dest)!);
                 await File.WriteAllBytesAsync(dest, bytes).ConfigureAwait(false);
                 return true;
@@ -1694,16 +1847,20 @@ public static class CoverArtService
         return new string(chars);
     }
 
-    private static string? CoverSourceFor(GameEntry g) =>
-        g.Store switch
+    private static string? CoverSourceFor(GameEntry g)
+    {
+        if (SteamAppId(g) is not null || MappedSteamAppId(g) is not null)
+            return "steam";
+        return g.Store switch
         {
             StoreKind.Steam => "steam",
             StoreKind.Epic => "epic",
             StoreKind.Gog => "gog",
             StoreKind.Riot => "riot",
             StoreKind.Local => "local",
-            _ => null,
+            _ => g.CoverSource,
         };
+    }
 
     private static GameEntry CloneWithCover(
         GameEntry g,

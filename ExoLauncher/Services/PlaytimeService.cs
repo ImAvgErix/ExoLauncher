@@ -654,6 +654,9 @@ public static class PlaytimeService
         LaunchTarget = g.LaunchTarget,
         LastPlayedUtc = last,
         IsFavorite = g.IsFavorite,
+        CanonicalTitleKey = g.CanonicalTitleKey,
+        SelectedVariantId = g.SelectedVariantId,
+        Variants = g.Variants,
     };
 }
 

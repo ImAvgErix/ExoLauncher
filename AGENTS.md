@@ -29,14 +29,14 @@ Same family as **Exo** and **ExoOS**. Same quiet voice. Same honesty bar.
 
 ## UI non-negotiables
 
-- Fixed **1400×900** AMOLED shell
+- Default **1400×900** AMOLED shell (resizable, maximizable, minimum 1100×700)
 - Primary action is **Play | Install | Update** (one pill)
 - Install progress lives in Exo (percent, speed if known, cancel)
-- Library = cover + title + store dot; detail = CTA + 3 facts + launch note
+- Library = cover + title + store name; detail = CTA + facts + launch note
 
 ## Bridge methods (keep UI strings in sync)
 
-`library.get`, `library.refresh`, `game.get`, `game.launch`, `game.install`, `game.update`, `game.cancelInstall`, `game.progress`, `deps.list`, `deps.offerInstall`, `stores.matrix`, `settings.get`, `settings.set`, `shell.minimize`, `shell.close`, `shell.openUrl`, `shell.pickFolder`, `app.version`
+`library.get`, `library.refresh`, `game.get`, `game.launch`, `game.install`, `game.update`, `game.cancelInstall`, `game.progress`, `deps.list`, `deps.offerInstall`, `stores.matrix`, `settings.get`, `settings.set`, `shell.minimize`, `shell.maximize`, `shell.windowState`, `shell.close`, `shell.openUrl`, `shell.pickFolder`, `app.version`
 
 ## Day-to-day
 

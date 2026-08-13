@@ -68,20 +68,15 @@ public sealed class SteamLibraryCacheAchievementProvider : IAchievementProvider
             return Unavailable(sourceGameId, "No unambiguous active Steam account was found.");
 
         var coverageKey = AchievementCoverageKeys.FromAccount("steam", accountId);
-        var cachePath = Path.Combine(
-            root,
-            "userdata",
-            accountId,
-            "config",
-            "librarycache",
-            sourceGameId + ".json");
+        // Active Steam account only. Another userdata folder is a different person.
+        var cachePath = FindSteamLibraryCachePath(root, accountId, sourceGameId);
         AchievementSnapshot local;
         try
         {
-            var info = new FileInfo(cachePath);
-            if (!info.Exists)
+            if (cachePath is null)
                 return Unavailable(sourceGameId,
                     "Steam has not provided current local achievement progress for this game.", coverageKey);
+            var info = new FileInfo(cachePath);
             if (info.Length is <= 0 or > MaxPayloadBytes)
                 return Unavailable(sourceGameId,
                     "Steam has not provided current local achievement progress for this game.", coverageKey);
@@ -98,12 +93,6 @@ public sealed class SteamLibraryCacheAchievementProvider : IAchievementProvider
             if (json.Length > MaxPayloadBytes)
                 return Unavailable(sourceGameId,
                     "Steam has not provided current local achievement progress for this game.", coverageKey);
-            // Steam can switch the active account while the cache is being
-            // read. Do not show or persist an otherwise valid snapshot from
-            // the account that was active at the start of this refresh.
-            if (!IsCurrentAccount(root, accountId))
-                return Unavailable(sourceGameId,
-                    "Steam account changed during achievement refresh.");
             local = ParseSnapshotJson(json, sourceGameId, coverageKey, DateTimeOffset.UtcNow);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -116,12 +105,14 @@ public sealed class SteamLibraryCacheAchievementProvider : IAchievementProvider
                 "Steam has not provided current local achievement progress for this game.", coverageKey);
         }
 
+        if (!IsCurrentAccount(root, accountId))
+            return Unavailable(sourceGameId,
+                "Steam account changed during achievement refresh.");
+
         if (!IsUncorroboratedLocalZero(local)) return local;
 
         var catalogStatus = await GetStoreCatalogStatusAsync(sourceGameId, cancellationToken)
             .ConfigureAwait(false);
-        // The Store catalog request can take several seconds, so check again
-        // before promoting a local 0 / 0 result to a real account summary.
         if (!IsCurrentAccount(root, accountId))
             return Unavailable(sourceGameId,
                 "Steam account changed during achievement refresh.");
@@ -134,15 +125,23 @@ public sealed class SteamLibraryCacheAchievementProvider : IAchievementProvider
                                AchievementProviderCapabilities.CompleteCatalog,
                 Message = "Steam's local cache and Store catalog report no achievements for this game.",
             },
-            SteamStoreAchievementCatalogStatus.NonZero => Unavailable(
-                sourceGameId,
-                "Steam's local 0 / 0 cache conflicts with the Store achievement catalog.",
-                coverageKey),
-            _ => Unavailable(
-                sourceGameId,
-                "Steam could not corroborate the local 0 / 0 achievement cache.",
-                coverageKey),
+            // Keep Unavailable so the detail rail can retain last-good counts
+            // instead of painting a fabricated 0 / 0 row.
+            _ => Unavailable(sourceGameId,
+                "Steam local achievement cache is still catching up.", coverageKey),
         };
+    }
+
+    /// <summary>Active Steam account librarycache only.</summary>
+    private static string? FindSteamLibraryCachePath(string steamRoot, string preferredAccountId, string appId)
+    {
+        try
+        {
+            var preferred = Path.Combine(
+                steamRoot, "userdata", preferredAccountId, "config", "librarycache", appId + ".json");
+            return File.Exists(preferred) ? preferred : null;
+        }
+        catch { return null; }
     }
 
     internal static AchievementSnapshot ParseSnapshotJson(

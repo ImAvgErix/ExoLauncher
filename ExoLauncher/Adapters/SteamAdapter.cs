@@ -45,6 +45,9 @@ public sealed class SteamAdapter : IStoreAdapter, IInstalledSteamManifestSource,
         if (steamRoot is null)
             return Task.FromResult<IReadOnlyList<GameEntry>>(games);
         var activeAccount = SteamPlaytime.LoadActiveAccount(steamRoot);
+        var cacheDir = SteamPlaytime.TryGetLibraryCacheDirectory(steamRoot);
+        var appNames = SteamAppInfoNames.Load(Path.Combine(steamRoot, "appcache", "appinfo.vdf"));
+        var presentAppIds = new HashSet<string>(StringComparer.Ordinal);
 
         foreach (var lib in CollectLibraryFolders(steamRoot))
         {
@@ -64,7 +67,7 @@ public sealed class SteamAdapter : IStoreAdapter, IInstalledSteamManifestSource,
                     var path = string.IsNullOrWhiteSpace(installDir)
                         ? null
                         : Path.Combine(steamApps, "common", installDir);
-                    var installed = path is not null && Directory.Exists(path);
+                    var pathExists = path is not null && Directory.Exists(path);
 
                     // Hide tools / redistributables / non-games (Steamworks Common, SDKs, …).
                     if (IsNonGameSteamEntry(appId, name, installDir))
@@ -72,17 +75,31 @@ public sealed class SteamAdapter : IStoreAdapter, IInstalledSteamManifestSource,
 
                     // StateFlags is a bitfield — do not compare to the string "4".
                     var stateFlags = SteamProtocol.MatchAcfField(text, "StateFlags");
-                    var updateAvailable = SteamStateFlags.IsUpdateAvailable(stateFlags, installed);
+                    var installed = SteamStateFlags.IsInstalledPresence(pathExists, stateFlags);
+                    long? bytesToDownload = null;
+                    long? bytesDownloaded = null;
+                    if (long.TryParse(SteamProtocol.MatchAcfField(text, "BytesToDownload"), out var btd) && btd > 0)
+                        bytesToDownload = btd;
+                    if (long.TryParse(SteamProtocol.MatchAcfField(text, "BytesDownloaded"), out var bd) && bd >= 0)
+                        bytesDownloaded = bd;
+                    var buildId = SteamProtocol.MatchAcfField(text, "buildid");
+                    var targetBuildId = SteamProtocol.MatchAcfField(text, "TargetBuildID");
+                    var updateAvailable = SteamStateFlags.IsUpdateAvailable(
+                        stateFlags, installed, bytesToDownload, bytesDownloaded) ||
+                        SteamStateFlags.HasPendingTargetBuild(buildId, targetBuildId);
                     var play = activeAccount is not null &&
                                activeAccount.Entries.TryGetValue(appId, out var accountPlay)
                         ? accountPlay
                         : (SteamPlaytime.Entry?)null;
-                    // An appmanifest proves that the title is installed on this
-                    // machine, not that the currently active Steam account owns
-                    // it. A current app ticket is positive account evidence;
-                    // missing tickets remain unknown rather than false.
-                    var ownedByActiveAccount = activeAccount?.AppTicketIds.Contains(appId) == true;
+                    // Tickets are incomplete. localconfig Apps + librarycache are
+                    // also positive evidence for the active account. Missing
+                    // evidence stays unknown rather than false.
+                    var ownedByActiveAccount =
+                        activeAccount?.AppTicketIds.Contains(appId) == true ||
+                        activeAccount?.Entries.ContainsKey(appId) == true ||
+                        SteamAccountLibrary.HasCache(cacheDir, appId);
 
+                    presentAppIds.Add(appId);
                     games.Add(new GameEntry
                     {
                         Id = "steam:" + appId,
@@ -106,6 +123,14 @@ public sealed class SteamAdapter : IStoreAdapter, IInstalledSteamManifestSource,
                 }
                 catch { /* skip corrupt manifests */ }
             }
+        }
+
+        foreach (var extra in SteamAccountLibrary.UninstalledOwnedGames(
+                     SteamAccountLibrary.ListCacheAppIds(cacheDir), presentAppIds, appNames))
+        {
+            if (IsNonGameSteamEntry(extra.LaunchTarget ?? "", extra.Title, null))
+                continue;
+            games.Add(extra);
         }
 
         return Task.FromResult<IReadOnlyList<GameEntry>>(games);
@@ -176,79 +201,60 @@ public sealed class SteamAdapter : IStoreAdapter, IInstalledSteamManifestSource,
         if (steamExe is null)
             return new InstallResult { Ok = false, Message = "Steam is not installed." };
 
-        Report(game.Id, progress, InstallPhase.Preparing, 5, "Starting Steam…");
+        Report(game.Id, progress, InstallPhase.Preparing, null, "Starting Steam…");
 
-        // Exo Install click = consent. Auto-accept Steam's confirm dialog, then hide chrome.
-        using var dialogBot = new SteamInstallDialogAutomator();
-        StoreWindowHider? hider = null;
+        using var hider = StoreWindowHider.ForSteam();
 
         try
         {
+            hider.Start(TimeSpan.FromMinutes(90), restoreOnStop: false);
             if (!ProcessHelper.IsProcessRunning("steam"))
             {
-                ProcessHelper.StartHidden(steamExe, "-silent -nofriendsui -nochatui");
-                await Task.Delay(2800, ct).ConfigureAwait(false);
+                ProcessHelper.StartHidden(
+                    steamExe,
+                    SteamUpdateCommandPlan.HiddenClientStartArguments());
+                await WaitForSteamCommandListenerAsync(ct).ConfigureAwait(false);
             }
 
-            // Keep Steam briefly visible so the install dialog can appear, then auto-accept it.
-            dialogBot.Start(TimeSpan.FromSeconds(45));
-            RequestSteamInstall(steamExe, appId);
-            Report(game.Id, progress, InstallPhase.Downloading, 12,
+            Report(game.Id, progress, InstallPhase.Downloading, null,
                 "Starting Steam install…");
+            if (await CommandSteamIpcAsync("install", appId, ct).ConfigureAwait(false) != SteamIpcStatus.Ok)
+                NudgeSteamUpdate(steamExe, game, appId);
 
             var start = DateTimeOffset.UtcNow;
             var sawManifest = false;
-            var chromeHidden = false;
-            var manualNoted = false;
+            var nextIpc = start.AddSeconds(20);
             long lastSize = 0;
             var stableTicks = 0;
+            var steamRoot = ResolveSteamRoot();
+            var baseline = ReadAppManifestSnapshot(appId);
 
             while (!ct.IsCancellationRequested)
             {
                 var elapsed = (DateTimeOffset.UtcNow - start).TotalSeconds;
-
-                if (dialogBot.NeedsManualAction && !manualNoted)
-                {
-                    manualNoted = true;
-                    Report(game.Id, progress, InstallPhase.Downloading,
-                        Math.Min(30, 8 + elapsed / 8),
-                        dialogBot.ManualReason ?? "Steam needs a one-time choice…");
-                }
-
                 var hit = FindInstalled(appId);
                 var snap = ReadAppManifestSnapshot(appId);
-                if (hit is not null || snap.StateFlags is not null)
+                var transfer = ReadTransfer(appId, steamRoot, snap, baseline);
+                if (hit is not null || snap.StateFlags is not null || transfer.ToDownload is not null)
                     sawManifest = true;
 
-                // Hide only once Steam is actually downloading — early hide stalls installs.
-                var bytesMoving = snap.BytesToDownload is > 0
-                    && snap.BytesDownloaded is long bd && bd > 0;
-                if (!chromeHidden && (bytesMoving || (dialogBot.ClickedInstall && elapsed > 45)))
-                {
-                    chromeHidden = true;
-                    try
-                    {
-                        dialogBot.Stop();
-                        hider = StoreWindowHider.ForSteam();
-                        hider.Start(TimeSpan.FromSeconds(45));
-                    }
-                    catch { /* */ }
-                }
+                var liveBytes = transfer.ToDownload is > 0 &&
+                                transfer.Downloaded is not null &&
+                                transfer.Percent is > 0;
+                var size = hit is not null ? TryDirSize(hit.Value.Path) : 0L;
+                var status = liveBytes
+                    ? $"Downloading {game.Title}… ({FormatBytes(transfer.Downloaded ?? 0)} / {FormatBytes(transfer.ToDownload!.Value)})"
+                    : transfer.ToDownload is > 0 || snap.StateFlags is not null
+                        ? $"Downloading {game.Title}…"
+                        : size > 0
+                            ? $"Downloading {game.Title}… ({FormatBytes(size)})"
+                            : sawManifest
+                                ? $"Installing {game.Title}…"
+                                : "Starting Steam install…";
+                Report(game.Id, progress, InstallPhase.Installing, transfer.Percent, status);
 
                 if (hit is not null)
                 {
-                    var size = TryDirSize(hit.Value.Path);
-                    double pct;
-                    if (snap.BytesToDownload is > 0 && snap.BytesDownloaded is long done)
-                        pct = Math.Clamp(15 + done * 80.0 / snap.BytesToDownload.Value, 15, 98);
-                    else
-                        pct = size > 0 ? Math.Min(95, 20 + Math.Log10(size + 1) * 8) : 25;
-
-                    Report(game.Id, progress, InstallPhase.Installing, pct,
-                        size > 0
-                            ? $"Downloading {game.Title}… ({FormatBytes(size)})"
-                            : $"Installing {game.Title}…");
-
                     var ready = SteamStateFlags.IsFullyInstalled(snap.StateFlags) &&
                                 !SteamStateFlags.IsBusy(snap.StateFlags, snap.BytesToDownload, snap.BytesDownloaded);
                     if (ready && size > 5 * 1024 * 1024)
@@ -273,22 +279,13 @@ public sealed class SteamAdapter : IStoreAdapter, IInstalledSteamManifestSource,
                         lastSize = size;
                     }
                 }
-                else
-                {
-                    var waitMsg = dialogBot.NeedsManualAction
-                        ? (dialogBot.ManualReason ?? "Steam needs a one-time choice…")
-                        : sawManifest
-                            ? "Steam is preparing the download…"
-                            : dialogBot.ClickedInstall
-                                ? "Steam accepted — preparing download…"
-                                : "Starting Steam install…";
-                    Report(game.Id, progress, InstallPhase.Downloading,
-                        Math.Min(30, 8 + elapsed / 8), waitMsg);
-                }
 
-                // Re-nudge once if nothing appeared after 20s
-                if (!sawManifest && elapsed is > 20 and < 23)
-                    RequestSteamInstall(steamExe, appId);
+                if (!sawManifest && DateTimeOffset.UtcNow >= nextIpc)
+                {
+                    if (await CommandSteamIpcAsync("install", appId, ct).ConfigureAwait(false) != SteamIpcStatus.Ok)
+                        NudgeSteamUpdate(steamExe, game, appId);
+                    nextIpc = DateTimeOffset.UtcNow.AddSeconds(20);
+                }
 
                 if (elapsed > 120 * 60)
                 {
@@ -296,7 +293,7 @@ public sealed class SteamAdapter : IStoreAdapter, IInstalledSteamManifestSource,
                     return new InstallResult { Ok = false, Message = "Steam install timed out." };
                 }
 
-                await Task.Delay(2000, ct).ConfigureAwait(false);
+                await Task.Delay(400, ct).ConfigureAwait(false);
             }
 
             const string cancelled = "Exo stopped watching. Steam may continue downloading.";
@@ -314,37 +311,11 @@ public sealed class SteamAdapter : IStoreAdapter, IInstalledSteamManifestSource,
             Report(game.Id, progress, InstallPhase.Failed, null, ex.Message);
             return new InstallResult { Ok = false, Message = ex.Message };
         }
-        finally
-        {
-            try { hider?.Dispose(); } catch { /* */ }
-        }
-    }
-
-    /// <summary>Fire one Steam install protocol request.</summary>
-    private static void RequestSteamInstall(string steamExe, string appId)
-    {
-        try
-        {
-            // Starting both a protocol and steam.exe created duplicate clients
-            // and duplicate install dialogs.
-            ProcessHelper.StartProtocol(SteamProtocol.InstallUri(appId));
-        }
-        catch
-        {
-            try
-            {
-                ProcessHelper.StartHidden(
-                    steamExe,
-                    ["-silent", "-nofriendsui", "-nochatui", SteamProtocol.InstallUri(appId)]);
-            }
-            catch { /* */ }
-        }
     }
 
     /// <summary>
-    /// Re-send the exact selected app's install/update request. A scheduled
-    /// installed title may still need the separately target-verified Downloads
-    /// row promotion below.
+    /// Re-send the exact selected app's install/update request as a fallback
+    /// if Steam IPC is missing or this client interface is too new.
     /// </summary>
     private static void NudgeSteamUpdate(string steamExe, GameEntry game, string appId)
     {
@@ -360,9 +331,30 @@ public sealed class SteamAdapter : IStoreAdapter, IInstalledSteamManifestSource,
             catch (Exception ex)
             {
                 AppLog.Debug($"Steam update request failed for gameId={game.Id}; appId={appId}: {ex.Message}");
-                // Keep polling; a later exact request may reach a client that is still starting.
             }
         }
+    }
+
+    private static async Task<SteamIpcStatus> CommandSteamIpcAsync(
+        string action,
+        string appId,
+        CancellationToken ct,
+        bool retryCommandFailure = true)
+    {
+        var installDir = FindInstalled(appId)?.Path;
+        var last = SteamIpcStatus.Unavailable;
+        for (var attempt = 0; attempt < 4; attempt++)
+        {
+            ct.ThrowIfCancellationRequested();
+            last = SteamClientIpc.Command(action, appId, installDir);
+            if (last == SteamIpcStatus.Ok)
+                return last;
+            if (last == SteamIpcStatus.CommandFailed && !retryCommandFailure)
+                return last;
+            await Task.Delay(1500, ct).ConfigureAwait(false);
+        }
+
+        return last;
     }
 
     private static async Task WaitForSteamCommandListenerAsync(CancellationToken ct)
@@ -399,7 +391,7 @@ public sealed class SteamAdapter : IStoreAdapter, IInstalledSteamManifestSource,
             // Arm suppression before starting or messaging Steam so protocol
             // handling cannot flash or foreground the store window.
             hider.Start(TimeSpan.FromMinutes(90));
-            Report(game.Id, progress, InstallPhase.Preparing, 3, "Starting Steam…");
+            Report(game.Id, progress, InstallPhase.Preparing, null, "Starting Steam…");
             if (!ProcessHelper.IsProcessRunning("steam"))
             {
                 ProcessHelper.StartHidden(
@@ -420,48 +412,25 @@ public sealed class SteamAdapter : IStoreAdapter, IInstalledSteamManifestSource,
 
             var queuedAtStart = initial.BytesToDownload is > 0
                 && (initial.BytesDownloaded is null or 0);
-            var neededAtStart = SteamStateFlags.IsUpdateAvailable(initial.StateFlags, installed: true)
-                || queuedAtStart;
+            var neededAtStart = SnapshotNeedsUpdate(initial) || queuedAtStart;
 
-            Report(game.Id, progress, InstallPhase.Downloading, 8, "Starting Steam update…");
+            Report(game.Id, progress, InstallPhase.Downloading, null, "Starting Steam update…");
 
-            NudgeSteamUpdate(steamExe, game, appId);
-
-            // steam://install/<appid> reaches Steam but does not promote an
-            // already-installed scheduled update. If this exact app remains
-            // queued at zero bytes, open Downloads only while hidden and click
-            // only the OCR-verified exact-title row. No first/global-button fallback.
             if (queuedAtStart)
-            {
-                await Task.Delay(900, ct).ConfigureAwait(false);
-                if (IsQueuedForTargetedPromotion(ReadAppManifestSnapshot(appId)))
-                {
-                    Report(game.Id, progress, InstallPhase.Downloading, 9,
-                        $"Starting {game.Title}'s scheduled Steam update…");
-                    var promotion = await SteamTargetedQueuePromotionAutomator.PromoteAsync(
-                        steamExe,
-                        appId,
-                        initial.Name,
-                        () => IsQueuedForTargetedPromotion(ReadAppManifestSnapshot(appId)),
-                        TimeSpan.FromSeconds(15),
-                        ct).ConfigureAwait(false);
-                    if (!promotion.Clicked)
-                    {
-                        var message =
-                            $"Steam kept {game.Title} scheduled because Exo could not safely verify its exact " +
-                            "Download Manager row. Open Steam Downloads and start that game once.";
-                        Report(game.Id, progress, InstallPhase.Failed, null, message);
-                        return new InstallResult { Ok = false, Message = message };
-                    }
-                }
-            }
+                ReleaseScheduledSteamUpdate(appId, game.Title);
 
+            if (await CommandSteamIpcAsync("update", appId, ct).ConfigureAwait(false) != SteamIpcStatus.Ok)
+                NudgeSteamUpdate(steamExe, game, appId);
+
+            var steamRoot = ResolveSteamRoot();
             var start = DateTimeOffset.UtcNow;
             var nextNudge = start.AddSeconds(8);
+            var nextIpc = start.AddSeconds(20);
+            var queuedStallDeadline = start.AddSeconds(120);
             var sawDownloadProgress = false;
             var sawBusy = false;
             var sawTargetManifestChange = false;
-            var lastPct = 8.0;
+            double? lastPct = null;
             var readyStreak = 0;
             long lastDownloaded = -1;
 
@@ -470,7 +439,7 @@ public sealed class SteamAdapter : IStoreAdapter, IInstalledSteamManifestSource,
                 var snap = ReadAppManifestSnapshot(appId);
                 var flags = snap.StateFlags ?? "";
                 var busy = SteamStateFlags.IsBusy(flags, snap.BytesToDownload, snap.BytesDownloaded);
-                var updateNeeded = SteamStateFlags.IsUpdateAvailable(flags, installed: true);
+                var updateNeeded = SnapshotNeedsUpdate(snap);
                 var queuedNoProgress = snap.BytesToDownload is > 0
                     && (snap.BytesDownloaded is null or 0);
 
@@ -479,7 +448,12 @@ public sealed class SteamAdapter : IStoreAdapter, IInstalledSteamManifestSource,
 
                 if (busy) sawBusy = true;
 
-                if (snap.BytesDownloaded is long d && d > 0 && d > lastDownloaded)
+                var transfer = ReadTransfer(appId, steamRoot, snap, initial);
+                var transferPct = transfer.Percent;
+
+                if (transferPct is > 0 and < 100 &&
+                    transfer.Downloaded is long d &&
+                    d > lastDownloaded)
                 {
                     sawDownloadProgress = true;
                     lastDownloaded = d;
@@ -488,27 +462,44 @@ public sealed class SteamAdapter : IStoreAdapter, IInstalledSteamManifestSource,
                 // Steam retains the final byte totals after returning to StateFlags=4.
                 // Only render byte progress while the manifest is still busy; otherwise
                 // this branch would mask the ready state forever after a successful update.
-                if (busy && snap.BytesToDownload is > 0 && snap.BytesDownloaded is long done && done > 0)
+                if (busy && (snap.BytesToDownload is > 0 || transferPct is not null))
                 {
-                    var pct = Math.Clamp(10 + (done * 85.0 / snap.BytesToDownload.Value), 10, 95);
-                    lastPct = pct;
-                    var mb = done / (1024.0 * 1024.0);
-                    var totalMb = snap.BytesToDownload.Value / (1024.0 * 1024.0);
-                    Report(game.Id, progress, InstallPhase.Downloading, pct,
-                        $"Updating… {mb:0.0} / {totalMb:0.0} MB");
+                    if (transferPct is double pct)
+                        lastPct = pct;
+                    var to = transfer.ToDownload ?? snap.BytesToDownload;
+                    var done = transfer.Downloaded ?? snap.BytesDownloaded ?? 0;
+                    var liveBytes = transferPct is not null && to is > 0 && done <= to.Value;
+                    Report(game.Id, progress, InstallPhase.Downloading, transferPct ?? lastPct,
+                        liveBytes
+                            ? $"Updating… {FormatBytes(done)} / {FormatBytes(to!.Value)}"
+                            : "Steam is applying the update…");
                     readyStreak = 0;
                 }
                 else if (queuedNoProgress || (updateNeeded && !sawDownloadProgress))
                 {
                     readyStreak = 0;
-                    lastPct = Math.Min(18, lastPct + 0.15);
-                    Report(game.Id, progress, InstallPhase.Downloading, lastPct,
+                    if (transferPct is double pct)
+                        lastPct = pct;
+                    Report(game.Id, progress, InstallPhase.Downloading, transferPct,
                         "Requesting this game's queued Steam update…");
+
+                    if (!sawDownloadProgress && !sawBusy && DateTimeOffset.UtcNow >= queuedStallDeadline)
+                    {
+                        const string stalled =
+                            "Steam did not start this game's update.";
+                        Report(game.Id, progress, InstallPhase.Failed, lastPct, stalled);
+                        return new InstallResult { Ok = false, Message = stalled };
+                    }
+
+                    if (DateTimeOffset.UtcNow >= nextIpc &&
+                        IsQueuedForTargetedPromotion(snap))
+                    {
+                        _ = await CommandSteamIpcAsync("update", appId, ct).ConfigureAwait(false);
+                        nextIpc = DateTimeOffset.UtcNow.AddSeconds(20);
+                    }
 
                     if (DateTimeOffset.UtcNow >= nextNudge)
                     {
-                        // Keep re-requesting only the selected app until its own
-                        // manifest changes or bytes move.
                         NudgeSteamUpdate(steamExe, game, appId);
                         nextNudge = DateTimeOffset.UtcNow.AddSeconds(12);
                     }
@@ -516,7 +507,6 @@ public sealed class SteamAdapter : IStoreAdapter, IInstalledSteamManifestSource,
                 else if (busy)
                 {
                     readyStreak = 0;
-                    lastPct = Math.Min(90, lastPct + 0.4);
                     Report(game.Id, progress, InstallPhase.Downloading, lastPct,
                         "Steam is applying the update…");
                 }
@@ -544,7 +534,6 @@ public sealed class SteamAdapter : IStoreAdapter, IInstalledSteamManifestSource,
                 else
                 {
                     readyStreak = 0;
-                    lastPct = Math.Min(40, lastPct + 0.2);
                     Report(game.Id, progress, InstallPhase.Downloading, lastPct,
                         "Waiting for Steam to start this game's update…");
                 }
@@ -560,7 +549,7 @@ public sealed class SteamAdapter : IStoreAdapter, IInstalledSteamManifestSource,
                     };
                 }
 
-                await Task.Delay(2000, ct).ConfigureAwait(false);
+                await Task.Delay(400, ct).ConfigureAwait(false);
             }
 
             const string cancelled = "Exo stopped watching. Steam may continue downloading.";
@@ -584,43 +573,95 @@ public sealed class SteamAdapter : IStoreAdapter, IInstalledSteamManifestSource,
         string? Name,
         string? StateFlags,
         long? BytesToDownload,
-        long? BytesDownloaded);
+        long? BytesDownloaded,
+        long? BytesToStage,
+        long? BytesStaged,
+        string? BuildId,
+        string? TargetBuildId);
 
-    private static bool IsQueuedForTargetedPromotion(AppManifestSnapshot snapshot)
+    private static void ReleaseScheduledSteamUpdate(string appId, string exactTitle)
+    {
+        var path = FindAppManifestPath(appId);
+        if (path is null || !File.Exists(path))
+            return;
+
+        try
+        {
+            var text = File.ReadAllText(path);
+            if (!SteamAppManifestSchedule.TryClearScheduledAutoUpdate(text, appId, exactTitle, out var updated))
+                return;
+
+            File.WriteAllText(path, updated);
+            AppLog.Info($"Steam scheduled update released: appId={appId}.");
+        }
+        catch (Exception ex)
+        {
+            AppLog.Debug($"Steam schedule release skipped for appId={appId}: {ex.Message}");
+        }
+    }
+
+    private static bool SnapshotNeedsUpdate(AppManifestSnapshot snapshot)
     {
         var flags = snapshot.StateFlags ?? "";
-        return snapshot.BytesToDownload is > 0 &&
-               snapshot.BytesDownloaded is null or 0 &&
-               SteamStateFlags.IsUpdateAvailable(flags, installed: true) &&
-               !SteamStateFlags.IsBusy(flags, snapshot.BytesToDownload, snapshot.BytesDownloaded);
+        return SteamStateFlags.IsUpdateAvailable(flags, installed: true, snapshot.BytesToDownload, snapshot.BytesDownloaded) ||
+               SteamStateFlags.HasPendingTargetBuild(snapshot.BuildId, snapshot.TargetBuildId);
     }
+
+    private static bool IsQueuedForTargetedPromotion(AppManifestSnapshot snapshot) =>
+        SteamStateFlags.IsQueuedForTargetedPromotion(
+            snapshot.StateFlags,
+            snapshot.BytesToDownload,
+            snapshot.BytesDownloaded,
+            snapshot.BuildId,
+            snapshot.TargetBuildId);
 
     private static AppManifestSnapshot ReadAppManifestSnapshot(string appId)
     {
         var path = FindAppManifestPath(appId);
         if (path is null || !File.Exists(path))
-            return new AppManifestSnapshot(null, null, null, null);
+            return new AppManifestSnapshot(null, null, null, null, null, null, null, null);
         try
         {
             var text = File.ReadAllText(path);
             var name = SteamProtocol.MatchAcfField(text, "name");
             var flags = SteamProtocol.MatchAcfField(text, "StateFlags");
-            long? to = null, done = null;
+            long? to = null, done = null, toStage = null, staged = null;
             if (long.TryParse(SteamProtocol.MatchAcfField(text, "BytesToDownload"), out var btd))
                 to = btd;
             if (long.TryParse(SteamProtocol.MatchAcfField(text, "BytesDownloaded"), out var bd))
                 done = bd;
-            // Also common during staged updates
-            if (to is null or 0 && long.TryParse(SteamProtocol.MatchAcfField(text, "BytesToStage"), out var bts) && bts > 0)
-                to = bts;
-            if (done is null && long.TryParse(SteamProtocol.MatchAcfField(text, "BytesStaged"), out var bs))
-                done = bs;
-            return new AppManifestSnapshot(name, flags, to, done);
+            if (long.TryParse(SteamProtocol.MatchAcfField(text, "BytesToStage"), out var bts))
+                toStage = bts;
+            if (long.TryParse(SteamProtocol.MatchAcfField(text, "BytesStaged"), out var bs))
+                staged = bs;
+            var buildId = SteamProtocol.MatchAcfField(text, "buildid");
+            var targetBuildId = SteamProtocol.MatchAcfField(text, "TargetBuildID");
+            return new AppManifestSnapshot(name, flags, to, done, toStage, staged, buildId, targetBuildId);
         }
         catch
         {
-            return new AppManifestSnapshot(null, null, null, null);
+            return new AppManifestSnapshot(null, null, null, null, null, null, null, null);
         }
+    }
+
+    private static SteamTransferProgress.Sample ReadTransfer(
+        string appId,
+        string? steamRoot,
+        AppManifestSnapshot snap,
+        AppManifestSnapshot baseline)
+    {
+        var busy = SteamStateFlags.IsBusy(
+            snap.StateFlags, snap.BytesToDownload, snap.BytesDownloaded);
+        return SteamTransferProgress.Resolve(
+            snap.BytesDownloaded,
+            snap.BytesToDownload,
+            snap.BytesStaged,
+            snap.BytesToStage,
+            busy,
+            baseline.BytesDownloaded,
+            baseline.BytesToDownload,
+            SteamContentLogProgress.TryReadLatest(steamRoot, appId),
+            SteamContentLogProgress.TryReadDownloadingBytes(steamRoot, appId));
     }
 
     private static string? FindAppManifestPath(string appId)
@@ -797,7 +838,7 @@ public sealed class SteamAdapter : IStoreAdapter, IInstalledSteamManifestSource,
                 try
                 {
                     if (process.HasExited) continue;
-                    var path = process.MainModule?.FileName;
+                    var path = ProcessHelper.TryGetExecutablePath(process);
                     if (!string.IsNullOrWhiteSpace(path) && SteamProcessPath.IsWithinInstall(installPath, path))
                         processIds.Add(process.Id);
                 }
@@ -823,7 +864,7 @@ public sealed class SteamAdapter : IStoreAdapter, IInstalledSteamManifestSource,
             {
                 try
                 {
-                    var path = p.MainModule?.FileName;
+                    var path = ProcessHelper.TryGetExecutablePath(p);
                     if (string.IsNullOrWhiteSpace(path)) continue;
                     var eligible = processIdsBeforeLaunch is null
                         ? SteamProcessPath.IsEligibleGameProcess(p.Id, p.ProcessName, path, installPath)
@@ -846,35 +887,77 @@ public sealed class SteamAdapter : IStoreAdapter, IInstalledSteamManifestSource,
         if (!SteamProtocol.IsValidAppId(appId))
             return new InstallResult { Ok = false, Message = "Missing or invalid Steam app id." };
 
+        var steamExe = ResolveSteamExe();
+        if (steamExe is null)
+            return new InstallResult { Ok = false, Message = "Steam is not installed." };
+
         try
         {
-            var current = FindInstalled(appId);
-            if (current is null || !current.Value.Installed)
+            var initial = ReadAppManifestSnapshot(appId);
+            if (string.IsNullOrWhiteSpace(initial.Name) ||
+                !string.Equals(initial.Name.Trim(), game.Title.Trim(), StringComparison.OrdinalIgnoreCase))
+            {
+                return new InstallResult
+                {
+                    Ok = false,
+                    Message = "Steam uninstall was refused because the selected game did not match its app manifest.",
+                };
+            }
+
+            if (FindAppManifestPath(appId) is null)
                 return new InstallResult { Ok = true, Message = "Already removed from Steam." };
 
             using var hider = StoreWindowHider.ForSteam();
-            hider.Start(TimeSpan.FromSeconds(95), restoreOnStop: false);
-            StoreUninstallPromptAutomator.Arm(
-                game.Title,
-                TimeSpan.FromSeconds(90),
-                StoreWindowHider.SteamProcessNames);
-            EnsureSteamSilent();
-            ProcessHelper.StartProtocol($"steam://uninstall/{appId}");
+            hider.Start(TimeSpan.FromMinutes(60), restoreOnStop: false);
+            if (!ProcessHelper.IsProcessRunning("steam"))
+            {
+                ProcessHelper.StartHidden(
+                    steamExe,
+                    SteamUpdateCommandPlan.HiddenClientStartArguments());
+                await WaitForSteamCommandListenerAsync(ct).ConfigureAwait(false);
+            }
 
+            AppLog.Info($"Steam uninstall request: gameId={game.Id}; appId={appId}.");
+            var ipc = await CommandSteamIpcAsync(
+                    "uninstall",
+                    appId,
+                    ct,
+                    retryCommandFailure: false)
+                .ConfigureAwait(false);
+            // UninstallApp shows Steam's confirm. Call it once. The URI is only
+            // for when the helper never reached the running client.
+            if (ipc == SteamIpcStatus.Unavailable)
+            {
+                ProcessHelper.StartHidden(
+                    steamExe,
+                    [.. SteamUpdateCommandPlan.HiddenClientStartArguments(), SteamProtocol.UninstallUri(appId)]);
+            }
+
+            var uninstallingSeen = false;
             var deadline = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(90);
             while (DateTimeOffset.UtcNow < deadline)
             {
                 ct.ThrowIfCancellationRequested();
                 await Task.Delay(500, ct).ConfigureAwait(false);
-                var remaining = FindInstalled(appId);
-                if (remaining is null || !remaining.Value.Installed)
+                if (FindAppManifestPath(appId) is null)
                     return new InstallResult { Ok = true, Message = "Removed from Steam." };
+
+                var snap = ReadAppManifestSnapshot(appId);
+                if (!uninstallingSeen &&
+                    SteamStateFlags.TryParse(snap.StateFlags, out var flags) &&
+                    (flags & SteamStateFlags.Uninstalling) != 0)
+                {
+                    uninstallingSeen = true;
+                    deadline = DateTimeOffset.UtcNow + TimeSpan.FromMinutes(15);
+                }
             }
 
             return new InstallResult
             {
                 Ok = false,
-                Message = "Steam did not confirm removal. Try again after Steam finishes its current task.",
+                Message = uninstallingSeen
+                    ? "Steam is still removing this game. Try again in a minute."
+                    : "Steam did not start removing this game.",
             };
         }
         catch (OperationCanceledException) { throw; }
@@ -909,14 +992,6 @@ public sealed class SteamAdapter : IStoreAdapter, IInstalledSteamManifestSource,
         };
         _progress[gameId] = p;
         progress?.Report(p);
-    }
-
-    private static void EnsureSteamSilent()
-    {
-        var steamExe = ResolveSteamExe();
-        if (steamExe is not null && !ProcessHelper.IsProcessRunning("steam"))
-            ProcessHelper.StartHidden(steamExe, "-silent");
-        MinimizeSteamUi();
     }
 
     private static void MinimizeSteamUi() =>

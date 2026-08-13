@@ -44,7 +44,9 @@ internal sealed class GameProcessRegistry
     /// infer that one of its games is safe to inspect or stop.
     /// </summary>
     internal static bool SupportsGameProcessControl(StoreKind store) => store is
-        StoreKind.Steam or StoreKind.Epic or StoreKind.Gog or StoreKind.Riot or StoreKind.Local;
+        StoreKind.Steam or StoreKind.Epic or StoreKind.Gog or StoreKind.Riot or StoreKind.Local
+        or StoreKind.Ea or StoreKind.Ubisoft or StoreKind.Xbox
+        or StoreKind.BattleNet or StoreKind.Amazon or StoreKind.Rockstar;
 
     internal static bool IsEligibleExecutableForStop(
         GameEntry game,
@@ -120,9 +122,9 @@ internal sealed class GameProcessRegistry
             await Task.Delay(150, cancellationToken).ConfigureAwait(false);
         }
 
-        // A force stop is deliberately limited to the exact identities that
-        // ignored WM_CLOSE. Revalidate PID, start time, executable and install
-        // root immediately before Kill(), and never kill a process tree.
+        // Force-stop verified identities and their non-reserved helpers.
+        // Never expand Kill to an unfiltered process tree — that bypasses the
+        // deny-list for Easy Anti-Cheat / BattlEye / Vanguard children.
         var stubborn = FindStillValid(game, candidates);
         foreach (var candidate in stubborn)
         {
@@ -130,16 +132,31 @@ internal sealed class GameProcessRegistry
             {
                 using var process = Process.GetProcessById(candidate.ProcessId);
                 if (!MatchesIdentity(game, process, candidate)) continue;
-                process.Kill(entireProcessTree: false);
+                if (IsReservedProcessName(process.ProcessName)) continue;
+                ProcessHelper.KillVerifiedGameTree(process, IsReservedProcessName);
             }
             catch { /* process may have exited or rejected a non-elevated close */ }
         }
 
-        var forceDeadline = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(2);
+        // Rescan once more — a child may have re-parented; still only under install root.
+        var remaining = FindCandidates(game);
+        foreach (var candidate in remaining)
+        {
+            try
+            {
+                using var process = Process.GetProcessById(candidate.ProcessId);
+                if (!MatchesIdentity(game, process, candidate)) continue;
+                if (IsReservedProcessName(process.ProcessName)) continue;
+                ProcessHelper.KillVerifiedGameTree(process, IsReservedProcessName);
+            }
+            catch { /* */ }
+        }
+
+        var forceDeadline = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(4);
         while (DateTimeOffset.UtcNow < forceDeadline)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (FindStillValid(game, candidates).Count == 0)
+            if (FindCandidates(game).Count == 0)
             {
                 _launched.TryRemove(game.Id, out _);
                 return new GameStopResult(true, "Game closed.");
@@ -222,18 +239,15 @@ internal sealed class GameProcessRegistry
     private static bool TryReadEligibleIdentity(GameEntry game, Process process, out ProcessIdentity identity)
     {
         identity = default;
-        if (!CanInspect(game) || process.HasExited)
-            return false;
-
-        string? executable;
-        DateTime started;
         try
         {
-            executable = process.MainModule?.FileName;
-            started = process.StartTime.ToUniversalTime();
+            if (!CanInspect(game) || process.HasExited)
+                return false;
         }
         catch { return false; }
 
+        // QueryFullProcessImageName — MainModule fails for many games.
+        var executable = ProcessHelper.TryGetExecutablePath(process);
         if (!IsEligibleExecutableForStop(game, process.ProcessName, executable))
             return false;
 
@@ -241,16 +255,36 @@ internal sealed class GameProcessRegistry
         // invariant explicit for nullable flow analysis and future callers.
         if (string.IsNullOrWhiteSpace(executable))
             return false;
-        identity = new ProcessIdentity(process.Id, started.Ticks, Path.GetFullPath(executable));
+
+        // StartTime is often access-denied for elevated/protected game processes.
+        // Never drop a valid image path just because start-time is unreadable —
+        // that used to make Stop/canStop miss live sessions entirely.
+        var startedTicks = TryReadStartUtcTicks(process);
+        identity = new ProcessIdentity(process.Id, startedTicks, Path.GetFullPath(executable));
         return true;
+    }
+
+    private static long TryReadStartUtcTicks(Process process)
+    {
+        try { return process.StartTime.ToUniversalTime().Ticks; }
+        catch { return 0; }
     }
 
     private static bool MatchesIdentity(GameEntry game, Process process, ProcessIdentity expected)
     {
-        if (process.HasExited || process.Id != expected.ProcessId) return false;
+        try
+        {
+            if (process.HasExited || process.Id != expected.ProcessId) return false;
+        }
+        catch { return false; }
         if (!TryReadEligibleIdentity(game, process, out var actual)) return false;
-        return actual.StartedUtcTicks == expected.StartedUtcTicks &&
-               string.Equals(actual.ExecutablePath, expected.ExecutablePath, StringComparison.OrdinalIgnoreCase);
+        if (!string.Equals(actual.ExecutablePath, expected.ExecutablePath, StringComparison.OrdinalIgnoreCase))
+            return false;
+        // When either side could not read start-time, path + PID is enough —
+        // refusing on 0 vs real ticks left Stop unable to force-close live games.
+        if (expected.StartedUtcTicks == 0 || actual.StartedUtcTicks == 0)
+            return true;
+        return actual.StartedUtcTicks == expected.StartedUtcTicks;
     }
 
     private readonly record struct ProcessIdentity(int ProcessId, long StartedUtcTicks, string ExecutablePath);

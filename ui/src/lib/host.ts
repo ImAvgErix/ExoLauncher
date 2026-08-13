@@ -13,7 +13,7 @@ export type StoreId =
   | 'rockstar'
 
 export type PrimaryAction = 'play' | 'install' | 'update' | 'none'
-export type SortMode = 'name' | 'recent' | 'size' | 'store' | 'favorites'
+export type SortMode = 'name' | 'recent' | 'played' | 'size' | 'store' | 'favorites'
 
 /** One exact store entry represented by a grouped library card. */
 export interface GameVariant {
@@ -513,6 +513,8 @@ async function mockCall<T>(method: string, params?: Record<string, unknown>): Pr
     case 'trophies.preview':
       return { ok: true } as T
     case 'shell.minimize':
+    case 'shell.maximize':
+    case 'shell.windowState':
     case 'shell.close':
     case 'shell.openUrl':
     case 'shell.openPath':
@@ -586,12 +588,22 @@ export function resolvePrimaryAction(game: Game): PrimaryAction {
   // The attention badge and primary CTA must never disagree, even when an
   // older/native catalog payload carries a stale explicit action.
   if (game.installed && game.updateAvailable) return 'update'
+  if (game.installed && game.variants?.some((variant) => variant.updateAvailable)) return 'update'
+  if (game.installed) return 'play'
+  if (game.canInstall || game.owned) return 'install'
   if (game.primaryAction === 'play' || game.primaryAction === 'install' || game.primaryAction === 'update' || game.primaryAction === 'none') {
     return game.primaryAction
   }
-  if (game.installed) return 'play'
-  if (game.canInstall || game.owned) return 'install'
   return 'none'
+}
+
+/** Play | Download | Install | Update | Stop — owned store titles download, they are not Buy. */
+export function primaryCtaLabel(game: Game, action = resolvePrimaryAction(game)): string {
+  if (game.canStop) return 'Stop'
+  if (action === 'update') return 'Update'
+  if (action === 'play') return 'Play'
+  if (action === 'install') return game.store === 'local' ? 'Install' : 'Download'
+  return 'Buy'
 }
 
 export const host = {
@@ -654,6 +666,8 @@ export const host = {
     rawCall<LauncherSettings>('settings.set', patch as Record<string, unknown>),
   previewTrophy: () => rawCall<{ ok: boolean; message?: string }>('trophies.preview'),
   minimize: () => rawCall<{ ok: boolean }>('shell.minimize'),
+  maximize: () => rawCall<{ ok: boolean; maximized?: boolean }>('shell.maximize'),
+  windowState: () => rawCall<{ ok: boolean; maximized?: boolean }>('shell.windowState'),
   close: () => rawCall<{ ok: boolean }>('shell.close'),
   openUrl: (url: string) => rawCall<{ ok: boolean }>('shell.openUrl', { url }),
   openPath: (path: string) => rawCall<{ ok: boolean }>('shell.openPath', { path }),

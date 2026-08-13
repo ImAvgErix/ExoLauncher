@@ -3,6 +3,7 @@ using System.Runtime.InteropServices;
 using ExoLauncher.Helpers;
 using ExoLauncher.Services;
 using Microsoft.UI;
+using Microsoft.UI.Input;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -15,13 +16,20 @@ using WinRT.Interop;
 namespace ExoLauncher;
 
 /// <summary>
-/// Thin native shell: fixed 1400×900 AMOLED window + WebView2 product UI.
+/// Thin native shell: default 1400×900 AMOLED window + WebView2 product UI.
+/// The window is resizable and maximizable, with a 1100×700 floor.
 /// Launch/discovery stay in C# via <see cref="WebHostBridge"/>.
 /// </summary>
 public sealed partial class MainWindow : Window
 {
-    private const int FixedWindowWidth = 1400;
-    private const int FixedWindowHeight = 900;
+    private const int DefaultWindowWidth = 1400;
+    private const int DefaultWindowHeight = 900;
+    private const int MinWindowWidth = 1100;
+    private const int MinWindowHeight = 700;
+    private const int TitleBarDragDip = 52;
+    private const int TitleBarLogoPassthroughDip = 56;
+    private const int TitleBarActionsPassthroughDip = 184;
+    private const int TitleBarSearchPassthroughDip = 248;
 
     private readonly CancellationTokenSource _lifetimeCts = new();
     private readonly Stopwatch _startupStopwatch = Stopwatch.StartNew();
@@ -39,7 +47,7 @@ public sealed partial class MainWindow : Window
 
         try
         {
-            ApplyFixedChrome();
+            ApplyWindowChrome();
             ApplyInitialWindowBounds();
             TryCenterOnScreen();
             TrySetWindowIcon();
@@ -80,6 +88,9 @@ public sealed partial class MainWindow : Window
         catch { }
 
         try { SetTitleBar(AppTitleBar); } catch { }
+        try { UpdateCaptionDragRegions(); } catch { }
+
+        try { AppWindow.Changed += OnAppWindowChanged; } catch { }
 
         // Install the native minimize hook immediately so taskbar/keyboard
         // minimize follows the same notification-area behavior as the web UI.
@@ -96,7 +107,7 @@ public sealed partial class MainWindow : Window
 
         RootGrid.Loaded += async (_, _) =>
         {
-            ApplyFixedChrome();
+            ApplyWindowChrome();
             await EnsureWebAsync();
         };
         LogStartupMilestone("window-constructed");
@@ -108,6 +119,7 @@ public sealed partial class MainWindow : Window
         Closed += (_, _) =>
         {
             _lifetimeCts.Cancel();
+            try { AppWindow.Changed -= OnAppWindowChanged; } catch { }
             try { _notificationAreaIcon?.Dispose(); } catch { }
             try { App.Services.TrophyNotifications.Requested -= OnTrophyNotificationRequested; } catch { }
             try { _trophyPresenter?.Dispose(); } catch { }
@@ -273,6 +285,7 @@ public sealed partial class MainWindow : Window
             core.Settings.IsZoomControlEnabled = false;
             try { core.Settings.IsWebMessageEnabled = true; } catch { }
             try { core.Settings.AreHostObjectsAllowed = false; } catch { }
+            try { core.MemoryUsageTargetLevel = CoreWebView2MemoryUsageTargetLevel.Low; } catch { }
 #if DEBUG
             try { core.Settings.AreDevToolsEnabled = true; } catch { }
 #else
@@ -310,6 +323,7 @@ public sealed partial class MainWindow : Window
             try { _bridge?.Detach(); } catch { }
             _bridge = new WebHostBridge(App.Services, DispatcherQueue);
             _bridge.Attach(core);
+            _bridge.NotifyWindowState(IsMaximized);
             LogStartupMilestone("bridge-attached");
 
             WebHost.Source = new Uri(WebViewTrustPolicy.TrustedAppStartUri);
@@ -455,32 +469,47 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private void ApplyFixedChrome()
+    public bool IsMaximized =>
+        AppWindow.Presenter is OverlappedPresenter presenter &&
+        presenter.State == OverlappedPresenterState.Maximized;
+
+    public bool ToggleMaximize()
+    {
+        if (AppWindow.Presenter is not OverlappedPresenter presenter) return false;
+        if (presenter.State == OverlappedPresenterState.Maximized)
+        {
+            presenter.Restore();
+            return false;
+        }
+        presenter.Maximize();
+        return true;
+    }
+
+    private void OnAppWindowChanged(AppWindow sender, AppWindowChangedEventArgs args)
+    {
+        if (!args.DidPresenterChange && !args.DidSizeChange) return;
+        _bridge?.NotifyWindowState(IsMaximized);
+        if (args.DidSizeChange) UpdateCaptionDragRegions();
+    }
+
+    private void ApplyWindowChrome()
     {
         if (AppWindow.Presenter is OverlappedPresenter presenter)
         {
-            // Fixed shell — resize is not a user option.
-            presenter.IsMaximizable = false;
-            presenter.IsResizable = false;
+            presenter.IsMaximizable = true;
+            presenter.IsResizable = true;
             presenter.IsMinimizable = true;
-            presenter.PreferredMinimumWidth = FixedWindowWidth;
-            presenter.PreferredMinimumHeight = FixedWindowHeight;
-            try
-            {
-                presenter.PreferredMaximumWidth = FixedWindowWidth;
-                presenter.PreferredMaximumHeight = FixedWindowHeight;
-            }
-            catch { }
-            // Thin system border only — no double chrome with custom titlebar.
+            presenter.PreferredMinimumWidth = MinWindowWidth;
+            presenter.PreferredMinimumHeight = MinWindowHeight;
             try { presenter.SetBorderAndTitleBar(hasBorder: true, hasTitleBar: false); }
             catch { }
             try
             {
-                // Prefer a clean dark edge on Windows 11 when available.
                 AppWindow.TitleBar.PreferredHeightOption = TitleBarHeightOption.Collapsed;
             }
             catch { }
         }
+        UpdateCaptionDragRegions();
     }
 
     private void ApplyInitialWindowBounds()
@@ -496,8 +525,8 @@ public sealed partial class MainWindow : Window
             }
             catch { }
 
-            var w = (int)Math.Round(FixedWindowWidth * scale);
-            var h = (int)Math.Round(FixedWindowHeight * scale);
+            var w = (int)Math.Round(DefaultWindowWidth * scale);
+            var h = (int)Math.Round(DefaultWindowHeight * scale);
 
             try
             {
@@ -543,6 +572,69 @@ public sealed partial class MainWindow : Window
             ContentHost.HorizontalAlignment = HorizontalAlignment.Stretch;
         }
         catch { }
+        UpdateCaptionDragRegions();
+    }
+
+    /// <summary>
+    /// WinUI WebView2 does not honor CSS app-region. Caption rects make the
+    /// empty titlebar (beside search, above/below the pill) a real drag target
+    /// without covering the logo, search field, or window buttons.
+    /// </summary>
+    private void UpdateCaptionDragRegions()
+    {
+        try
+        {
+            var widthDip = RootGrid.ActualWidth;
+            if (widthDip <= 0) return;
+            var scale = GetWindowScale();
+            var width = Math.Max(1, (int)Math.Round(widthDip * scale));
+            var titleH = Math.Max(1, (int)Math.Round(TitleBarDragDip * scale));
+            var logoW = Math.Max(1, (int)Math.Round(TitleBarLogoPassthroughDip * scale));
+            var actionsW = Math.Max(1, (int)Math.Round(TitleBarActionsPassthroughDip * scale));
+            var searchW = Math.Max(1, (int)Math.Round(TitleBarSearchPassthroughDip * scale));
+            if (logoW + actionsW + searchW >= width) return;
+
+            var searchX = Math.Max(logoW, (width - searchW) / 2);
+            var searchRight = Math.Min(width - actionsW, searchX + searchW);
+            searchW = Math.Max(1, searchRight - searchX);
+            var pillTop = Math.Max(1, (int)Math.Round(12 * scale));
+            var pillBottom = Math.Max(pillTop + 1, titleH - pillTop);
+
+            var rects = new List<RectInt32>();
+            var leftW = searchX - logoW;
+            if (leftW > 8)
+                rects.Add(new RectInt32(logoW, 0, leftW, titleH));
+            var rightX = searchRight;
+            var rightW = width - actionsW - rightX;
+            if (rightW > 8)
+                rects.Add(new RectInt32(rightX, 0, rightW, titleH));
+            if (searchW > 8 && pillTop > 0)
+                rects.Add(new RectInt32(searchX, 0, searchW, pillTop));
+            var belowH = titleH - pillBottom;
+            if (searchW > 8 && belowH > 0)
+                rects.Add(new RectInt32(searchX, pillBottom, searchW, belowH));
+
+            if (rects.Count == 0) return;
+            InputNonClientPointerSource
+                .GetForWindowId(AppWindow.Id)
+                .SetRegionRects(NonClientRegionKind.Caption, rects.ToArray());
+        }
+        catch
+        {
+            /* caption regions are best-effort; SetTitleBar remains the fallback */
+        }
+    }
+
+    private double GetWindowScale()
+    {
+        try
+        {
+            var hwnd = WindowNative.GetWindowHandle(this);
+            var dpi = GetDpiForWindow(hwnd);
+            if (dpi > 0) return dpi / 96.0;
+        }
+        catch { }
+        return 1.0;
     }
 
     private void TrySetWindowIcon()

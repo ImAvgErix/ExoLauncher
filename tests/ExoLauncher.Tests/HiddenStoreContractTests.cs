@@ -27,37 +27,39 @@ public sealed class HiddenStoreContractTests
     [Fact]
     public void StoreAutomatorsNeverForegroundOrMoveTheUserCursor()
     {
-        foreach (var relative in new[]
-                 {
-                     Path.Combine("ExoLauncher", "Adapters", "SteamInstallDialogAutomator.cs"),
-                     Path.Combine("ExoLauncher", "Adapters", "SteamTargetedQueuePromotionAutomator.cs"),
-                 })
-        {
-            var path = FindRepoFile(relative);
-            var text = File.ReadAllText(path);
-            Assert.DoesNotContain("SetForegroundWindow", text, StringComparison.Ordinal);
-            Assert.DoesNotContain("SetCursorPos", text, StringComparison.Ordinal);
-            Assert.DoesNotContain("mouse_event", text, StringComparison.Ordinal);
-            Assert.DoesNotContain("SendInput", text, StringComparison.Ordinal);
-        }
+        var riot = File.ReadAllText(FindRepoFile(
+            Path.Combine("ExoLauncher", "Adapters", "StoreUninstallPromptAutomator.cs")));
+        var steam = File.ReadAllText(FindRepoFile(
+            Path.Combine("ExoLauncher", "Adapters", "SteamAdapter.cs")));
+        Assert.DoesNotContain("SetCursorPos", riot + steam, StringComparison.Ordinal);
+        Assert.DoesNotContain("mouse_event", riot + steam, StringComparison.Ordinal);
+        Assert.DoesNotContain("SendInput", riot + steam, StringComparison.Ordinal);
+        Assert.DoesNotContain("SetForegroundWindow", steam, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void TargetVerifiedSteamAutomationRendersOnlyOffscreenAndNoActivate()
+    public void SteamCommandsTheClientWithoutCaptureOrOcr()
     {
-        var hider = File.ReadAllText(FindRepoFile(
-            Path.Combine("ExoLauncher", "Adapters", "StoreWindowHider.cs")));
-        var automator = File.ReadAllText(FindRepoFile(
-            Path.Combine("ExoLauncher", "Adapters", "SteamTargetedQueuePromotionAutomator.cs")));
+        var root = new DirectoryInfo(FindRepoFile(Path.Combine("ExoLauncher.sln"))).Parent!.FullName;
+        var steam = File.ReadAllText(FindRepoFile(Path.Combine("ExoLauncher", "Adapters", "SteamAdapter.cs")));
+        var hider = File.ReadAllText(FindRepoFile(Path.Combine("ExoLauncher", "Adapters", "StoreWindowHider.cs")));
+        var csproj = File.ReadAllText(FindRepoFile(Path.Combine("ExoLauncher", "ExoLauncher.csproj")));
+        var sln = File.ReadAllText(FindRepoFile(Path.Combine("ExoLauncher.sln")));
 
-        Assert.Contains("WsExNoActivate", hider, StringComparison.Ordinal);
-        Assert.Contains("offscreenX", hider, StringComparison.Ordinal);
-        Assert.Contains("BeginOffscreenAutomationWindow", hider, StringComparison.Ordinal);
-        Assert.Contains("s_offscreenAutomationWindows", hider, StringComparison.Ordinal);
+        Assert.Contains("SteamClientIpc.Command", steam, StringComparison.Ordinal);
+        Assert.DoesNotContain("SteamGpuCapture", steam, StringComparison.Ordinal);
+        Assert.DoesNotContain("SteamOcr", steam, StringComparison.Ordinal);
+        Assert.DoesNotContain("BeginOffscreenAutomationWindow", steam + hider, StringComparison.Ordinal);
+        Assert.DoesNotContain("s_offscreenAutomationWindows", hider, StringComparison.Ordinal);
         Assert.Contains("ShowWindow(hWnd, SwHide)", hider, StringComparison.Ordinal);
-        Assert.Contains("StoreWindowHider.BeginOffscreenAutomationWindow", automator, StringComparison.Ordinal);
-        Assert.Contains("PrintWindow", automator, StringComparison.Ordinal);
-        Assert.DoesNotContain("SetForegroundWindow", automator, StringComparison.Ordinal);
+        Assert.DoesNotContain("CaptureHost", csproj + sln, StringComparison.Ordinal);
+        Assert.DoesNotContain("Vortice.Direct3D11", csproj, StringComparison.Ordinal);
+        Assert.False(File.Exists(Path.Combine(root, "ExoLauncher", "Adapters", "SteamGpuCapture.cs")));
+        Assert.False(File.Exists(Path.Combine(root, "ExoLauncher", "Adapters", "SteamOcr.cs")));
+        Assert.False(File.Exists(Path.Combine(root, "ExoLauncher", "Adapters", "SteamInstallDialogAutomator.cs")));
+        Assert.False(File.Exists(Path.Combine(root, "ExoLauncher", "Adapters", "SteamTargetedQueuePromotionAutomator.cs")));
+        Assert.False(File.Exists(Path.Combine(root, "ExoLauncher", "Adapters", "SteamUninstallPromptAutomator.cs")));
+        Assert.False(File.Exists(Path.Combine(root, "ExoLauncher.CaptureHost", "ExoLauncher.CaptureHost.csproj")));
     }
 
     [Fact]
@@ -67,6 +69,8 @@ public sealed class HiddenStoreContractTests
             Path.Combine("ExoLauncher", "Adapters", "HiddenStoreRuntime.cs")));
         var orchestrator = File.ReadAllText(FindRepoFile(
             Path.Combine("ExoLauncher", "Services", "LaunchOrchestrator.cs")));
+        var cleanup = File.ReadAllText(FindRepoFile(
+            Path.Combine("ExoLauncher", "Adapters", "StoreClientCleanup.cs")));
 
         Assert.Contains("public static IDisposable GameSession(StoreKind activeProvider)", runtime, StringComparison.Ordinal);
         Assert.Contains("beginQuietGameSession ?? Adapters.HiddenStoreRuntime.GameSession", orchestrator,
@@ -84,6 +88,10 @@ public sealed class HiddenStoreContractTests
             StringComparison.Ordinal);
         Assert.True(sessionRegistration >= 0 && sessionRegistration < unusedCleanup,
             "The active provider must be registered before sibling cleanup starts.");
+        Assert.True(
+            orchestrator.Split("CloseUnusedStoreClientsAsync(game.Store)", StringSplitOptions.None).Length - 1 >= 2,
+            "Install/update must also close unused store clients, not only Play.");
+        Assert.Contains("QuietKeptBackend", cleanup, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -177,6 +185,8 @@ public sealed class HiddenStoreContractTests
         Assert.Contains("StartUntilStopped", hider, StringComparison.Ordinal);
         Assert.Contains("SteamMainProcessNames.Concat", hider, StringComparison.Ordinal);
         Assert.Contains("HiddenStoreRuntime.IsStoreSurfaceSuppressed", hider, StringComparison.Ordinal);
+        Assert.Contains("IsSuspended(StoreKind.Steam)", hider, StringComparison.Ordinal);
+        Assert.Contains("ForSteam() =>", hider, StringComparison.Ordinal);
         Assert.Contains("!IsTrackedProcess(pid)", hider, StringComparison.Ordinal);
         Assert.Contains("StoreWindowHider.ForAllStoreChrome", runtime, StringComparison.Ordinal);
         Assert.Contains("_windowGuard.StartUntilStopped", runtime, StringComparison.Ordinal);

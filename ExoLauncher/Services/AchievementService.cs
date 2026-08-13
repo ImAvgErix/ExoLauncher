@@ -110,19 +110,36 @@ public sealed class AchievementService : IDisposable
     public AchievementCoverageInfo GetCoverage(GameEntry game)
     {
         var provider = FindProvider(game);
-        return provider is null
-            ? new AchievementCoverageInfo
+        if (provider is null)
+        {
+            return new AchievementCoverageInfo
             {
                 Status = AchievementCoverageStatus.Unsupported,
                 Message = "Achievement sync is not available for this source.",
-            }
-            : new AchievementCoverageInfo
-            {
-                ProviderId = provider.Id,
-                Status = AchievementCoverageStatus.Unavailable,
-                Capabilities = provider.Capabilities,
-                Message = "Achievement coverage is available after a successful source refresh.",
             };
+        }
+
+        // Surface last known good coverage immediately so the detail rail is not blank.
+        var latest = GetLatestSnapshot(game.Id);
+        if (latest is not null &&
+            latest.Coverage is AchievementCoverageStatus.Partial or AchievementCoverageStatus.Complete)
+        {
+            return new AchievementCoverageInfo
+            {
+                ProviderId = latest.ProviderId,
+                Status = latest.Coverage,
+                Capabilities = latest.Capabilities,
+                Message = latest.Message,
+            };
+        }
+
+        return new AchievementCoverageInfo
+        {
+            ProviderId = provider.Id,
+            Status = AchievementCoverageStatus.Unavailable,
+            Capabilities = provider.Capabilities,
+            Message = "Achievement coverage is available after a successful source refresh.",
+        };
     }
 
     /// <summary>Latest persisted snapshot for one Exo library id, including hashed coverage provenance.</summary>

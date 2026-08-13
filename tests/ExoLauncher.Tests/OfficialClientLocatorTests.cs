@@ -110,7 +110,7 @@ public sealed class OfficialClientLocatorTests
     }
 
     [Fact]
-    public async Task OfficialAdapter_DoesNotInventLibraryOrTitleControl()
+    public async Task OfficialAdapter_DoesNotInventUnprovenTitlesOrInstallControl()
     {
         var adapter = new EaAdapter();
         var game = new GameEntry
@@ -121,20 +121,27 @@ public sealed class OfficialClientLocatorTests
         };
 
         var library = await adapter.GetLibraryAsync();
+        Assert.All(library, row =>
+        {
+            Assert.True(row.Installed);
+            Assert.False(string.IsNullOrWhiteSpace(row.Path));
+            Assert.True(Directory.Exists(row.Path!));
+            Assert.False(string.IsNullOrWhiteSpace(row.LaunchTarget));
+        });
+
         var launch = await adapter.LaunchAsync(game, new LaunchOptions());
         var install = await adapter.InstallAsync(game, null, progress: null);
 
-        Assert.Empty(library);
         Assert.False(launch.Ok);
         Assert.False(launch.HandoffOnly);
-        Assert.Contains("cannot launch individual", launch.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("no proven launch target", launch.Message, StringComparison.OrdinalIgnoreCase);
         Assert.False(install.Ok);
         Assert.False(install.HandoffOnly);
         Assert.Contains("cannot install games", install.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
-    public void RockstarAdapter_UsesHonestPresenceOnlyContract()
+    public void RockstarAdapter_IsAnOfficialClientWithProvenInstallScan()
     {
         var adapter = new RockstarAdapter();
 

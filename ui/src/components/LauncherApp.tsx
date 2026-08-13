@@ -1,9 +1,10 @@
 /**
  * Exo Launcher shell — installed library, pinned row, search discovers installs.
- * CTA strings (Play | Install | Update) and cancelInstall live via DetailPanel + host.
+ * CTA strings (Play | Download | Install | Update) and cancelInstall live via DetailPanel + host.
  */
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
-import { ChevronLeft, ChevronRight, Loader2, Minus, Search, Settings, X } from 'lucide-react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
+import { Loader2, Search, Settings } from '../brand/icons'
+import { ExoMark } from '../brand/ExoMark'
 import {
   host,
   onHostEvent,
@@ -15,12 +16,16 @@ import {
   type MissingDependency,
   type StoreStatus,
 } from '../lib/host'
-import { cn, smartSearchScore } from '../lib/utils'
-import { DetailRail, GridItem } from '../motion'
+import { smartSearchScore, sortGames, titleIdentity } from '../lib/utils'
+import { pickNow } from '../lib/now'
+import { GridItem, BannerIn, GameOverlay } from '../motion'
+import { steamAppId } from './CoverArt'
 import { DetailPanel } from './DetailPanel'
 import { GameCard } from './GameCard'
+import { NowStage } from './NowStage'
 import { OnboardingPanel } from './OnboardingPanel'
 import { SettingsPanel, SettingsShell } from './SettingsPanel'
+import { WindowChrome } from './WindowChrome'
 
 type View = 'library' | 'settings'
 
@@ -37,22 +42,119 @@ type CatalogHit = {
   launchTarget?: string | null
 }
 
-function hitToGame(hit: CatalogHit): Game {
+function hitToGame(hit: CatalogHit, library: Game[] = []): Game {
+  const existing = findLibraryGame(library, hit.id)
+  const owned = !!(hit.owned || hit.canInstall || existing?.owned || existing?.canInstall || existing?.installed)
+  const installed = !!(hit.installed || existing?.installed)
+  const canInstall = !installed && owned
   return {
     id: hit.id,
     title: hit.title,
     store: hit.store,
-    installed: !!hit.installed,
-    owned: hit.owned,
-    canInstall: !!hit.canInstall,
-    primaryAction: hit.installed ? 'play' : hit.canInstall ? 'install' : 'none',
-    coverUrl: hit.coverUrl,
-    coverSource: hit.coverSource,
-    status: hit.installed ? 'Ready' : hit.owned ? 'Owned' : 'Catalog',
+    installed,
+    owned,
+    canInstall,
+    primaryAction: installed ? 'play' : canInstall ? 'install' : 'none',
+    coverUrl: hit.coverUrl ?? existing?.coverUrl,
+    coverSource: hit.coverSource ?? existing?.coverSource,
+    status: installed ? 'Ready' : owned ? 'Owned' : 'Catalog',
     deps: [],
     launchNote: '',
-    launchTarget: hit.launchTarget,
+    launchTarget: hit.launchTarget ?? existing?.launchTarget,
+    updateAvailable: existing?.updateAvailable,
   }
+}
+
+function findLibraryGame(games: Game[], id: string): Game | undefined {
+  const needle = id.toLowerCase()
+  return (
+    games.find(
+      (game) =>
+        game.id.toLowerCase() === needle ||
+        game.variants?.some((variant) => variant.id.toLowerCase() === needle),
+    ) ?? games.find((game) => sameSteamApp(game, id))
+  )
+}
+
+function findLibraryGameByTitle(games: Game[], title: string): Game | undefined {
+  const key = titleIdentity(title)
+  if (!key) return undefined
+  return games.find((game) => isSearchableLibraryGame(game) && titleIdentity(game.title) === key)
+}
+
+function sameSteamApp(game: Game, id: string): boolean {
+  const app = id.match(/^steam:(\d+)/i)?.[1]
+  if (!app) return false
+  return steamAppId(game) === app
+}
+
+function isSearchableLibraryGame(game: Game): boolean {
+  if (game.isAddPortable || game.id === 'local:add') return false
+  return !!(game.installed || game.owned || game.canInstall)
+}
+
+function libraryPresenceKeys(games: Game[]): Set<string> {
+  const keys = new Set<string>()
+  for (const game of games) {
+    if (!isSearchableLibraryGame(game)) continue
+    keys.add(game.id.toLowerCase())
+    const app = steamAppId(game)
+    if (app) keys.add(`steam:${app}`)
+    const titleKey = titleIdentity(game.title)
+    if (titleKey) keys.add(`title:${titleKey}`)
+    for (const variant of game.variants ?? []) keys.add(variant.id.toLowerCase())
+  }
+  return keys
+}
+
+function catalogHitIsPresent(hit: CatalogHit, present: Set<string>): boolean {
+  if (hit.installed) return true
+  if (present.has(hit.id.toLowerCase())) return true
+  const titleKey = titleIdentity(hit.title)
+  if (titleKey && present.has(`title:${titleKey}`)) return true
+  const app = hit.id.match(/^steam:(\d+)/i)?.[1]
+  if (app && present.has(`steam:${app}`)) return true
+  return false
+}
+
+function isInstallingGame(game: Game, installingId: string | null): boolean {
+  if (!installingId) return false
+  return (
+    game.id === installingId ||
+    !!game.variants?.some((variant) => variant.id === installingId) ||
+    sameSteamApp(game, installingId)
+  )
+}
+
+function transferForGame(
+  progress: InstallProgress | null,
+  game: Game,
+): { percent: number | null } | null {
+  if (!progress?.isActive || !progress.gameId) return null
+  if (!isInstallingGame(game, progress.gameId)) return null
+  return { percent: progress.percent ?? null }
+}
+
+function mergeHostGames(prev: Game[], incoming: Game[], selectedId: string | null): Game[] {
+  const nextIds = new Set(incoming.map((game) => game.id.toLowerCase()))
+  const retained = prev.filter((game) => {
+    if (nextIds.has(game.id.toLowerCase())) return false
+    if (!selectedId) return false
+    if (game.id === selectedId || game.variants?.some((variant) => variant.id === selectedId)) return true
+    return sameSteamApp(game, selectedId)
+  })
+  return retained.length ? [...incoming, ...retained] : incoming
+}
+
+function BootSplash() {
+  return (
+    <div className="exo-boot" role="status" aria-label="Starting">
+      <ExoMark size={56} alive className="exo-mascot" title="Exo" />
+      <span className="exo-boot-bar" aria-hidden>
+        <i />
+      </span>
+    </div>
+  )
 }
 
 function cardForExactId(games: Game[], id: string | null): Game | null {
@@ -63,7 +165,15 @@ function cardForExactId(games: Game[], id: string | null): Game | null {
 }
 
 function materializeVariant(card: Game, variantId: string | null): Game {
-  const variant = card.variants?.find((item) => item.id === variantId)
+  // Prefer the source the user picked. If they haven't picked one yet, surface
+  // a running source so Stop is one click without hunting the store picker.
+  const preferredId =
+    variantId ??
+    card.variants?.find((item) => item.canStop || item.isRunning)?.id ??
+    null
+  const variant = preferredId
+    ? card.variants?.find((item) => item.id === preferredId)
+    : undefined
   if (!variant) return card
   return {
     ...card,
@@ -85,7 +195,24 @@ function materializeVariant(card: Game, variantId: string | null): Game {
   }
 }
 
-function variantFromGame(game: Game): GameVariant {
+function keepPlaytime(next?: number | null, prev?: number | null): number | null | undefined {
+  const n = typeof next === 'number' && next > 0 ? next : null
+  const p = typeof prev === 'number' && prev > 0 ? prev : null
+  if (n != null && p != null) return Math.max(n, p)
+  return n ?? p ?? next ?? prev
+}
+
+function keepLastPlayed(next?: string | null, prev?: string | null): string | null | undefined {
+  if (!next) return prev ?? next
+  if (!prev) return next
+  const nextTime = Date.parse(next)
+  const prevTime = Date.parse(prev)
+  if (Number.isNaN(nextTime)) return prev
+  if (Number.isNaN(prevTime)) return next
+  return nextTime >= prevTime ? next : prev
+}
+
+function variantFromGame(game: Game, previous?: GameVariant): GameVariant {
   return {
     id: game.id,
     store: game.store,
@@ -96,8 +223,8 @@ function variantFromGame(game: Game): GameVariant {
     primaryAction: game.primaryAction,
     path: game.path,
     launchTarget: game.launchTarget,
-    playtimeMinutes: game.playtimeMinutes,
-    lastPlayedUtc: game.lastPlayedUtc,
+    playtimeMinutes: keepPlaytime(game.playtimeMinutes, previous?.playtimeMinutes),
+    lastPlayedUtc: keepLastPlayed(game.lastPlayedUtc, previous?.lastPlayedUtc),
     status: game.status,
     isRunning: game.isRunning,
     canStop: game.canStop,
@@ -107,15 +234,48 @@ function variantFromGame(game: Game): GameVariant {
 /** Keep a grouped card intact when `game.get` refreshes one of its exact sources. */
 function mergeExactGame(items: Game[], refreshed: Game): Game[] {
   return items.map((item) => {
-    if (item.id === refreshed.id) return refreshed
+    if (item.id === refreshed.id) {
+      // Preserve pin/cover when a single-source refresh omits them or races unpin.
+      return {
+        ...refreshed,
+        coverUrl: refreshed.coverUrl || item.coverUrl || null,
+        isFavorite: refreshed.isFavorite ?? item.isFavorite,
+        playtimeMinutes: keepPlaytime(refreshed.playtimeMinutes, item.playtimeMinutes),
+        lastPlayedUtc: keepLastPlayed(refreshed.lastPlayedUtc, item.lastPlayedUtc),
+        variants: refreshed.variants?.length ? refreshed.variants : item.variants,
+      }
+    }
     if (!item.variants?.some((variant) => variant.id === refreshed.id)) return item
+    const variants = item.variants.map((variant) =>
+      variant.id === refreshed.id ? variantFromGame(refreshed, variant) : variant,
+    )
+    const anyRunning = variants.some((variant) => variant.isRunning)
+    const anyStop = variants.some((variant) => variant.canStop)
     return {
       ...item,
-      variants: item.variants.map((variant) =>
-        variant.id === refreshed.id ? variantFromGame(refreshed) : variant,
-      ),
+      variants,
+      isRunning: anyRunning,
+      canStop: anyStop,
+      playtimeMinutes: item.id === refreshed.id
+        ? keepPlaytime(refreshed.playtimeMinutes, item.playtimeMinutes)
+        : item.playtimeMinutes,
     }
   })
+}
+
+function gameMatchesFavoriteIds(game: Game, favoriteIds: Set<string> | null): boolean {
+  if (!favoriteIds) return !!game.isFavorite
+  if (favoriteIds.has(game.id.toLowerCase())) return true
+  if (game.variants?.some((v) => favoriteIds.has(v.id.toLowerCase()))) return true
+  return !!game.isFavorite
+}
+
+function statusBelongsToSelection(statusGameId: string | null, selected: Game | null): boolean {
+  if (!statusGameId || !selected) return false
+  if (statusGameId === selected.id) return true
+  if (selected.selectedVariantId && statusGameId === selected.selectedVariantId) return true
+  if (selected.variants?.some((v) => v.id === statusGameId)) return true
+  return sameSteamApp(selected, statusGameId)
 }
 
 /** Update one exact source's transient run state without collapsing its card. */
@@ -125,7 +285,11 @@ function setExactRunState(items: Game[], id: string, isRunning: boolean, canStop
       variant.id === id ? { ...variant, isRunning, canStop } : variant,
     )
     if (item.id === id) return { ...item, isRunning, canStop, variants }
-    if (variants?.some((variant) => variant.id === id)) return { ...item, variants }
+    if (variants?.some((variant) => variant.id === id)) {
+      const anyRunning = variants.some((variant) => !!variant.isRunning)
+      const anyStop = variants.some((variant) => !!variant.canStop)
+      return { ...item, variants, isRunning: anyRunning, canStop: anyStop }
+    }
     return item
   })
 }
@@ -135,6 +299,9 @@ export function LauncherApp() {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [selectedVariantId, setSelectedVariantId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  const [booting, setBooting] = useState(true)
+  const coldStart = useRef(true)
+  const bootAt = useRef(Date.now())
   const [busy, setBusy] = useState(false)
   const [statusMsg, setStatusMsg] = useState<string | null>(null)
   const [statusGameId, setStatusGameId] = useState<string | null>(null)
@@ -159,57 +326,59 @@ export function LauncherApp() {
   const [catalogHits, setCatalogHits] = useState<CatalogHit[]>([])
   const [catalogSearching, setCatalogSearching] = useState(false)
   const [authMsg, setAuthMsg] = useState<string | null>(null)
-  const [pinnedNav, setPinnedNav] = useState({ back: false, forward: false })
   const searchGen = useRef(0)
   const searchInputRef = useRef<HTMLInputElement>(null)
-  const pinnedRailRef = useRef<HTMLDivElement>(null)
   const selectedIdRef = useRef<string | null>(null)
+  const gamesRef = useRef<Game[]>([])
+  const libraryMainRef = useRef<HTMLElement>(null)
+  const libraryScrollRef = useRef(0)
+  const [heldGame, setHeldGame] = useState<Game | null>(null)
   selectedIdRef.current = selectedId
+  gamesRef.current = games
   const actionLocked = busy || !!progress?.isActive
+  const markBusy = busy || !!progress?.isActive || updateBusy || catalogSearching || booting
   const lockedGameId = progress?.isActive ? progress.gameId : statusGameId ?? selectedId
 
+  function isCardActionLocked(game: Game): boolean {
+    if (!actionLocked || !lockedGameId) return false
+    // Exact source installs/updates use a variant id; keep that card interactive
+    // for status while other cards stay locked.
+    if (lockedGameId === game.id) return false
+    if (game.variants?.some((variant) => variant.id === lockedGameId)) return false
+    return true
+  }
+
   const selectCard = useCallback((id: string | null) => {
+    selectedIdRef.current = id
     setSelectedId(id)
     setSelectedVariantId(null)
   }, [])
 
-  const syncPinnedNav = useCallback(() => {
-    const rail = pinnedRailRef.current
-    if (!rail) {
-      setPinnedNav({ back: false, forward: false })
-      return
+  function openGamePage(id: string, index?: number) {
+    const catalogHit = catalogHits.find((item) => item.id === id)
+    const existing =
+      findLibraryGame(games, id) ??
+      (catalogHit ? findLibraryGameByTitle(games, catalogHit.title) : undefined)
+    if (existing) {
+      selectedIdRef.current = existing.id
+      selectCard(existing.id)
+      if (existing.id !== id && existing.variants?.some((variant) => variant.id === id)) {
+        setSelectedVariantId(id)
+      }
+    } else {
+      const hit = catalogHits.find((item) => item.id === id)
+      if (hit) {
+        const card = hitToGame(hit, games)
+        selectedIdRef.current = card.id
+        setGames((prev) => (prev.some((game) => game.id === card.id) ? prev : [...prev, card]))
+      } else {
+        selectedIdRef.current = id
+      }
+      selectCard(id)
     }
-    // Keep the resting carousel on whole-card boundaries. The scrollport can
-    // be wider than an exact number of fixed-size cards, so cover only that
-    // remainder instead of leaving a clipped preview of the next card.
-    const railBounds = rail.getBoundingClientRect()
-    const wholeCards = Array.from(rail.children)
-      .map((child) => (child as HTMLElement).getBoundingClientRect())
-      .filter((bounds) => bounds.left >= railBounds.left - 0.5 && bounds.right <= railBounds.right + 0.5)
-    if (wholeCards.length > 0 && rail.parentElement) {
-      const firstWholeCard = wholeCards[0]
-      const lastWholeCard = wholeCards[wholeCards.length - 1]
-      rail.parentElement.style.setProperty(
-        '--pinned-left-edge-width',
-        `${Math.max(0, firstWholeCard.left - railBounds.left)}px`,
-      )
-      rail.parentElement.style.setProperty(
-        '--pinned-right-edge-width',
-        `${Math.max(0, railBounds.right - lastWholeCard.right)}px`,
-      )
-    }
-    const max = Math.max(0, rail.scrollWidth - rail.clientWidth)
-    const next = {
-      back: rail.scrollLeft > 2,
-      forward: rail.scrollLeft < max - 2,
-    }
-    setPinnedNav((current) =>
-      current.back === next.back && current.forward === next.forward ? current : next,
-    )
-  }, [])
-
-  function movePinnedRail(delta: number) {
-    pinnedRailRef.current?.scrollBy({ left: delta, behavior: 'smooth' })
+    setQuery('')
+    if (typeof index === 'number') setFocusIndex(index)
+    setActionStatus(null, null)
   }
 
   function setActionStatus(
@@ -223,7 +392,10 @@ export function LauncherApp() {
   }
 
   const loadLibrary = useCallback(async (force = false) => {
-    setLoading(true)
+    if (coldStart.current) {
+      bootAt.current = Date.now()
+      setLoading(true)
+    }
     setActionStatus(null, null)
     try {
       const res = await host.getLibrary(force)
@@ -232,15 +404,15 @@ export function LauncherApp() {
         : null
       setGames((prev) => {
         const prevById = new Map(prev.map((g) => [g.id, g]))
-        return res.games.map((g) => {
+        const incoming = res.games.map((g) => {
           const old = prevById.get(g.id)
           const coverUrl = g.coverUrl || old?.coverUrl || null
-          // Native grouping can aggregate a persisted alternate-store pin into
-          // the canonical card. Keep that authoritative aggregate instead of
-          // looking only for the selected card id in the raw settings list.
-          const isFavorite = !!g.isFavorite || !!favoriteIds?.has(g.id.toLowerCase())
+          // Host OverlayUserPrefs is authoritative; also match variant ids so a
+          // pin on steam:X still marks the grouped card after a scan.
+          const isFavorite = gameMatchesFavoriteIds(g, favoriteIds)
           return { ...g, coverUrl, isFavorite }
         })
+        return mergeHostGames(prev, incoming, selectedIdRef.current)
       })
       if (res.stores?.length) setStores(res.stores)
       if (res.progress?.isActive) setProgress(res.progress)
@@ -248,6 +420,11 @@ export function LauncherApp() {
       setActionStatus(e instanceof Error ? e.message : 'Library load failed', null)
     } finally {
       setLoading(false)
+      if (coldStart.current) {
+        coldStart.current = false
+        const wait = Math.max(0, 1400 - (Date.now() - bootAt.current))
+        window.setTimeout(() => setBooting(false), wait)
+      }
     }
   }, [])
 
@@ -330,16 +507,25 @@ export function LauncherApp() {
     const offCovers = onHostEvent('library.updated', (data) => {
       const d = data as { games?: Game[] }
       if (!d?.games?.length) return
-      // Never wipe a good cover with null during cache warm / pin churn.
-      // Never regress isFavorite — prefer existing UI pin over host false.
+      // Never wipe a good cover with null during cache warm.
+      // Trust host isFavorite so unpin cannot be re-applied by a stale local pin.
       setGames((prev) => {
         const prevById = new Map(prev.map((g) => [g.id, g]))
-        return d.games!.map((g) => {
+        const incoming = d.games!.map((g) => {
           const old = prevById.get(g.id)
           const coverUrl = g.coverUrl || old?.coverUrl || null
-          const isFavorite = !!g.isFavorite
-          return { ...old, ...g, coverUrl, isFavorite }
+          return {
+            ...old,
+            ...g,
+            coverUrl,
+            isFavorite: !!g.isFavorite,
+            playtimeMinutes: keepPlaytime(g.playtimeMinutes, old?.playtimeMinutes),
+            lastPlayedUtc: keepLastPlayed(g.lastPlayedUtc, old?.lastPlayedUtc),
+            isRunning: typeof g.isRunning === 'boolean' ? g.isRunning : !!old?.isRunning,
+            canStop: typeof g.canStop === 'boolean' ? g.canStop : !!old?.canStop,
+          }
         })
+        return mergeHostGames(prev, incoming, selectedIdRef.current)
       })
     })
     return () => {
@@ -373,8 +559,8 @@ export function LauncherApp() {
     setSelectedVariantId(retainedVariant)
   }, [games, selectedId, selectedVariantId])
 
-  // Check only the selected title for an externally-started, safely stoppable
-  // game process. The library grid intentionally does not scan every install.
+  // Keep Stop current: re-scan the selected title for a running game process
+  // while the detail panel is open (covers external Steam/Epic launches).
   useEffect(() => {
     const selectedCardForRefresh = games.find((game) => game.id === selectedId)
     const exactId = selectedVariantId && selectedCardForRefresh?.variants?.some((variant) => variant.id === selectedVariantId)
@@ -382,11 +568,25 @@ export function LauncherApp() {
       : selectedId
     if (!exactId) return
     let active = true
-    void host.getGame(exactId).then((result) => {
-      if (!active || !result.ok || !result.game) return
-      setGames((items) => mergeExactGame(items, result.game!))
-    }).catch(() => {})
-    return () => { active = false }
+    const refreshRunState = () => {
+      void host.getGame(exactId).then((result) => {
+        if (!active || !result.ok || !result.game) return
+        const next = result.game
+        setGames((items) => {
+          let updated = setExactRunState(items, next.id, !!next.isRunning, !!next.canStop)
+          for (const variant of next.variants ?? []) {
+            updated = setExactRunState(updated, variant.id, !!variant.isRunning, !!variant.canStop)
+          }
+          return updated
+        })
+      }).catch(() => {})
+    }
+    refreshRunState()
+    const timer = window.setInterval(refreshRunState, 2000)
+    return () => {
+      active = false
+      window.clearInterval(timer)
+    }
   }, [selectedId, selectedVariantId])
 
   useEffect(() => {
@@ -409,15 +609,14 @@ export function LauncherApp() {
       const q = query.trim()
       if (!d?.results || !q || q.length < 2) return
       if (d.query && d.query.trim().toLowerCase() !== q.toLowerCase()) return
-      const installedIds = new Set(
-        games.filter((g) => g.installed).map((g) => g.id.toLowerCase()),
-      )
+      const present = libraryPresenceKeys(games)
       setCatalogHits((prev) => {
         const map = new Map<string, CatalogHit>()
-        for (const h of prev) map.set(h.id.toLowerCase(), h)
+        for (const h of prev) {
+          if (!catalogHitIsPresent(h, present)) map.set(h.id.toLowerCase(), h)
+        }
         for (const h of d.results!) {
-          if (installedIds.has(h.id.toLowerCase()) && h.installed) continue
-          if (h.installed) continue
+          if (catalogHitIsPresent(h, present)) continue
           map.set(h.id.toLowerCase(), h)
         }
         return Array.from(map.values())
@@ -446,45 +645,40 @@ export function LauncherApp() {
     }
   }, [updateBusy])
 
-  const installedGames = useMemo(
-    () => games.filter((g) => g.installed && !g.isAddPortable),
-    [games],
+  const libraryGames = useMemo(() => {
+    const installingId = progress?.isActive ? progress.gameId : null
+    const rows = games.filter(
+      (g) => !g.isAddPortable && (g.installed || isInstallingGame(g, installingId)),
+    )
+    return sortGames(rows, settings?.sortMode ?? 'name', settings?.recent ?? [])
+  }, [games, settings?.sortMode, settings?.recent, progress?.isActive, progress?.gameId])
+
+  const now = useMemo(
+    () => pickNow(games, progress, settings?.recent ?? []),
+    [games, progress, settings?.recent],
   )
+  const nowId = now?.game.id ?? null
 
   const pinnedGames = useMemo(
-    () => installedGames.filter((g) => g.isFavorite),
-    [installedGames],
+    () => libraryGames.filter((g) => g.isFavorite && g.id !== nowId),
+    [libraryGames, nowId],
   )
-  const pinnedRailMounted = view === 'library' && query.trim().length < 2
 
-  useEffect(() => {
-    const rail = pinnedRailRef.current
-    if (!rail) {
-      syncPinnedNav()
-      return
-    }
-    syncPinnedNav()
-    rail.addEventListener('scroll', syncPinnedNav, { passive: true })
-    const observer = new ResizeObserver(syncPinnedNav)
-    observer.observe(rail)
-    return () => {
-      rail.removeEventListener('scroll', syncPinnedNav)
-      observer.disconnect()
-    }
-  // Settings and active search both remove the rail from the DOM. Rebind its
-  // observer and recompute the edge masks whenever the rail mounts again.
-  }, [pinnedGames.length, pinnedRailMounted, syncPinnedNav])
+  const pinnedIds = useMemo(
+    () => new Set(pinnedGames.map((g) => g.id)),
+    [pinnedGames],
+  )
 
-  const libraryGrid = useMemo(() => {
-    const pinnedIds = new Set(pinnedGames.map((g) => g.id))
-    // Pinned row + remaining grid without duplicates
-    return installedGames.filter((g) => !pinnedIds.has(g.id))
-  }, [installedGames, pinnedGames])
+  const libraryGrid = useMemo(
+    () => libraryGames.filter((g) => !pinnedIds.has(g.id) && g.id !== nowId),
+    [libraryGames, pinnedIds, nowId],
+  )
 
   const libraryMatches = useMemo(() => {
     const q = query.trim()
     if (q.length < 2) return [] as Game[]
-    return installedGames
+    return games
+      .filter(isSearchableLibraryGame)
       .map((game) => ({
         game,
         // Search is a title search. Store names, tools and backend labels must
@@ -499,13 +693,19 @@ export function LauncherApp() {
           a.game.title.localeCompare(b.game.title, undefined, { sensitivity: 'base' }),
       )
       .map(({ game }) => game)
-  }, [installedGames, query])
+  }, [games, query])
 
-  const catalogGames = useMemo(() => catalogHits.map(hitToGame), [catalogHits])
+  const catalogGames = useMemo(() => {
+    const present = libraryPresenceKeys(games)
+    return catalogHits
+      .filter((hit) => !catalogHitIsPresent(hit, present))
+      .map((hit) => hitToGame(hit, games))
+  }, [catalogHits, games])
 
   // Catalog search — a pending query is never an empty result. Keep the loading
   // state through debounce and provider work so the UI cannot flash a false
-  // "No matches" before Epic/Steam returns.
+  // "No matches" before Epic/Steam returns. Do not re-run on games/run-state
+  // polls — that cleared hits and spun the spinner every 2s while detail was open.
   useEffect(() => {
     const q = query.trim()
     if (q.length < 2) {
@@ -528,15 +728,8 @@ export function LauncherApp() {
           if (searchGen.current !== gen) return
           // A cancelled generation has no trustworthy results for this query.
           if (r.cancelled) return
-          const installedIds = new Set(
-            games.filter((g) => g.installed).map((g) => g.id.toLowerCase()),
-          )
-          const hits = (r.results ?? []).filter((h) => {
-            // Drop already-installed; keep owned-not-installed.
-            if (installedIds.has(h.id.toLowerCase())) return false
-            if (h.installed) return false
-            return true
-          })
+          const present = libraryPresenceKeys(gamesRef.current)
+          const hits = (r.results ?? []).filter((h) => !catalogHitIsPresent(h, present))
           setCatalogHits(hits)
         })
         .catch(() => {
@@ -549,15 +742,16 @@ export function LauncherApp() {
     return () => {
       window.clearTimeout(t)
     }
-  }, [query, games])
+  }, [query])
 
   const selectedCard = useMemo(() => {
     if (!selectedId) return null
-    return (
-      games.find((g) => g.id === selectedId) ??
-      catalogGames.find((g) => g.id === selectedId) ??
-      null
-    )
+    const fromLibrary =
+      cardForExactId(games, selectedId) ?? findLibraryGame(games, selectedId)
+    if (fromLibrary) return fromLibrary
+    const catalog = catalogGames.find((g) => g.id === selectedId)
+    if (!catalog) return null
+    return findLibraryGameByTitle(games, catalog.title) ?? catalog
   }, [games, catalogGames, selectedId])
 
   // Cards stay canonical in the grid; the detail rail materializes exactly one
@@ -567,14 +761,16 @@ export function LauncherApp() {
     [selectedCard, selectedVariantId],
   )
 
-  const action = selected ? resolvePrimaryAction(selected) : 'none'
+  useLayoutEffect(() => {
+    if (selected) setHeldGame(selected)
+  }, [selected])
 
   const navGames = useMemo(() => {
     if (query.trim().length >= 2) {
       return [...libraryMatches, ...catalogGames]
     }
-    return [...pinnedGames, ...libraryGrid]
-  }, [query, libraryMatches, catalogGames, pinnedGames, libraryGrid])
+    return libraryGames
+  }, [query, libraryMatches, catalogGames, libraryGames])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -602,7 +798,7 @@ export function LauncherApp() {
       if (view !== 'library' || typing) return
       if (e.key === 'ArrowRight' || e.key === 'ArrowLeft' || e.key === 'ArrowDown' || e.key === 'ArrowUp') {
         e.preventDefault()
-        const cols = window.innerWidth >= 1024 ? 4 : window.innerWidth >= 640 ? 3 : 2
+        const cols = Math.max(2, Math.min(8, Math.floor((window.innerWidth - 96) / 158)))
         let next = focusIndex
         if (e.key === 'ArrowRight') next += 1
         if (e.key === 'ArrowLeft') next -= 1
@@ -612,17 +808,19 @@ export function LauncherApp() {
         setFocusIndex(next)
         const g = navGames[next]
         if (g) {
-          selectCard(g.id)
-          setActionStatus(null, null)
+          setFocusIndex(next)
           window.requestAnimationFrame(() => {
             const escapedId = CSS.escape(g.id)
-            document.querySelector<HTMLButtonElement>(`button[data-game-id="${escapedId}"]`)?.focus()
+            document.querySelector<HTMLButtonElement>(`button[data-game-id="${escapedId}"]`)?.focus({ preventScroll: true })
           })
         }
       }
-      if (e.key === 'Enter' && selected && !busy) {
-        e.preventDefault()
-        void onPrimary()
+      if (e.key === 'Enter' && !busy) {
+        const focused = navGames[focusIndex]
+        if (focused) {
+          e.preventDefault()
+          openGamePage(focused.id, focusIndex)
+        }
       }
     }
     window.addEventListener('keydown', onKey)
@@ -630,56 +828,58 @@ export function LauncherApp() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view, focusIndex, navGames, selected, busy, loadLibrary, actionLocked])
 
-  async function runPrimary(skipDeps = false) {
-    if (!selected || busy) return
-    if (action === 'none') {
+  async function runPrimary(skipDeps = false, target?: Game) {
+    const game = target ?? selected
+    if (!game || busy) return
+    const nextAction = resolvePrimaryAction(game)
+    if (nextAction === 'none') {
       setActionStatus(
-        selected.installed
+        game.installed
           ? 'No action available for this title.'
           : 'Not installable from Exo yet — sign in to a backend or pick a supported title.',
-        selected.id,
+        game.id,
       )
       return
     }
     setBusy(true)
-    setActionStatus(null, selected.id)
+    setActionStatus(null, game.id)
     setDepPrompt(null)
     try {
-      if (action === 'play') {
-        setActionStatus('Preparing launch…', selected.id)
-        const res = await host.launch(selected.id, { skipDeps })
+      if (nextAction === 'play') {
+        setActionStatus('Preparing launch…', game.id)
+        const res = await host.launch(game.id, { skipDeps })
         if (res.needsDependencies && res.missingDependencies?.length) {
           setDepPrompt({ action: 'play', deps: res.missingDependencies })
-          setActionStatus(res.message || 'Install required', selected.id)
+          setActionStatus(res.message || 'Install required', game.id)
           setBusy(false)
           return
         }
         setActionStatus(
           res.message || (res.ok ? 'Running' : 'Launch failed'),
-          selected.id,
+          game.id,
           !res.ok,
         )
         if (!res.ok) setBusy(false)
-        else setTimeout(() => setBusy(false), 4000)
-      } else if (action === 'install') {
-        setActionStatus('Starting install…', selected.id)
+        else setTimeout(() => setBusy(false), 1500)
+      } else if (nextAction === 'install') {
+        setActionStatus('Starting install…', game.id)
         setProgress({
-          gameId: selected.id,
+          gameId: game.id,
           phase: 'preparing',
-          percent: 0,
+          percent: null,
           status: 'Starting install…',
           canCancel: true,
           isActive: true,
         })
-        const res = await host.install(selected.id, undefined, selected.title, { skipDeps })
+        const res = await host.install(game.id, undefined, game.title, { skipDeps })
         if (res.needsDependencies && res.missingDependencies?.length) {
           setDepPrompt({ action: 'install', deps: res.missingDependencies })
-          setActionStatus(res.message || 'Install required', selected.id)
+          setActionStatus(res.message || 'Install required', game.id)
           setBusy(false)
           setProgress(null)
           return
         }
-        setActionStatus(res.message || (res.ok ? 'Install complete' : 'Install failed'), selected.id)
+        setActionStatus(res.message || (res.ok ? 'Install complete' : 'Install failed'), game.id)
         if (res.progress) setProgress(res.progress)
         if (!res.progress?.isActive) {
           setBusy(false)
@@ -687,25 +887,25 @@ export function LauncherApp() {
             p ? { ...p, isActive: false, canCancel: false, phase: res.ok ? 'completed' : 'failed' } : p,
           )
         }
-      } else if (action === 'update') {
-        setActionStatus('Starting update…', selected.id)
+      } else if (nextAction === 'update') {
+        setActionStatus('Starting update…', game.id)
         setProgress({
-          gameId: selected.id,
+          gameId: game.id,
           phase: 'preparing',
-          percent: 0,
+          percent: null,
           status: 'Starting update…',
           canCancel: true,
           isActive: true,
         })
-        const res = await host.update(selected.id, { skipDeps })
+        const res = await host.update(game.id, { skipDeps })
         if (res.needsDependencies && res.missingDependencies?.length) {
           setDepPrompt({ action: 'update', deps: res.missingDependencies })
-          setActionStatus(res.message || 'Install required', selected.id)
+          setActionStatus(res.message || 'Install required', game.id)
           setBusy(false)
           setProgress(null)
           return
         }
-        setActionStatus(res.message || (res.ok ? 'Update complete' : 'Update failed'), selected.id)
+        setActionStatus(res.message || (res.ok ? 'Update complete' : 'Update failed'), game.id)
         if (res.progress) setProgress(res.progress)
         if (!res.progress?.isActive) {
           setBusy(false)
@@ -717,7 +917,7 @@ export function LauncherApp() {
         setBusy(false)
       }
     } catch (e) {
-      setActionStatus(e instanceof Error ? e.message : 'Action failed', selected.id)
+      setActionStatus(e instanceof Error ? e.message : 'Action failed', game.id)
       setBusy(false)
       setProgress((p) => (p?.isActive ? { ...p, isActive: false, canCancel: false, phase: 'failed' } : p))
     }
@@ -725,32 +925,36 @@ export function LauncherApp() {
 
   async function onPrimary() {
     if (selected?.canStop) {
-      await onStopGame()
+      await onStopGame(selected)
       return
     }
     await runPrimary(false)
   }
 
-  async function onStopGame() {
-    if (!selected || !selected.canStop || busy || progress?.isActive) return
+  function activateCard(game: Game) {
+    const exact = materializeVariant(game, game.selectedVariantId ?? null)
+    if (exact.canStop) void onStopGame(exact)
+    else void runPrimary(false, exact)
+  }
+
+  async function onStopGame(target?: Game) {
+    const game = target ?? selected
+    if (!game || !game.canStop || busy || progress?.isActive) return
     setBusy(true)
-    setActionStatus(`Closing ${selected.title}…`, selected.id)
+    setActionStatus(`Closing ${game.title}…`, game.id)
     try {
-      const result = await host.stop(selected.id)
-      setActionStatus(result.message ?? (result.ok ? 'Game closed.' : 'Could not close the game.'), selected.id, !result.ok)
+      const result = await host.stop(game.id)
+      setActionStatus(result.message ?? (result.ok ? 'Game closed.' : 'Could not close the game.'), game.id, !result.ok)
       if (result.ok) {
-        setGames((items) => setExactRunState(items, selected.id, false, false))
-        // Do not keep the Stop button in a Closing state while a broad external
-        // process reconciliation runs. It is safe to reconcile in background
-        // because the native result already revalidated process identity/exit.
-        void host.getGame(selected.id).then((refreshed) => {
+        setGames((items) => setExactRunState(items, game.id, false, false))
+        void host.getGame(game.id).then((refreshed) => {
           if (refreshed.ok && refreshed.game) {
             setGames((items) => mergeExactGame(items, refreshed.game!))
           }
         }).catch(() => {})
       }
     } catch (error) {
-      setActionStatus(error instanceof Error ? error.message : 'Could not close the game.', selected.id, true)
+      setActionStatus(error instanceof Error ? error.message : 'Could not close the game.', game.id, true)
     } finally {
       setBusy(false)
     }
@@ -803,7 +1007,37 @@ export function LauncherApp() {
   }
 
   const searching = query.trim().length >= 2
-  const emptyLibrary = !loading && installedGames.length === 0 && !searching
+  const emptyLibrary = !booting && !loading && libraryGames.length === 0 && !searching
+  const showGamePage = !!selected && !searching
+  const displayedGame = selected ?? heldGame
+  const overlayLock = !!displayedGame && !searching
+  const onOverlayExit = useCallback(() => {
+    if (!selectedIdRef.current) setHeldGame(null)
+  }, [])
+
+  useLayoutEffect(() => {
+    const main = libraryMainRef.current
+    if (!main) return
+    if (overlayLock) {
+      main.scrollTop = libraryScrollRef.current
+      return
+    }
+    libraryScrollRef.current = main.scrollTop
+  }, [overlayLock])
+
+  useEffect(() => {
+    const main = libraryMainRef.current
+    if (!main) return
+    const remember = () => {
+      if (!selectedIdRef.current) libraryScrollRef.current = main.scrollTop
+    }
+    main.addEventListener('pointerdown', remember, true)
+    main.addEventListener('scroll', remember, { passive: true })
+    return () => {
+      main.removeEventListener('pointerdown', remember, true)
+      main.removeEventListener('scroll', remember)
+    }
+  }, [])
 
   async function finishOnboarding() {
     try {
@@ -822,8 +1056,8 @@ export function LauncherApp() {
   if (!settings) {
     return (
       <div className="exo-app">
-        <div className="flex flex-1 items-center justify-center px-8">
-          {settingsError ? (
+        {settingsError ? (
+          <div className="flex flex-1 items-center justify-center px-8">
             <div className="max-w-md rounded-2xl border border-line-soft bg-elevated p-6 text-center" role="alert">
               <h1 className="text-base font-semibold text-fg">Settings could not be loaded</h1>
               <p className="mt-2 text-[12px] leading-relaxed text-muted">{settingsError}</p>
@@ -831,10 +1065,10 @@ export function LauncherApp() {
                 Try again
               </button>
             </div>
-          ) : (
-            <div className="text-sm text-muted" role="status">Starting…</div>
-          )}
-        </div>
+          </div>
+        ) : (
+          <BootSplash />
+        )}
       </div>
     )
   }
@@ -855,6 +1089,7 @@ export function LauncherApp() {
     return (
       <>
         <SettingsShell
+          alive={updateBusy}
           onBack={() => setView('library')}
         >
           <SettingsPanel
@@ -892,9 +1127,8 @@ export function LauncherApp() {
   }
 
   return (
-    <>
       <div className="exo-app">
-      <header className="exo-titlebar">
+      <header className={`exo-titlebar exo-titlebar-home${markBusy ? ' is-busy' : ''}`}>
         <button
           type="button"
           className="exo-brand exo-no-drag shrink-0"
@@ -907,23 +1141,20 @@ export function LauncherApp() {
           }}
           aria-label="Home library"
         >
-          <img src="./logo.png" alt="" className="exo-brand-logo" width={28} height={28} draggable={false} />
+          <ExoMark size={28} className="exo-brand-logo" alive={markBusy} />
         </button>
 
-        <div className="relative mx-2 min-w-0 flex-1 exo-no-drag">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-faint" />
+        <div className={`exo-titlebar-search exo-no-drag${query.trim() ? ' is-open' : ''}`}>
+          <Search className="exo-search-glyph" />
           <input
             ref={searchInputRef}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             disabled={actionLocked}
-            placeholder="Search to install…"
-            className="exo-search max-w-none w-full"
-            aria-label="Search to install"
+            placeholder="Search"
+            className="exo-search"
+            aria-label="Search library and stores"
           />
-          {catalogSearching && (
-            <Loader2 className="pointer-events-none absolute right-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 animate-spin text-faint" />
-          )}
         </div>
 
         <div className="exo-titlebar-actions">
@@ -934,15 +1165,10 @@ export function LauncherApp() {
             disabled={actionLocked}
             onClick={() => setView('settings')}
           >
-            <Settings size={15} strokeWidth={1.75} />
+            <Settings size={16} />
           </button>
           <div className="exo-titlebar-divider" />
-          <button type="button" className="exo-winbtn" title="Minimize" onClick={() => void host.minimize()}>
-            <Minus size={15} strokeWidth={1.75} />
-          </button>
-          <button type="button" className="exo-winbtn is-close" title="Close" onClick={() => void host.close()}>
-            <X size={15} strokeWidth={1.75} />
-          </button>
+          <WindowChrome />
         </div>
       </header>
 
@@ -990,10 +1216,9 @@ export function LauncherApp() {
       )}
 
       {updateBanner && (
-        <div
-          className="relative z-10 flex items-center justify-between gap-3 border-b border-line-soft bg-elevated px-5 py-2.5 text-[12px]"
+        <BannerIn
           role="status"
-          aria-label="App update"
+          className="relative z-10 flex items-center justify-between gap-3 border-b border-line-soft bg-elevated px-5 py-2.5 text-[12px]"
         >
           <div className="min-w-0 flex-1">
             <p className="font-medium text-fg">{updateBanner}</p>
@@ -1031,7 +1256,7 @@ export function LauncherApp() {
                   <strong>Update now</strong>
                 </span>
                 <span className="exo-action-content exo-action-active" aria-hidden={!updateBusy}>
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  <Loader2 size={16} className="animate-spin" />
                   <strong>{`Installing… ${Math.round(updatePercent)}%`}</strong>
                 </span>
               </span>
@@ -1052,239 +1277,146 @@ export function LauncherApp() {
               </span>
             )}
           </div>
-        </div>
+        </BannerIn>
       )}
 
       {statusMsg && statusGameId === null && (
-        <div
-          className="relative z-10 border-b border-line-soft px-5 py-2.5 text-[12px] text-bad"
+        <BannerIn
           role="alert"
+          className="relative z-10 border-b border-line-soft px-5 py-2.5 text-[12px] text-bad"
         >
           {statusMsg}
-        </div>
+        </BannerIn>
       )}
 
       <div className="relative z-10 flex min-h-0 flex-1">
-        <main className={cn('min-w-0 flex-1 overflow-y-auto', selected ? 'hidden md:block' : 'block')}>
-          <div className="px-5 pb-10 pt-4 sm:px-6">
-            <div className="mb-6 flex items-end justify-between gap-4">
-              <div>
-                <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-faint">Library</p>
-                <h1 className="mt-1 text-[24px] font-semibold tracking-[-0.03em] text-fg">
-                  Your games
-                </h1>
-              </div>
-              <span className="pb-1 text-[12px] tabular-nums text-faint">
-                {installedGames.length} installed
-              </span>
-            </div>
-            {loading && installedGames.length === 0 ? (
-              <div className="exo-enter flex flex-col items-center justify-center py-24">
-                <img
-                  src="./logo.png"
-                  alt=""
-                  width={56}
-                  height={56}
-                  className="mb-5 size-14 rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.55)]"
-                  draggable={false}
-                />
-                <p className="text-sm text-fg-muted">Scanning libraries…</p>
-              </div>
-            ) : emptyLibrary ? (
+        {booting && <BootSplash />}
+        <main
+          ref={libraryMainRef}
+          className={`exo-library-pane min-w-0 flex-1${overlayLock ? ' is-overlay-open' : ''}`}
+          inert={overlayLock ? true : undefined}
+        >
+          <div className="exo-home">
+            {emptyLibrary ? (
               <div className="exo-enter flex flex-col items-center justify-center py-24 text-center">
-                <div
-                  className="mb-5 grid size-14 place-items-center text-lg font-bold text-muted"
-                  style={{
-                    borderRadius: 16,
-                    border: '1px solid #2a2a2a',
-                    background: '#000',
-                  }}
-                >
-                  ·
-                </div>
                 <p className="text-[15px] font-medium tracking-tight text-fg">Nothing installed</p>
-                <p className="mt-2 text-[13px] text-faint">Search the stores to install a game into Exo.</p>
+                <p className="mt-2 text-[13px] text-faint">Search to download a game you already own.</p>
                 <button
                   type="button"
                   className="exo-cta mt-5 h-10 px-5 text-[12px]"
                   onClick={() => searchInputRef.current?.focus()}
                 >
-                  Search to install
+                  Search library
                 </button>
               </div>
             ) : searching ? (
               <>
                 {libraryMatches.length > 0 && (
-                  <section className="mb-10">
-                    <h3 className="mb-3 text-[12px] font-medium uppercase tracking-wider text-faint">
-                      Library
-                    </h3>
-                    <div
-                      className="grid gap-x-4 gap-y-5"
-                      style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(172px, 1fr))' }}
-                    >
+                  <section>
+                    <div className="exo-home-head">
+                      <h3 className="exo-section-label">Library</h3>
+                    </div>
+                    <div className="exo-game-grid">
                       {libraryMatches.map((game, i) => (
                         <GridItem key={game.id} index={i}>
                           <GameCard
                             game={game}
                             selected={selectedId === game.id}
-                            disabled={actionLocked && lockedGameId !== game.id}
-                            onSelect={() => {
-                              selectCard(game.id)
-                              setFocusIndex(i)
-                              setActionStatus(null, null)
-                            }}
+                            disabled={isCardActionLocked(game)}
+                            transfer={transferForGame(progress, game)}
+                            onSelect={() => openGamePage(game.id, i)}
+                            onActivate={() => activateCard(game)}
                             onToggleFavorite={() => void onToggleFavorite(game.id)}
                           />
                         </GridItem>
                       ))}
                     </div>
-                  </section>
-                )}
+                </section>
+              )}
 
+              {(catalogGames.length > 0 || catalogSearching) && (
                 <section>
-                  <div className="mb-3 flex items-center gap-2">
-                    <h3 className="text-[12px] font-medium uppercase tracking-wider text-faint">
-                      Install
-                    </h3>
+                  <div className="exo-home-head">
+                    <h3 className="exo-section-label">Install</h3>
                     {catalogSearching && (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin text-faint" />
+                      <Loader2 size={16} className="animate-spin text-faint" />
                     )}
                   </div>
-                  {catalogGames.length === 0 && !catalogSearching ? (
-                    <p className="text-[13px] text-faint">
-                      {libraryMatches.length === 0
-                        ? `No matches for “${query.trim()}”.`
-                        : 'No installable titles for this search.'}
-                    </p>
-                  ) : (
-                    <div
-                      className="grid gap-x-4 gap-y-5"
-                      style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(172px, 1fr))' }}
-                    >
+                  {catalogGames.length > 0 && (
+                    <div className="exo-game-grid">
                       {catalogGames.map((game, i) => (
                         <GridItem key={game.id} index={i}>
                           <GameCard
                             game={game}
                             selected={selectedId === game.id}
-                            disabled={actionLocked && lockedGameId !== game.id}
-                            onSelect={() => {
-                              selectCard(game.id)
-                              setFocusIndex(libraryMatches.length + i)
-                              setActionStatus(null, null)
-                            }}
+                            disabled={isCardActionLocked(game)}
+                            transfer={transferForGame(progress, game)}
+                            onSelect={() => openGamePage(game.id, libraryMatches.length + i)}
+                            onActivate={() => activateCard(game)}
                           />
                         </GridItem>
                       ))}
                     </div>
                   )}
                 </section>
+              )}
+              {libraryMatches.length === 0 && catalogGames.length === 0 && !catalogSearching && (
+                <p className="px-5 pt-6 text-[13px] text-faint">
+                  {`No matches for “${query.trim()}”.`}
+                </p>
+              )}
               </>
             ) : (
               <>
+                {now && (
+                  <NowStage
+                    game={now.game}
+                    kind={now.kind}
+                    progress={now.kind === 'download' ? progress : null}
+                    disabled={isCardActionLocked(now.game)}
+                    onOpen={() => openGamePage(now.game.id, 0)}
+                    onPrimary={() => void activateCard(now.game)}
+                    onStop={() => void onStopGame(now.game)}
+                  />
+                )}
+
                 {pinnedGames.length > 0 && (
-                  <section className="exo-pinned-section mb-7 min-w-0 max-w-full">
-                    <div className="mb-3 flex items-center justify-between gap-3">
-                      <h3 className="text-[12px] font-medium uppercase tracking-wider text-faint">
-                        Pinned
-                      </h3>
-                      {(pinnedNav.back || pinnedNav.forward) && (
-                        <div className="flex items-center gap-1" aria-label="Pinned game navigation">
-                          <button
-                            type="button"
-                            className="exo-pinned-nav-button"
-                            aria-label="Previous pinned games"
-                            disabled={!pinnedNav.back}
-                            onClick={() => movePinnedRail(-564)}
-                          >
-                            <ChevronLeft size={15} />
-                          </button>
-                          <button
-                            type="button"
-                            className="exo-pinned-nav-button"
-                            aria-label="Next pinned games"
-                            disabled={!pinnedNav.forward}
-                            onClick={() => movePinnedRail(564)}
-                          >
-                            <ChevronRight size={15} />
-                          </button>
-                        </div>
-                      )}
+                  <section className="exo-pinned-section">
+                    <div className="exo-home-head">
+                      <h3 className="exo-section-label">Pinned</h3>
                     </div>
-                    <div className="exo-pinned-viewport">
-                      <div
-                        ref={pinnedRailRef}
-                        className="exo-pinned-row"
-                        tabIndex={0}
-                        role="region"
-                        aria-label="Pinned games"
-                        onWheel={(event) => {
-                          if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return
-                          if (event.currentTarget.scrollWidth <= event.currentTarget.clientWidth) return
-                          event.preventDefault()
-                          movePinnedRail(event.deltaY)
-                        }}
-                        onKeyDown={(event) => {
-                          if (event.key === 'ArrowRight') {
-                            event.preventDefault()
-                            movePinnedRail(220)
-                          } else if (event.key === 'ArrowLeft') {
-                            event.preventDefault()
-                            movePinnedRail(-220)
-                          } else if (event.key === 'Home') {
-                            event.preventDefault()
-                            pinnedRailRef.current?.scrollTo({ left: 0, behavior: 'smooth' })
-                          } else if (event.key === 'End') {
-                            event.preventDefault()
-                            const rail = pinnedRailRef.current
-                            rail?.scrollTo({ left: rail.scrollWidth, behavior: 'smooth' })
-                          }
-                        }}
-                      >
-                        {pinnedGames.map((game, i) => (
-                          <GameCard
-                            key={game.id}
-                            game={game}
-                            size="lg"
-                            selected={selectedId === game.id}
-                            disabled={actionLocked && lockedGameId !== game.id}
-                            onSelect={() => {
-                              selectCard(game.id)
-                              setFocusIndex(i)
-                              setActionStatus(null, null)
-                            }}
-                            onToggleFavorite={() => void onToggleFavorite(game.id)}
-                          />
-                        ))}
-                      </div>
-                      {pinnedNav.back && <span className="exo-pinned-edge is-left" aria-hidden="true" />}
-                      {pinnedNav.forward && <span className="exo-pinned-edge is-right" aria-hidden="true" />}
+                    <div className="exo-pin-track" role="region" aria-label="Pinned games">
+                      {pinnedGames.map((game, i) => (
+                        <GameCard
+                          key={game.id}
+                          game={game}
+                          selected={selectedId === game.id}
+                          disabled={isCardActionLocked(game)}
+                          transfer={transferForGame(progress, game)}
+                          onSelect={() => openGamePage(game.id, i)}
+                          onActivate={() => activateCard(game)}
+                          onToggleFavorite={() => void onToggleFavorite(game.id)}
+                        />
+                      ))}
                     </div>
                   </section>
                 )}
 
                 {libraryGrid.length > 0 && (
                   <section>
-                    {pinnedGames.length > 0 && (
-                      <h3 className="mb-3 text-[12px] font-medium uppercase tracking-wider text-faint">
-                        Installed
-                      </h3>
-                    )}
-                    <div
-                      className="grid gap-x-4 gap-y-5"
-                      style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(172px, 1fr))' }}
-                    >
+                    <div className="exo-home-head">
+                      <h3 className="exo-section-label">Library</h3>
+                    </div>
+                    <div className="exo-game-grid">
                       {libraryGrid.map((game, i) => (
                         <GridItem key={game.id} index={i}>
                           <GameCard
                             game={game}
                             selected={selectedId === game.id}
-                            disabled={actionLocked && lockedGameId !== game.id}
-                            onSelect={() => {
-                              selectCard(game.id)
-                              setFocusIndex(pinnedGames.length + i)
-                              setActionStatus(null, null)
-                            }}
+                            disabled={isCardActionLocked(game)}
+                            transfer={transferForGame(progress, game)}
+                            onSelect={() => openGamePage(game.id, i)}
+                            onActivate={() => activateCard(game)}
                             onToggleFavorite={() => void onToggleFavorite(game.id)}
                           />
                         </GridItem>
@@ -1297,36 +1429,45 @@ export function LauncherApp() {
             )}
           </div>
         </main>
-
-        {selected && (
-          <div className="flex shrink-0 items-stretch py-3 pr-3 pl-1">
-            <DetailRail open>
-              <DetailPanel
-                selected={selected}
-                busy={busy}
-                statusMsg={statusGameId === selected.id ? statusMsg : null}
-                progress={progress}
-                onPrimary={() => void onPrimary()}
-                onStop={() => void onStopGame()}
-                onCancel={() => void onCancel()}
-                onClose={() => selectCard(null)}
-                onToggleFavorite={(id) => void onToggleFavorite(id)}
-                onSelectSource={(id) => {
-                  setSelectedVariantId(id)
-                  setActionStatus(null, id)
-                }}
-                onStatus={(message) => setActionStatus(message, selected.id)}
-                onUninstalled={() => {
-                  selectCard(null)
-                  void loadLibrary(true)
-                }}
-                closeDisabled={actionLocked}
-              />
-            </DetailRail>
-          </div>
-        )}
+        <GameOverlay
+          open={showGamePage}
+          label={displayedGame ? `${displayedGame.title} details` : 'Game'}
+          onExitComplete={onOverlayExit}
+          scrim={
+            <div
+              className="exo-game-overlay-scrim"
+              aria-hidden="true"
+              onClick={() => {
+                if (!actionLocked) selectCard(null)
+              }}
+            />
+          }
+        >
+          {displayedGame ? (
+            <DetailPanel
+              selected={displayedGame}
+              busy={busy}
+              statusMsg={statusBelongsToSelection(statusGameId, displayedGame) ? statusMsg : null}
+              progress={progress}
+              onPrimary={() => void onPrimary()}
+              onStop={() => void onStopGame()}
+              onCancel={() => void onCancel()}
+              onClose={() => selectCard(null)}
+              onToggleFavorite={(id) => void onToggleFavorite(id)}
+              onSelectSource={(id) => {
+                setSelectedVariantId(id)
+                setActionStatus(null, id)
+              }}
+              onStatus={(message, sticky) => setActionStatus(message, displayedGame.id, !!sticky)}
+              onUninstalled={() => {
+                selectCard(null)
+                void loadLibrary(true)
+              }}
+              closeDisabled={actionLocked}
+            />
+          ) : null}
+        </GameOverlay>
         </div>
       </div>
-    </>
   )
 }

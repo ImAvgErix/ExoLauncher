@@ -320,10 +320,10 @@ public sealed class SettingsService
             // Hard-locked product defaults (ignore UI patches that try to flip them).
             _ = closeStore;
             _ = autoRedist;
+            _ = minimizeWhilePlaying;
             _ = copyPortable;
             _ = allowResize;
             _ = checkUpdates;
-            if (minimizeWhilePlaying is not null) _current.MinimizeWhilePlaying = minimizeWhilePlaying.Value;
             if (!string.IsNullOrWhiteSpace(sortMode)) _current.SortMode = sortMode!;
             if (defaultInstallRoot is not null)
                 _current.DefaultInstallRoot = string.IsNullOrWhiteSpace(defaultInstallRoot) ? null : defaultInstallRoot;

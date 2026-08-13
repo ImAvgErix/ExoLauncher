@@ -206,7 +206,7 @@ internal sealed class SteamOwnershipCatalog
     private static bool TryCreateEntry(string accountScope, GameEntry game, out CatalogEntry entry)
     {
         entry = default!;
-        if (game.Store != StoreKind.Steam || !game.Installed || !game.Owned)
+        if (game.Store != StoreKind.Steam || !game.Installed)
             return false;
         var appId = (game.LaunchTarget ?? "").Trim();
         if (!IsValidAppId(appId) ||

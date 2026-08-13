@@ -237,23 +237,39 @@ public sealed class LibraryService
         // exact-title matches into one card at the boundary consumed by the UI.
         // The projected card still uses one real source as its top-level entry;
         // it is never a synthetic launch target or a sum of store statistics.
+        var coldStart = _cacheAt == DateTimeOffset.MinValue;
         _cache = GroupVariants(CoverArtService.WithCovers(ordered));
         // Fire once immediately so UI gets CDN URLs, then again as disk art lands.
         try { LibraryUpdated?.Invoke(); } catch { /* ignore */ }
-        // Warm what can actually appear in the installed/favorites library.
-        // Search requests warm their own result on demand; prefetching every
-        // uninstalled Epic entitlement caused a large startup burst.
+        // Warm installed + pinned titles before first paint on cold start.
+        // Owned-not-installed posters keep filling after the splash.
         var warmTargets = OverlayUserPrefs(_cache)
-            .Where(game => game.Installed || game.IsFavorite)
+            .Where(CoverArtService.ShouldWarmLibraryCover)
             .ToArray();
-        _ = CoverArtService.WarmCacheAsync(
-            warmTargets,
-            () =>
-            {
-                _cache = CoverArtService.WithCovers(_cache);
-                try { LibraryUpdated?.Invoke(); } catch { /* ignore */ }
-            },
-            deferForFirstPaint: true);
+        void OnWarmBatch()
+        {
+            _cache = CoverArtService.WithCovers(_cache);
+            try { LibraryUpdated?.Invoke(); } catch { /* ignore */ }
+        }
+        // requested=true: high concurrency + notify every poster so tiles fill ASAP.
+        if (coldStart)
+        {
+            // Splash waits for the home grid (installed + pins) and playtime.
+            // Owned-not-installed posters keep warming after the app opens.
+            var visible = warmTargets.Where(g => g.Installed || g.IsFavorite).ToArray();
+            var rest = warmTargets.Where(g => !g.Installed && !g.IsFavorite).ToArray();
+            var visibleWarm = CoverArtService.WarmCacheAsync(
+                visible, OnWarmBatch, requested: true, deferForFirstPaint: false);
+            _ = await Task.WhenAny(visibleWarm, Task.Delay(TimeSpan.FromSeconds(20))).ConfigureAwait(false);
+            OnWarmBatch();
+            if (rest.Length > 0)
+                _ = CoverArtService.WarmCacheAsync(rest, OnWarmBatch, requested: true, deferForFirstPaint: false);
+        }
+        else
+        {
+            _ = CoverArtService.WarmCacheAsync(
+                warmTargets, OnWarmBatch, requested: true, deferForFirstPaint: false);
+        }
         _cacheAt = DateTimeOffset.UtcNow;
         scanStopwatch.Stop();
         var adapterTimings = string.Join(' ', results.Select(result =>
@@ -563,7 +579,7 @@ public sealed class LibraryService
         Store = source.Store,
         Installed = source.Installed,
         Owned = source.Owned,
-        UpdateAvailable = source.UpdateAvailable,
+        UpdateAvailable = source.UpdateAvailable || variants.Any(variant => variant.UpdateAvailable),
         CanInstall = source.CanInstall,
         Path = source.Path,
         CoverUrl = source.CoverUrl,

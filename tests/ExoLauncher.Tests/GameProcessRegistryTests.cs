@@ -31,27 +31,29 @@ public sealed class GameProcessRegistryTests
     [InlineData(StoreKind.Gog)]
     [InlineData(StoreKind.Riot)]
     [InlineData(StoreKind.Local)]
-    public void GameOperationBackendsSupportExactProcessControl(StoreKind store) =>
-        Assert.True(GameProcessRegistry.SupportsGameProcessControl(store));
-
-    [Theory]
-    [InlineData(StoreKind.Xbox)]
     [InlineData(StoreKind.Ea)]
     [InlineData(StoreKind.Ubisoft)]
+    [InlineData(StoreKind.Xbox)]
     [InlineData(StoreKind.BattleNet)]
     [InlineData(StoreKind.Amazon)]
     [InlineData(StoreKind.Rockstar)]
-    public void PresenceOnlyClientsNeverGainPerGameStopFromAnInstallPath(StoreKind store)
+    public void GameOperationBackendsSupportExactProcessControl(StoreKind store) =>
+        Assert.True(GameProcessRegistry.SupportsGameProcessControl(store));
+
+    [Fact]
+    public void ProvenOfficialInstallsCanStopAGameExecutableUnderTheInstallRoot()
     {
-        var root = Path.Combine(Path.GetTempPath(), "exo-stop-presence-only", Guid.NewGuid().ToString("N"));
+        var root = Path.Combine(Path.GetTempPath(), "exo-stop-official", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
         try
         {
-            var game = Game(root, store, "catalog-id");
-
-            Assert.False(GameProcessRegistry.SupportsGameProcessControl(store));
-            Assert.False(GameProcessRegistry.IsEligibleExecutableForStop(
-                game, "Game-Win64-Shipping", Path.Combine(root, "bin", "Game-Win64-Shipping.exe")));
+            foreach (var store in new[] { StoreKind.BattleNet, StoreKind.Amazon, StoreKind.Rockstar })
+            {
+                var game = Game(root, store, "catalog-id");
+                Assert.True(GameProcessRegistry.SupportsGameProcessControl(store));
+                Assert.True(GameProcessRegistry.IsEligibleExecutableForStop(
+                    game, "Game-Win64-Shipping", Path.Combine(root, "bin", "Game-Win64-Shipping.exe")));
+            }
         }
         finally
         {
@@ -215,14 +217,21 @@ public sealed class GameProcessRegistryTests
     }
 
     [Fact]
-    public void StopImplementationNeverExpandsToAnUnverifiedProcessTree()
+    public void StopImplementationKillsVerifiedHelpersWithoutProcessTreeBypass()
     {
-        var source = File.ReadAllText(FindRepoFile(
+        var registry = File.ReadAllText(FindRepoFile(
             Path.Combine("ExoLauncher", "Services", "GameProcessRegistry.cs")));
+        var helper = File.ReadAllText(FindRepoFile(
+            Path.Combine("ExoLauncher", "Adapters", "ProcessHelper.cs")));
 
-        Assert.Contains("Kill(entireProcessTree: false)", source, StringComparison.Ordinal);
-        Assert.DoesNotContain("Kill(entireProcessTree: true)", source, StringComparison.Ordinal);
-        Assert.Contains("StartedUtcTicks == expected.StartedUtcTicks", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("Kill(entireProcessTree: true)", registry, StringComparison.Ordinal);
+        Assert.Contains("KillVerifiedGameTree", registry, StringComparison.Ordinal);
+        Assert.Contains("IsReservedProcessName", registry, StringComparison.Ordinal);
+        Assert.Contains("MatchesIdentity", registry, StringComparison.Ordinal);
+        Assert.Contains("StartedUtcTicks == expected.StartedUtcTicks", registry, StringComparison.Ordinal);
+        Assert.Contains("Never uses <c>Kill(entireProcessTree: true)</c>", helper, StringComparison.Ordinal);
+        Assert.Contains("if (isReservedName(child.ProcessName)) continue;", helper, StringComparison.Ordinal);
+        Assert.Contains("root.Kill(entireProcessTree: false)", helper, StringComparison.Ordinal);
     }
 
     private static GameEntry Game(string root, StoreKind store, string launchTarget) => new()

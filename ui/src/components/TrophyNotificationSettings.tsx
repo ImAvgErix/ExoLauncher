@@ -102,7 +102,7 @@ export function TrophyNotificationSettings({
               <span className="exo-trophy-preview-art"><span /></span>
             </span>
             <span className="exo-trophy-preview-copy">
-              <i>EXO // UNLOCKED</i>
+              <i>Unlocked</i>
               <b>First light</b>
               <em>Exo Launcher</em>
             </span>

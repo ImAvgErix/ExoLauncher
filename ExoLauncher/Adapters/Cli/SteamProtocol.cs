@@ -17,6 +17,8 @@ public static partial class SteamProtocol
 
     public static string InstallUri(string appId) => $"steam://install/{appId}";
 
+    public static string UninstallUri(string appId) => $"steam://uninstall/{appId}";
+
     public static string ValidateUri(string appId) => $"steam://validate/{appId}";
 
     /// <summary>Opens the game's store page inside the Steam desktop client (not the browser).</summary>
@@ -24,6 +26,9 @@ public static partial class SteamProtocol
 
     /// <summary>Opens Steam Downloads — helps kick a queued update that never started.</summary>
     public static string DownloadsUri() => "steam://open/downloads";
+
+    /// <summary>Asks a running (including -silent) Steam instance to show its main window.</summary>
+    public static string OpenMainUri() => "steam://open/main";
 
     public static string? MatchAcfField(string acf, string field)
     {

@@ -442,6 +442,27 @@ public sealed class StoreSearchService
         return list;
     }
 
+    private static bool IsSteamAppRef(string id, StoreKind store, string? launchTarget, string appId) =>
+        string.Equals(id, "steam:" + appId, StringComparison.OrdinalIgnoreCase) ||
+        (store == StoreKind.Steam && string.Equals(launchTarget, appId, StringComparison.Ordinal));
+
+    private static bool SteamSourceIsOwned(GameEntry game, string appId)
+    {
+        if (IsSteamAppRef(game.Id, game.Store, game.LaunchTarget, appId) && (game.Owned || game.Installed))
+            return true;
+        return game.Variants.Any(variant =>
+            IsSteamAppRef(variant.Id, variant.Store, variant.LaunchTarget, appId) &&
+            (variant.Owned || variant.Installed));
+    }
+
+    private static bool SteamSourceIsInstalled(GameEntry game, string appId)
+    {
+        if (IsSteamAppRef(game.Id, game.Store, game.LaunchTarget, appId) && game.Installed)
+            return true;
+        return game.Variants.Any(variant =>
+            IsSteamAppRef(variant.Id, variant.Store, variant.LaunchTarget, appId) && variant.Installed);
+    }
+
     /// <summary>
     /// Builds a Steam catalog result without treating catalog metadata or an
     /// installed Steam client as an ownership assertion.
@@ -451,19 +472,13 @@ public sealed class StoreSearchService
         string name,
         IReadOnlyList<GameEntry> ownedLibrary)
     {
-        var owned = ownedLibrary.Any(g =>
-            g.Store == StoreKind.Steam &&
-            string.Equals(g.LaunchTarget, id, StringComparison.Ordinal) &&
-            (g.Owned || g.Installed));
+        var owned = ownedLibrary.Any(g => SteamSourceIsOwned(g, id));
         // A ticket is positive evidence for the active Steam userdata account,
         // including a newly bought title that has no appmanifest yet. Missing
         // tickets remain unknown and never become a negative ownership claim.
         var root = TryResolveSteamRootForTicketEvidence();
-        owned |= root is not null && SteamPlaytime.HasActiveAppTicket(root, id);
-        var installed = ownedLibrary.Any(g =>
-            g.Store == StoreKind.Steam &&
-            string.Equals(g.LaunchTarget, id, StringComparison.Ordinal) &&
-            g.Installed);
+        owned |= root is not null && SteamPlaytime.HasActiveLibraryEvidence(root, id);
+        var installed = ownedLibrary.Any(g => SteamSourceIsInstalled(g, id));
         return new StoreSearchHit
         {
             Id = "steam:" + id,
@@ -706,29 +721,32 @@ public sealed class StoreSearchService
 
     private static List<StoreSearchHit> RankAndDedup(IEnumerable<StoreSearchHit> hits, string query, int cap)
     {
-        // A public Epic result and an account-proven Epic result can have
-        // different ids for the same title. Keep the higher-ranked (owned /
-        // installed) entry, rather than showing both or letting the catalog
-        // row obscure an Install action.
+        // A public catalog row and an account-proven library row can share a
+        // title across stores (Epic/Xbox/GOG/Riot/… vs Steam). Keep the
+        // higher-ranked owned/installed entry so Search never offers Buy for
+        // a game already in the library.
         var seenIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var seenTitles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var ordered = new List<StoreSearchHit>();
         foreach (var h in hits.OrderByDescending(h => RelevanceScore(h, query))
                               .ThenBy(h => h.Title, StringComparer.OrdinalIgnoreCase))
         {
-            var identity = h.Store + ":" + Normalize(h.Title);
-            // One account-proven/local row and one catalog row can share the
-            // exact store id but carry slightly different display titles
-            // (for example "Steam app 424242"). Conversely, Epic catalog and
-            // Legendary can use different ids for the same title. Collapse
-            // either duplicate shape while keeping the highest-ranked row.
-            if (seenIds.Contains(h.Id) || seenTitles.Contains(identity)) continue;
+            var titleKey = TitleIdentity(h.Title);
+            if (seenIds.Contains(h.Id)) continue;
+            if (titleKey.Length > 0 && seenTitles.Contains(titleKey)) continue;
             seenIds.Add(h.Id);
-            seenTitles.Add(identity);
+            if (titleKey.Length > 0) seenTitles.Add(titleKey);
             ordered.Add(h);
             if (ordered.Count >= cap) break;
         }
         return ordered;
+    }
+
+    /// <summary>Letter/digit title fold used to collapse the same game across stores.</summary>
+    internal static string TitleIdentity(string? title)
+    {
+        if (string.IsNullOrWhiteSpace(title)) return "";
+        return Normalize(title).Replace(" ", "", StringComparison.Ordinal);
     }
 
     /// <summary>

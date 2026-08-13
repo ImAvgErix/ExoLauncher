@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using ExoLauncher.Models;
 
 namespace ExoLauncher.Adapters;
 
@@ -16,12 +17,6 @@ internal sealed class StoreWindowHider : IDisposable
     private const int GwlExstyle = -20;
     private const int WsExToolwindow = 0x00000080;
     private const int WsExAppwindow = 0x00040000;
-    private const int WsExNoActivate = 0x08000000;
-    private const uint SwpNoZOrder = 0x0004;
-    private const uint SwpNoActivate = 0x0010;
-    private const uint SwpShowWindow = 0x0040;
-    private const int SmXVirtualScreen = 76;
-    private const int SmYVirtualScreen = 77;
 
     private const uint EventObjectCreate = 0x8000;
     private const uint EventObjectShow = 0x8002;
@@ -97,13 +92,6 @@ internal sealed class StoreWindowHider : IDisposable
     // restore and clear styles while another guard is still suppressing chrome.
     private static readonly WindowSuppressionOwnership s_suppressionOwnership = new();
 
-    /// <summary>
-    /// A narrowly scoped exception for target-verified store automation. The
-    /// window remains outside the virtual desktop, TOOLWINDOW, and NOACTIVATE;
-    /// it is never allowed to become visible to the user.
-    /// </summary>
-    private static readonly ConcurrentDictionary<nint, byte> s_offscreenAutomationWindows = new();
-
     [ThreadStatic]
     private static HashSet<string>? t_activeNames;
 
@@ -169,26 +157,10 @@ internal sealed class StoreWindowHider : IDisposable
     private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
 
     [DllImport("user32.dll")]
-    private static extern bool SetWindowPos(
-        IntPtr hWnd,
-        IntPtr hWndInsertAfter,
-        int x,
-        int y,
-        int cx,
-        int cy,
-        uint flags);
-
-    [DllImport("user32.dll")]
-    private static extern int GetSystemMetrics(int nIndex);
-
-    [DllImport("user32.dll")]
     private static extern bool IsWindow(IntPtr hWnd);
 
     [DllImport("user32.dll")]
     private static extern bool SetForegroundWindow(IntPtr hWnd);
-
-    [DllImport("user32.dll")]
-    private static extern bool IsWindowVisible(IntPtr hWnd);
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     private static extern int GetWindowText(IntPtr hWnd, System.Text.StringBuilder lpString, int nMaxCount);
@@ -222,10 +194,14 @@ internal sealed class StoreWindowHider : IDisposable
         _shouldSuppressName = shouldSuppressName;
     }
 
-    public static StoreWindowHider ForSteam() => new(SteamProcessNames);
-    public static StoreWindowHider ForEpic() => new(EpicProcessNames);
-    public static StoreWindowHider ForGalaxy() => new(GalaxyProcessNames);
-    public static StoreWindowHider ForRiot() => new(RiotUiProcessNames);
+    public static StoreWindowHider ForSteam() =>
+        new(SteamProcessNames, _ => !HiddenStoreRuntime.IsSuspended(StoreKind.Steam));
+    public static StoreWindowHider ForEpic() =>
+        new(EpicProcessNames, _ => !HiddenStoreRuntime.IsSuspended(StoreKind.Epic));
+    public static StoreWindowHider ForGalaxy() =>
+        new(GalaxyProcessNames, _ => !HiddenStoreRuntime.IsSuspended(StoreKind.Gog));
+    public static StoreWindowHider ForRiot() =>
+        new(RiotUiProcessNames, _ => !HiddenStoreRuntime.IsSuspended(StoreKind.Riot));
     internal static StoreWindowHider ForAllStoreChrome() => new(
         // The session guard is for client/message chrome only. In-game overlays
         // belong to the game and are intentionally outside this surface set.
@@ -418,50 +394,6 @@ internal sealed class StoreWindowHider : IDisposable
         SuppressAllNow(processNames);
 
     /// <summary>
-    /// Temporarily renders one already-hidden store frame beyond every monitor
-    /// so PrintWindow/background messages can inspect a specific row. The
-    /// original position and suppression style are restored on dispose.
-    /// </summary>
-    internal static IDisposable BeginOffscreenAutomationWindow(IntPtr hWnd)
-    {
-        if (hWnd == IntPtr.Zero || !IsWindow(hWnd) || !GetWindowRect(hWnd, out var rect))
-            throw new InvalidOperationException("Store automation window is unavailable.");
-
-        var width = rect.Right - rect.Left;
-        var height = rect.Bottom - rect.Top;
-        if (width < 640 || height < 400)
-            throw new InvalidOperationException("Store automation window is too small.");
-
-        var priorStyle = GetWindowLongPtr(hWnd, GwlExstyle);
-        s_offscreenAutomationWindows[hWnd] = 0;
-        try
-        {
-            var hiddenStyle = (priorStyle.ToInt64() | WsExToolwindow | WsExNoActivate) & ~WsExAppwindow;
-            SetWindowLongPtr(hWnd, GwlExstyle, new IntPtr(hiddenStyle));
-
-            var offscreenX = GetSystemMetrics(SmXVirtualScreen) - width - 2048;
-            var offscreenY = GetSystemMetrics(SmYVirtualScreen);
-            if (!SetWindowPos(
-                    hWnd,
-                    IntPtr.Zero,
-                    offscreenX,
-                    offscreenY,
-                    width,
-                    height,
-                    SwpNoZOrder | SwpNoActivate | SwpShowWindow))
-                throw new InvalidOperationException("Could not prepare the hidden store window.");
-
-            return new OffscreenAutomationLease(hWnd, rect, priorStyle);
-        }
-        catch
-        {
-            s_offscreenAutomationWindows.TryRemove(hWnd, out _);
-            ShowWindow(hWnd, SwHide);
-            throw;
-        }
-    }
-
-    /// <summary>
     /// Keep the WinEvent guard alive until its owner explicitly stops it. This
     /// is used for a verified Exo game session, not for the app lifetime, so a
     /// launcher the user opens outside Exo remains entirely untouched.
@@ -584,12 +516,6 @@ internal sealed class StoreWindowHider : IDisposable
     {
         try
         {
-            // The window is still invisible to the user: its lease keeps it
-            // beyond the virtual screen with NOACTIVATE + TOOLWINDOW. Hiding it
-            // here would make PrintWindow return an empty bitmap.
-            if (s_offscreenAutomationWindows.ContainsKey(hWnd))
-                return;
-
             var original = GetWindowLongPtr(hWnd, GwlExstyle);
             // Only remember titled chrome for later Open Steam restore.
             if (IsChromeWindow(hWnd))
@@ -743,45 +669,16 @@ internal sealed class StoreWindowHider : IDisposable
     [DllImport("user32.dll")]
     private static extern bool GetWindowRect(IntPtr hWnd, out Rect lpRect);
 
-    private sealed class OffscreenAutomationLease(
-        IntPtr hWnd,
-        Rect originalRect,
-        IntPtr priorStyle) : IDisposable
-    {
-        private int _disposed;
-
-        public void Dispose()
-        {
-            if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
-            try
-            {
-                ShowWindow(hWnd, SwHide);
-                var width = Math.Max(1, originalRect.Right - originalRect.Left);
-                var height = Math.Max(1, originalRect.Bottom - originalRect.Top);
-                _ = SetWindowPos(
-                    hWnd,
-                    IntPtr.Zero,
-                    originalRect.Left,
-                    originalRect.Top,
-                    width,
-                    height,
-                    SwpNoZOrder | SwpNoActivate);
-                SetWindowLongPtr(hWnd, GwlExstyle, priorStyle);
-            }
-            catch { /* best-effort cleanup */ }
-            finally
-            {
-                s_offscreenAutomationWindows.TryRemove(hWnd, out _);
-                SuppressWindow(hWnd);
-            }
-        }
-    }
+    public static void CollapseOrphanSurfaces(params string[] processNames) =>
+        CollapseOrphanSurfaces(processNames, pathMustContain: null);
 
     /// <summary>
     /// Force store chrome off the main taskbar (SW_HIDE + temporary TOOLWINDOW).
     /// Steam’s tray icon stays in the overflow; Settings → Open Steam restores one window.
+    /// When <paramref name="pathMustContain"/> is set, processes whose image
+    /// path is unknown or does not contain that fragment are left alone.
     /// </summary>
-    public static void CollapseOrphanSurfaces(params string[] processNames)
+    public static void CollapseOrphanSurfaces(string[] processNames, string? pathMustContain)
     {
         var names = processNames.Length > 0 ? processNames : SteamProcessNames;
         foreach (var name in names)
@@ -793,6 +690,7 @@ internal sealed class StoreWindowHider : IDisposable
                     try
                     {
                         if (p.HasExited) continue;
+                        if (!ProcessHelper.MatchesOptionalPath(p, pathMustContain)) continue;
                         EnumWindows(EnumCollapseProc, new IntPtr(p.Id));
                     }
                     catch { /* */ }

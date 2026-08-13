@@ -13,9 +13,9 @@ Exo Launcher prefers shelling out to mature open tools over re-implementing stor
 Exo does **not** vendor GPL binaries into the MIT app binary. Users install backends themselves. Adapters fail honestly when a backend is missing.
 
 Steam, Epic, GOG, and Riot have wired game-library actions. Xbox, EA app,
-Ubisoft Connect, Battle.net, Amazon Games, and Rockstar Games Launcher are
-presence/Open-only integrations in 1.0.24: Exo does not invent their libraries,
-account state, ownership, install state, achievements, or per-game actions.
+Ubisoft Connect, Battle.net, Amazon Games, and Rockstar Games Launcher list
+only proven on-disk installs and launch those titles; Exo does not invent
+account state, ownership, or install/update through those clients.
 
 ## Legendary (Epic)
 
@@ -62,9 +62,25 @@ Vanguard (`vgk` / `vgc`) is never force-closed.
 
 ## Steam
 
+Exo commands the already-running official Steam client through a small helper
+(`ExoLauncher.SteamIpc.exe` → `steamclient64.dll` IClientAppManager). Steam
+stays on disk where Valve installed it. Exo does not copy the Steam tree, does
+not click Steam chrome, and does not use DepotDownloader.
+
 ```text
-steam://install/<appid>
-steam://rungameid/<appid>
+install / update / uninstall <appid>   via the live Steam client
+steam://rungameid/<appid>              launch
 ```
 
-Library from `appmanifest_*.acf`. Steam runtime usually remains installed.
+Progress is Steam’s live download job: `appmanifest_*.acf` when those counters
+are moving, otherwise the job totals from `content_log` plus bytes in
+`steamapps/downloading/<appid>`. A leftover full ACF or a one-shot
+`download 0/total` line is not shown as 0% or 100%. The helper identifies
+`IClientAppManager` by RTTI on this Steam build (`GetIClientAppManager` is
+engine slot 43; `InstallApp` takes app id, folder index, and a legacy flag).
+
+## Other stores
+
+Epic, GOG, and Riot already command official agents (Legendary, gogdl,
+RiotClientServices). Xbox, EA app, Ubisoft Connect, Battle.net, Amazon Games,
+and Rockstar Games Launcher stay list + launch until an official agent exists.

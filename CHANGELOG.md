@@ -1,5 +1,406 @@
 # Changelog
 
+## 1.0.79 - 2026-08-13
+
+**Closing a game no longer flashes Home.**
+
+- The card stays until the dim fades. A CSS enter animation was holding opacity at 1, so the fade popped instead.
+
+## 1.0.78 - 2026-08-13
+
+**Library tiles open in place.**
+
+- Clicking a title in the grid no longer scrolls Home under the game page. Close details stays put. The Now plate and pinned row stay where they were.
+
+## 1.0.77 - 2026-08-13
+
+**Opening a library tile no longer breaks Close.**
+
+- Game cards and the game page do not share a poster morph. That projection was stealing clicks after the Now plate fix, so regular titles did the same in-and-out mess.
+
+## 1.0.76 - 2026-08-13
+
+**Install percent is visible. Uninstall does not skip the library. Now opens and closes once.**
+
+- Steam’s ACF often sits at `0 / total` while a leftover `downloading/` folder is already larger than this job. That is unknown, not 0% and not 100%. The bar is indeterminate until `BytesDownloaded` moves, then it shows the live percent on the button.
+- Uninstall no longer publishes install Preparing/Completed, so Now does not flip to Downloading and the library does not reload twice.
+- The Now plate is a real open control. It does not share a poster morph with the game page, and Close details sits above the overlay.
+
+## 1.0.75 - 2026-08-13
+
+**Steam percent matches the live job. Home has one Now plate. Steam chrome stays gone.**
+
+- Install percent uses the `steamapps/downloading` folder when content_log is only the start snapshot (`download 0/total`). Exo no longer freezes at 0% while Steam’s Downloads row climbs.
+- Uninstall calls Steam IPC once. A failed confirm is not retried, and `steam://uninstall` only runs if the helper never reached the client. Steam stays hidden.
+- Search no longer flashes the same owned title in Library and Install. Dead Steam OCR/capture/click paths are gone.
+- Home’s featured row is one game with one reason (downloading, playing, update, last launched). Wide Steam `library_hero` only. Not a carousel.
+
+## 1.0.74 - 2026-08-13
+
+**Install percent follows Steam’s download. Uninstall stays hidden.**
+
+- The install bar uses Steam’s live `download done/total` from content_log when the appmanifest still holds leftover totals, and it no longer jumps from 99% download to a 40% staging bar.
+- Uninstall no longer restores the Steam window. Steam stays a hidden backend.
+
+## 1.0.73 - 2026-08-12
+
+
+**Home is installed games. Steam uninstall reports the real result.**
+
+- The library grid is downloaded titles only. Owned-but-not-installed Steam games stay in search as Download.
+- Steam uninstall no longer treats every helper exit as success. A hidden Steam confirm was swallowing the removal; Exo now leaves Steam visible for that step and fails in seconds if files do not start going.
+
+## 1.0.72 - 2026-08-12
+
+**Steam percent, Download for owned titles, smoother motion.**
+
+- Install/update percent ignores leftover ACF totals from a previous job, uses staging when the download counters are already finished, and polls every 400ms. A leftover 37 GB counter next to a 36 MB patch is no longer shown as 100%.
+- Steam titles in this account’s librarycache that are not installed appear in Exo with Download. Search uses tickets, localconfig Apps, and that cache — not Buy — when Steam already knows the game.
+- Library tiles, the progress fill, and the busy mark use short compositor tweens. Springs and perpetual `willChange` layers are gone.
+
+## 1.0.71 - 2026-08-12
+
+**Progress, Open store, one client at a time.**
+
+- Steam install/update percent is `downloaded / toDownload` from the appmanifest. Exo no longer maps 0–100 onto 10–95 or invents a climbing number while queued.
+- Settings → Open shows any installed official client, including during an update. Steam gets `steam://open/main` so a silent instance actually appears. Store hiders skip a client the user just opened.
+- Minimize-while-playing is always on. The Settings checkbox is gone.
+- Idle titlebar mark is the original E (short middle bar), optically tighter in the square. The three equal bars only run while Exo is busy.
+- Launching or opening one store asks the others to exit. Steam gets `-shutdown`, Riot gets its client kill API, then a graceful thread quit. Unused shells that ignore that are terminated. Vanguard is never touched.
+
+## 1.0.70 - 2026-08-12
+
+**Steam updates actually start.**
+
+- This Steam build’s `GetIClientAppManager` is engine slot 43, not 36. Slot 36 was the network-device manager, so installs returned a fake error and bytes never moved.
+- `InstallApp` takes app id, folder index, and a legacy flag. Deadlock’s queued 36.6 MB patch downloaded through that call.
+- The Steam helper is a self-contained process in `steam-ipc\`, so it does not share WinUI’s runtime.
+
+## 1.0.69 - 2026-08-12
+
+**Steam is commanded as a backend. The mark only moves when Exo is actually doing work.**
+
+- Install, update, and uninstall talk to the running Steam client through a helper. This Steam build’s app-manager layout does not yet match the known slots, so Exo fails honestly if bytes never move instead of clicking Steam chrome.
+- Library tiles use 600×900 posters instead of 1200×1800, so WebView does not decode a 2x bitmap for every card.
+- The three bars sit on one diagonal. The wave runs during boot, install, update, search, and launch — not while idle.
+
+## 1.0.68 - 2026-08-12
+
+**Steam’s Downloads row is read by a helper that never loads WinUI.**
+
+- Capturing from ExoLauncher.exe stayed black even in a child process. A separate capture host snapshots the painted desktop, then Exo clicks the queued title
+
+## 1.0.67 - 2026-08-12
+
+**Steam’s Downloads row is read by a short helper process, not the WinUI compositor.**
+
+- Capturing from inside Exo kept returning a black Steam window. Exo now snapshots the painted desktop from a child process, then clicks the queued title
+
+## 1.0.66 - 2026-08-12
+
+**A bad GPU texture create no longer blocks reading Steam’s Downloads row.**
+
+- Desktop capture now creates an empty staging surface. If that path still fails, Exo keeps waiting for a painted compositor frame and clicks the queued title
+
+## 1.0.65 - 2026-08-12
+
+**Steam’s Downloads row is copied from the painted desktop, not the first black GPU frame.**
+
+- The compositor often hands Exo an empty first frame. Exo now waits for a real desktop image, crops the Steam window, and clicks the queued title
+
+## 1.0.64 - 2026-08-12
+
+**Steam’s Downloads row is read from the monitor compositor, then cropped.**
+
+- Capturing Steam’s HWND stayed black. Exo now copies the painted desktop the same way a screenshot does, keeps the Steam rectangle, and clicks the queued title
+
+## 1.0.63 - 2026-08-12
+
+**Steam’s GPU frame is captured the same way a desktop screenshot is.**
+
+- GDI still copies a black Downloads window even when Steam is on top of Exo. Windows Graphics Capture reads the compositor, then Exo clicks the queued row
+
+## 1.0.62 - 2026-08-12
+
+**Steam has to activate for a moment or its Downloads UI stays black.**
+
+- A no-activate overlay covers Exo with an empty GPU surface. Exo now shows Steam for the OCR click, then hides it
+
+## 1.0.61 - 2026-08-12
+
+**Steam’s layered UI is copied with CaptureBlt, not a black GDI blit.**
+
+- Default CopyFromScreen skips DirectComposition windows. Exo now includes layered pixels, reads the leased Steam frame, then clicks the queued row
+
+## 1.0.60 - 2026-08-12
+
+**Steam’s GPU UI is read from the screen, not PrintWindow.**
+
+- Modern Steam captures black via PrintWindow. Exo copies the visible Downloads frame from the desktop, clicks the queued row, then hides Steam
+
+## 1.0.59 - 2026-08-12
+
+**Steam has to be on top for a queued update to start.**
+
+- Chromium captures black when the Downloads window is covered or off-screen. Exo shows it over the shell for the OCR click, then hides it again
+
+## 1.0.58 - 2026-08-12
+
+**Steam’s child windows stay painted during a hidden update.**
+
+- The hide loop no longer covers Chrome children of a leased Downloads window. A capture dump lands in logs when OCR is empty
+
+## 1.0.57 - 2026-08-12
+
+**Steam paints behind Exo during a hidden update.**
+
+- The Downloads window sits under the Exo shell instead of off the desktop. Chromium actually draws, so OCR can read the queued row
+
+## 1.0.56 - 2026-08-12
+
+**Hidden Steam still paints for OCR.**
+
+- The offscreen Downloads window keeps a 2px sliver on the desktop so DWM composites it, and OCR reads the Chrome child instead of a blank SDL frame
+
+## 1.0.55 - 2026-08-12
+
+**Steam OCR can actually read the Downloads row.**
+
+- Captures are written with DataWriter and DetachStream. The previous flush wrapper disposed the buffer, so every frame died as ObjectDisposedException
+
+## 1.0.54 - 2026-08-12
+
+**Steam OCR no longer aborts a queued update.**
+
+- The hidden Downloads screenshot is flushed into WinRT before decode. A bad frame is skipped instead of killing the whole update
+
+## 1.0.53 - 2026-08-12
+
+**Steam queued updates actually start.**
+
+- A patch sitting at 0 bytes with Steam’s UpdateStarted bit still gets the hidden Downloads-row click. Previously Exo treated that as already busy and never promoted it
+
+## 1.0.52 - 2026-08-12
+
+**Search placeholder clears on focus.**
+
+- Clicking the search pill hides “Search” so the caret isn’t sitting on the word
+
+## 1.0.51 - 2026-08-12
+
+**The mark actually moves.**
+
+- Titlebar, boot, and Settings logos run the three-bar wave — draw in, then scale like Grok’s thinking mark. The old 2px wobble is gone
+
+## 1.0.50 - 2026-08-12
+
+**Home is just the library.**
+
+- The Continue Playing film strip is gone. Pinned and the grid are the home screen
+
+## 1.0.49 - 2026-08-12
+
+**Chrome icons are one family, one size.**
+
+- Titlebar, search, Play/Stop, pin, folder, and Settings use Phosphor at 16px — not Amicons sharp
+- Outline for chrome. Fill for Play, Stop, and pin-on. Lucide and Tabler stay out
+
+## 1.0.48 - 2026-08-12
+
+**The titlebar is easier to grab.**
+
+- Empty space beside search, and the strip above and below the pill, drags the window. Logo, search, and window buttons stay clickable
+
+## 1.0.47 - 2026-08-12
+
+**Continue Playing stays put.**
+
+- The spotlight film no longer auto-rotates through titles. Click a poster if you want a different one
+
+## 1.0.46 - 2026-08-12
+
+**Chrome uses Amicons.**
+
+- Titlebar, search, Play/Stop, pin, folder, and Settings glyphs are Amicons free sharp — not the homemade 1.5-stroke set
+- Line for chrome, solid for pin-on and Stop. Lucide and Tabler stay out
+
+## 1.0.45 - 2026-08-12
+
+**One launcher at a time.**
+
+- Opening Steam, Epic, GOG, Riot, Xbox, EA, Ubisoft, Battle.net, Amazon, or Rockstar from Settings closes the others
+- Play, install, and update do the same for unused store clients
+- Steam as a hidden backend starts without Friends or chat toasts. Settings → Open Steam still brings the full client
+- Rockstar close/hide is path-qualified so an unrelated `Launcher.exe` is left alone
+
+## 1.0.44 - 2026-08-12
+
+**Steam Uninstall confirms the prompt.**
+
+- Uninstall sends a hidden `steam://uninstall/<appid>` for the selected title, then clicks only an offscreen OCR-verified Uninstall/Remove control that names that game — not Cancel, not a sequel
+- Failure stays on screen instead of vanishing after a few seconds
+
+## 1.0.43 - 2026-08-12
+
+**Steam Update actually starts the patch.**
+
+- A scheduled Steam update no longer dies after one missed Downloads-row click. Exo clears that game's schedule, keeps requesting the exact app, and retries the hidden row until bytes move
+- Downloads OCR still requires the selected title, but accepts Steam's size/percent/scheduled suffix and a split title line so Counter-Strike 2 matches its own row — not a sequel or a dedicated server
+
+## 1.0.42 - 2026-08-12
+
+**Update sits on the poster.**
+
+- Games with an update get a white Update mark on the cover and a brighter frame — not a gray store-line footnote, not an orange brick
+
+## 1.0.41 - 2026-08-12
+
+**Search does not spin.**
+
+- The titlebar search pill no longer grows a spinner while stores look up results; progress stays on the Install list
+
+## 1.0.40 - 2026-08-12
+
+**Shine only on the poster.**
+
+- Cover sweep runs when the pointer is on the poster, not the title, caption, or plate around it
+
+## 1.0.39 - 2026-08-12
+
+**A game you already have is never Buy. The strip is a film of posters.**
+
+- Search collapses Steam catalog Buy rows when the same title is already in the library from any store (Steam, Epic, GOG, Riot, Xbox, EA, Ubisoft, Battle.net, Amazon, Rockstar, local)
+- Opening a leftover catalog hit still lands on the library card
+- Spotlight is a film strip: current poster larger, neighbors peek, no dots — click a peek to switch
+
+## 1.0.38 - 2026-08-12
+
+**Splash waits for the library. One stroke icon set. The mark actually animates.**
+
+- Cold start keeps the splash up until installed covers and playtime are on the rows (20s cap); owned-not-installed posters keep filling after
+- Boot mark is three HTML bars (WebView2 would not animate SVG polygons), held at least 1.4s so the assemble is visible
+- Chrome icons are one 24-grid, 1.5 stroke, square-cap set — not Tabler, not mixed sizes
+- Spotlight resets when the slide set changes identity (same length, different games no longer desync); Update/Install on the strip uses the download mark, not Play
+
+## 1.0.37 - 2026-08-12
+
+**The Exo mark is the mascot. Chrome uses one icon pack.**
+
+- Boot and titlebar use the slanted three-bar E; on boot the bars assemble and idle like a visor
+- Copy `brand/exo-mark.svg` and `ui/src/brand/` into ExoOS / Exo Control for the same identity
+- Window and in-app icons are Tabler (MIT, 6100+) at 1.75 stroke — not Lucide, not a paid pack we cannot ship
+
+## 1.0.36 - 2026-08-12
+
+**Covers for every store, cached on disk.**
+
+- Library warm fills a poster for every real title (Steam, Epic, GOG, Riot, Xbox, EA, Ubisoft, Battle.net, Amazon, Rockstar, local) — not only Steam app ids and favorites
+- Non-Steam games resolve official Steam library posters by title, then keep the file under `%LOCALAPPDATA%\ExoLauncher\covers`
+- GOG uses the store’s own cover URL / Galaxy v2 art instead of a fake `{id}_product_tile` path
+- Unreal plugins and the Add-portable row stay out of the cover crawl
+
+## 1.0.35 - 2026-08-12
+
+**Owned means Download. Covers paint without hover. The strip is a detached plate.**
+
+- Search for a game you own says Download, not Buy on Steam, and opening it stays on the game plate
+- Steam treats a mismatched TargetBuildID as an update; the caption stays quiet
+- Covers decode immediately (no opacity-0), tile shine still sweeps on hover
+- Startup is the logo splash while settings and the library load — not “Starting…”
+- Rotating strip drops Download, skips live-service loops like Rocket League for Pick back up / Unplayed, and sits on a detached dark plate with a sharp inset poster
+
+## 1.0.34 - 2026-08-12
+
+**Search hugs the word. Spotlight is a tall poster panel.**
+
+- Search sits in the gap between the logo and the window buttons, sized to “Search”, then grows when you type
+- The rotating strip is a 280px plate with a full-height portrait on the left — not a small card, not a washed background
+
+## 1.0.33 - 2026-08-12
+
+**The strip is a plate again. Search is a small pill.**
+
+- Spotlight is a dark plate with a sharp poster on the left — no veiled background wash
+- Download slides prefer a title that actually has a poster
+- Centered search starts at 118px and grows to 240px when you type
+
+## 1.0.32 - 2026-08-12
+
+**Update lives under the title. Continue is the game’s art, not a widget.**
+
+- Library cards no longer stamp an Update pill on the poster — it sits in the caption with the store name
+- The rotating strip fills with the same portrait, veiled, with a sharp poster and the lane label on the art
+- Search sits in the middle of the titlebar as a small pill and grows when you type
+
+## 1.0.31 - 2026-08-12
+
+**Covers show up. Download means download. Labels say what they mean.**
+
+- Library posters load without waiting for hover; Steam capsules that are a hair under 450px tall still count as covers
+- Cold start is a quiet logo and bar under the titlebar — not “Scanning libraries…”
+- Tile shine is a clipped sweep inside the rounded frame
+- Owned store titles say Download, not Buy; opening one from search keeps the game plate open
+- Steam pending byte deltas count as updates; the Update badge matches the other quiet badges
+- Spotlight is a detached dark plate with a poster: Continue playing, Update ready, Download, Been a while / Unplayed — no Last / Played / Almost done
+- Game plate stats are Time played and Last launched
+- Settings is tighter; achievement toast says Unlocked and the cue is a warmer chime
+
+## 1.0.30 - 2026-08-12
+
+**A compact spotlight that pages itself.**
+
+- Continue Playing is a short strip again, not a tall hero
+- The strip rotates Continue / Last played / Almost done (achievement 60–99%) / Update ready when those are real and distinct
+- Arrows and dots to go through by hand; auto-advance pauses on hover. Almost done uses cached achievement snapshots only — no home-screen refresh flash
+
+## 1.0.29 - 2026-08-12
+
+**Click-in is a plate over the library. Continue is the hero, not a green field.**
+
+- Opening a game keeps the library behind a blur and puts poster, stats, and Play on a dark plate
+- Continue Playing is a full-bleed Steam hero with a black text veil — no hashed color wash
+- Library and pinned cards are a step larger, with side inset so rounded edges are not sliced
+- Tile and poster fallbacks stay `#050505` instead of a hue that changes per title
+
+## 1.0.28 - 2026-08-12
+
+**Readable stage, honest hours, a Continue banner that isn’t a cropped slice.**
+
+- Continue Playing uses a wide Steam hero on the right of a taller strip, faded into a color field — portraits are never sliced across the banner
+- Library cards sit at Grok scale (larger than pins, not huge); cards meet the window lip
+- Game page type sits on a dark plate over a colored wash so Rocket League stays readable
+- Playtime keeps the highest known hours on a card; opening a title no longer flashes Checking / Updating
+- Tile shine is an inside highlight so rounded edges stay clean
+
+## 1.0.27 - 2026-08-12
+
+**Home layout and art that match what you actually see.**
+
+- Game page sits on a hue gradient with a blurred cover wash; Continue Playing stays a sharp 2x Steam hero (or 2x poster), not a stretched CSS background
+- Pinned titles no longer repeat in Library; library cards are larger than pinned cards
+- Pinned count and Recent / A-Z / Played chips are gone
+
+## 1.0.26 - 2026-08-12
+
+**Library polish: no clipped pins, no fake blur, a window that actually resizes.**
+
+- Pinned games wrap in the same grid as the library instead of a dual-axis carousel with edge masks, and pinned titles stay in Library
+- Continue Playing and the game page use the cover as a color wash with a sharp poster — portraits are never blurred to fake a hero
+- Opening a game keeps last-good playtime and achievements on screen; background refresh no longer flashes Checking / Updating or overwrites known hours with zero
+- Steam lifetime hours prefer `PlaytimeForever` when both keys exist
+- Cards sit on the window lip, hover Play is gone, and shine is clipped inside the tile so rounded edges stay clean
+- The window is resizable and maximizable, default 1400×900, floor 1100×700
+
+## 1.0.25 - 2026-08-12
+
+**Working stop, real store libraries, and the Grok library shell.**
+
+- Stop kills verified game helpers without `Kill(entireProcessTree: true)`, so Easy Anti-Cheat / BattlEye / Vanguard children are never force-terminated
+- Steam achievements stay on the active account; uncorroborated `0 / 0` no longer wipes last-good counts, and a confirmed empty catalog shows None instead of `0 / 0`
+- Playing / Stop flags clear when the host says the process is gone
+- EA, Ubisoft, Xbox PC, Battle.net, Amazon Games, and Rockstar titles appear from proven local installs and launch through the official protocol or executable
+- Library home matches the intended shell: Continue Playing hero, titles under posters, Recent / A-Z / Played, and a full game page instead of a side rail
+
 ## 1.0.24 - 2026-08-11
 
 **Exact source control · session-true trophies · broader honest client support.**

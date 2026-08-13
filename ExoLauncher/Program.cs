@@ -25,6 +25,7 @@ public static class Program
         {
             Helpers.NativeProcessSecurity.HardenDllSearch();
             AppDomain.CurrentDomain.SetData("REGEX_DEFAULT_MATCH_TIMEOUT", TimeSpan.FromSeconds(5));
+            _ = args;
 
             try { SetCurrentProcessExplicitAppUserModelID(AppUserModelId); } catch { }
 

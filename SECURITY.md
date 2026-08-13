@@ -3,14 +3,14 @@
 ## Trust boundary
 
 - The desktop process runs as the signed-in user (`asInvoker`).
-- Store backends (Steam, Riot Client, etc.) remain their vendors’ processes.
-- Dependency installs open the vendor’s official page — Exo Launcher does not silent-force system changes.
+- Store backends (Steam, Riot Client, and the rest) remain their vendors’ processes.
+- Dependency installs open the vendor’s official page. Exo does not silent-force system changes.
 
 ## Anti-cheat safe (always)
 
 - No game binary edits.
 - No kernel hacks.
-- No “bypass” for Vanguard, EAC, BattlEye, or Steam DRM.
+- No bypass for Vanguard, EAC, BattlEye, or Steam DRM.
 - Cleanup after launch only soft-closes store **UI** processes — never anti-cheat services (`vgk`, `vgc`, EasyAntiCheat, BattlEye).
 
 ## Process hardening
@@ -21,4 +21,4 @@
 
 ## Reporting
 
-Open a GitHub issue on [ImAvgErix/exo-launcher](https://github.com/ImAvgErix/exo-launcher) for security-relevant bugs. Do not file “bypass” requests — they will be closed.
+Open a GitHub issue on [ImAvgErix/ExoLauncher](https://github.com/ImAvgErix/ExoLauncher) for security-relevant bugs. Do not file bypass requests — they will be closed.

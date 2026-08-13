@@ -409,6 +409,50 @@ internal sealed class RiotClientApi : IDisposable
     private static string Truncate(string? s) =>
         string.IsNullOrEmpty(s) ? "" : (s.Length <= 200 ? s : s[..200]);
 
+    /// <summary>
+    /// Ask a running Riot Client to exit. Never starts the client and never
+    /// touches Vanguard. Best-effort — callers still soft-close process names.
+    /// </summary>
+    internal static void TryRequestShutdown()
+    {
+        try
+        {
+            var api = TryConnect();
+            if (api is null) return;
+            _ = api.ShutdownBestEffortAsync();
+        }
+        catch
+        {
+            /* Riot may already be exiting. */
+        }
+    }
+
+    private async Task ShutdownBestEffortAsync()
+    {
+        try
+        {
+            using (this)
+            {
+                try
+                {
+                    using var response = await _http.PostAsync("/riotclient/kill", null)
+                        .ConfigureAwait(false);
+                }
+                catch { /* */ }
+                try
+                {
+                    using var response = await _http.PostAsync("/riotclient/kill-ux", null)
+                        .ConfigureAwait(false);
+                }
+                catch { /* */ }
+            }
+        }
+        catch
+        {
+            try { Dispose(); } catch { /* */ }
+        }
+    }
+
     public void Dispose()
     {
         if (_disposed) return;

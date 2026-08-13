@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using System.Text;
 
 namespace ExoLauncher.Adapters;
 
@@ -9,6 +10,122 @@ internal static class ProcessHelper
     private const int SwShowMinimized = 2;
     private const int SwMinimize = 6;
     private const uint WmClose = 0x0010;
+    private const int ProcessQueryLimitedInformation = 0x1000;
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern IntPtr OpenProcess(int dwDesiredAccess, bool bInheritHandle, int dwProcessId);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool CloseHandle(IntPtr hObject);
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool QueryFullProcessImageName(
+        IntPtr hProcess,
+        int dwFlags,
+        StringBuilder lpExeName,
+        ref int lpdwSize);
+
+    private const uint Th32CsSnapProcess = 0x00000002;
+    private static readonly IntPtr InvalidHandleValue = new(-1);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern IntPtr CreateToolhelp32Snapshot(uint dwFlags, uint th32ProcessID);
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool Process32FirstW(IntPtr hSnapshot, ref PROCESSENTRY32W lppe);
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool Process32NextW(IntPtr hSnapshot, ref PROCESSENTRY32W lppe);
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    private struct PROCESSENTRY32W
+    {
+        public uint dwSize;
+        public uint cntUsage;
+        public uint th32ProcessID;
+        public UIntPtr th32DefaultHeapID;
+        public uint th32ModuleID;
+        public uint cntThreads;
+        public uint th32ParentProcessID;
+        public int pcPriClassBase;
+        public uint dwFlags;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 260)]
+        public string szExeFile;
+    }
+
+    /// <summary>
+    /// Resolves a process image path without requiring PROCESS_VM_READ.
+    /// <see cref="Process.MainModule"/> fails for many games (WOW64, protected,
+    /// elevated), which made Stop/canStop silently miss live sessions.
+    /// </summary>
+    internal static string? TryGetExecutablePath(Process process)
+    {
+        try
+        {
+            if (process.HasExited) return null;
+        }
+        catch { return null; }
+
+        try
+        {
+            var viaQuery = QueryFullProcessImageName(process.Id);
+            if (!string.IsNullOrWhiteSpace(viaQuery))
+                return Path.GetFullPath(viaQuery);
+        }
+        catch { /* fall through */ }
+
+        try
+        {
+            var module = process.MainModule?.FileName;
+            if (!string.IsNullOrWhiteSpace(module))
+                return Path.GetFullPath(module);
+        }
+        catch { /* access denied is common */ }
+
+        return null;
+    }
+
+    internal static string? TryGetExecutablePath(int processId)
+    {
+        if (processId <= 0) return null;
+        try
+        {
+            using var process = Process.GetProcessById(processId);
+            return TryGetExecutablePath(process);
+        }
+        catch { return null; }
+    }
+
+    internal static bool MatchesOptionalPath(Process process, string? pathMustContain)
+    {
+        if (string.IsNullOrWhiteSpace(pathMustContain)) return true;
+        var path = TryGetExecutablePath(process);
+        return !string.IsNullOrWhiteSpace(path) &&
+               path.IndexOf(pathMustContain, StringComparison.OrdinalIgnoreCase) >= 0;
+    }
+
+    private static string? QueryFullProcessImageName(int processId)
+    {
+        var handle = OpenProcess(ProcessQueryLimitedInformation, false, processId);
+        if (handle == IntPtr.Zero) return null;
+        try
+        {
+            var capacity = 1024;
+            var buffer = new StringBuilder(capacity);
+            var size = capacity;
+            if (!QueryFullProcessImageName(handle, 0, buffer, ref size) || size <= 0)
+                return null;
+            return buffer.ToString(0, size);
+        }
+        finally
+        {
+            _ = CloseHandle(handle);
+        }
+    }
 
     // Process-lifetime pin — NEVER free. Transient lambdas here caused FailFast.
     private static readonly EnumWindowsProc EnumProc = EnumCallback;
@@ -208,11 +325,16 @@ internal static class ProcessHelper
         return Process.Start(psi);
     }
 
+    public static void TryCloseProcesses(params string[] processNames) =>
+        TryCloseProcesses(processNames, pathMustContain: null);
+
     /// <summary>
     /// Soft-close store chrome. CloseMainWindow + WM_CLOSE to all top-level windows.
     /// Never Kill() — anti-cheat / tray helpers may ignore and stay resident.
+    /// When <paramref name="pathMustContain"/> is set, processes whose image
+    /// path is unknown or does not contain that fragment are left alone.
     /// </summary>
-    public static void TryCloseProcesses(params string[] processNames)
+    public static void TryCloseProcesses(string[] processNames, string? pathMustContain)
     {
         var pids = new HashSet<int>();
         foreach (var name in processNames)
@@ -224,6 +346,7 @@ internal static class ProcessHelper
                     try
                     {
                         if (p.HasExited) continue;
+                        if (!MatchesOptionalPath(p, pathMustContain)) continue;
                         pids.Add(p.Id);
                         // Soft close — never kill anti-cheat services.
                         p.CloseMainWindow();
@@ -246,8 +369,71 @@ internal static class ProcessHelper
         catch { /* best-effort */ }
         finally { t_closePids = null; }
 
+        RequestThreadQuit(pids);
+
         // Do not HideProcessesByName here — leftover SW_HIDE + older TOOLWINDOW
         // styles made Steam unopenable from the taskbar.
+    }
+
+    private static readonly HashSet<string> NeverTerminateNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "vgk", "vgc", "vgm", "EasyAntiCheat", "EasyAntiCheat_EOS",
+        "EpicOnlineServices", "steamservice", "GameOverlayUI", "gameoverlayui64",
+    };
+
+    /// <summary>
+    /// Last resort for an unused launcher shell after graceful close failed.
+    /// Never anti-cheat, never unnamed PIDs, never a process tree.
+    /// </summary>
+    public static void TerminateExactNames(string[] processNames, string? pathMustContain = null)
+    {
+        foreach (var name in processNames)
+        {
+            if (string.IsNullOrWhiteSpace(name) || NeverTerminateNames.Contains(name))
+                continue;
+            try
+            {
+                foreach (var p in Process.GetProcessesByName(name))
+                {
+                    try
+                    {
+                        if (p.HasExited) continue;
+                        if (!MatchesOptionalPath(p, pathMustContain)) continue;
+                        p.Kill(entireProcessTree: false);
+                    }
+                    catch { /* ignore */ }
+                    finally { p.Dispose(); }
+                }
+            }
+            catch { /* ignore */ }
+        }
+    }
+
+    private const uint WmQuit = 0x0012;
+
+    [DllImport("user32.dll")]
+    private static extern bool PostThreadMessage(uint idThread, uint Msg, UIntPtr wParam, IntPtr lParam);
+
+    /// <summary>
+    /// Silent store clients often have no main window, so WM_CLOSE never lands.
+    /// WM_QUIT on their UI threads is still a graceful exit — not Kill().
+    /// </summary>
+    private static void RequestThreadQuit(HashSet<int> pids)
+    {
+        foreach (var pid in pids)
+        {
+            try
+            {
+                using var process = Process.GetProcessById(pid);
+                if (process.HasExited) continue;
+                foreach (ProcessThread thread in process.Threads)
+                {
+                    try { PostThreadMessage((uint)thread.Id, WmQuit, UIntPtr.Zero, IntPtr.Zero); }
+                    catch { /* */ }
+                }
+            }
+            catch { /* */ }
+        }
     }
 
     /// <summary>Requests a graceful close for exact PIDs. It never expands into a process tree.</summary>
@@ -338,9 +524,7 @@ internal static class ProcessHelper
                 {
                     if (process.HasExited || ignored.Contains(process.ProcessName) ||
                         IsNonGameProcessName(process.ProcessName)) continue;
-                    string? module = null;
-                    try { module = process.MainModule?.FileName; }
-                    catch { /* access denied is not a verified path match */ }
+                    var module = TryGetExecutablePath(process);
                     if (!string.IsNullOrWhiteSpace(module) && IsPathUnderRoot(module, installRoot))
                         result.Add(process.Id);
                 }
@@ -673,9 +857,7 @@ internal static class ProcessHelper
                             if (proc.HasExited || (excludedProcessIds?.Contains(proc.Id) ?? false)) continue;
                             if (requireInstallRoot)
                             {
-                                string? module = null;
-                                try { module = proc.MainModule?.FileName; }
-                                catch { /* access denied is not a verified path match */ }
+                                var module = TryGetExecutablePath(proc);
                                 if (string.IsNullOrWhiteSpace(module) ||
                                     !IsPathUnderRoot(module, installRoot!))
                                     continue;
@@ -706,9 +888,7 @@ internal static class ProcessHelper
                     if (ignored.Contains(process.ProcessName) ||
                         IsNonGameProcessName(process.ProcessName) ||
                         (excludedProcessIds?.Contains(process.Id) ?? false)) continue;
-                    string? module = null;
-                    try { module = process.MainModule?.FileName; }
-                    catch { /* access denied */ }
+                    var module = TryGetExecutablePath(process);
                     if (!string.IsNullOrWhiteSpace(module) &&
                         IsPathUnderRoot(module, installRoot))
                         return process.Id;
@@ -719,6 +899,81 @@ internal static class ProcessHelper
         catch { /* enumeration race */ }
 
         return null;
+    }
+
+    /// <summary>
+    /// Stops a verified game process and its non-reserved descendants.
+    /// Never uses <c>Kill(entireProcessTree: true)</c> — that would terminate
+    /// Easy Anti-Cheat / BattlEye / Vanguard children the deny-list never sees.
+    /// </summary>
+    internal static void KillVerifiedGameTree(Process root, Func<string?, bool> isReservedName)
+    {
+        ArgumentNullException.ThrowIfNull(root);
+        ArgumentNullException.ThrowIfNull(isReservedName);
+
+        foreach (var childPid in GetDescendantProcessIds(root.Id))
+        {
+            try
+            {
+                using var child = Process.GetProcessById(childPid);
+                if (isReservedName(child.ProcessName)) continue;
+                try { child.Kill(entireProcessTree: false); } catch { /* already exiting */ }
+            }
+            catch { /* process gone or access denied */ }
+        }
+
+        try
+        {
+            if (!isReservedName(root.ProcessName))
+                root.Kill(entireProcessTree: false);
+        }
+        catch { /* last resort failed */ }
+    }
+
+    /// <summary>Child-first descendant PIDs of <paramref name="rootPid"/> (not including the root).</summary>
+    internal static IReadOnlyList<int> GetDescendantProcessIds(int rootPid)
+    {
+        if (rootPid <= 0) return Array.Empty<int>();
+        var childrenByParent = new Dictionary<int, List<int>>();
+        var snapshot = CreateToolhelp32Snapshot(Th32CsSnapProcess, 0);
+        if (snapshot == IntPtr.Zero || snapshot == InvalidHandleValue)
+            return Array.Empty<int>();
+        try
+        {
+            var entry = new PROCESSENTRY32W { dwSize = (uint)Marshal.SizeOf<PROCESSENTRY32W>() };
+            if (!Process32FirstW(snapshot, ref entry)) return Array.Empty<int>();
+            do
+            {
+                var pid = (int)entry.th32ProcessID;
+                var parent = (int)entry.th32ParentProcessID;
+                if (pid <= 0 || parent <= 0 || pid == parent) continue;
+                if (!childrenByParent.TryGetValue(parent, out var kids))
+                {
+                    kids = [];
+                    childrenByParent[parent] = kids;
+                }
+                kids.Add(pid);
+            } while (Process32NextW(snapshot, ref entry));
+        }
+        finally
+        {
+            _ = CloseHandle(snapshot);
+        }
+
+        var ordered = new List<int>();
+        var seen = new HashSet<int>();
+        void Walk(int pid)
+        {
+            if (!childrenByParent.TryGetValue(pid, out var kids)) return;
+            foreach (var kid in kids)
+            {
+                if (!seen.Add(kid)) continue;
+                Walk(kid);
+                ordered.Add(kid);
+            }
+        }
+        Walk(rootPid);
+        return ordered;
     }
 
     public static string? FindOnPath(string fileName)

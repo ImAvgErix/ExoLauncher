@@ -28,9 +28,9 @@ public sealed class AppServices
         Achievements.NotificationDeliveryRequested += OnAchievementNotificationDeliveryRequested;
         // Always overwrite settings.json version with the running build (not a stale 1.0.0).
         Settings.SyncAppVersion(AppVersion);
-        // Local is a first-class DRM-free backend. The official-client adapters
-        // below are intentionally presence/Open-only: they never claim a
-        // library, title launch, install, update, or achievement integration.
+        // Local is a first-class DRM-free backend. Official-client adapters
+        // list only proven on-disk installs; they never invent ownership,
+        // account state, or install/update through Exo.
         Adapters =
         [
             new SteamAdapter(),

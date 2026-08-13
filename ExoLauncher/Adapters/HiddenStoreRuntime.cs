@@ -276,6 +276,9 @@ public sealed class HiddenStoreRuntime : IDisposable
     private static void SweepStore(StoreKind store, string[] processNames)
     {
         if (IsSuspended(store)) return;
-        StoreWindowHider.CollapseOrphanSurfaces(processNames);
+        if (store == StoreKind.Rockstar)
+            StoreWindowHider.CollapseOrphanSurfaces(processNames, "Rockstar Games");
+        else
+            StoreWindowHider.CollapseOrphanSurfaces(processNames);
     }
 }

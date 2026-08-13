@@ -4,10 +4,9 @@ using ExoLauncher.Models;
 namespace ExoLauncher.Adapters;
 
 /// <summary>
-/// Installed official-store clients that Exo can identify and surface, but does
-/// not yet use as a game-library or game-operation backend. This deliberately
-/// keeps an empty official library empty instead of inventing owned titles,
-/// installs, achievements, or account state.
+/// Official-store clients Exo can identify. Library rows exist only for proven
+/// on-disk installs; an empty client library stays empty. Install/update still
+/// belong to the vendor client.
 /// </summary>
 public abstract class AgentPresentAdapterBase : IStoreAdapter, IOfficialStoreClient
 {
@@ -34,7 +33,7 @@ public abstract class AgentPresentAdapterBase : IStoreAdapter, IOfficialStoreCli
                 : $"{DisplayName} is not installed.",
         });
 
-    public Task<IReadOnlyList<GameEntry>> GetLibraryAsync(CancellationToken ct = default) =>
+    public virtual Task<IReadOnlyList<GameEntry>> GetLibraryAsync(CancellationToken ct = default) =>
         Task.FromResult<IReadOnlyList<GameEntry>>(Array.Empty<GameEntry>());
 
     public Task<InstallResult> InstallAsync(
@@ -50,7 +49,7 @@ public abstract class AgentPresentAdapterBase : IStoreAdapter, IOfficialStoreCli
         CancellationToken ct = default) =>
         Task.FromResult(UnsupportedOperation("update games"));
 
-    public Task<LaunchResult> LaunchAsync(GameEntry game, LaunchOptions options, CancellationToken ct = default) =>
+    public virtual Task<LaunchResult> LaunchAsync(GameEntry game, LaunchOptions options, CancellationToken ct = default) =>
         Task.FromResult(new LaunchResult
         {
             Ok = false,
@@ -91,6 +90,12 @@ public sealed class XboxAdapter : AgentPresentAdapterBase
     public override string DisplayName => "Xbox app";
     protected override OfficialClientDefinition ClientDefinition => Definition;
     public override IReadOnlyList<string> ClientProcessNames => ["XboxPcApp", "GamingApp"];
+
+    public override Task<IReadOnlyList<GameEntry>> GetLibraryAsync(CancellationToken ct = default) =>
+        Task.FromResult(OfficialInstalledLibraries.ScanXbox());
+
+    public override Task<LaunchResult> LaunchAsync(GameEntry game, LaunchOptions options, CancellationToken ct = default) =>
+        Task.FromResult(OfficialInstalledLibraries.LaunchXbox(game));
 }
 
 public sealed class EaAdapter : AgentPresentAdapterBase
@@ -111,6 +116,12 @@ public sealed class EaAdapter : AgentPresentAdapterBase
     public override string DisplayName => "EA app";
     protected override OfficialClientDefinition ClientDefinition => Definition;
     public override IReadOnlyList<string> ClientProcessNames => ["EADesktop"];
+
+    public override Task<IReadOnlyList<GameEntry>> GetLibraryAsync(CancellationToken ct = default) =>
+        Task.FromResult(OfficialInstalledLibraries.ScanEa());
+
+    public override Task<LaunchResult> LaunchAsync(GameEntry game, LaunchOptions options, CancellationToken ct = default) =>
+        Task.FromResult(OfficialInstalledLibraries.LaunchEa(game));
 }
 
 public sealed class UbisoftAdapter : AgentPresentAdapterBase
@@ -135,6 +146,12 @@ public sealed class UbisoftAdapter : AgentPresentAdapterBase
     public override string DisplayName => "Ubisoft Connect";
     protected override OfficialClientDefinition ClientDefinition => Definition;
     public override IReadOnlyList<string> ClientProcessNames => ["UbisoftConnect", "upc", "UplayWebCore"];
+
+    public override Task<IReadOnlyList<GameEntry>> GetLibraryAsync(CancellationToken ct = default) =>
+        Task.FromResult(OfficialInstalledLibraries.ScanUbisoft());
+
+    public override Task<LaunchResult> LaunchAsync(GameEntry game, LaunchOptions options, CancellationToken ct = default) =>
+        Task.FromResult(OfficialInstalledLibraries.LaunchUbisoft(game));
 }
 
 public sealed class BattleNetAdapter : AgentPresentAdapterBase
@@ -155,6 +172,12 @@ public sealed class BattleNetAdapter : AgentPresentAdapterBase
     public override string DisplayName => "Battle.net";
     protected override OfficialClientDefinition ClientDefinition => Definition;
     public override IReadOnlyList<string> ClientProcessNames => ["Battle.net"];
+
+    public override Task<IReadOnlyList<GameEntry>> GetLibraryAsync(CancellationToken ct = default) =>
+        Task.FromResult(OfficialInstalledLibraries.ScanBattleNet());
+
+    public override Task<LaunchResult> LaunchAsync(GameEntry game, LaunchOptions options, CancellationToken ct = default) =>
+        Task.FromResult(OfficialInstalledLibraries.LaunchBattleNet(game));
 }
 
 public sealed class AmazonAdapter : AgentPresentAdapterBase
@@ -177,6 +200,12 @@ public sealed class AmazonAdapter : AgentPresentAdapterBase
     public override string DisplayName => "Amazon Games";
     protected override OfficialClientDefinition ClientDefinition => Definition;
     public override IReadOnlyList<string> ClientProcessNames => ["Amazon Games", "AmazonGames", "AmazonGamesUI"];
+
+    public override Task<IReadOnlyList<GameEntry>> GetLibraryAsync(CancellationToken ct = default) =>
+        Task.FromResult(OfficialInstalledLibraries.ScanAmazon());
+
+    public override Task<LaunchResult> LaunchAsync(GameEntry game, LaunchOptions options, CancellationToken ct = default) =>
+        Task.FromResult(OfficialInstalledLibraries.LaunchAmazon(game));
 }
 
 public sealed class RockstarAdapter : AgentPresentAdapterBase
@@ -197,6 +226,12 @@ public sealed class RockstarAdapter : AgentPresentAdapterBase
     protected override OfficialClientDefinition ClientDefinition => Definition;
     public override IReadOnlyList<string> ClientProcessNames =>
         ["Launcher", "LauncherPatcher", "RockstarService", "SocialClubHelper"];
+
+    public override Task<IReadOnlyList<GameEntry>> GetLibraryAsync(CancellationToken ct = default) =>
+        Task.FromResult(OfficialInstalledLibraries.ScanRockstar());
+
+    public override Task<LaunchResult> LaunchAsync(GameEntry game, LaunchOptions options, CancellationToken ct = default) =>
+        Task.FromResult(OfficialInstalledLibraries.LaunchRockstar(game));
 }
 
 /// <summary>Known official-client evidence. Every positive file result must match one of <see cref="ExecutableNames"/>.</summary>

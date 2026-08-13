@@ -87,6 +87,32 @@ public sealed class SteamOwnershipCatalogTests
     }
 
     [Fact]
+    public void RememberInstalled_KeepsManifestProofWhenSteamTicketIsMissing()
+    {
+        var path = NewCatalogPath();
+        var catalog = new SteamOwnershipCatalog(path);
+        catalog.RememberInstalled(new[]
+        {
+            new GameEntry
+            {
+                Id = "steam:424242",
+                Title = "Installed Without Ticket",
+                Store = StoreKind.Steam,
+                Installed = true,
+                Owned = false,
+                CanInstall = true,
+                LaunchTarget = "424242",
+            },
+        });
+
+        var recovered = Assert.Single(catalog.RestoreMissing(Array.Empty<GameEntry>()));
+        Assert.Equal("steam:424242", recovered.Id);
+        Assert.True(recovered.Owned);
+        Assert.True(recovered.CanInstall);
+        Assert.False(recovered.Installed);
+    }
+
+    [Fact]
     public void RememberInstalled_DoesNotTrustUninstalledOrNonSteamEntries()
     {
         var path = NewCatalogPath();

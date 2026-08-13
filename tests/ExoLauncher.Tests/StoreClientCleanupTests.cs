@@ -11,11 +11,19 @@ public sealed class StoreClientCleanupTests
     [InlineData(StoreKind.Epic)]
     [InlineData(StoreKind.Gog)]
     [InlineData(StoreKind.Riot)]
+    [InlineData(StoreKind.Xbox)]
+    [InlineData(StoreKind.Ea)]
+    [InlineData(StoreKind.Ubisoft)]
+    [InlineData(StoreKind.BattleNet)]
+    [InlineData(StoreKind.Amazon)]
+    [InlineData(StoreKind.Rockstar)]
     public void TargetsFor_NeverIncludesActiveProvider(StoreKind activeProvider)
     {
+        var all = StoreClientCleanup.TargetsFor(StoreKind.Local);
         var targets = StoreClientCleanup.TargetsFor(activeProvider);
 
-        Assert.Equal(3, targets.Count);
+        Assert.Contains(all, target => target.Store == activeProvider);
+        Assert.Equal(all.Count - 1, targets.Count);
         Assert.DoesNotContain(targets, target => target.Store == activeProvider);
     }
 
@@ -31,7 +39,21 @@ public sealed class StoreClientCleanupTests
         Assert.Contains("EpicGamesLauncher", allowed);
         Assert.Contains("EpicWebHelper", allowed);
         Assert.Contains("GalaxyClient", allowed);
+        Assert.Contains("GOG Galaxy Notifications", allowed);
         Assert.Contains("RiotClientServices", allowed);
+        Assert.Contains("XboxPcApp", allowed);
+        Assert.Contains("EADesktop", allowed);
+        Assert.Contains("UbisoftConnect", allowed);
+        Assert.Contains("Battle.net", allowed);
+        Assert.Contains("AmazonGames", allowed);
+        Assert.Contains("LauncherPatcher", allowed);
+
+        var cleanup = File.ReadAllText(Path.Combine(RepoRoot(), "ExoLauncher", "Adapters", "StoreClientCleanup.cs"));
+        Assert.Contains("TryCloseProcesses(target.ExactProcessNames.ToArray(), \"Rockstar Games\")", cleanup, StringComparison.Ordinal);
+        Assert.Contains("CollapseOrphanSurfaces(names, \"Rockstar Games\")", cleanup, StringComparison.Ordinal);
+        Assert.Contains("Riot.RiotClientApi.TryRequestShutdown()", cleanup, StringComparison.Ordinal);
+        Assert.Contains("-shutdown", cleanup, StringComparison.Ordinal);
+        Assert.Contains("RequestThreadQuit", File.ReadAllText(Path.Combine(RepoRoot(), "ExoLauncher", "Adapters", "ProcessHelper.cs")), StringComparison.Ordinal);
 
         string[] forbidden =
         [
@@ -39,7 +61,7 @@ public sealed class StoreClientCleanupTests
             "EOSOverlayRenderer-Win64-Shipping", "EasyAntiCheat",
             "EasyAntiCheat_EOS", "GalaxyClient Service", "vgk", "vgc", "vgm",
             "LeagueClient", "LeagueClientUx", "League of Legends",
-            "VALORANT-Win64-Shipping",
+            "VALORANT-Win64-Shipping", "RockstarService", "SocialClubHelper",
         ];
         foreach (var processName in forbidden)
             Assert.DoesNotContain(processName, allowed);
@@ -49,13 +71,14 @@ public sealed class StoreClientCleanupTests
     public async Task ExitUnused_GracefulSuccessNeverUsesFallback()
     {
         var controller = FakeController.ForAllTargets(gracefulExitSucceeds: true);
+        var unused = StoreClientCleanup.TargetsFor(StoreKind.Steam).Count;
 
         var report = await StoreClientCleanup.ExitUnusedAsync(
             StoreKind.Steam,
             controller,
             TimeSpan.Zero);
 
-        Assert.Equal(3, report.GracefulStoreRequests);
+        Assert.Equal(unused, report.GracefulStoreRequests);
         Assert.Equal(0, report.RemainingStoreClients);
         Assert.DoesNotContain(StoreKind.Steam, controller.GracefulStores);
     }
@@ -64,17 +87,23 @@ public sealed class StoreClientCleanupTests
     public async Task ExitUnused_UnresponsiveClientsAreNeverForceKilled()
     {
         var controller = FakeController.ForAllTargets(gracefulExitSucceeds: false);
+        var unused = StoreClientCleanup.TargetsFor(StoreKind.Steam).Count;
         var report = await StoreClientCleanup.ExitUnusedAsync(
             StoreKind.Steam,
             controller,
             TimeSpan.Zero);
 
-        Assert.Equal(3, report.GracefulStoreRequests);
-        Assert.Equal(3, report.RemainingStoreClients);
+        Assert.Equal(unused, report.GracefulStoreRequests);
+        Assert.Equal(unused, report.RemainingStoreClients);
         Assert.DoesNotContain(controller.Events, value => value.StartsWith("force:", StringComparison.Ordinal));
         var implementation = File.ReadAllText(Path.Combine(RepoRoot(), "ExoLauncher", "Adapters", "StoreClientCleanup.cs"));
         Assert.DoesNotContain(".Kill(", implementation, StringComparison.Ordinal);
-        Assert.DoesNotContain("TerminateExact", implementation, StringComparison.Ordinal);
+        Assert.Contains("TerminateRemainingUnused", implementation, StringComparison.Ordinal);
+        Assert.Contains("TerminateExactNames", implementation, StringComparison.Ordinal);
+        var helper = File.ReadAllText(Path.Combine(RepoRoot(), "ExoLauncher", "Adapters", "ProcessHelper.cs"));
+        Assert.Contains("NeverTerminateNames", helper, StringComparison.Ordinal);
+        Assert.Contains("\"vgk\"", helper, StringComparison.Ordinal);
+        Assert.Contains("\"vgc\"", helper, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -92,6 +121,17 @@ public sealed class StoreClientCleanupTests
         Assert.DoesNotContain(StoreKind.Epic, controller.GracefulStores);
         Assert.Contains(StoreKind.Gog, controller.GracefulStores);
         Assert.Contains(StoreKind.Riot, controller.GracefulStores);
+        Assert.Contains(StoreKind.Xbox, controller.GracefulStores);
+    }
+
+    [Fact]
+    public void QuietKeptSteam_UsesFriendsOffFlagsAndSkipsWhenUserOpenedSteam()
+    {
+        var cleanup = File.ReadAllText(Path.Combine(RepoRoot(), "ExoLauncher", "Adapters", "StoreClientCleanup.cs"));
+        Assert.Contains("QuietKeptBackend", cleanup, StringComparison.Ordinal);
+        Assert.Contains("HiddenClientStartArguments", cleanup, StringComparison.Ordinal);
+        Assert.Contains("IsSuspended(StoreKind.Steam)", cleanup, StringComparison.Ordinal);
+        Assert.DoesNotContain(".Kill(", cleanup, StringComparison.Ordinal);
     }
 
     [Fact]

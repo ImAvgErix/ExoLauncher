@@ -1,0 +1,13 @@
+﻿.tmp-grok-ui/
+.tmp-exo-*.jpg
+**/.vercel/
+**/node_modules/
+**/bin/
+**/obj/
+publish/
+release/
+artifacts/
+**/ui/dist/
+**/__pycache__/
+**/.pytest_cache/
+**/*.log

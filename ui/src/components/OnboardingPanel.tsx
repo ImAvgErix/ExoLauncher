@@ -1,3 +1,4 @@
+import { ExoMark } from '../brand/ExoMark'
 import type { StoreStatus } from '../lib/host'
 
 export function OnboardingPanel({
@@ -26,7 +27,7 @@ export function OnboardingPanel({
       <div className="relative z-10 flex min-h-0 flex-1 flex-col items-center justify-center px-10 py-12">
         <div className="w-full max-w-lg">
           <div className="mb-8 flex items-center gap-3">
-            <img src="./logo.png" alt="" className="h-9 w-9" width={36} height={36} draggable={false} />
+            <ExoMark size={36} />
             <span className="text-lg font-semibold tracking-tight">Exo</span>
           </div>
 

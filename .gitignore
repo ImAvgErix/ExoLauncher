@@ -20,6 +20,9 @@ BundleArtifacts/
 dist/
 work/
 .ui-shots/
+.tmp-grok-ui/
+.tmp-exo-*.jpg
+.verify-*.jpg
 
 # App logs
 *.log

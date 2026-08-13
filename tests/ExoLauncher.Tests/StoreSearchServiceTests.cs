@@ -78,6 +78,67 @@ public class StoreSearchServiceTests
         Assert.False(hit.Installed);
     }
 
+    [Fact]
+    public void BuildSteamCatalogHit_MatchesLibraryIdWhenLaunchTargetIsMissing()
+    {
+        var library = new[]
+        {
+            new GameEntry
+            {
+                Id = "steam:1817070",
+                Title = "Marvel's Spider-Man Remastered",
+                Store = StoreKind.Steam,
+                LaunchTarget = null,
+                Owned = true,
+                Installed = false,
+                CanInstall = true,
+            },
+        };
+
+        var hit = StoreSearchService.BuildSteamCatalogHit(
+            "1817070",
+            "Marvel's Spider-Man Remastered",
+            library);
+
+        Assert.True(hit.Owned);
+        Assert.True(hit.CanInstall);
+    }
+
+    [Fact]
+    public void BuildSteamCatalogHit_MatchesSteamVariantOnAGroupedCard()
+    {
+        var library = new[]
+        {
+            new GameEntry
+            {
+                Id = "epic:Fortnite",
+                Title = "Fortnite",
+                Store = StoreKind.Epic,
+                LaunchTarget = "Fortnite",
+                Owned = true,
+                Installed = true,
+                Variants =
+                [
+                    new GameVariant
+                    {
+                        Id = "steam:1172470",
+                        Store = StoreKind.Steam,
+                        Installed = false,
+                        Owned = true,
+                        CanInstall = true,
+                        LaunchTarget = "1172470",
+                    },
+                ],
+            },
+        };
+
+        var hit = StoreSearchService.BuildSteamCatalogHit("1172470", "Apex Legends", library);
+
+        Assert.True(hit.Owned);
+        Assert.False(hit.Installed);
+        Assert.True(hit.CanInstall);
+    }
+
     [Theory]
     [InlineData("Mortal Shell", "mortal shell 2")]
     [InlineData("Mortal Shell", "mrotal sheel")]
@@ -278,6 +339,91 @@ public class StoreSearchServiceTests
 
         releaseLoader.SetResult();
         Assert.Contains(await search.WaitAsync(TimeSpan.FromSeconds(2)), item => item.Id == "steam:393080");
+    }
+
+    [Theory]
+    [InlineData(StoreKind.Epic, "epic:Strinova")]
+    [InlineData(StoreKind.Gog, "gog:1544321")]
+    [InlineData(StoreKind.Xbox, "xbox:Strinova")]
+    [InlineData(StoreKind.Riot, "riot:strinova")]
+    [InlineData(StoreKind.Ea, "ea:Strinova")]
+    [InlineData(StoreKind.Ubisoft, "ubisoft:Strinova")]
+    [InlineData(StoreKind.BattleNet, "battlenet:Strinova")]
+    [InlineData(StoreKind.Amazon, "amazon:Strinova")]
+    [InlineData(StoreKind.Rockstar, "rockstar:Strinova")]
+    [InlineData(StoreKind.Local, "local:Strinova")]
+    [InlineData(StoreKind.Steam, "steam:2276390")]
+    public async Task SearchAsync_LibraryTitleOnAnyStoreSuppressesSteamCatalogBuy(
+        StoreKind store, string libraryId)
+    {
+        var service = new StoreSearchService(
+            _ => Task.FromResult(new List<StoreSearchHit>()),
+            (_, _, _) => Task.FromResult<IReadOnlyList<StoreSearchHit>>(
+            [
+                new StoreSearchHit
+                {
+                    Id = "steam:2276390",
+                    Title = "Strinova™",
+                    Store = StoreKind.Steam,
+                    LaunchTarget = "2276390",
+                    Owned = false,
+                    Installed = false,
+                    CanInstall = false,
+                    Source = "steam",
+                },
+            ]));
+
+        var hits = await service.SearchAsync("strinova",
+        [
+            new GameEntry
+            {
+                Id = libraryId,
+                Title = "Strinova",
+                Store = store,
+                LaunchTarget = store == StoreKind.Steam ? "2276390" : libraryId,
+                Owned = true,
+                Installed = true,
+                CanInstall = false,
+            },
+        ]);
+
+        Assert.Contains(hits, hit => hit.Id == libraryId && hit.Installed);
+        Assert.DoesNotContain(hits, hit =>
+            hit.Store == StoreKind.Steam && !hit.Owned && !hit.Installed && !hit.CanInstall);
+    }
+
+    [Fact]
+    public async Task SearchAsync_DifferentTitlesDoNotCollapseAcrossStores()
+    {
+        var service = new StoreSearchService(
+            _ => Task.FromResult(new List<StoreSearchHit>()),
+            (_, _, _) => Task.FromResult<IReadOnlyList<StoreSearchHit>>(
+            [
+                new StoreSearchHit
+                {
+                    Id = "steam:11450",
+                    Title = "Hades II",
+                    Store = StoreKind.Steam,
+                    LaunchTarget = "11450",
+                    Owned = false,
+                    Source = "steam",
+                },
+            ]));
+
+        var hits = await service.SearchAsync("hades",
+        [
+            new GameEntry
+            {
+                Id = "epic:Hades",
+                Title = "Hades",
+                Store = StoreKind.Epic,
+                Owned = true,
+                Installed = true,
+            },
+        ]);
+
+        Assert.Contains(hits, hit => hit.Id == "epic:Hades");
+        Assert.Contains(hits, hit => hit.Id == "steam:11450" && !hit.Owned);
     }
 
     [Fact]

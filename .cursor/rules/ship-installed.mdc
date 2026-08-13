@@ -1,0 +1,10 @@
+---
+description: Ship to the installed Exo Launcher copy and prove it there
+alwaysApply: true
+---
+
+# Installed copy
+
+The user runs `%LOCALAPPDATA%\ExoLauncher\app\ExoLauncher.exe`. After host or UI changes: `dotnet publish` (self-contained x64), swap `app.incoming-dev` → `app`, then live-test. Do not stop at repo tests.
+
+Steam install/update/uninstall goes through `ExoLauncher.SteamIpc`. Success is ACF `BytesDownloaded` moving, not a click on Steam chrome.

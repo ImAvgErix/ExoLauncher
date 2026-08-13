@@ -23,8 +23,8 @@
         </Grid>
 
         <Grid x:Name="AppTitleBar"
-              Height="8"
-              Margin="120,0,120,0"
+              Height="12"
+              Margin="56,0,184,0"
               VerticalAlignment="Top"
               Background="Transparent"
               IsHitTestVisible="True" />

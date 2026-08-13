@@ -155,6 +155,8 @@ public sealed class WebHostBridge
                 "settings.set" => SetSettings(paramsEl, hasParams),
                 "trophies.preview" => PreviewTrophyNotification(),
                 "shell.minimize" => HideToNotificationArea(),
+                "shell.maximize" => ToggleMaximize(),
+                "shell.windowState" => WindowState(),
                 "shell.close" => CloseWindow(),
                 "shell.openUrl" => OpenUrl(paramsEl, hasParams),
                 "shell.openPath" => OpenPath(paramsEl, hasParams),
@@ -341,19 +343,38 @@ public sealed class WebHostBridge
     }
 
     /// <summary>Install from Store search when the title is not in the library yet.</summary>
-    private static GameEntry? TrySynthesizeFromId(string gameId, JsonElement p, bool hasParams)
+    private GameEntry? TrySynthesizeFromId(string gameId, JsonElement p, bool hasParams)
     {
         var title = ReadString(p, hasParams, "title") ?? gameId;
+        var fromLibrary = TryLibraryOwnedSource(gameId);
+        if (fromLibrary is not null)
+        {
+            return new GameEntry
+            {
+                Id = fromLibrary.Id,
+                Title = string.IsNullOrWhiteSpace(title) || title == gameId ? fromLibrary.Title : title,
+                Store = fromLibrary.Store,
+                Installed = fromLibrary.Installed,
+                Owned = true,
+                CanInstall = true,
+                Path = fromLibrary.Path,
+                LaunchTarget = fromLibrary.LaunchTarget,
+                CoverUrl = fromLibrary.CoverUrl,
+                Status = fromLibrary.Installed ? fromLibrary.Status : "Not installed",
+                Deps = fromLibrary.Deps,
+                LaunchNote = fromLibrary.LaunchNote,
+            };
+        }
+
         if (gameId.StartsWith("steam:", StringComparison.OrdinalIgnoreCase))
         {
             var appId = gameId["steam:".Length..];
             if (!appId.All(char.IsDigit)) return null;
-            // This path handles a search result that is not yet materialized in
-            // LibraryService. Re-check active-account ticket evidence here;
-            // never let a crafted bridge request turn an unknown catalog app
-            // into an install handoff merely because Steam is installed.
+            // Re-check library + active-account ticket evidence. Never let a
+            // crafted bridge request turn an unknown catalog app into an install
+            // handoff merely because Steam is installed.
             var proven = StoreSearchService.BuildSteamCatalogHit(
-                appId, title, Array.Empty<GameEntry>());
+                appId, title, _services.Library.PeekCachedLibrary());
             if (!proven.Owned) return null;
             return new GameEntry
             {
@@ -370,39 +391,21 @@ public sealed class WebHostBridge
                 LaunchNote = "",
             };
         }
-        if (gameId.StartsWith("epic:", StringComparison.OrdinalIgnoreCase))
+
+        return null;
+    }
+
+    private GameEntry? TryLibraryOwnedSource(string gameId)
+    {
+        foreach (var game in _services.Library.PeekCachedLibrary())
         {
-            var app = gameId["epic:".Length..];
-            return new GameEntry
-            {
-                Id = gameId,
-                Title = title,
-                Store = StoreKind.Epic,
-                Installed = false,
-                Owned = false,
-                CanInstall = false,
-                LaunchTarget = app,
-                Status = "Not installed",
-                Deps = Array.Empty<string>(),
-                LaunchNote = "",
-            };
-        }
-        if (gameId.StartsWith("gog:", StringComparison.OrdinalIgnoreCase))
-        {
-            var app = gameId["gog:".Length..];
-            return new GameEntry
-            {
-                Id = gameId,
-                Title = title,
-                Store = StoreKind.Gog,
-                Installed = false,
-                Owned = false,
-                CanInstall = false,
-                LaunchTarget = app,
-                Status = "Not installed",
-                Deps = Array.Empty<string>(),
-                LaunchNote = "",
-            };
+            if (string.Equals(game.Id, gameId, StringComparison.OrdinalIgnoreCase) &&
+                (game.Owned || game.CanInstall || game.Installed))
+                return game;
+            var variant = game.Variants.FirstOrDefault(item =>
+                string.Equals(item.Id, gameId, StringComparison.OrdinalIgnoreCase));
+            if (variant is not null && (variant.Owned || variant.CanInstall || variant.Installed))
+                return variant.ToGameEntry(game);
         }
         return null;
     }
@@ -747,11 +750,11 @@ public sealed class WebHostBridge
             appVersion = _services.AppVersion,
             closeStoreClientsAfterLaunch = true,
             autoInstallRedistributables = true,
-            minimizeWhilePlaying = s.MinimizeWhilePlaying,
+            minimizeWhilePlaying = true,
             antiCheatSafeMode = true,
             theme = "amoled",
             copyPortableIntoLibrary = false,
-            allowResize = false,
+            allowResize = true,
             checkForUpdates = true,
             sortMode = s.SortMode,
             defaultInstallRoot = s.DefaultInstallRoot,
@@ -854,10 +857,17 @@ public sealed class WebHostBridge
         if (game is null)
             return new { ok = false, message = "Game not found." };
 
-        // Persisted achievement state is a notification baseline, not current
-        // account authority. A shared PC may have switched Steam/Epic users
-        // since Exo last ran, so never expose an old account's count before a
-        // successful provider refresh for this detail view.
+        // Prefer last successful provider snapshot for immediate detail paint.
+        // Detail still calls achievements.refresh for a live account-scoped read;
+        // returning empty forever made the row flash "Unavailable" on every open
+        // when refresh was slow or flaky.
+        var latest = _services.Achievements.GetLatestSnapshot(game.Id);
+        if (latest is not null &&
+            latest.Coverage is AchievementCoverageStatus.Partial or AchievementCoverageStatus.Complete)
+        {
+            return MapAchievementSnapshot(latest, includeEntries: true);
+        }
+
         var coverage = _services.Achievements.GetCoverage(game);
         return new
         {
@@ -881,7 +891,36 @@ public sealed class WebHostBridge
         if (game is null)
             return new { ok = false, message = "Game not found." };
 
+        // Retry — Legendary/Steam cache often lands a beat late. Prefer any
+        // usable Partial/Complete over returning blank after a single miss.
         var snapshot = await _services.Achievements.RefreshAsync(game).ConfigureAwait(true);
+        if (snapshot.Coverage is not (AchievementCoverageStatus.Partial or AchievementCoverageStatus.Complete))
+        {
+            for (var attempt = 0; attempt < 2; attempt++)
+            {
+                try
+                {
+                    await Task.Delay(attempt == 0 ? 450 : 900).ConfigureAwait(true);
+                    var retry = await _services.Achievements.RefreshAsync(game).ConfigureAwait(true);
+                    if (retry.Coverage is AchievementCoverageStatus.Partial or AchievementCoverageStatus.Complete)
+                    {
+                        snapshot = retry;
+                        break;
+                    }
+                }
+                catch { /* keep best so far */ }
+            }
+        }
+
+        // If live refresh still failed, serve the last durable snapshot so the
+        // detail rail keeps numbers the user already earned.
+        if (snapshot.Coverage is not (AchievementCoverageStatus.Partial or AchievementCoverageStatus.Complete))
+        {
+            var latest = _services.Achievements.GetLatestSnapshot(game.Id);
+            if (latest is not null &&
+                latest.Coverage is AchievementCoverageStatus.Partial or AchievementCoverageStatus.Complete)
+                return MapAchievementSnapshot(latest, includeEntries: true);
+        }
         return MapAchievementSnapshot(snapshot, includeEntries: true);
     }
 
@@ -890,6 +929,23 @@ public sealed class WebHostBridge
         void Show() => _services.TrophyNotifications.Preview();
         if (!_queue.HasThreadAccess) _queue.TryEnqueue(Show); else Show();
         return new { ok = true };
+    }
+
+    public void NotifyWindowState(bool maximized) =>
+        PostEvent("shell.window", new { maximized });
+
+    private object ToggleMaximize()
+    {
+        var maximized = false;
+        try { maximized = App.MainAppWindow?.ToggleMaximize() ?? false; } catch { }
+        return new { ok = true, maximized };
+    }
+
+    private object WindowState()
+    {
+        var maximized = false;
+        try { maximized = App.MainAppWindow?.IsMaximized ?? false; } catch { }
+        return new { ok = true, maximized };
     }
 
     private object HideToNotificationArea()
@@ -956,6 +1012,8 @@ public sealed class WebHostBridge
         _lastSteamProtocolUtc = now;
 
         HiddenStoreRuntime.SuspendFor(StoreKind.Steam, TimeSpan.FromMinutes(30));
+        StoreClientCleanup.HideUnused(StoreKind.Steam);
+        _ = StoreClientCleanup.ExitUnusedAsync(StoreKind.Steam);
         ProcessHelper.StartProtocol(absoluteUri);
 
         // Main steam.exe window only — helpers stay off the taskbar.
@@ -1048,12 +1106,14 @@ public sealed class WebHostBridge
         StoreClientLaunchCommand? command,
         string missing)
     {
-        // Do not fight the user for a while after they asked to open the client.
-        HiddenStoreRuntime.SuspendFor(kind, TimeSpan.FromMinutes(30));
-
         if (command is null ||
             (!command.IsAppx && (string.IsNullOrWhiteSpace(command.FileName) || !File.Exists(command.FileName))))
             return new { ok = false, message = missing };
+
+        // Do not fight the user for a while after they asked to open the client.
+        HiddenStoreRuntime.SuspendFor(kind, TimeSpan.FromMinutes(30));
+        StoreClientCleanup.HideUnused(kind);
+        _ = StoreClientCleanup.ExitUnusedAsync(kind);
 
         // Cold Epic/Riot clients can spend several seconds starting helpers.
         // Queue all shell work so the Settings bridge responds immediately.
@@ -1073,6 +1133,8 @@ public sealed class WebHostBridge
                     UseShellExecute = true,
                     WorkingDirectory = command.IsAppx ? "" : Path.GetDirectoryName(command.FileName) ?? "",
                 });
+                if (kind == StoreKind.Steam)
+                    ProcessHelper.StartProtocol(SteamProtocol.OpenMainUri());
 
                 var deadline = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(15);
                 var delayMs = 120;
@@ -1315,7 +1377,12 @@ public sealed class WebHostBridge
         var unlocked = snapshot.ReportedUnlocked ?? snapshot.Entries.Count(entry => entry.State.Unlocked);
         var total = snapshot.ReportedTotal ?? snapshot.Entries.Count;
         var complete = snapshot.Coverage is AchievementCoverageStatus.Partial or AchievementCoverageStatus.Complete;
-        var summary = complete
+        // Complete 0/0 is a confirmed empty catalog (UI shows None). Partial 0/0
+        // is not progress and must not paint a summary.
+        var hasProgress = unlocked > 0 || total > 0 || snapshot.Entries.Count > 0;
+        var confirmedEmpty = snapshot.Coverage == AchievementCoverageStatus.Complete &&
+                             unlocked == 0 && total == 0 && snapshot.Entries.Count == 0;
+        var summary = (complete && hasProgress) || confirmedEmpty
             ? new
             {
                 unlocked,

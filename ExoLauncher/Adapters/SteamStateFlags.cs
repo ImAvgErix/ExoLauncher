@@ -37,13 +37,49 @@ internal static class SteamStateFlags
     public static bool IsFullyInstalled(string? raw) =>
         TryParse(raw, out var f) && (f & FullyInstalled) != 0;
 
-    /// <summary>Installed title needs an update (UpdateRequired / missing / corrupt bits only).</summary>
-    public static bool IsUpdateAvailable(string? raw, bool installed)
+    /// <summary>
+    /// A leftover <c>common</c> folder is not enough. Steam's Downloads row is
+    /// the source of truth: FullyInstalled and not Uninstalled.
+    /// Missing flags keep the previous path-exists behavior.
+    /// </summary>
+    public static bool IsInstalledPresence(bool pathExists, string? flags)
     {
-        if (!installed || !TryParse(raw, out var f)) return false;
-        if ((f & UpdateRequired) != 0) return true;
-        if ((f & FilesMissing) != 0 || (f & FilesCorrupt) != 0) return true;
+        if (!pathExists) return false;
+        if (!TryParse(flags, out var f) || f == 0) return true;
+        return (f & FullyInstalled) != 0 && (f & Uninstalled) == 0;
+    }
+
+    /// <summary>Installed title needs an update (UpdateRequired / missing / corrupt bits, or pending byte delta).</summary>
+    public static bool IsUpdateAvailable(string? raw, bool installed) =>
+        IsUpdateAvailable(raw, installed, null, null);
+
+    public static bool IsUpdateAvailable(string? raw, bool installed, long? bytesToDownload, long? bytesDownloaded)
+    {
+        if (!installed) return false;
+        if (TryParse(raw, out var f))
+        {
+            if ((f & UpdateRequired) != 0) return true;
+            if ((f & FilesMissing) != 0 || (f & FilesCorrupt) != 0) return true;
+        }
+        // Steam often queues a patch with StateFlags=4 while BytesToDownload still
+        // exceeds BytesDownloaded. Equal leftover counters after a finished patch
+        // must not keep the card on Update.
+        if (bytesToDownload is > 0 && (bytesDownloaded is null || bytesDownloaded.Value < bytesToDownload.Value))
+            return true;
         return false;
+    }
+
+    /// <summary>
+    /// Steam often leaves StateFlags=4 while <c>buildid</c> and <c>TargetBuildID</c>
+    /// disagree. A non-zero target that does not match the installed build is a pending patch.
+    /// </summary>
+    public static bool HasPendingTargetBuild(string? buildId, string? targetBuildId)
+    {
+        if (string.IsNullOrWhiteSpace(targetBuildId)) return false;
+        var target = targetBuildId.Trim();
+        if (target == "0") return false;
+        if (string.IsNullOrWhiteSpace(buildId)) return true;
+        return !string.Equals(buildId.Trim(), target, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -65,4 +101,22 @@ internal static class SteamStateFlags
         IsFullyInstalled(raw) &&
         !IsBusy(raw, null, null) &&
         !IsUpdateAvailable(raw, installed: true);
+
+    /// <summary>
+    /// Queued patch with no bytes moved. Steam's Downloads row still needs a
+    /// start click. <see cref="IsBusy"/> after <c>steam://install</c> is not
+    /// enough — that URI often sets UpdateStarted before any bytes flow.
+    /// </summary>
+    public static bool IsQueuedForTargetedPromotion(
+        string? raw,
+        long? bytesToDownload,
+        long? bytesDownloaded,
+        string? buildId,
+        string? targetBuildId)
+    {
+        return bytesToDownload is > 0 &&
+               bytesDownloaded is null or 0 &&
+               (IsUpdateAvailable(raw, installed: true, bytesToDownload, bytesDownloaded) ||
+                HasPendingTargetBuild(buildId, targetBuildId));
+    }
 }

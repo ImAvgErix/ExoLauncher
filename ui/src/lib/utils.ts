@@ -6,6 +6,12 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
+/** 0% from job start is not a reading. Paint indeterminate until bytes move. */
+export function visibleInstallPercent(percent: number | null | undefined): number | null {
+  if (percent == null || Number.isNaN(percent) || percent <= 0) return null
+  return Math.min(100, percent)
+}
+
 /**
  * Search normalization deliberately treats punctuation, spacing, and accents as
  * cosmetic. Keep this aligned with StoreSearchService so an installed result
@@ -26,6 +32,11 @@ export function normalizeSearchText(value: string): string {
     }
   }
   return output.trim()
+}
+
+/** Same-game fold across stores. Keep aligned with StoreSearchService.TitleIdentity. */
+export function titleIdentity(value: string): string {
+  return normalizeSearchText(value).replace(/ /g, '')
 }
 
 function searchTokens(value: string): string[] {
@@ -150,25 +161,38 @@ export function smartSearchScore(title: string, query: string): number {
   return score
 }
 
+export function formatPlaytimeShort(minutes: number | null | undefined): string {
+  if (minutes == null || minutes <= 0) return ''
+  if (minutes < 60) return `${minutes}m`
+  const h = Math.floor(minutes / 60)
+  const m = minutes % 60
+  return m > 0 ? `${h}h ${m}m` : `${h}h`
+}
+
+export function formatRelativeLastPlayed(iso?: string | null): string {
+  if (!iso) return '—'
+  const t = Date.parse(iso)
+  if (Number.isNaN(t)) return '—'
+  const diff = Date.now() - t
+  const mins = Math.round(diff / 60000)
+  if (mins < 1) return 'now'
+  if (mins < 60) return `${mins}m ago`
+  const hours = Math.round(mins / 60)
+  if (hours < 24) return `${hours}h ago`
+  const days = Math.round(hours / 24)
+  if (days < 14) return `${days}d ago`
+  return new Date(t).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+}
+
 export function formatPlaytime(
   minutes: number | null | undefined,
-  lastPlayedUtc?: string | null,
+  _lastPlayedUtc?: string | null,
 ): string {
   if (minutes != null && minutes > 0) {
     if (minutes < 60) return `${minutes}m`
     const h = Math.floor(minutes / 60)
     const m = minutes % 60
     return m > 0 ? `${h}h ${m}m` : `${h}h`
-  }
-  // Riot/Epic often have last-played without lifetime minutes.
-  if (lastPlayedUtc) {
-    const t = Date.parse(lastPlayedUtc)
-    if (!Number.isNaN(t)) {
-      return `Last played ${new Date(t).toLocaleDateString(undefined, {
-        month: 'short',
-        day: 'numeric',
-      })}`
-    }
   }
   return '—'
 }
@@ -249,6 +273,11 @@ export function sortGames(games: Game[], mode: SortMode | string, recent: string
       })
       break
     }
+    case 'played':
+      ordered = [...rest].sort(
+        (a, b) => (b.playtimeMinutes ?? 0) - (a.playtimeMinutes ?? 0) || cmpTitle(a, b),
+      )
+      break
     case 'size':
       ordered = [...rest].sort((a, b) => (b.sizeBytes ?? 0) - (a.sizeBytes ?? 0) || cmpTitle(a, b))
       break

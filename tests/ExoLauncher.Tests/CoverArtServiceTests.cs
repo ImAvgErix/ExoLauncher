@@ -46,9 +46,10 @@ public class CoverArtServiceTests : IDisposable
     [Fact]
     public void ColdStartCoverWarm_UsesShortIdleDeferralAndBoundedConcurrency()
     {
-        Assert.Equal(TimeSpan.FromMilliseconds(750), CoverArtService.FirstPaintCoverWarmDelay);
-        Assert.Equal(4, CoverArtService.BackgroundWarmConcurrency);
-        Assert.Equal(12, CoverArtService.RequestedWarmConcurrency);
+        // Prefer filling covers quickly over long first-paint idle deferral.
+        Assert.Equal(TimeSpan.FromMilliseconds(50), CoverArtService.FirstPaintCoverWarmDelay);
+        Assert.Equal(8, CoverArtService.BackgroundWarmConcurrency);
+        Assert.Equal(16, CoverArtService.RequestedWarmConcurrency);
     }
 
     [Fact]
@@ -224,9 +225,14 @@ public class CoverArtServiceTests : IDisposable
         Assert.True(CoverArtService.IsUiLoadableCoverUrl($"{CoverArtService.VirtualHostOrigin}/730.jpg"));
         Assert.True(CoverArtService.IsUiLoadableCoverUrl(
             "https://cdn.cloudflare.steamstatic.com/steam/apps/730/library_600x900_2x.jpg"));
+        Assert.True(CoverArtService.IsUiLoadableCoverUrl(
+            "https://cdn1.epicgames.com/offer/fn/portrait.jpg"));
+        Assert.True(CoverArtService.IsUiLoadableCoverUrl(
+            "https://images.gog-statics.com/abc_product_tile_2560x1440.jpg"));
         Assert.False(CoverArtService.IsUiLoadableCoverUrl(
             "https://cdn.cloudflare.steamstatic.com/steam/apps/730/library_hero.jpg"));
-        Assert.False(CoverArtService.IsUiLoadableCoverUrl("https://evil.example/x.jpg"));
+        Assert.False(CoverArtService.IsUiLoadableCoverUrl("https://evil.example/gog-statics.com/x.jpg"));
+        Assert.False(CoverArtService.IsAllowlistedCdnCover("https://evil.example/gog-statics.com/x.jpg"));
         Assert.False(CoverArtService.IsUiLoadableCoverUrl($"{CoverArtService.VirtualHostOrigin}/../secret"));
         Assert.False(CoverArtService.IsUiLoadableCoverUrl(null));
 
@@ -398,5 +404,107 @@ public class CoverArtServiceTests : IDisposable
             "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/2001760/f257ca2dc23c5590ade297fca68f3cab2e4edb4e/library_capsule.jpg?t=1785818525",
             urls);
         Assert.All(urls, u => Assert.DoesNotContain("library_hero", u, StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void ShouldWarmLibraryCover_IncludesOwnedAndEveryStore_SkipsJunk()
+    {
+        Assert.True(CoverArtService.ShouldWarmLibraryCover(new GameEntry
+        {
+            Id = "xbox:halo",
+            Title = "Halo Infinite",
+            Store = StoreKind.Xbox,
+            Installed = true,
+        }));
+        Assert.True(CoverArtService.ShouldWarmLibraryCover(new GameEntry
+        {
+            Id = "gog:1",
+            Title = "Stardew Valley",
+            Store = StoreKind.Gog,
+            Installed = false,
+            Owned = true,
+            CanInstall = true,
+        }));
+        Assert.True(CoverArtService.ShouldWarmLibraryCover(new GameEntry
+        {
+            Id = "ea:bf",
+            Title = "Battlefield 1",
+            Store = StoreKind.Ea,
+            Installed = true,
+        }));
+        Assert.True(CoverArtService.ShouldWarmLibraryCover(new GameEntry
+        {
+            Id = "ubisoft:ac",
+            Title = "Assassin's Creed Valhalla",
+            Store = StoreKind.Ubisoft,
+            Installed = true,
+        }));
+        Assert.False(CoverArtService.ShouldWarmLibraryCover(new GameEntry
+        {
+            Id = "local:add",
+            Title = "Add portable game",
+            Store = StoreKind.Local,
+            Owned = true,
+            CanInstall = true,
+        }));
+        Assert.False(CoverArtService.ShouldWarmLibraryCover(new GameEntry
+        {
+            Id = "epic:plug",
+            Title = "Cool Lighting Plugin",
+            Store = StoreKind.Epic,
+            Owned = true,
+        }));
+    }
+
+    [Fact]
+    public void GogCoverCandidateUrls_PrefersAdapterCover_OverInventedIdTile()
+    {
+        var game = new GameEntry
+        {
+            Id = "gog:1207658787",
+            Title = "The Witcher 3",
+            Store = StoreKind.Gog,
+            CoverUrl = "https://images.gog-statics.com/abc123_glx_vertical_cover.webp",
+        };
+
+        var urls = CoverArtService.GogCoverCandidateUrls(game);
+
+        Assert.Equal(game.CoverUrl, urls[0]);
+        Assert.DoesNotContain(
+            urls,
+            u => u.Contains("1207658787_product_tile", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void ParseGogV2CoverUrls_ExpandsFormatterIntoVerticalCover()
+    {
+        const string json =
+            """{"_links":{"boxArtImage":{"href":"https://images.gog-statics.com/deadbeef{formatter}.jpg"}}}""";
+
+        var urls = CoverArtService.ParseGogV2CoverUrls(json);
+
+        Assert.Contains(
+            "https://images.gog-statics.com/deadbeef_glx_vertical_cover.jpg",
+            urls);
+        Assert.DoesNotContain(urls, u => u.Contains("{formatter}", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void ScoreTitleMatch_CompactXboxFolderEqualsSpacedSteamName()
+    {
+        Assert.True(CoverArtService.ScoreTitleMatch("haloinfinite", "halo infinite") >= 90);
+        Assert.True(CoverArtService.ScoreTitleMatch("forzahorizon5", "forza horizon 5") >= 90);
+    }
+
+    [Fact]
+    public void IsCoverImageBytes_AcceptsJpegPngAndWebp()
+    {
+        Assert.True(CoverArtService.IsCoverImageBytes([0xFF, 0xD8, 0xFF]));
+        Assert.True(CoverArtService.IsCoverImageBytes([0x89, 0x50, 0x4E, 0x47]));
+        var webp = new byte[12];
+        webp[0] = (byte)'R';
+        webp[8] = (byte)'W';
+        Assert.True(CoverArtService.IsCoverImageBytes(webp));
+        Assert.False(CoverArtService.IsCoverImageBytes([(byte)'<', (byte)'h']));
     }
 }

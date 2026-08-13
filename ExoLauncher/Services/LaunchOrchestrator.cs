@@ -29,10 +29,11 @@ public sealed class LaunchOrchestrator
         new(StringComparer.OrdinalIgnoreCase);
     private InstallProgress _lastProgress = new();
 
-    private sealed class JobState(CancellationTokenSource cts, string gameId)
+    private sealed class JobState(CancellationTokenSource cts, string gameId, bool publishProgress)
     {
         public CancellationTokenSource Cts { get; } = cts;
         public string GameId { get; } = gameId;
+        public bool PublishProgress { get; } = publishProgress;
         public bool CancelRequested { get; set; }
     }
 
@@ -326,6 +327,15 @@ public sealed class LaunchOrchestrator
             // Brief settle so protocol handoff can complete before we hide store chrome.
             await Task.Delay(2500, session.StopCts.Token).ConfigureAwait(false);
 
+            // Re-bind Stop to the real game process. Steam/Epic often return a
+            // bootstrap PID (or nothing) that ObserveLaunch correctly rejects —
+            // without this re-scan canStop never lights and Stop always fails.
+            // Keep rebinding for the whole session: late handoffs (EAC → game)
+            // used to leave Stop stuck on a dead bootstrap identity.
+            var ignoredForBind = BootstrapProcessNames(game.Store);
+            using var rebindCts = CancellationTokenSource.CreateLinkedTokenSource(session.StopCts.Token);
+            var rebindTask = RebindStopTargetLoopAsync(game, ignoredForBind, rebindCts.Token);
+
             // Steam playtime comes from localconfig.vdf; Epic/Riot/Local rely on
             // Exo session minutes. Never cancel just because a bootstrap PID died —
             // keep watching install path / known process names through handoff.
@@ -342,26 +352,34 @@ public sealed class LaunchOrchestrator
             var hasTrackableSession = processId is > 0 ||
                                       !string.IsNullOrWhiteSpace(game.Path) ||
                                       processNames is { Length: > 0 };
-            if (hasTrackableSession)
-                credited = await ProcessHelper.TrackGameSessionAsync(
-                    processId,
-                    game.Path,
-                    processNames,
-                    ignored,
-                    // League opens a persistent lobby before a match. Keep
-                    // waiting while that handoff is alive instead of
-                    // dropping playtime and Quiet Game Mode after 90s. A
-                    // cold launch still has to produce that handoff soon,
-                    // otherwise the user must be able to retry.
-                    appearTimeout: isLeagueHandoff ? TimeSpan.FromHours(4) : TimeSpan.FromSeconds(90),
-                    goneDebounce: TimeSpan.FromSeconds(12),
-                    handoffProcessNames: handoffNames,
-                    handoffAppearTimeout: isLeagueHandoff ? TimeSpan.FromSeconds(90) : null,
-                    observedSeedGoneGrace: game.Store is StoreKind.Gog or StoreKind.Local
-                        ? TimeSpan.FromSeconds(12)
-                        : null,
-                    ct: session.StopCts.Token)
-                    .ConfigureAwait(false);
+            try
+            {
+                if (hasTrackableSession)
+                    credited = await ProcessHelper.TrackGameSessionAsync(
+                        processId,
+                        game.Path,
+                        processNames,
+                        ignored,
+                        // League opens a persistent lobby before a match. Keep
+                        // waiting while that handoff is alive instead of
+                        // dropping playtime and Quiet Game Mode after 90s. A
+                        // cold launch still has to produce that handoff soon,
+                        // otherwise the user must be able to retry.
+                        appearTimeout: isLeagueHandoff ? TimeSpan.FromHours(4) : TimeSpan.FromSeconds(90),
+                        goneDebounce: TimeSpan.FromSeconds(12),
+                        handoffProcessNames: handoffNames,
+                        handoffAppearTimeout: isLeagueHandoff ? TimeSpan.FromSeconds(90) : null,
+                        observedSeedGoneGrace: game.Store is StoreKind.Gog or StoreKind.Local
+                            ? TimeSpan.FromSeconds(12)
+                            : null,
+                        ct: session.StopCts.Token)
+                        .ConfigureAwait(false);
+            }
+            finally
+            {
+                try { rebindCts.Cancel(); } catch { /* */ }
+                try { await rebindTask.ConfigureAwait(false); } catch { /* best-effort */ }
+            }
             session.StopCts.Token.ThrowIfCancellationRequested();
         }
         catch (OperationCanceledException) when (session.IsStopRequested)
@@ -431,6 +449,53 @@ public sealed class LaunchOrchestrator
         catch (Exception ex)
         {
             AppLog.Debug($"Achievement session finalization failed after stop for '{gameId}': {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Continuously re-attach Stop to the live install-root process for this
+    /// title. One-shot rebind after handoff misses EAC/bootstrap chains that
+    /// only spawn the real game many seconds later.
+    /// </summary>
+    private async Task RebindStopTargetLoopAsync(
+        GameEntry game,
+        IEnumerable<string> ignoredNames,
+        CancellationToken cancellationToken)
+    {
+        // First pass is aggressive so canStop lights quickly after launch.
+        var first = true;
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            try
+            {
+                var boundPid = await ProcessHelper.WaitForProcessUnderPathAsync(
+                        game.Path,
+                        first ? TimeSpan.FromSeconds(12) : TimeSpan.FromSeconds(2),
+                        cancellationToken,
+                        ignoredNames: ignoredNames,
+                        confirmationDelay: first ? TimeSpan.FromMilliseconds(150) : TimeSpan.Zero)
+                    .ConfigureAwait(false);
+                if (boundPid is int livePid && livePid > 0)
+                    _runningGames.ObserveLaunch(game, livePid);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                return;
+            }
+            catch (Exception ex)
+            {
+                AppLog.Debug($"Stop-target rebind failed for '{game.Title}': {ex.Message}");
+            }
+
+            first = false;
+            try
+            {
+                await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                return;
+            }
         }
     }
 
@@ -552,7 +617,8 @@ public sealed class LaunchOrchestrator
         RunJobAsync(
             game,
             (adapter, _, ct) => adapter.UninstallAsync(game, ct),
-            outer);
+            outer,
+            publishProgress: false);
 
     public object Cancel()
     {
@@ -629,7 +695,8 @@ public sealed class LaunchOrchestrator
     private async Task<InstallResult> RunJobAsync(
         GameEntry game,
         Func<IStoreAdapter, IProgress<InstallProgress>, CancellationToken, Task<InstallResult>> work,
-        CancellationToken outer)
+        CancellationToken outer,
+        bool publishProgress = true)
     {
         var adapter = Find(game.Store);
         if (adapter is null)
@@ -660,16 +727,22 @@ public sealed class LaunchOrchestrator
             if (_activeJob is not null)
                 return new InstallResult { Ok = false, Message = "Another install, update, or uninstall is already running." };
 
-            job = new JobState(CancellationTokenSource.CreateLinkedTokenSource(outer), game.Id);
+            job = new JobState(
+                CancellationTokenSource.CreateLinkedTokenSource(outer),
+                game.Id,
+                publishProgress);
             _activeJob = job;
-            PublishProgressLocked(new InstallProgress
+            if (job.PublishProgress)
             {
-                GameId = game.Id,
-                Phase = InstallPhase.Preparing,
-                Percent = 0,
-                Status = "Starting…",
-                CanCancel = true,
-            });
+                PublishProgressLocked(new InstallProgress
+                {
+                    GameId = game.Id,
+                    Phase = InstallPhase.Preparing,
+                    Percent = null,
+                    Status = "Starting…",
+                    CanCancel = true,
+                });
+            }
         }
 
         var progress = new Progress<InstallProgress>(p =>
@@ -679,7 +752,7 @@ public sealed class LaunchOrchestrator
                 // Progress<T> delivers on the thread pool, so a sample reported
                 // just before the job ended can arrive after the terminal phase
                 // was published. Only the job that still owns the token may write.
-                if (!ReferenceEquals(_activeJob, job))
+                if (!ReferenceEquals(_activeJob, job) || !job.PublishProgress)
                     return;
                 // Some vendor clients ignore cancellation and emit one more active
                 // progress sample. Never let that resurrect a cancelled Exo job.
@@ -694,6 +767,7 @@ public sealed class LaunchOrchestrator
             // Install/update/uninstall are vendor-client operations too. Keep
             // their client windows and audio scoped to the actual backend work.
             using var driving = HiddenStoreRuntime.Operation();
+            _ = CloseUnusedStoreClientsAsync(game.Store);
             var result = await work(adapter, progress, job.Cts.Token).ConfigureAwait(false);
             lock (_gate)
             {
@@ -717,17 +791,20 @@ public sealed class LaunchOrchestrator
 
                 if (cancelled)
                 {
-                    PublishProgressLocked(new InstallProgress
+                    if (job.PublishProgress)
                     {
-                        GameId = game.Id,
-                        Phase = InstallPhase.Cancelled,
-                        Percent = _lastProgress.Percent,
-                        Status = result.Message,
-                        CanCancel = false,
-                    });
+                        PublishProgressLocked(new InstallProgress
+                        {
+                            GameId = game.Id,
+                            Phase = InstallPhase.Cancelled,
+                            Percent = _lastProgress.Percent,
+                            Status = result.Message,
+                            CanCancel = false,
+                        });
+                    }
                 }
                 // Finalize when the job ended but adapters left progress stuck in an active phase.
-                else if (_lastProgress.IsActive)
+                else if (job.PublishProgress && _lastProgress.IsActive)
                 {
                     PublishProgressLocked(new InstallProgress
                     {
@@ -755,7 +832,8 @@ public sealed class LaunchOrchestrator
             {
                 if (ReferenceEquals(_activeJob, job))
                 {
-                    PublishProgressLocked(p);
+                    if (job.PublishProgress)
+                        PublishProgressLocked(p);
                     _activeJob = null;
                 }
             }
@@ -775,14 +853,17 @@ public sealed class LaunchOrchestrator
 
                 if (ReferenceEquals(_activeJob, job))
                 {
-                    PublishProgressLocked(new InstallProgress
+                    if (job.PublishProgress)
                     {
-                        GameId = game.Id,
-                        Phase = cancelled ? InstallPhase.Cancelled : InstallPhase.Failed,
-                        Percent = _lastProgress.Percent,
-                        Status = result.Message,
-                        CanCancel = false,
-                    });
+                        PublishProgressLocked(new InstallProgress
+                        {
+                            GameId = game.Id,
+                            Phase = cancelled ? InstallPhase.Cancelled : InstallPhase.Failed,
+                            Percent = _lastProgress.Percent,
+                            Status = result.Message,
+                            CanCancel = false,
+                        });
+                    }
                     _activeJob = null;
                 }
             }

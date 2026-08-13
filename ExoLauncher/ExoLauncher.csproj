@@ -13,11 +13,9 @@
     <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">win-x64</RuntimeIdentifier>
 
     <UseWinUI>true</UseWinUI>
-    <UseSystemDrawing>true</UseSystemDrawing>
     <EnableMsixTooling>true</EnableMsixTooling>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <LangVersion>latest</LangVersion>
     <WindowsPackageType>None</WindowsPackageType>
     <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
     <PublishSelfContained>true</PublishSelfContained>
@@ -35,7 +33,6 @@
     <PackageReference Include="Microsoft.WindowsAppSDK.Foundation" Version="2.3.5" />
     <PackageReference Include="Microsoft.WindowsAppSDK.InteractiveExperiences" Version="2.1.3" />
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.28000.2270" />
-    <PackageReference Include="System.Drawing.Common" Version="10.0.0" />
     <Manifest Include="$(ApplicationManifest)" />
   </ItemGroup>
 
@@ -56,9 +53,7 @@
   </ItemGroup>
 
   <Target Name="BuildWebUi" Condition="Exists('$(MSBuildThisFileDirectory)..\ui\package.json')">
-    <Error
-      Condition="!Exists('$(MSBuildThisFileDirectory)..\ui\node_modules')"
-      Text="ui/node_modules is missing. Run: cd ui &amp;&amp; npm ci. Refusing to package stale generated web assets." />
+    <Error Condition="!Exists('$(MSBuildThisFileDirectory)..\ui\node_modules')" Text="ui/node_modules is missing. Run: cd ui &amp;&amp; npm ci. Refusing to package stale generated web assets." />
     <Exec Command="npm run build" WorkingDirectory="$(MSBuildThisFileDirectory)..\ui" IgnoreExitCode="false" />
   </Target>
 
@@ -68,9 +63,7 @@
     and the copy step fails with MSB3030. Collect it after the UI build instead.
   -->
   <Target Name="CollectWebUi" BeforeTargets="AssignTargetPaths" DependsOnTargets="BuildWebUi">
-    <Error
-      Condition="!Exists('$(MSBuildThisFileDirectory)wwwroot\index.html')"
-      Text="ExoLauncher/wwwroot/index.html missing. Run: cd ui &amp;&amp; npm ci &amp;&amp; npm run build" />
+    <Error Condition="!Exists('$(MSBuildThisFileDirectory)wwwroot\index.html')" Text="ExoLauncher/wwwroot/index.html missing. Run: cd ui &amp;&amp; npm ci &amp;&amp; npm run build" />
     <ItemGroup>
       <Content Include="wwwroot\**\*">
         <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
@@ -81,4 +74,44 @@
   <ItemGroup Condition="'$(DisableMsixProjectCapabilityAddedByProject)'!='true' and '$(EnableMsixTooling)'=='true'">
     <ProjectCapability Include="Msix" />
   </ItemGroup>
+
+  <Target Name="BuildSteamIpc" AfterTargets="Build" Condition="'$(DesignTimeBuild)' != 'true'">
+    <PropertyGroup>
+      <_SteamIpcPub>$(MSBuildThisFileDirectory)..\ExoLauncher.SteamIpc\bin\x64\$(Configuration)\net10.0-windows10.0.26100.0\win-x64\publish\</_SteamIpcPub>
+      <_SteamIpcOut>$(OutDir)steam-ipc\</_SteamIpcOut>
+    </PropertyGroup>
+    <MSBuild
+      Projects="$(MSBuildThisFileDirectory)..\ExoLauncher.SteamIpc\ExoLauncher.SteamIpc.csproj"
+      Targets="Publish"
+      Properties="Configuration=$(Configuration);Platform=x64;RuntimeIdentifier=win-x64;SelfContained=true;PublishDir=$(_SteamIpcPub)" />
+    <MakeDir Directories="$(_SteamIpcOut)" />
+    <ItemGroup>
+      <_SteamIpcPubFiles Include="$(_SteamIpcPub)**\*.*" />
+    </ItemGroup>
+    <Copy
+      SourceFiles="@(_SteamIpcPubFiles)"
+      DestinationFolder="$(_SteamIpcOut)%(RecursiveDir)"
+      SkipUnchangedFiles="true"
+      Condition="'@(_SteamIpcPubFiles)' != ''" />
+  </Target>
+
+  <Target Name="PublishSteamIpc" AfterTargets="Publish" Condition="'$(DesignTimeBuild)' != 'true'">
+    <PropertyGroup>
+      <_SteamIpcPub>$(MSBuildThisFileDirectory)..\ExoLauncher.SteamIpc\bin\x64\$(Configuration)\net10.0-windows10.0.26100.0\win-x64\publish\</_SteamIpcPub>
+      <_ExoPubSteam>$([System.IO.Path]::GetFullPath('$(PublishDir)'))steam-ipc\</_ExoPubSteam>
+    </PropertyGroup>
+    <MSBuild
+      Projects="$(MSBuildThisFileDirectory)..\ExoLauncher.SteamIpc\ExoLauncher.SteamIpc.csproj"
+      Targets="Publish"
+      Properties="Configuration=$(Configuration);Platform=x64;RuntimeIdentifier=win-x64;SelfContained=true;PublishDir=$(_SteamIpcPub)" />
+    <MakeDir Directories="$(_ExoPubSteam)" />
+    <ItemGroup>
+      <_SteamIpcPubFiles Include="$(_SteamIpcPub)**\*.*" />
+    </ItemGroup>
+    <Copy
+      SourceFiles="@(_SteamIpcPubFiles)"
+      DestinationFolder="$(_ExoPubSteam)%(RecursiveDir)"
+      SkipUnchangedFiles="true"
+      Condition="'@(_SteamIpcPubFiles)' != ''" />
+  </Target>
 </Project>

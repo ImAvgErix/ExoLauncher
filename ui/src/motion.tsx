@@ -1,14 +1,11 @@
 /**
- * Exo OS baseline motion — short, compositor-friendly, no scale blur.
+ * Exo motion — short compositor tweens. No shared layoutId: that projection
+ * stole clicks when opening and closing a game.
  */
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
-import type { ReactNode } from 'react'
-import { cn } from './lib/utils'
+import { useEffect, useRef, type ReactNode } from 'react'
 
-/** Match CSS --ease-out */
 const ease = [0.23, 1, 0.32, 1] as const
-const easeDrawer = [0.32, 0.72, 0, 1] as const
-const cardSpring = { type: 'spring' as const, stiffness: 470, damping: 30, mass: 0.8 }
 
 export function FadeIn({
   children,
@@ -26,142 +23,106 @@ export function FadeIn({
       className={className}
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.34, ease, delay }}
-      style={{ willChange: 'transform, opacity' }}
+      transition={{ duration: 0.28, ease, delay }}
     >
       {children}
     </motion.div>
   )
 }
 
-export function DetailRail({
-  open,
-  children,
-}: {
-  open: boolean
-  children: ReactNode
-}) {
-  const reduce = useReducedMotion()
-  // Soft rail — gradient seam + rounded cover (see DetailPanel / .exo-detail-rail).
-  if (reduce) {
-    return open ? (
-      <div className="exo-detail-rail flex h-full w-full shrink-0 flex-col md:w-[292px]">
-        {children}
-      </div>
-    ) : null
-  }
-  return (
-    <AnimatePresence mode="wait" initial={false}>
-      {open && (
-        <motion.div
-          key="detail"
-          className="exo-detail-rail flex h-full w-full shrink-0 flex-col md:w-[292px]"
-          initial={{ opacity: 0, x: 20, scale: 0.98 }}
-          animate={{ opacity: 1, x: 0, scale: 1 }}
-          exit={{ opacity: 0, x: 12, scale: 0.98 }}
-          transition={{ duration: 0.34, ease: easeDrawer }}
-          style={{ willChange: 'transform, opacity' }}
-        >
-          {children}
-        </motion.div>
-      )}
-    </AnimatePresence>
-  )
-}
-
 export function GridItem({
   children,
-  index,
   className,
 }: {
   children: ReactNode
   index: number
   className?: string
 }) {
+  return <div className={className}>{children}</div>
+}
+
+export function BannerIn({
+  children,
+  className,
+  role,
+}: {
+  children: ReactNode
+  className?: string
+  role?: string
+}) {
   const reduce = useReducedMotion()
-  if (reduce) return <div className={className}>{children}</div>
+  if (reduce) return <div className={className} role={role}>{children}</div>
   return (
     <motion.div
-      className={cn(className)}
-      initial={{ opacity: 0, y: 10 }}
+      className={className}
+      role={role}
+      initial={{ opacity: 0, y: -6 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{
-        duration: 0.32,
-        ease,
-        delay: Math.min(index * 0.018, 0.16),
-      }}
-      style={{ willChange: 'transform, opacity' }}
+      exit={{ opacity: 0, y: -4 }}
+      transition={{ duration: 0.22, ease }}
     >
       {children}
     </motion.div>
   )
 }
 
-export function SoftPress({
+export function GameOverlay({
+  open,
+  label,
   children,
-  className,
+  scrim,
+  onExitComplete,
 }: {
+  open: boolean
+  label: string
   children: ReactNode
-  className?: string
+  scrim: ReactNode
+  onExitComplete?: () => void
 }) {
   const reduce = useReducedMotion()
-  if (reduce) return <div className={className}>{children}</div>
+  const ref = useRef<HTMLDivElement>(null)
+  const wasOpen = useRef(open)
+  useEffect(() => {
+    if (open) ref.current?.focus({ preventScroll: true })
+  }, [open])
+  useEffect(() => {
+    if (wasOpen.current && !open && reduce) onExitComplete?.()
+    wasOpen.current = open
+  }, [open, reduce, onExitComplete])
+  if (reduce) {
+    return open ? (
+      <div
+        ref={ref}
+        className="exo-game-overlay"
+        role="dialog"
+        aria-modal="true"
+        aria-label={label}
+        tabIndex={-1}
+      >
+        {scrim}
+        {children}
+      </div>
+    ) : null
+  }
   return (
-    <motion.div
-      className={className}
-      whileHover={{ y: -2 }}
-      whileTap={{ scale: 0.97 }}
-      transition={{ duration: 0.18, ease }}
-    >
-      {children}
-    </motion.div>
-  )
-}
-
-/**
- * Card wrapper — one clean lift for the entire card.
- * No shared layoutId: pin moves md↔lg and layout morph flashed covers.
- */
-export function CardMotion({
-  children,
-  className,
-}: {
-  id?: string
-  children: ReactNode
-  className?: string
-}) {
-  const reduce = useReducedMotion()
-  if (reduce) return <div className={className}>{children}</div>
-  return (
-    <motion.div
-      className={className}
-      whileHover={{ y: -5 }}
-      whileTap={{ y: -1 }}
-      transition={cardSpring}
-      style={{ willChange: 'transform' }}
-    >
-      {children}
-    </motion.div>
-  )
-}
-
-/** Pin / CTA micro-interaction */
-export function TapScale({
-  children,
-  className,
-}: {
-  children: ReactNode
-  className?: string
-}) {
-  const reduce = useReducedMotion()
-  if (reduce) return <div className={className}>{children}</div>
-  return (
-    <motion.div
-      className={className}
-      whileTap={{ scale: 0.9 }}
-      transition={{ duration: 0.14, ease }}
-    >
-      {children}
-    </motion.div>
+    <AnimatePresence onExitComplete={onExitComplete}>
+      {open && (
+        <motion.div
+          ref={ref}
+          className="exo-game-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-label={label}
+          tabIndex={-1}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0, pointerEvents: 'none' }}
+          transition={{ duration: 0.16, ease }}
+        >
+          {scrim}
+          {children}
+        </motion.div>
+      )}
+    </AnimatePresence>
   )
 }

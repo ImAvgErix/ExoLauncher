@@ -22,6 +22,7 @@
     <Compile Include="..\..\ExoLauncher\Models\AchievementModels.cs" Link="Models\AchievementModels.cs" />
     <Compile Include="..\..\ExoLauncher\Adapters\IStoreAdapter.cs" Link="Adapters\IStoreAdapter.cs" />
     <Compile Include="..\..\ExoLauncher\Adapters\AgentPresentAdapters.cs" Link="Adapters\AgentPresentAdapters.cs" />
+    <Compile Include="..\..\ExoLauncher\Adapters\OfficialInstalledLibraries.cs" Link="Adapters\OfficialInstalledLibraries.cs" />
     <Compile Include="..\..\ExoLauncher\Adapters\ProcessHelper.cs" Link="Adapters\ProcessHelper.cs" />
     <Compile Include="..\..\ExoLauncher\Adapters\StoreClientCleanup.cs" Link="Adapters\StoreClientCleanup.cs" />
     <Compile Include="..\..\ExoLauncher\Adapters\StoreWindowHider.cs" Link="Adapters\StoreWindowHider.cs" />
@@ -29,6 +30,10 @@
     <Compile Include="..\..\ExoLauncher\Adapters\StoreUninstallPromptAutomator.cs" Link="Adapters\StoreUninstallPromptAutomator.cs" />
     <Compile Include="..\..\ExoLauncher\Adapters\HiddenStoreRuntime.cs" Link="Adapters\HiddenStoreRuntime.cs" />
     <Compile Include="..\..\ExoLauncher\Adapters\SteamStateFlags.cs" Link="Adapters\SteamStateFlags.cs" />
+    <Compile Include="..\..\ExoLauncher\Adapters\SteamTransferProgress.cs" Link="Adapters\SteamTransferProgress.cs" />
+    <Compile Include="..\..\ExoLauncher\Adapters\SteamContentLogProgress.cs" Link="Adapters\SteamContentLogProgress.cs" />
+    <Compile Include="..\..\ExoLauncher\Adapters\SteamAppInfoNames.cs" Link="Adapters\SteamAppInfoNames.cs" />
+    <Compile Include="..\..\ExoLauncher\Adapters\SteamAccountLibrary.cs" Link="Adapters\SteamAccountLibrary.cs" />
     <Compile Include="..\..\ExoLauncher\Adapters\SteamProcessPath.cs" Link="Adapters\SteamProcessPath.cs" />
     <Compile Include="..\..\ExoLauncher\Adapters\SteamPlaytime.cs" Link="Adapters\SteamPlaytime.cs" />
     <Compile Include="..\..\ExoLauncher\Services\PlaytimeService.cs" Link="Services\PlaytimeService.cs" />

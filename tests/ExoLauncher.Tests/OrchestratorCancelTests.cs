@@ -54,6 +54,33 @@ public sealed class OrchestratorCancelTests
     }
 
     [Fact]
+    public async Task Uninstall_DoesNotPublishInstallProgress()
+    {
+        var adapter = new SilentUninstallAdapter();
+        var orchestrator = new LaunchOrchestrator(
+            new IStoreAdapter[] { adapter },
+            SettingsWithoutAutomaticDependencies(),
+            new DependencyService());
+        var seen = new List<InstallProgress>();
+        orchestrator.ProgressChanged += seen.Add;
+        var game = new GameEntry
+        {
+            Id = "steam:4704690",
+            Title = "MECCHA CHAMELEON",
+            Store = StoreKind.Local,
+            Installed = true,
+            LaunchTarget = "4704690",
+        };
+
+        var result = await orchestrator.UninstallAsync(game);
+
+        Assert.True(result.Ok);
+        Assert.Equal(1, adapter.UninstallCalls);
+        Assert.Empty(seen);
+        Assert.False(orchestrator.GetProgress(game.Id).IsActive);
+    }
+
+    [Fact]
     public async Task CancelledWorkCannotPublishCompletedAfterCancel()
     {
         var adapter = new IgnoringCancelAdapter();
@@ -350,6 +377,47 @@ public sealed class OrchestratorCancelTests
             ReleaseDispose.Task.GetAwaiter().GetResult();
             DisposeCompleted.TrySetResult();
         }
+    }
+
+    private sealed class SilentUninstallAdapter : IStoreAdapter
+    {
+        public int UninstallCalls;
+        public StoreKind Store => StoreKind.Local;
+        public string Id => "local";
+        public string DisplayName => "Local";
+        public bool IsAgentPresent() => true;
+        public Task<AuthResult> AuthenticateAsync(CancellationToken ct = default) =>
+            Task.FromResult(new AuthResult { Ok = true });
+        public Task<IReadOnlyList<GameEntry>> GetLibraryAsync(CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyList<GameEntry>>(Array.Empty<GameEntry>());
+        public Task<InstallResult> InstallAsync(
+            GameEntry game,
+            string? installPath,
+            IProgress<InstallProgress>? progress,
+            CancellationToken ct = default) =>
+            Task.FromResult(new InstallResult { Ok = false, Message = "not used" });
+        public Task<InstallResult> UpdateAsync(
+            GameEntry game,
+            IProgress<InstallProgress>? progress,
+            CancellationToken ct = default) =>
+            Task.FromResult(new InstallResult { Ok = false, Message = "not used" });
+        public Task<LaunchResult> LaunchAsync(
+            GameEntry game,
+            LaunchOptions options,
+            CancellationToken ct = default) =>
+            Task.FromResult(new LaunchResult { Ok = false, Message = "not used" });
+        public Task<InstallResult> UninstallAsync(GameEntry game, CancellationToken ct = default)
+        {
+            Interlocked.Increment(ref UninstallCalls);
+            return Task.FromResult(new InstallResult { Ok = true, Message = "Removed." });
+        }
+        public InstallProgress GetDownloadProgress(string gameId) =>
+            new() { GameId = gameId, Phase = InstallPhase.Idle };
+        public Task CleanupAfterExitAsync(
+            GameEntry game,
+            LaunchOptions options,
+            CancellationToken ct = default) =>
+            Task.CompletedTask;
     }
 
     private sealed class DependencyBoundaryAdapter(StoreKind store) : IStoreAdapter

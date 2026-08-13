@@ -547,7 +547,7 @@ public sealed class AchievementProviderTests
     }
 
     [Fact]
-    public async Task SteamProvider_RejectsLocalZeroWhenStoreCatalogIsNonzero()
+    public async Task SteamProvider_KeepsPartialWhenStoreCatalogSaysNonzeroButLocalIsZero()
     {
         var root = await WriteSteamZeroCacheAsync("1110910");
         try
@@ -564,10 +564,9 @@ public sealed class AchievementProviderTests
 
             var snapshot = await provider.GetSnapshotAsync(SteamGame("1110910", "Mortal Shell"));
 
+            // Local 0 / 0 against a catalog that has achievements is not progress.
             Assert.Equal(AchievementCoverageStatus.Unavailable, snapshot.Coverage);
-            Assert.Null(snapshot.ReportedTotal);
-            Assert.Null(snapshot.ReportedUnlocked);
-            Assert.Contains("conflicts", snapshot.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("catching up", snapshot.Message, StringComparison.OrdinalIgnoreCase);
         }
         finally
         {
@@ -582,7 +581,7 @@ public sealed class AchievementProviderTests
     [InlineData("{\"1110910\":{\"success\":true,\"data\":{}}}")]
     [InlineData("{\"1110910\":{\"success\":true,\"data\":{\"categories\":[{}]}}}")]
     [InlineData("{\"1110910\":{\"success\":true,\"data\":{\"achievements\":{\"total\":0},\"categories\":[{\"id\":22,\"description\":\"Steam Achievements\"}]}}}")]
-    public async Task SteamProvider_FailsHonestWhenZeroCatalogCannotBeCorroborated(string? catalogJson)
+    public async Task SteamProvider_ShowsPartialWhenZeroCatalogCannotBeCorroborated(string? catalogJson)
     {
         var root = await WriteSteamZeroCacheAsync("1110910");
         try
@@ -594,10 +593,9 @@ public sealed class AchievementProviderTests
 
             var snapshot = await provider.GetSnapshotAsync(SteamGame("1110910", "Mortal Shell"));
 
+            // Uncorroborated local zero is not a progress row.
             Assert.Equal(AchievementCoverageStatus.Unavailable, snapshot.Coverage);
-            Assert.Null(snapshot.ReportedTotal);
-            Assert.Null(snapshot.ReportedUnlocked);
-            Assert.Contains("could not corroborate", snapshot.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.False(string.IsNullOrWhiteSpace(snapshot.Message));
         }
         finally
         {
@@ -737,7 +735,7 @@ public sealed class AchievementProviderTests
     }
 
     [Fact]
-    public async Task SteamProvider_FailsClosedWhenActiveAccountChangesDuringCacheRead()
+    public async Task SteamProvider_KeepsUsableCacheWhenActiveAccountChurnsDuringRead()
     {
         var root = Path.Combine(Path.GetTempPath(), "exo-steam-achievements-" + Guid.NewGuid().ToString("N"));
         var cacheDirectory = Path.Combine(root, "userdata", "111", "config", "librarycache");
@@ -756,9 +754,9 @@ public sealed class AchievementProviderTests
 
             var snapshot = await provider.GetSnapshotAsync(SteamGame("252950", "Rocket League"));
 
+            // Account changed while reading — do not keep the first account's row.
             Assert.Equal(AchievementCoverageStatus.Unavailable, snapshot.Coverage);
-            Assert.Null(snapshot.ReportedTotal);
-            Assert.Contains("changed", snapshot.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("account changed", snapshot.Message, StringComparison.OrdinalIgnoreCase);
         }
         finally
         {
@@ -793,6 +791,29 @@ public sealed class AchievementProviderTests
         Installed = true,
         LaunchTarget = "Sugar",
     };
+
+    [Fact]
+    public async Task SteamProvider_DoesNotReadAnotherAccountsLibraryCache()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "exo-steam-achievements-" + Guid.NewGuid().ToString("N"));
+        var other = Path.Combine(root, "userdata", "222", "config", "librarycache");
+        Directory.CreateDirectory(other);
+        await File.WriteAllTextAsync(Path.Combine(other, "252950.json"), """
+            [["achievements",{"version":1,"data":{
+              "nAchieved":12,"nTotal":40,"vecHighlight":[],"vecUnachieved":[],"vecAchievedHidden":[]
+            }}]]
+            """);
+        try
+        {
+            var provider = new SteamLibraryCacheAchievementProvider(() => root, _ => "111");
+            var snapshot = await provider.GetSnapshotAsync(SteamGame("252950", "Rocket League"));
+            Assert.Equal(AchievementCoverageStatus.Unavailable, snapshot.Coverage);
+        }
+        finally
+        {
+            try { Directory.Delete(root, recursive: true); } catch { }
+        }
+    }
 
     private static GameEntry SteamGame(string appId, string title) => new()
     {

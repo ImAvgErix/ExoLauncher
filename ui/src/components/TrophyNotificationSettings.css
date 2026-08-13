@@ -13,7 +13,7 @@
 
 .exo-trophy-heading-row h3 {
   margin: 0;
-  font-size: 15px;
+  font-size: 13px;
   font-weight: 500;
 }
 
@@ -51,7 +51,7 @@
 
 .exo-trophy-controls {
   min-width: 0;
-  margin: 10px 0 0;
+  margin: 8px 0 0;
   padding: 0;
   border: 0;
 }
@@ -117,7 +117,7 @@
 .exo-trophy-preview-stage {
   position: relative;
   display: block;
-  min-height: 415px;
+  min-height: 248px;
   margin-top: 8px;
   overflow: hidden;
   border: 1px solid var(--color-line-soft);
@@ -149,7 +149,7 @@
   border-radius: 12px;
   background: #000;
   box-shadow: 0 12px 26px rgba(0, 0, 0, 0.78), 0 0 18px color-mix(in srgb, var(--trophy-accent) 15%, transparent);
-  animation: exo-trophy-preview-arrive 260ms cubic-bezier(.18,.8,.2,1) both;
+  animation: exo-trophy-preview-arrive 340ms cubic-bezier(.18,.8,.2,1) both;
 }
 
 .exo-trophy-preview-card.is-top-left { top: 8px; left: 8px; }
@@ -211,11 +211,11 @@
 }
 
 .exo-trophy-preview-copy i {
-  color: color-mix(in srgb, var(--trophy-accent) 62%, white);
-  font-size: 8px;
+  color: color-mix(in srgb, var(--trophy-accent) 70%, white);
+  font-size: 10px;
   font-style: normal;
-  font-weight: 700;
-  letter-spacing: 0.12em;
+  font-weight: 600;
+  letter-spacing: 0.08em;
 }
 
 .exo-trophy-preview-copy b,
@@ -247,7 +247,7 @@
 }
 
 @keyframes exo-trophy-preview-arrive {
-  from { opacity: 0; transform: scale(.97); }
+  from { opacity: 0; transform: scale(.94); }
   to { opacity: 1; transform: translate(0, 0) scale(1); }
 }
 

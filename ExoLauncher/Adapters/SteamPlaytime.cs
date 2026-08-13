@@ -53,6 +53,31 @@ internal static partial class SteamPlaytime
         return LoadActiveAccount(steamRoot)?.AppTicketIds.Contains(appId) == true;
     }
 
+    /// <summary>
+    /// Positive evidence the active Steam account has this app in its local
+    /// library: an app ticket, a localconfig Apps block, or a librarycache file.
+    /// Absence stays unknown, never a negative ownership claim.
+    /// </summary>
+    public static bool HasActiveLibraryEvidence(string steamRoot, string appId)
+    {
+        if (string.IsNullOrWhiteSpace(appId) || !appId.All(char.IsDigit)) return false;
+        var snapshot = LoadActiveAccount(steamRoot);
+        if (snapshot is not null &&
+            (snapshot.AppTicketIds.Contains(appId) || snapshot.Entries.ContainsKey(appId)))
+            return true;
+        return SteamAccountLibrary.HasCache(TryGetLibraryCacheDirectory(steamRoot), appId);
+    }
+
+    internal static string? TryGetLibraryCacheDirectory(string steamRoot)
+    {
+        if (string.IsNullOrWhiteSpace(steamRoot)) return null;
+        var root = NormalizeRoot(steamRoot);
+        var accountId = ResolveActiveAccountId(root, ReadRegistryActiveAccountId());
+        if (!IsSafeAccountId(accountId)) return null;
+        var dir = Path.Combine(root, "userdata", accountId!, "config", "librarycache");
+        return Directory.Exists(dir) ? dir : null;
+    }
+
     /// <summary>All app ids for the active Steam account only.</summary>
     public static IReadOnlyDictionary<string, Entry> LoadAll(string steamRoot) =>
         LoadActiveAccount(steamRoot)?.Entries ?? new Dictionary<string, Entry>();
@@ -196,7 +221,7 @@ internal static partial class SteamPlaytime
             var block = SliceBraceBlock(text, open);
             if (block is null) continue;
 
-            var mins = ReadInt(block, PlaytimeRegex());
+            var mins = ReadPlaytimeMinutes(block);
             var lastUnix = ReadInt(block, LastPlayedRegex());
             if (mins is null && lastUnix is null) continue;
 
@@ -239,6 +264,15 @@ internal static partial class SteamPlaytime
         return result;
     }
 
+    private static int? ReadPlaytimeMinutes(string block)
+    {
+        // PlaytimeForever is the lifetime counter. Bare "Playtime" is the
+        // legacy lifetime field and must not lose to a 2-week key.
+        var forever = ReadInt(block, PlaytimeForeverRegex());
+        if (forever is > 0) return forever;
+        return ReadInt(block, PlaytimeExactRegex());
+    }
+
     private static int? ReadInt(string block, Regex re)
     {
         var m = re.Match(block);
@@ -274,8 +308,11 @@ internal static partial class SteamPlaytime
     [GeneratedRegex(@"(?m)^\s*""(\d{1,10})""\s+""[0-9a-f]+""\s*$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex AppTicketEntryRegex();
 
-    [GeneratedRegex(@"""Playtime(?:Forever)?""\s+""(\d+)""", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
-    private static partial Regex PlaytimeRegex();
+    [GeneratedRegex(@"""PlaytimeForever""\s+""(\d+)""", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex PlaytimeForeverRegex();
+
+    [GeneratedRegex(@"""Playtime""\s+""(\d+)""", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex PlaytimeExactRegex();
 
     [GeneratedRegex(@"""LastPlayed""\s+""(\d+)""", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex LastPlayedRegex();

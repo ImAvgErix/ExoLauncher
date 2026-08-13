@@ -3,7 +3,7 @@
  * Copy into every product UI. Do not fork styles per app.
  *
  * Layout:
- *   [logo 28] [Name 13sb / role 10 faint]  ···  [actions]  |  [−] [×]
+ *   [logo 28] [Name 13sb / role 10 faint]  ···  [actions]  |  [−] [□] [×]
  * Height 52 · hairline #161616 · pure black · white CTAs · Geist
  *
  * Motion rules (emil-design-eng / animate):
@@ -63,6 +63,25 @@
   user-select: none;
 }
 
+.exo-titlebar.is-busy::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 1px;
+  background: linear-gradient(90deg, transparent 0%, #f2f2f2 42%, transparent 78%);
+  transform: translateX(-60%);
+  animation: exo-busy-sweep 1.4s var(--ease-in-out) infinite;
+  pointer-events: none;
+}
+
+@keyframes exo-busy-sweep {
+  0% { transform: translateX(-70%); opacity: 0.15; }
+  50% { opacity: 0.85; }
+  100% { transform: translateX(70%); opacity: 0.15; }
+}
+
 /* Brand as icon-only home control */
 .exo-titlebar .exo-brand {
   padding: 0;
@@ -95,7 +114,7 @@
   height: var(--exo-logo);
   border-radius: 9px;
   display: block;
-  object-fit: cover;
+  overflow: hidden;
   flex-shrink: 0;
   box-shadow: 0 0 0 1px #222;
 }
@@ -234,6 +253,21 @@
   }
 }
 
+.exo-cta.is-active::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(105deg, transparent 30%, rgba(255, 255, 255, 0.28) 48%, transparent 66%);
+  transform: translateX(-120%);
+  animation: exo-cta-sheen 1.6s var(--ease-in-out) infinite;
+  pointer-events: none;
+}
+
+@keyframes exo-cta-sheen {
+  0% { transform: translateX(-120%); }
+  100% { transform: translateX(120%); }
+}
+
 .exo-cta:disabled {
   opacity: 0.4;
   cursor: not-allowed;
@@ -305,5 +339,11 @@
     animation: none;
     opacity: 1;
     transform: none;
+  }
+
+  .exo-titlebar.is-busy::after,
+  .exo-cta.is-active::after {
+    animation: none;
+    display: none;
   }
 }

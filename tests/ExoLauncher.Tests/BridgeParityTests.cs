@@ -33,6 +33,8 @@ public class BridgeParityTests
         "settings.set",
         "trophies.preview",
         "shell.minimize",
+        "shell.maximize",
+        "shell.windowState",
         "shell.close",
         "shell.openUrl",
         "shell.openPath",
