@@ -1182,6 +1182,7 @@ export function LauncherApp() {
             type="button"
             className="exo-winbtn"
             title="Settings"
+            aria-label="Settings"
             disabled={actionLocked}
             onClick={() => setView('settings')}
           >

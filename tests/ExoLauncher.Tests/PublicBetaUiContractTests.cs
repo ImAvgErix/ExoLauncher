@@ -17,8 +17,12 @@ public sealed class PublicBetaUiContractTests
         var homeHeader = Slice(launcher, "<header className={`exo-titlebar exo-titlebar-home", "</header>");
         Assert.Contains("ExoMark", homeHeader, StringComparison.Ordinal);
         Assert.Contains("exo-titlebar-search", homeHeader, StringComparison.Ordinal);
+        Assert.Contains("className=\"exo-search\"", homeHeader, StringComparison.Ordinal);
+        Assert.Contains("setView('settings')", homeHeader, StringComparison.Ordinal);
+        Assert.Contains("aria-label=\"Settings\"", homeHeader, StringComparison.Ordinal);
         Assert.Contains("<Settings", homeHeader, StringComparison.Ordinal);
         Assert.Contains("<WindowChrome", homeHeader, StringComparison.Ordinal);
+        Assert.DoesNotContain("exo-titlebar-gun-cta", homeHeader, StringComparison.Ordinal);
         Assert.DoesNotContain("Play", homeHeader, StringComparison.Ordinal);
         Assert.DoesNotContain("Apply", homeHeader, StringComparison.Ordinal);
         Assert.DoesNotContain("Launcher", homeHeader, StringComparison.Ordinal);
@@ -40,6 +44,8 @@ public sealed class PublicBetaUiContractTests
         Assert.DoesNotContain("exo-brand-name", shell, StringComparison.Ordinal);
         Assert.DoesNotContain("exo-brand-role", shell, StringComparison.Ordinal);
 
+        Assert.Contains("onPrimary", now, StringComparison.Ordinal);
+        Assert.Contains("onOpen", now, StringComparison.Ordinal);
         Assert.Contains("exo-now-cta", now, StringComparison.Ordinal);
         Assert.Contains("<Play", now, StringComparison.Ordinal);
         Assert.Contains("exo-primary-action", detail, StringComparison.Ordinal);

@@ -306,6 +306,34 @@ public sealed class UxRegressionContractTests
     }
 
     [Fact]
+    public void HomeTitlebar_KeepsMarkSearchSettingsAndWindowChrome_PlayStaysOnNowStage()
+    {
+        var launcher = ReadRepoFile("ui", "src", "components", "LauncherApp.tsx");
+        var now = ReadRepoFile("ui", "src", "components", "NowStage.tsx");
+
+        var homeStart = launcher.IndexOf("<header className={`exo-titlebar exo-titlebar-home", StringComparison.Ordinal);
+        var homeEnd = homeStart >= 0 ? launcher.IndexOf("</header>", homeStart, StringComparison.Ordinal) : -1;
+        Assert.True(homeStart >= 0 && homeEnd > homeStart, "home titlebar header is missing");
+        var homeHeader = launcher[homeStart..homeEnd];
+
+        Assert.Contains("ExoMark", homeHeader, StringComparison.Ordinal);
+        Assert.Contains("exo-titlebar-search", homeHeader, StringComparison.Ordinal);
+        Assert.Contains("className=\"exo-search\"", homeHeader, StringComparison.Ordinal);
+        Assert.Contains("setView('settings')", homeHeader, StringComparison.Ordinal);
+        Assert.Contains("aria-label=\"Settings\"", homeHeader, StringComparison.Ordinal);
+        Assert.Contains("<WindowChrome", homeHeader, StringComparison.Ordinal);
+        Assert.DoesNotContain("exo-titlebar-gun-cta", homeHeader, StringComparison.Ordinal);
+        Assert.DoesNotContain("<Play", homeHeader, StringComparison.Ordinal);
+        Assert.DoesNotContain("RefreshCw", homeHeader, StringComparison.Ordinal);
+        Assert.DoesNotContain("Rescan", homeHeader, StringComparison.Ordinal);
+
+        Assert.Contains("onPrimary", now, StringComparison.Ordinal);
+        Assert.Contains("onOpen", now, StringComparison.Ordinal);
+        Assert.Contains("<Play", now, StringComparison.Ordinal);
+        Assert.Contains("exo-now-cta", now, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void StoreSearch_PartialsAreScopedToTheRequestQuery()
     {
         var bridge = ReadRepoFile("ExoLauncher", "Services", "WebHostBridge.cs");
