@@ -360,11 +360,21 @@ public sealed class UxRegressionContractTests
         Assert.Contains("'Not installed'", settings, StringComparison.Ordinal);
         Assert.DoesNotContain("onAuth", settings, StringComparison.Ordinal);
         Assert.DoesNotContain("Reconnect", settings, StringComparison.Ordinal);
+        // Honest copy for an absent backend may exist. The Settings list must
+        // not dump every missing store as a visible Not-installed row.
+        Assert.Contains("|| !!store.signedIn", settings, StringComparison.Ordinal);
+        Assert.Contains("Unknown — waiting for store scan.", settings, StringComparison.Ordinal);
+        Assert.DoesNotContain("stores.length ? stores : [", settings, StringComparison.Ordinal);
+        Assert.DoesNotContain("{ store: 'steam', displayName: 'Steam', agentPresent: false }", settings, StringComparison.Ordinal);
+        Assert.DoesNotContain("Rescan", settings, StringComparison.Ordinal);
+        Assert.DoesNotContain("Connect", settings, StringComparison.Ordinal);
 
         Assert.Contains("const clientInstalled = store.clientPresent ?? store.agentPresent", onboarding, StringComparison.Ordinal);
         Assert.Contains("'Not installed'", onboarding, StringComparison.Ordinal);
         Assert.DoesNotContain("onAuth", onboarding, StringComparison.Ordinal);
         Assert.DoesNotContain("Reconnect", onboarding, StringComparison.Ordinal);
+        Assert.Contains("|| !!store.signedIn", onboarding, StringComparison.Ordinal);
+        Assert.DoesNotContain("{ store: 'steam', displayName: 'Steam', agentPresent: false }", onboarding, StringComparison.Ordinal);
 
         Assert.Contains("if (!present) return \"Not installed\";", library, StringComparison.Ordinal);
         Assert.DoesNotContain("if (!present) return \"Missing\";", library, StringComparison.Ordinal);

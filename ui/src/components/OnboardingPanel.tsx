@@ -12,15 +12,11 @@ export function OnboardingPanel({
   onContinue: () => void
   onSkip: () => void
 }) {
-  const rows = (stores.length
-    ? stores
-    : [
-        { store: 'steam', displayName: 'Steam', agentPresent: false },
-        { store: 'epic', displayName: 'Epic', agentPresent: false },
-        { store: 'gog', displayName: 'GOG', agentPresent: false },
-        { store: 'riot', displayName: 'Riot', agentPresent: false },
-      ]
-  ).filter((store) => store.store !== 'local')
+  const rows = stores.filter((store) => {
+    if (store.store === 'local') return false
+    const clientInstalled = store.clientPresent ?? store.agentPresent
+    return !!clientInstalled || !!store.signedIn
+  })
 
   return (
     <div className="exo-app">
