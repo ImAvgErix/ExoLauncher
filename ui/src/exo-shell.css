@@ -3,8 +3,9 @@
  * Copy into every product UI. Do not fork styles per app.
  *
  * Layout:
- *   [logo 28] [Name 13sb / role 10 faint]  ···  [actions]  |  [−] [□] [×]
+ *   [mark 28]  ···  [search]  ···  [settings]  |  [−] [□] [×]
  * Height 52 · hairline #161616 · pure black · white CTAs · Geist
+ * Titlebar is the mark only. No wordmark. Play lives on the game.
  *
  * Motion rules (emil-design-eng / animate):
  *   - ease-out on enter/exit, never ease-in on UI
@@ -117,28 +118,6 @@
   overflow: hidden;
   flex-shrink: 0;
   box-shadow: 0 0 0 1px #222;
-}
-
-.exo-brand-text {
-  display: flex;
-  flex-direction: column;
-  line-height: 1.15;
-  min-width: 0;
-}
-
-.exo-brand-name {
-  font-size: 13px;
-  font-weight: 600;
-  letter-spacing: -0.01em;
-  color: var(--exo-fg);
-  white-space: nowrap;
-}
-
-.exo-brand-role {
-  font-size: 10px;
-  font-weight: 500;
-  color: var(--exo-faint);
-  white-space: nowrap;
 }
 
 /* Right cluster */

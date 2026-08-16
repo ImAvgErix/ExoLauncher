@@ -2,6 +2,8 @@ import { useState, type CSSProperties } from 'react'
 import { Coffee, ExternalLink, FileText, Loader2 } from '../brand/icons'
 import { ExoMark } from '../brand/ExoMark'
 import { host, type LauncherSettings, type StoreStatus } from '../lib/host'
+import { addPortableFolder } from '../lib/portable'
+import { canOpenStoreClient, presentStoreRows, storePresenceLabel } from '../lib/stores'
 import { TrophyNotificationSettings } from './TrophyNotificationSettings'
 import { WindowChrome } from './WindowChrome'
 
@@ -14,10 +16,9 @@ export function SettingsShell({ children, onBack, alive = false }: { children: R
   return (
     <div className="exo-app">
       <header className={`exo-titlebar${alive ? ' is-busy' : ''}`}>
-        <button type="button" className="exo-brand exo-no-drag shrink-0" title="Exo Launcher" onClick={onBack} aria-label="Back to library">
+        <button type="button" className="exo-brand exo-no-drag shrink-0" title="Home" onClick={onBack} aria-label="Back to library">
           <ExoMark size={28} className="exo-brand-logo" alive={alive} />
         </button>
-        <span className="text-[13px] font-semibold tracking-tight">Settings</span>
         <div className="exo-titlebar-actions">
           <WindowChrome />
         </div>
@@ -52,12 +53,7 @@ export function SettingsPanel({
   const [localMsg, setLocalMsg] = useState<string | null>(null)
   const [trophyBusy, setTrophyBusy] = useState(false)
   const panelMessage = localMsg ?? message
-  const storeRows = (stores.length ? stores : [
-    { store: 'steam', displayName: 'Steam', agentPresent: false },
-    { store: 'epic', displayName: 'Epic', agentPresent: false },
-    { store: 'gog', displayName: 'GOG', agentPresent: false },
-    { store: 'riot', displayName: 'Riot', agentPresent: false },
-  ]).filter((store) => store.store !== 'local')
+  const storeRows = presentStoreRows(stores)
 
   async function openStore(store: StoreStatus) {
     setOpeningStore(store.store)
@@ -119,10 +115,9 @@ export function SettingsPanel({
               <div className="flex items-center justify-between gap-3">
                 <h3 id="portable-heading" className="text-[13px] font-medium text-fg">Portable game</h3>
                 <button type="button" className="exo-ghost-btn min-h-8 shrink-0 px-3 text-[11px]" onClick={() => void (async () => {
-                  const pick = await host.pickFolder('Choose game folder')
-                  if (!pick.ok || !pick.path) return
-                  const result = await host.install('local:add', pick.path, undefined)
-                  setLocalMsg(result.message ?? (result.ok ? 'Portable game added.' : 'Could not add portable game'))
+                  const result = await addPortableFolder()
+                  if (result.cancelled) return
+                  setLocalMsg(result.message)
                 })()}>
                   Add folder…
                 </button>
@@ -143,28 +138,26 @@ export function SettingsPanel({
             </section>
           </div>
 
-          <section className="min-w-0" aria-labelledby="backends-heading">
-            <h3 id="backends-heading" className="text-[13px] font-medium text-fg">Store apps</h3>
-            <ul className="mt-1.5 grid grid-cols-1 divide-y divide-line-soft">
-              {storeRows.map((store) => {
-                const clientInstalled = store.clientPresent ?? store.agentPresent
-                // The matrix is the source of truth for which rows can surface
-                // an official client. New passive clients inherit this without
-                // another UI allowlist, while an absent backend stays inert.
-                const canOpen = !!clientInstalled
-                const isOpening = openingStore === store.store
-                return (
-                  <li key={store.store} className="flex min-w-0 items-center justify-between gap-2 py-2 first:border-t first:border-line-soft">
-                    <div className="min-w-0">
-                      <div className="truncate text-[13px] text-fg">{store.displayName}</div>
-                      <div className={`mt-0.5 text-[10px] ${clientInstalled ? 'text-good' : 'text-faint'}`}>{clientInstalled ? 'Installed' : 'Not installed'}</div>
-                    </div>
-                    {canOpen && <button type="button" className="exo-ghost-btn min-h-8 shrink-0 px-2.5 text-[11px]" disabled={isOpening} onClick={() => void openStore(store)}>{isOpening ? <Loader2 size={16} className="animate-spin" /> : 'Open'}</button>}
-                  </li>
-                )
-              })}
-            </ul>
-          </section>
+          {storeRows.length > 0 && (
+            <section className="min-w-0" aria-labelledby="backends-heading">
+              <h3 id="backends-heading" className="text-[13px] font-medium text-fg">Store apps</h3>
+              <ul className="mt-1.5 grid grid-cols-1 divide-y divide-line-soft">
+                {storeRows.map((store) => {
+                  const canOpen = canOpenStoreClient(store)
+                  const isOpening = openingStore === store.store
+                  return (
+                    <li key={store.store} className="flex min-w-0 items-center justify-between gap-2 py-2 first:border-t first:border-line-soft">
+                      <div className="min-w-0">
+                        <div className="truncate text-[13px] text-fg">{store.displayName}</div>
+                        <div className="mt-0.5 text-[10px] text-good">{storePresenceLabel(store)}</div>
+                      </div>
+                      {canOpen && <button type="button" className="exo-ghost-btn min-h-8 shrink-0 px-2.5 text-[11px]" disabled={isOpening} onClick={() => void openStore(store)}>{isOpening ? <Loader2 size={16} className="animate-spin" /> : 'Open'}</button>}
+                    </li>
+                  )
+                })}
+              </ul>
+            </section>
+          )}
         </div>
 
         <TrophyNotificationSettings

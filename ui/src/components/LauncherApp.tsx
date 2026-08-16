@@ -18,6 +18,7 @@ import {
 } from '../lib/host'
 import { smartSearchScore, sortGames, titleIdentity } from '../lib/utils'
 import { pickNow } from '../lib/now'
+import { addPortableFolder } from '../lib/portable'
 import { GridItem, BannerIn, GameOverlay } from '../motion'
 import { steamAppId } from './CoverArt'
 import { DetailPanel } from './DetailPanel'
@@ -1052,6 +1053,26 @@ export function LauncherApp() {
     }
   }
 
+  async function addFolderDuringOnboarding() {
+    const result = await addPortableFolder()
+    if (result.cancelled) return
+    if (!result.ok) {
+      setAuthMsg(result.message)
+      return
+    }
+    await finishOnboarding()
+  }
+
+  async function addFolderFromLibrary() {
+    const result = await addPortableFolder()
+    if (result.cancelled) return
+    if (!result.ok) {
+      setActionStatus(result.message ?? 'Could not add portable game', null)
+      return
+    }
+    void loadLibrary(true)
+  }
+
   // Wait for settings so we don't flash library before first-run connect.
   if (!settings) {
     return (
@@ -1073,14 +1094,13 @@ export function LauncherApp() {
     )
   }
 
-  // First-run is an installed-client inventory, never a store sign-in flow.
+  // First-run is one move. It does not inventory missing stores.
   if (!settings.onboardingComplete) {
     return (
       <OnboardingPanel
-        stores={stores}
         message={authMsg}
-        onContinue={() => void finishOnboarding()}
-        onSkip={() => void finishOnboarding()}
+        onOpenLibrary={() => void finishOnboarding()}
+        onAddFolder={() => void addFolderDuringOnboarding()}
       />
     )
   }
@@ -1132,7 +1152,7 @@ export function LauncherApp() {
         <button
           type="button"
           className="exo-brand exo-no-drag shrink-0"
-          title="Exo Launcher"
+          title="Home"
           disabled={actionLocked}
           onClick={() => {
             setQuery('')
@@ -1299,14 +1319,13 @@ export function LauncherApp() {
           <div className="exo-home">
             {emptyLibrary ? (
               <div className="exo-enter flex flex-col items-center justify-center py-24 text-center">
-                <p className="text-[15px] font-medium tracking-tight text-fg">Nothing installed</p>
-                <p className="mt-2 text-[13px] text-faint">Search to download a game you already own.</p>
+                <p className="text-[15px] font-medium tracking-tight text-fg">Nothing here yet</p>
                 <button
                   type="button"
                   className="exo-cta mt-5 h-10 px-5 text-[12px]"
-                  onClick={() => searchInputRef.current?.focus()}
+                  onClick={() => void addFolderFromLibrary()}
                 >
-                  Search library
+                  Add a folder
                 </button>
               </div>
             ) : searching ? (

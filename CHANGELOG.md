@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.80 - 2026-08-16
+
+**Public beta chrome. Settings stop listing missing stores.**
+
+- Titlebar is the mark, search, settings, and window buttons. Play stays on the Now plate and the game page.
+- Settings lists only store apps that are on this PC (client present or signed in). A machine with nothing installed does not get a ghost roster.
+- First-run is Open library or Add a folder. Empty library is "Nothing here yet" and Add a folder.
+
 ## 1.0.79 - 2026-08-13
 
 **Closing a game no longer flashes Home.**

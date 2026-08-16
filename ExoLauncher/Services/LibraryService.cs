@@ -406,9 +406,9 @@ public sealed class LibraryService
     {
         // "Missing" was ambiguous and made an unavailable store look like a
         // transient scan state. This is installation state, not connectivity.
+        if (signedIn) return "Signed in";
         if (!present) return "Not installed";
-        if (signedIn) return "Connected";
-        // Steam / Riot are ready when the client is present; Epic / GOG need Connect.
+        // Steam / Riot are ready when the client is present; Epic / GOG say Found until signed in.
         if (storeId is "steam" or "riot") return "Client present";
         return "Found";
     }

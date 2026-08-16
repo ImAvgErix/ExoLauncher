@@ -339,7 +339,8 @@ public sealed class UxRegressionContractTests
         Assert.Contains("onInstallUpdate", settings, StringComparison.Ordinal);
         Assert.DoesNotContain("Connect", settings, StringComparison.Ordinal);
         Assert.DoesNotContain("Reconnect", settings, StringComparison.Ordinal);
-        Assert.Contains("host.pickFolder('Choose game folder')", settings, StringComparison.Ordinal);
+        Assert.Contains("addPortableFolder()", settings, StringComparison.Ordinal);
+        Assert.Contains("host.pickFolder('Choose game folder')", ReadRepoFile("ui", "src", "lib", "portable.ts"), StringComparison.Ordinal);
         Assert.Contains("<TrophyNotificationSettings", settings, StringComparison.Ordinal);
         Assert.Contains("https://github.com/ImAvgErix/ExoLauncher/issues", settings, StringComparison.Ordinal);
         Assert.Contains("https://www.buymeacoffee.com/UhhErix", settings, StringComparison.Ordinal);
@@ -353,18 +354,21 @@ public sealed class UxRegressionContractTests
         var onboarding = ReadRepoFile("ui", "src", "components", "OnboardingPanel.tsx");
         var library = ReadRepoFile("ExoLauncher", "Services", "LibraryService.cs");
 
-        Assert.Contains("const clientInstalled = store.clientPresent ?? store.agentPresent", settings, StringComparison.Ordinal);
-        Assert.Contains("const canOpen = !!clientInstalled", settings, StringComparison.Ordinal);
+        Assert.Contains("presentStoreRows(stores)", settings, StringComparison.Ordinal);
+        Assert.Contains("canOpenStoreClient(store)", settings, StringComparison.Ordinal);
         Assert.DoesNotContain("While playing", settings, StringComparison.Ordinal);
         Assert.DoesNotContain("Minimize Exo", settings, StringComparison.Ordinal);
-        Assert.Contains("'Not installed'", settings, StringComparison.Ordinal);
+        Assert.DoesNotContain("displayName: 'Steam', agentPresent: false", settings, StringComparison.Ordinal);
+        Assert.DoesNotContain("'Not installed'", settings, StringComparison.Ordinal);
         Assert.DoesNotContain("onAuth", settings, StringComparison.Ordinal);
         Assert.DoesNotContain("Reconnect", settings, StringComparison.Ordinal);
 
-        Assert.Contains("const clientInstalled = store.clientPresent ?? store.agentPresent", onboarding, StringComparison.Ordinal);
-        Assert.Contains("'Not installed'", onboarding, StringComparison.Ordinal);
+        Assert.DoesNotContain("const clientInstalled = store.clientPresent ?? store.agentPresent", onboarding, StringComparison.Ordinal);
+        Assert.DoesNotContain("'Not installed'", onboarding, StringComparison.Ordinal);
         Assert.DoesNotContain("onAuth", onboarding, StringComparison.Ordinal);
         Assert.DoesNotContain("Reconnect", onboarding, StringComparison.Ordinal);
+        Assert.Contains("Open library", onboarding, StringComparison.Ordinal);
+        Assert.Contains("Add a folder", onboarding, StringComparison.Ordinal);
 
         Assert.Contains("if (!present) return \"Not installed\";", library, StringComparison.Ordinal);
         Assert.DoesNotContain("if (!present) return \"Missing\";", library, StringComparison.Ordinal);
@@ -605,7 +609,7 @@ public sealed class UxRegressionContractTests
         Assert.Contains(".exo-boot", tokens, StringComparison.Ordinal);
         Assert.Contains("exo-tile-sweep", tokens, StringComparison.Ordinal);
         Assert.Contains(".exo-game-overlay", tokens, StringComparison.Ordinal);
-        Assert.Contains("backdrop-filter: blur(22px)", tokens, StringComparison.Ordinal);
+        Assert.DoesNotContain("backdrop-filter", tokens, StringComparison.Ordinal);
         Assert.DoesNotContain("exo-game-page-wash", tokens, StringComparison.Ordinal);
         Assert.DoesNotContain("exo-game-page-photo", tokens, StringComparison.Ordinal);
         Assert.DoesNotContain("blur(52px)", tokens, StringComparison.Ordinal);

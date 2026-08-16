@@ -412,10 +412,6 @@ async function mockCall<T>(method: string, params?: Record<string, unknown>): Pr
         count: MOCK_GAMES.length,
         stores: [
           { store: 'local', displayName: 'Local', agentPresent: true },
-          { store: 'steam', displayName: 'Steam', agentPresent: false },
-          { store: 'epic', displayName: 'Epic', agentPresent: false },
-          { store: 'gog', displayName: 'GOG', agentPresent: false },
-          { store: 'riot', displayName: 'Riot', agentPresent: false },
         ],
         progress: mockProgress,
         sortMode: mockSettings.sortMode,
@@ -499,10 +495,6 @@ async function mockCall<T>(method: string, params?: Record<string, unknown>): Pr
     case 'stores.matrix':
       return [
         { store: 'local', displayName: 'Local', agentPresent: true },
-        { store: 'epic', displayName: 'Epic', agentPresent: false },
-        { store: 'gog', displayName: 'GOG', agentPresent: false },
-        { store: 'steam', displayName: 'Steam', agentPresent: false },
-        { store: 'riot', displayName: 'Riot', agentPresent: false },
       ] as T
     case 'settings.get':
       return { ...mockSettings } as T
