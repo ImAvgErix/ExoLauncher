@@ -52,11 +52,7 @@ export function SettingsPanel({
   const [localMsg, setLocalMsg] = useState<string | null>(null)
   const [trophyBusy, setTrophyBusy] = useState(false)
   const panelMessage = localMsg ?? message
-  const storeRows = stores.filter((store) => {
-    if (store.store === 'local') return false
-    const clientInstalled = store.clientPresent ?? store.agentPresent
-    return !!clientInstalled || !!store.signedIn
-  })
+  const storeRows = stores.filter((store) => store.store !== 'local' && store.clientPresent === true)
 
   async function openStore(store: StoreStatus) {
     setOpeningStore(store.store)

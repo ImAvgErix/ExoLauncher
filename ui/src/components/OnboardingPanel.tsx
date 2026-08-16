@@ -12,11 +12,7 @@ export function OnboardingPanel({
   onContinue: () => void
   onSkip: () => void
 }) {
-  const rows = stores.filter((store) => {
-    if (store.store === 'local') return false
-    const clientInstalled = store.clientPresent ?? store.agentPresent
-    return !!clientInstalled || !!store.signedIn
-  })
+  const rows = stores.filter((store) => store.store !== 'local' && store.clientPresent === true)
 
   return (
     <div className="exo-app">
