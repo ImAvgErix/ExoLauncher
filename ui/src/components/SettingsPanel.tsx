@@ -2,6 +2,7 @@ import { useState, type CSSProperties } from 'react'
 import { Coffee, ExternalLink, FileText, Loader2 } from '../brand/icons'
 import { ExoMark } from '../brand/ExoMark'
 import { host, type LauncherSettings, type StoreStatus } from '../lib/host'
+import { presentStoreClients } from '../lib/storeClients'
 import { TrophyNotificationSettings } from './TrophyNotificationSettings'
 import { WindowChrome } from './WindowChrome'
 
@@ -52,12 +53,7 @@ export function SettingsPanel({
   const [localMsg, setLocalMsg] = useState<string | null>(null)
   const [trophyBusy, setTrophyBusy] = useState(false)
   const panelMessage = localMsg ?? message
-  const storeRows = (stores.length ? stores : [
-    { store: 'steam', displayName: 'Steam', agentPresent: false },
-    { store: 'epic', displayName: 'Epic', agentPresent: false },
-    { store: 'gog', displayName: 'GOG', agentPresent: false },
-    { store: 'riot', displayName: 'Riot', agentPresent: false },
-  ]).filter((store) => store.store !== 'local')
+  const storeRows = presentStoreClients(stores)
 
   async function openStore(store: StoreStatus) {
     setOpeningStore(store.store)
@@ -143,28 +139,25 @@ export function SettingsPanel({
             </section>
           </div>
 
-          <section className="min-w-0" aria-labelledby="backends-heading">
-            <h3 id="backends-heading" className="text-[13px] font-medium text-fg">Store apps</h3>
-            <ul className="mt-1.5 grid grid-cols-1 divide-y divide-line-soft">
-              {storeRows.map((store) => {
-                const clientInstalled = store.clientPresent ?? store.agentPresent
-                // The matrix is the source of truth for which rows can surface
-                // an official client. New passive clients inherit this without
-                // another UI allowlist, while an absent backend stays inert.
-                const canOpen = !!clientInstalled
-                const isOpening = openingStore === store.store
-                return (
-                  <li key={store.store} className="flex min-w-0 items-center justify-between gap-2 py-2 first:border-t first:border-line-soft">
-                    <div className="min-w-0">
-                      <div className="truncate text-[13px] text-fg">{store.displayName}</div>
-                      <div className={`mt-0.5 text-[10px] ${clientInstalled ? 'text-good' : 'text-faint'}`}>{clientInstalled ? 'Installed' : 'Not installed'}</div>
-                    </div>
-                    {canOpen && <button type="button" className="exo-ghost-btn min-h-8 shrink-0 px-2.5 text-[11px]" disabled={isOpening} onClick={() => void openStore(store)}>{isOpening ? <Loader2 size={16} className="animate-spin" /> : 'Open'}</button>}
-                  </li>
-                )
-              })}
-            </ul>
-          </section>
+          {storeRows.length > 0 && (
+            <section className="min-w-0" aria-labelledby="backends-heading">
+              <h3 id="backends-heading" className="text-[13px] font-medium text-fg">Store apps</h3>
+              <ul className="mt-1.5 grid grid-cols-1 divide-y divide-line-soft">
+                {storeRows.map((store) => {
+                  const isOpening = openingStore === store.store
+                  return (
+                    <li key={store.store} className="flex min-w-0 items-center justify-between gap-2 py-2 first:border-t first:border-line-soft">
+                      <div className="min-w-0">
+                        <div className="truncate text-[13px] text-fg">{store.displayName}</div>
+                        <div className="mt-0.5 text-[10px] text-good">Installed</div>
+                      </div>
+                      <button type="button" className="exo-ghost-btn min-h-8 shrink-0 px-2.5 text-[11px]" disabled={isOpening} onClick={() => void openStore(store)}>{isOpening ? <Loader2 size={16} className="animate-spin" /> : 'Open'}</button>
+                    </li>
+                  )
+                })}
+              </ul>
+            </section>
+          )}
         </div>
 
         <TrophyNotificationSettings

@@ -1,5 +1,6 @@
 import { ExoMark } from '../brand/ExoMark'
 import type { StoreStatus } from '../lib/host'
+import { presentStoreClients } from '../lib/storeClients'
 
 export function OnboardingPanel({
   stores,
@@ -12,15 +13,7 @@ export function OnboardingPanel({
   onContinue: () => void
   onSkip: () => void
 }) {
-  const rows = (stores.length
-    ? stores
-    : [
-        { store: 'steam', displayName: 'Steam', agentPresent: false },
-        { store: 'epic', displayName: 'Epic', agentPresent: false },
-        { store: 'gog', displayName: 'GOG', agentPresent: false },
-        { store: 'riot', displayName: 'Riot', agentPresent: false },
-      ]
-  ).filter((store) => store.store !== 'local')
+  const rows = presentStoreClients(stores)
 
   return (
     <div className="exo-app">
@@ -36,17 +29,16 @@ export function OnboardingPanel({
 
           {message && <div className="mt-5 border-l-2 border-line bg-elevated px-4 py-3 text-[13px] text-fg" role="status">{message}</div>}
 
-          <ul className="mt-7 grid grid-cols-2 gap-x-6">
-            {rows.map((store) => {
-              const clientInstalled = store.clientPresent ?? store.agentPresent
-              return (
+          {rows.length > 0 && (
+            <ul className="mt-7 grid grid-cols-2 gap-x-6">
+              {rows.map((store) => (
                 <li key={store.store} className="flex items-center justify-between gap-3 border-t border-line-soft py-3">
                   <span className="text-sm font-medium text-fg">{store.displayName}</span>
-                  <span className={clientInstalled ? 'text-[11px] text-good' : 'text-[11px] text-faint'}>{clientInstalled ? 'Installed' : 'Not installed'}</span>
+                  <span className="text-[11px] text-good">Installed</span>
                 </li>
-              )
-            })}
-          </ul>
+              ))}
+            </ul>
+          )}
 
           <div className="mt-8 flex flex-wrap items-center gap-3">
             <button type="button" className="exo-cta h-11 px-6" onClick={onContinue}>Open library</button>

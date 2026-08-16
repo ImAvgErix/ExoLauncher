@@ -347,24 +347,29 @@ public sealed class UxRegressionContractTests
     }
 
     [Fact]
-    public void StoreBackends_DescribeAbsentBackendsAsNotInstalled_AndHideReadyActions()
+    public void StoreLists_OnlyRenderPresentOfficialClients()
     {
         var settings = ReadRepoFile("ui", "src", "components", "SettingsPanel.tsx");
         var onboarding = ReadRepoFile("ui", "src", "components", "OnboardingPanel.tsx");
+        var helper = ReadRepoFile("ui", "src", "lib", "storeClients.ts");
         var library = ReadRepoFile("ExoLauncher", "Services", "LibraryService.cs");
+        var panels = settings + onboarding;
 
-        Assert.Contains("const clientInstalled = store.clientPresent ?? store.agentPresent", settings, StringComparison.Ordinal);
-        Assert.Contains("const canOpen = !!clientInstalled", settings, StringComparison.Ordinal);
+        Assert.Contains("store.clientPresent === true", helper, StringComparison.Ordinal);
+        Assert.DoesNotContain("agentPresent", helper, StringComparison.Ordinal);
+        Assert.DoesNotContain("??", helper, StringComparison.Ordinal);
+        Assert.Contains("presentStoreClients", settings, StringComparison.Ordinal);
+        Assert.Contains("presentStoreClients", onboarding, StringComparison.Ordinal);
+        Assert.Contains("storeRows.length > 0", settings, StringComparison.Ordinal);
+        Assert.Contains("rows.length > 0", onboarding, StringComparison.Ordinal);
+        Assert.DoesNotContain("clientPresent ??", panels, StringComparison.Ordinal);
+        Assert.DoesNotContain("displayName: 'Steam'", panels, StringComparison.Ordinal);
+        Assert.DoesNotContain("'Not installed'", panels, StringComparison.Ordinal);
+        Assert.DoesNotContain("stores.length ? stores", panels, StringComparison.Ordinal);
         Assert.DoesNotContain("While playing", settings, StringComparison.Ordinal);
         Assert.DoesNotContain("Minimize Exo", settings, StringComparison.Ordinal);
-        Assert.Contains("'Not installed'", settings, StringComparison.Ordinal);
-        Assert.DoesNotContain("onAuth", settings, StringComparison.Ordinal);
-        Assert.DoesNotContain("Reconnect", settings, StringComparison.Ordinal);
-
-        Assert.Contains("const clientInstalled = store.clientPresent ?? store.agentPresent", onboarding, StringComparison.Ordinal);
-        Assert.Contains("'Not installed'", onboarding, StringComparison.Ordinal);
-        Assert.DoesNotContain("onAuth", onboarding, StringComparison.Ordinal);
-        Assert.DoesNotContain("Reconnect", onboarding, StringComparison.Ordinal);
+        Assert.DoesNotContain("onAuth", panels, StringComparison.Ordinal);
+        Assert.DoesNotContain("Reconnect", panels, StringComparison.Ordinal);
 
         Assert.Contains("if (!present) return \"Not installed\";", library, StringComparison.Ordinal);
         Assert.DoesNotContain("if (!present) return \"Missing\";", library, StringComparison.Ordinal);
