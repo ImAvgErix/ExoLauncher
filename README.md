@@ -27,7 +27,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/media/home.jpg" alt="Exo Launcher home — Now plate, pinned row, library" width="920" />
+  <img src="docs/media/home.jpg" alt="Exo Launcher library — pinned covers and installed games" width="920" />
 </p>
 
 ## What’s new in 2.0
@@ -48,7 +48,7 @@ Home uses a compact Now dock only while a game is playing, transferring, or awai
 An Exo account is optional. You can create one with an email address and a 12–128-character password. Email verification and password recovery are not available yet. Signed out or offline, the library, install, update, launch, and local settings paths still work. There are no ads, tray agent, or analytics.
 
 <p align="center">
-  <img src="docs/media/game.jpg" alt="Game page — cover, facts, Play" width="920" />
+  <img src="docs/media/game.jpg" alt="Game page — full-bleed cover, Play, artwork tools, upscalers" width="920" />
 </p>
 
 - **Now** — a compact active-state dock for downloading, playing, or updates. Recent-only state does not reserve space.
@@ -62,7 +62,11 @@ An Exo account is optional. You can create one with an email address and a 12–
 - **Optional online modules** — implemented reserved handles, privacy-controlled profile/media, friend requests, verified store links, mutual Steam discovery, fixed server-managed profile badges, and friend presence. No chat. Signed out or offline remains a complete local launcher; unavailable presence stays unknown, never fabricated offline.
 
 <p align="center">
-  <img src="docs/media/settings.jpg" alt="Settings — stores, updates, achievement placement" width="920" />
+  <img src="docs/media/profile.jpg" alt="Exo profile — handle, badges, showcase, trophy cabinet" width="920" />
+</p>
+
+<p align="center">
+  <img src="docs/media/settings.jpg" alt="Settings — stores on this PC and what each one can do" width="920" />
 </p>
 
 ## Store reality
