@@ -35,7 +35,7 @@ public sealed class VersionHonestyTests
         Assert.Contains("POST /api/auth/sign-up/email", security, StringComparison.Ordinal);
         Assert.Contains("DPAPI", security, StringComparison.Ordinal);
         Assert.Contains("salted Scrypt hashes", adr, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("deployed the optional exo-id stack", changelog, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Deployed the Cloudflare exo-id Worker", changelog, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("password grant", privacy, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("password grant", adr, StringComparison.OrdinalIgnoreCase);
     }

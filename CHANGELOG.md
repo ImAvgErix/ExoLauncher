@@ -12,6 +12,7 @@
 - Hardened optional DLSS, FSR, and XeSS updates with signed-vendor validation, correct x64 PE export parsing, official-source preference, semantic version truth, persistent caches, safe restore, and neutral states for unusable destinations
 - Added a compact active Now dock, responsive virtualized libraries, smoother preloading, faster cached startup, cleaner search, game-detail title actions, controller navigation, and extensive accessibility/reduced-motion contracts
 - Deployed the Cloudflare exo-id Worker with D1, R2, per-user Durable Object presence, strict privacy/rate limits, and offline fail-open behavior for the local launcher
+- Replaced GitHub page and README screenshots with the current library, game, profile, and settings surfaces
 
 Google sign-in and email magic links remain unavailable until real provider credentials are configured. Email/password accounts are live.
 
