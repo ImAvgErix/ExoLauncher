@@ -57,18 +57,17 @@ public sealed class UiFormatTests
     }
 
     [Fact]
-    public void UnverifiedInstalledTitle_CannotPlayAndDoesNotPretendItWasRevoked()
+    public void UnverifiedInstalledTitle_CanPlayAndDoesNotPretendItWasRevoked()
     {
-        var unavailable = Steam(
+        var unverified = Steam(
             "730",
             installed: true,
             owned: false,
             entitlementState: EntitlementState.Unverified);
 
-        Assert.Equal("none", unavailable.PrimaryAction);
-        Assert.Equal("none", UiFormat.ResolvePrimaryAction(unavailable));
-        Assert.Null(UiFormat.BuyUrl(unavailable));
-        Assert.Equal("Unavailable", UiFormat.PrimaryLabel(unavailable, transferring: false, running: false));
+        Assert.Equal("play", UiFormat.ResolvePrimaryAction(unverified));
+        Assert.Null(UiFormat.BuyUrl(unverified));
+        Assert.Equal("Play", UiFormat.PrimaryLabel(unverified, transferring: false, running: false));
     }
 
     [Fact]

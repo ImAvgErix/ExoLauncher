@@ -2396,6 +2396,7 @@ public sealed class WebHostBridge
             favorites = s.Favorites,
             recent = s.Recent,
             onboardingComplete = s.OnboardingComplete,
+            accountSetupComplete = s.AccountSetupComplete,
             trophyNotificationsEnabled = s.TrophyNotificationsEnabled,
             trophyNotificationPreset = s.TrophyNotificationPreset,
             trophyNotificationPosition = s.TrophyNotificationPosition,
@@ -2413,7 +2414,7 @@ public sealed class WebHostBridge
         if (!hasParams || p.ValueKind != JsonValueKind.Object)
             return BuildSettings();
 
-        bool? close = null, auto = null, min = null, copy = null, resize = null, updates = null, onboard = null;
+        bool? close = null, auto = null, min = null, copy = null, resize = null, updates = null, onboard = null, accountSetup = null;
         bool? trophies = null, trophySound = null;
         int? trophyDuration = null;
         double? trophyPositionX = null, trophyPositionY = null;
@@ -2441,6 +2442,9 @@ public sealed class WebHostBridge
         if (p.TryGetProperty("onboardingComplete", out var ob) &&
             (ob.ValueKind is JsonValueKind.True or JsonValueKind.False))
             onboard = ob.GetBoolean();
+        if (p.TryGetProperty("accountSetupComplete", out var acs) &&
+            (acs.ValueKind is JsonValueKind.True or JsonValueKind.False))
+            accountSetup = acs.GetBoolean();
         if (p.TryGetProperty("sortMode", out var sm) && sm.ValueKind == JsonValueKind.String)
             sort = sm.GetString();
         if (p.TryGetProperty("defaultInstallRoot", out var dr))
@@ -2479,6 +2483,7 @@ public sealed class WebHostBridge
             sortMode: sort,
             defaultInstallRoot: root,
             onboardingComplete: onboard,
+            accountSetupComplete: accountSetup,
             trophyNotificationsEnabled: trophies,
             trophyNotificationPreset: trophyPreset,
             trophyNotificationPosition: trophyPosition,
@@ -3227,6 +3232,8 @@ public sealed class WebHostBridge
         gameId = p.GameId,
         phase = p.Phase.ToString().ToLowerInvariant(),
         percent = p.Percent,
+        bytesDownloaded = p.BytesDownloaded,
+        bytesToDownload = p.BytesToDownload,
         bytesPerSecond = p.BytesPerSecond,
         status = p.Status,
         canCancel = p.CanCancel,

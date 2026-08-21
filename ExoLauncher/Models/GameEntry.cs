@@ -300,6 +300,8 @@ public sealed class AppSettings
     public Dictionary<string, string> LastPlayed { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     /// <summary>True after the first-run launcher setup flow.</summary>
     public bool OnboardingComplete { get; set; }
+    /// <summary>True after 2.0 account setup, or after skipping it. 1.0 upgrades start false.</summary>
+    public bool AccountSetupComplete { get; set; }
     /// <summary>Show session-bound achievement notifications when a provider reports a new unlock.</summary>
     public bool TrophyNotificationsEnabled { get; set; } = true;
     /// <summary>Legacy visual field retained for settings-file compatibility. Exo has one notification design.</summary>

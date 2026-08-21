@@ -27,7 +27,7 @@ import {
   type InstallProgress,
   type ArtworkMutationResponse,
 } from '../lib/host'
-import { formatRelativeLastPlayed, formatSize, formatSpeed, storeLabel, visibleInstallPercent } from '../lib/utils'
+import { formatRelativeLastPlayed, formatSize, formatSpeed, storeLabel, transferPercent } from '../lib/utils'
 import { isUsefulAchievement } from '../lib/achievements'
 import { loadUpscalerStatus, peekUpscalerStatus } from '../lib/upscalerCache'
 import { ggDealsUrl } from '../lib/stores'
@@ -96,7 +96,7 @@ export function GamePage({
   const buyUrl = hostedBuyUrl(selected)
   const dealsUrl = buyUrl ? ggDealsUrl(selected) : null
   const selectedProgress = progressForGame(progress, selected)
-  const progressPercent = visibleInstallPercent(selectedProgress?.percent)
+  const progressPercent = transferPercent(selectedProgress)
   const activeLabel = action === 'update'
     ? 'Updating…'
     : action === 'install'

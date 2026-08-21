@@ -75,6 +75,7 @@
     <Compile Include="..\..\ExoLauncher\Services\SteamOwnershipCatalog.cs" Link="Services\SteamOwnershipCatalog.cs" />
     <Compile Include="..\..\ExoLauncher\Services\InstalledGameCatalog.cs" Link="Services\InstalledGameCatalog.cs" />
     <Compile Include="..\..\ExoLauncher\Services\CoverArtService.cs" Link="Services\CoverArtService.cs" />
+    <Compile Include="..\..\ExoLauncher\Services\MicrosoftStoreArt.cs" Link="Services\MicrosoftStoreArt.cs" />
     <Compile Include="..\..\ExoLauncher\Services\GameIconArt.cs" Link="Services\GameIconArt.cs" />
     <Compile Include="..\..\ExoLauncher\Services\EpicCatalogArt.cs" Link="Services\EpicCatalogArt.cs" />
     <Compile Include="..\..\ExoLauncher\Services\EpicCatCacheArt.cs" Link="Services\EpicCatCacheArt.cs" />

@@ -911,12 +911,12 @@ internal sealed class ExoOnlineClient : IDisposable
             var status = (int)response.StatusCode;
             if (status == 401)
                 return await UnauthorizedAsync<ExoProfileMediaLocalRef>().ConfigureAwait(false);
+            var contentType = NormalizeMediaContentType(response.Content.Headers.ContentType?.MediaType);
+            var expectedType = NormalizeMediaContentType(metadata.ContentType);
+            var length = response.Content.Headers.ContentLength;
             if (status != 200 ||
-                !string.Equals(
-                    NormalizeMediaContentType(response.Content.Headers.ContentType?.MediaType),
-                    NormalizeMediaContentType(metadata.ContentType),
-                    StringComparison.Ordinal) ||
-                response.Content.Headers.ContentLength != metadata.Size)
+                !string.Equals(contentType, expectedType, StringComparison.Ordinal) ||
+                (length is long declared && declared != metadata.Size))
             {
                 var error = ReadError(document: null, status, ReadRetryAfter(response));
                 if (status is 403 or 404)

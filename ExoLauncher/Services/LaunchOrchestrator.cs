@@ -738,7 +738,7 @@ public sealed class LaunchOrchestrator
     {
         EntitlementState.NotOwned =>
             "This title is not owned by the active store account. Buy it from the store first.",
-        EntitlementState.Unverified =>
+        EntitlementState.Unverified when !game.Installed =>
             "Ownership could not be verified for the active store account. Refresh the store connection and try again.",
         _ => null,
     };

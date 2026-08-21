@@ -95,7 +95,9 @@ internal static class UiFormat
 
     public static string ResolvePrimaryAction(GameEntry game)
     {
-        if (game.EntitlementState is EntitlementState.NotOwned or EntitlementState.Unverified)
+        if (game.EntitlementState == EntitlementState.NotOwned)
+            return "none";
+        if (game.EntitlementState == EntitlementState.Unverified && !game.Installed)
             return "none";
         if (game.Installed && (game.UpdateAvailable ||
             string.Equals(game.PrimaryAction, "update", StringComparison.OrdinalIgnoreCase)))

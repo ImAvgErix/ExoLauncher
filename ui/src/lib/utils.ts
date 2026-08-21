@@ -12,6 +12,20 @@ export function visibleInstallPercent(percent: number | null | undefined): numbe
   return Math.min(100, percent)
 }
 
+/** Prefer the store percent; fall back to live byte ratio when percent is still 0. */
+export function transferPercent(progress: {
+  percent?: number | null
+  bytesDownloaded?: number | null
+  bytesToDownload?: number | null
+} | null | undefined): number | null {
+  const direct = visibleInstallPercent(progress?.percent)
+  if (direct != null) return direct
+  const done = progress?.bytesDownloaded
+  const total = progress?.bytesToDownload
+  if (done == null || total == null || total <= 0 || done <= 0) return null
+  return visibleInstallPercent((100 * done) / total)
+}
+
 /**
  * Search normalization deliberately treats punctuation, spacing, and accents as
  * cosmetic. Keep this aligned with StoreSearchService so an installed result

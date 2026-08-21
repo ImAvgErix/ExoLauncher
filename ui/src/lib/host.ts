@@ -134,6 +134,8 @@ export interface InstallProgress {
   gameId: string
   phase: string
   percent?: number | null
+  bytesDownloaded?: number | null
+  bytesToDownload?: number | null
   bytesPerSecond?: number | null
   status: string
   canCancel: boolean
@@ -164,6 +166,7 @@ export interface LauncherSettings {
   favorites?: string[]
   recent?: string[]
   onboardingComplete?: boolean
+  accountSetupComplete?: boolean
   trophyNotificationsEnabled?: boolean
   /** Legacy fields retained by the native host while older settings migrate. */
   trophyNotificationPreset?: string

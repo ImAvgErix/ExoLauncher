@@ -125,7 +125,7 @@ internal static class StoreLayerMatrix
                 Partial,
                 None,
                 None,
-                "Lists the official Java versions folder and Bedrock package, then hands off to Minecraft Launcher. Covers follow a Steam title match or the installed icon."),
+                "Lists the official Java versions folder and Bedrock package, then hands off to Minecraft Launcher. Covers use the Microsoft Store poster, then a Steam title match or the installed icon."),
 
             "roblox" => new Layers(
                 None,
@@ -133,7 +133,7 @@ internal static class StoreLayerMatrix
                 Partial,
                 None,
                 None,
-                "Lists the installed Roblox Player and launches it. Experiences are not a local entitlement list. Covers follow a Steam title match or the installed icon."),
+                "Lists the installed Roblox Player and launches it. Experiences are not a local entitlement list. Covers use the Microsoft Store poster, then a Steam title match or the installed icon."),
 
             "paradox" => new Layers(
                 None,
