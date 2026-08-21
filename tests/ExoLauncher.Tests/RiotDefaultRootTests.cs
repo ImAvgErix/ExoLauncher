@@ -37,4 +37,35 @@ public class RiotDefaultRootTests
         Assert.Equal("play", league.PrimaryAction);
         Assert.Equal("Ready", league.Status);
     }
+
+    [Fact]
+    public async Task RiotAdapter_GetLibrary_InstalledTitlesCarrySize_UninstalledDoNot()
+    {
+        var games = await new RiotAdapter().GetLibraryAsync();
+        Assert.NotEmpty(games);
+
+        foreach (var game in games)
+        {
+            if (game.Installed)
+            {
+                Assert.True(game.SizeBytes is > 0, $"{game.Title} is installed but SizeBytes is {game.SizeBytes}");
+                Assert.False(string.IsNullOrWhiteSpace(game.Path));
+                Assert.False(InstalledSizeCache.IsAntiCheatPath(game.Path));
+            }
+            else
+            {
+                Assert.Null(game.SizeBytes);
+            }
+        }
+
+        Assert.Contains(games, game => game.Installed && game.SizeBytes > 0);
+        Assert.Contains(games, game => !game.Installed && game.SizeBytes is null);
+
+        var valorant = Assert.Single(games, game => game.Id == "riot:valorant");
+        var league = Assert.Single(games, game => game.Id == "riot:league_of_legends");
+        var registryValorant = RiotInstallProbe.TryReadInstallSizeBytes("valorant");
+        var registryLeague = RiotInstallProbe.TryReadInstallSizeBytes("league_of_legends");
+        Assert.Equal(registryValorant, valorant.SizeBytes);
+        Assert.Equal(registryLeague, league.SizeBytes);
+    }
 }

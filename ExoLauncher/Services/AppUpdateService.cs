@@ -126,7 +126,7 @@ public sealed class AppUpdateService
                     AlreadyLatest = true,
                     LocalVersion = local,
                     RemoteVersion = remote,
-                    Message = $"You are on v{local} (newer than GitHub v{remote}).",
+                    Message = $"This build is v{local}, newer than GitHub v{remote}.",
                 };
             }
 

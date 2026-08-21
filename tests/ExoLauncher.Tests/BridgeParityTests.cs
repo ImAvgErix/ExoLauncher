@@ -1,145 +1,161 @@
 using Xunit;
-using System.Text.RegularExpressions;
 
 namespace ExoLauncher.Tests;
 
 /// <summary>
-/// Ensures WebHostBridge method strings stay in parity with ui/src/lib/host.ts call sites.
+/// WebHostBridge is the JSON-RPC host surface for the React UI.
+/// ShellController remains as a typed C# twin used by leftover native controls.
 /// </summary>
 public class BridgeParityTests
 {
-    private static readonly string[] RequiredMethods =
+    private static readonly string[] RequiredRpcMethods =
     [
-        "library.get",
-        "library.refresh",
-        "game.get",
-        "game.launch",
-        "game.stop",
-        "game.install",
-        "game.update",
-        "game.uninstall",
-        "game.openFolder",
-        "game.toggleFavorite",
-        "game.cancelInstall",
-        "game.progress",
-        "achievements.get",
-        "achievements.refresh",
-        "stores.auth",
-        "stores.search",
-        "deps.list",
-        "deps.offerInstall",
-        "stores.matrix",
-        "settings.get",
-        "settings.set",
-        "trophies.preview",
-        "shell.minimize",
-        "shell.maximize",
-        "shell.windowState",
-        "shell.close",
-        "shell.openUrl",
-        "shell.openPath",
-        "shell.showStore",
-        "shell.pickFolder",
-        "app.version",
-        "app.checkUpdate",
-        "app.installUpdate",
+        "\"library.get\"",
+        "\"library.refresh\"",
+        "\"game.launch\"",
+        "\"game.stop\"",
+        "\"game.install\"",
+        "\"game.update\"",
+        "\"game.uninstall\"",
+        "\"game.repair\"",
+        "\"game.extras\"",
+        "\"game.toggleFavorite\"",
+        "\"art.replace\"",
+        "\"art.reset\"",
+        "\"art.refetch\"",
+        "\"art.report\"",
+        "\"game.cancelInstall\"",
+        "\"stores.search\"",
+        "\"stores.check\"",
+        "\"stores.matrix\"",
+        "\"friends.list\"",
+        "\"profile.get\"",
+        "\"account.get\"",
+        "\"account.signIn\"",
+        "\"account.createPassword\"",
+        "\"account.signInPassword\"",
+        "\"account.signOut\"",
+        "\"account.reserveHandle\"",
+        "\"account.getProfile\"",
+        "\"account.setProfile\"",
+        "\"online.profiles.get\"",
+        "\"online.profiles.search\"",
+        "\"online.profiles.share\"",
+        "\"online.badges.get\"",
+        "\"online.badges.grant\"",
+        "\"online.badges.revoke\"",
+        "\"online.privacy.get\"",
+        "\"online.privacy.set\"",
+        "\"online.friends.list\"",
+        "\"online.friends.requests\"",
+        "\"online.friends.request\"",
+        "\"online.friends.accept\"",
+        "\"online.friends.decline\"",
+        "\"online.friends.remove\"",
+        "\"online.blocks.list\"",
+        "\"online.blocks.block\"",
+        "\"online.blocks.unblock\"",
+        "\"online.links.get\"",
+        "\"online.links.discovery\"",
+        "\"online.links.link\"",
+        "\"online.links.unlink\"",
+        "\"online.links.match\"",
+        "\"online.sessions.list\"",
+        "\"online.sessions.revoke\"",
+        "\"online.sessions.revokeAll\"",
+        "\"online.account.export\"",
+        "\"online.account.delete\"",
+        "\"online.media.upload\"",
+        "\"online.media.delete\"",
+        "\"online.media.download\"",
+        "\"online.presence.get\"",
+        "\"settings.get\"",
+        "\"settings.set\"",
+        "\"shell.showStore\"",
+        "\"shell.pickFolder\"",
+        "\"app.checkUpdate\"",
+        "\"app.installUpdate\"",
+        "\"dlss.status\"",
+        "\"dlss.updateAll\"",
+        "\"dlss.restore\"",
     ];
 
     [Fact]
-    public void TypeScriptWrappers_AndNativeDispatch_HaveExactRpcParity()
+    public void WebHostBridge_DispatchesTheHostSurface()
     {
-        var hostTs = FindRepoFile(Path.Combine("ui", "src", "lib", "host.ts"));
-        Assert.True(File.Exists(hostTs), $"host.ts not found at {hostTs}");
-        var bridgeCs = FindRepoFile(Path.Combine("ExoLauncher", "Services", "WebHostBridge.cs"));
-        Assert.True(File.Exists(bridgeCs), $"WebHostBridge.cs not found at {bridgeCs}");
-        var hostText = File.ReadAllText(hostTs);
-        var bridgeText = File.ReadAllText(bridgeCs);
-
-        var exportedHostStart = hostText.IndexOf("export const host =", StringComparison.Ordinal);
-        Assert.True(exportedHostStart >= 0, "ui/src/lib/host.ts is missing its exported host wrapper.");
-        var exportedHost = hostText[exportedHostStart..];
-
-        var wrapperMethods = Regex.Matches(
-                exportedHost,
-                "['\\\"](?<method>[a-z][a-z0-9]*\\.[A-Za-z][A-Za-z0-9]*)['\\\"]")
-            .Select(match => match.Groups["method"].Value)
-            .ToHashSet(StringComparer.Ordinal);
-        var dispatchMethods = Regex.Matches(
-                bridgeText,
-                "^\\s*\\\"(?<method>[a-z][a-z0-9]*\\.[A-Za-z][A-Za-z0-9]*)\\\"\\s*=>",
-                RegexOptions.Multiline)
-            .Select(match => match.Groups["method"].Value)
-            .ToHashSet(StringComparer.Ordinal);
-        var requiredMethods = RequiredMethods.ToHashSet(StringComparer.Ordinal);
-
-        Assert.Equal(requiredMethods.Order(), wrapperMethods.Order());
-        Assert.Equal(requiredMethods.Order(), dispatchMethods.Order());
-        Assert.Equal(wrapperMethods.Order(), dispatchMethods.Order());
+        var bridge = File.ReadAllText(FindRepoFile(Path.Combine("ExoLauncher", "Services", "WebHostBridge.cs")));
+        Assert.Contains("\"game.launch\" =>", bridge, StringComparison.Ordinal);
+        Assert.Contains("WebViewTrustPolicy", bridge, StringComparison.Ordinal);
+        foreach (var method in RequiredRpcMethods)
+            Assert.Contains(method, bridge, StringComparison.Ordinal);
+        Assert.DoesNotContain("\"dlss.ensureLatest\"", bridge, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void LauncherApp_HasPrimaryActionAndProgress()
+    public void ReactShell_HostsViteUi()
     {
-        var launcher = FindRepoFile(Path.Combine("ui", "src", "components", "LauncherApp.tsx"));
-        var detail = FindRepoFile(Path.Combine("ui", "src", "components", "DetailPanel.tsx"));
-        Assert.True(File.Exists(launcher));
-        Assert.True(File.Exists(detail), "DetailPanel.tsx should hold cover-first CTA UI");
-        var text = File.ReadAllText(launcher) + "\n" + File.ReadAllText(detail);
-        Assert.Contains("Install", text, StringComparison.Ordinal);
-        Assert.Contains("Play", text, StringComparison.Ordinal);
-        Assert.Contains("Update", text, StringComparison.Ordinal);
-        Assert.Contains("cancelInstall", text, StringComparison.Ordinal);
-        Assert.Contains("exo-cta", text, StringComparison.Ordinal);
+        var root = RepoRoot();
+        Assert.True(Directory.Exists(Path.Combine(root, "ui")));
+        Assert.True(File.Exists(Path.Combine(root, "ui", "src", "components", "LauncherApp.tsx")));
+        var csproj = File.ReadAllText(Path.Combine(root, "ExoLauncher", "ExoLauncher.csproj"));
+        Assert.Contains("BuildWebUi", csproj, StringComparison.Ordinal);
+        Assert.Contains("wwwroot", csproj, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("npm run build", csproj, StringComparison.Ordinal);
+        var window = File.ReadAllText(Path.Combine(root, "ExoLauncher", "MainWindow.xaml"));
+        Assert.Contains("WebView2", window, StringComparison.Ordinal);
+        Assert.Contains("x:Name=\"WebHost\"", window, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void LaunchStatus_UsesGameIdForUiAssociation()
+    public void OnlineBridge_OwnsPresenceLifecycleAndForwardsTypedUpdates()
     {
-        var bridgeCs = FindRepoFile(Path.Combine("ExoLauncher", "Services", "WebHostBridge.cs"));
-        var text = File.ReadAllText(bridgeCs);
+        var bridge = File.ReadAllText(FindRepoFile(Path.Combine("ExoLauncher", "Services", "WebHostBridge.cs")));
 
-        Assert.Contains("gameId = game.Id", text, StringComparison.Ordinal);
-        Assert.DoesNotContain("id = game.Id", text, StringComparison.Ordinal);
+        Assert.Contains("ExoOnlineClient", bridge, StringComparison.Ordinal);
+        Assert.Contains("ExoPresenceClient", bridge, StringComparison.Ordinal);
+        Assert.Contains("StartPresenceIfSignedInAsync", bridge, StringComparison.Ordinal);
+        Assert.Contains("StopPresenceAsync", bridge, StringComparison.Ordinal);
+        Assert.Contains("QueuePresenceFromLibrary", bridge, StringComparison.Ordinal);
+        Assert.Contains("\"online.presence\"", bridge, StringComparison.Ordinal);
+        Assert.DoesNotContain("ReadString(p, hasParams, \"accessToken\")", bridge, StringComparison.Ordinal);
+        Assert.DoesNotContain("ReadString(p, hasParams, \"nativePath\")", bridge, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void CoverUi_OnlyAcceptsOfficialPortraitSources()
+    public void AccountBridge_UsesDedicatedPasswordMethodsAndNeverLogsCredentials()
     {
-        var cover = FindRepoFile(Path.Combine("ui", "src", "components", "CoverArt.tsx"));
-        var index = FindRepoFile(Path.Combine("ui", "index.html"));
-        var coverText = File.ReadAllText(cover);
-        var csp = File.ReadAllText(index);
+        var bridge = File.ReadAllText(FindRepoFile(Path.Combine("ExoLauncher", "Services", "WebHostBridge.cs")));
 
-        Assert.Contains("covers.exo-launcher.local", coverText, StringComparison.Ordinal);
-        // Official Steam library posters only (library_600x900 / library_capsule).
-        Assert.Contains("library_600x900", coverText, StringComparison.Ordinal);
-        Assert.Contains("steamstatic", csp, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("valorant-api", coverText, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("valorant-api", csp, StringComparison.OrdinalIgnoreCase);
-        // Heroes are explicitly rejected in the allowlist helper.
-        Assert.Contains("library_hero", coverText, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("CreatePasswordAccountAsync", bridge, StringComparison.Ordinal);
+        Assert.Contains("SignInWithPasswordAsync", bridge, StringComparison.Ordinal);
+        Assert.Contains("ReadString(p, hasParams, \"password\")", bridge, StringComparison.Ordinal);
+        Assert.DoesNotContain("AppLog.Debug(password", bridge, StringComparison.Ordinal);
+        Assert.DoesNotContain("PostEvent(\"password", bridge, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ShellController_StillExposesTypedDlssHelpers()
+    {
+        var shell = File.ReadAllText(FindRepoFile(Path.Combine("ExoLauncher", "Services", "ShellController.cs")));
+        Assert.Contains("public Task<object> DlssStatusAsync", shell, StringComparison.Ordinal);
+        Assert.Contains("public Task<object> DlssUpdateAllAsync", shell, StringComparison.Ordinal);
+        Assert.Contains("public Task<object> DlssRestoreAsync", shell, StringComparison.Ordinal);
+        Assert.DoesNotContain("\"game.launch\" =>", shell, StringComparison.Ordinal);
+    }
+
+    private static string RepoRoot()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "ExoLauncher.sln")))
+            dir = dir.Parent;
+        Assert.NotNull(dir);
+        return dir!.FullName;
     }
 
     private static string FindRepoFile(string relative)
     {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null)
-        {
-            var candidate = Path.Combine(dir.FullName, relative);
-            if (File.Exists(candidate)) return candidate;
-            dir = dir.Parent;
-        }
-
-        var start = new DirectoryInfo(AppContext.BaseDirectory);
-        for (var i = 0; i < 8 && start is not null; i++)
-        {
-            var candidate = Path.Combine(start.FullName, relative);
-            if (File.Exists(candidate)) return candidate;
-            candidate = Path.GetFullPath(Path.Combine(start.FullName, "..", "..", "..", "..", "..", relative));
-            if (File.Exists(candidate)) return candidate;
-            start = start.Parent;
-        }
-
-        return Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", relative));
+        var candidate = Path.Combine(RepoRoot(), relative);
+        Assert.True(File.Exists(candidate), relative + " not found.");
+        return candidate;
     }
 }

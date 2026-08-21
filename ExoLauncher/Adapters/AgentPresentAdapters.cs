@@ -5,8 +5,9 @@ namespace ExoLauncher.Adapters;
 
 /// <summary>
 /// Official-store clients Exo can identify. Library rows exist only for proven
-/// on-disk installs; an empty client library stays empty. Install/update still
-/// belong to the vendor client.
+/// on-disk installs; an empty client library stays empty. Install/update/uninstall
+/// command that official client (protocol or Windows uninstall entry) and wait
+/// until the on-disk evidence matches.
 /// </summary>
 public abstract class AgentPresentAdapterBase : IStoreAdapter, IOfficialStoreClient
 {
@@ -16,7 +17,7 @@ public abstract class AgentPresentAdapterBase : IStoreAdapter, IOfficialStoreCli
     protected abstract OfficialClientDefinition ClientDefinition { get; }
     public abstract IReadOnlyList<string> ClientProcessNames { get; }
 
-    public bool IsAgentPresent() => GetClientLaunchCommand() is not null;
+    public virtual bool IsAgentPresent() => GetClientLaunchCommand() is not null;
 
     public bool IsClientPresent() => IsAgentPresent();
 
@@ -41,13 +42,13 @@ public abstract class AgentPresentAdapterBase : IStoreAdapter, IOfficialStoreCli
         string? installPath,
         IProgress<InstallProgress>? progress,
         CancellationToken ct = default) =>
-        Task.FromResult(UnsupportedOperation("install games"));
+        OfficialInstalledLibraries.InstallAsync(game, DisplayName, ct);
 
     public Task<InstallResult> UpdateAsync(
         GameEntry game,
         IProgress<InstallProgress>? progress,
         CancellationToken ct = default) =>
-        Task.FromResult(UnsupportedOperation("update games"));
+        OfficialInstalledLibraries.UpdateAsync(game, DisplayName, ct);
 
     public virtual Task<LaunchResult> LaunchAsync(GameEntry game, LaunchOptions options, CancellationToken ct = default) =>
         Task.FromResult(new LaunchResult
@@ -57,19 +58,13 @@ public abstract class AgentPresentAdapterBase : IStoreAdapter, IOfficialStoreCli
         });
 
     public Task<InstallResult> UninstallAsync(GameEntry game, CancellationToken ct = default) =>
-        Task.FromResult(UnsupportedOperation("uninstall games"));
+        OfficialInstalledLibraries.UninstallAsync(game, DisplayName, ct);
 
     public InstallProgress GetDownloadProgress(string gameId) =>
         new() { GameId = gameId, Phase = InstallPhase.Idle };
 
     public Task CleanupAfterExitAsync(GameEntry game, LaunchOptions options, CancellationToken ct = default) =>
         Task.CompletedTask;
-
-    private InstallResult UnsupportedOperation(string operation) => new()
-    {
-        Ok = false,
-        Message = $"Exo can open {DisplayName}, but cannot {operation} through it yet.",
-    };
 }
 
 public sealed class XboxAdapter : AgentPresentAdapterBase
@@ -180,34 +175,6 @@ public sealed class BattleNetAdapter : AgentPresentAdapterBase
         Task.FromResult(OfficialInstalledLibraries.LaunchBattleNet(game));
 }
 
-public sealed class AmazonAdapter : AgentPresentAdapterBase
-{
-    private static readonly OfficialClientDefinition Definition = new(
-        ExecutableNames: ["Amazon Games.exe", "AmazonGames.exe"],
-        DefaultPaths:
-        [
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "Amazon Games", "App", "Amazon Games.exe"),
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
-                "Amazon Games", "Amazon Games.exe"),
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
-                "Amazon Games", "Amazon Games.exe"),
-        ],
-        UninstallDisplayNames: ["Amazon Games", "Amazon Games App"]);
-
-    public override StoreKind Store => StoreKind.Amazon;
-    public override string Id => "amazon";
-    public override string DisplayName => "Amazon Games";
-    protected override OfficialClientDefinition ClientDefinition => Definition;
-    public override IReadOnlyList<string> ClientProcessNames => ["Amazon Games", "AmazonGames", "AmazonGamesUI"];
-
-    public override Task<IReadOnlyList<GameEntry>> GetLibraryAsync(CancellationToken ct = default) =>
-        Task.FromResult(OfficialInstalledLibraries.ScanAmazon());
-
-    public override Task<LaunchResult> LaunchAsync(GameEntry game, LaunchOptions options, CancellationToken ct = default) =>
-        Task.FromResult(OfficialInstalledLibraries.LaunchAmazon(game));
-}
-
 public sealed class RockstarAdapter : AgentPresentAdapterBase
 {
     private static readonly OfficialClientDefinition Definition = new(
@@ -232,6 +199,146 @@ public sealed class RockstarAdapter : AgentPresentAdapterBase
 
     public override Task<LaunchResult> LaunchAsync(GameEntry game, LaunchOptions options, CancellationToken ct = default) =>
         Task.FromResult(OfficialInstalledLibraries.LaunchRockstar(game));
+}
+
+public sealed class ItchAdapter : AgentPresentAdapterBase
+{
+    private static readonly OfficialClientDefinition Definition = new(
+        ExecutableNames: ["itch.exe"],
+        DefaultPaths:
+        [
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "itch", "itch.exe"),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                "itch", "itch.exe"),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "Programs", "itch", "itch.exe"),
+        ],
+        UninstallDisplayNames: ["itch"]);
+
+    public override StoreKind Store => StoreKind.Itch;
+    public override string Id => "itch";
+    public override string DisplayName => "itch";
+    protected override OfficialClientDefinition ClientDefinition => Definition;
+    public override IReadOnlyList<string> ClientProcessNames => ["itch"];
+
+    public override Task<IReadOnlyList<GameEntry>> GetLibraryAsync(CancellationToken ct = default) =>
+        Task.FromResult(OfficialInstalledLibraries.ScanItch());
+
+    public override Task<LaunchResult> LaunchAsync(GameEntry game, LaunchOptions options, CancellationToken ct = default) =>
+        Task.FromResult(OfficialInstalledLibraries.LaunchItch(game));
+}
+
+public sealed class MinecraftAdapter : AgentPresentAdapterBase
+{
+    private static readonly OfficialClientDefinition Definition = new(
+        ExecutableNames: ["MinecraftLauncher.exe", "Minecraft.exe"],
+        DefaultPaths:
+        [
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+                "Minecraft Launcher", "MinecraftLauncher.exe"),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
+                "Minecraft Launcher", "MinecraftLauncher.exe"),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "Programs", "Minecraft Launcher", "MinecraftLauncher.exe"),
+        ],
+        UninstallDisplayNames: ["Minecraft Launcher", "Minecraft"],
+        AppxPackagePrefix: "Microsoft.MinecraftWindowsBeta_",
+        AppxApplicationUserModelId: "Microsoft.MinecraftWindowsBeta_8wekyb3d8bbwe!Minecraft");
+
+    public override StoreKind Store => StoreKind.Minecraft;
+    public override string Id => "minecraft";
+    public override string DisplayName => "Minecraft";
+    protected override OfficialClientDefinition ClientDefinition => Definition;
+    public override IReadOnlyList<string> ClientProcessNames => ["MinecraftLauncher"];
+
+    public override bool IsAgentPresent() =>
+        base.IsAgentPresent() ||
+        OfficialInstalledLibraries.MinecraftJavaRoot() is not null ||
+        OfficialInstalledLibraries.MinecraftBedrockEvidence();
+
+    public override Task<IReadOnlyList<GameEntry>> GetLibraryAsync(CancellationToken ct = default) =>
+        Task.FromResult(OfficialInstalledLibraries.ScanMinecraft());
+
+    public override Task<LaunchResult> LaunchAsync(GameEntry game, LaunchOptions options, CancellationToken ct = default) =>
+        Task.FromResult(OfficialInstalledLibraries.LaunchMinecraft(game));
+}
+
+public sealed class RobloxAdapter : AgentPresentAdapterBase
+{
+    private static readonly OfficialClientDefinition Definition = new(
+        ExecutableNames: ["RobloxPlayerBeta.exe"],
+        DefaultPaths: RobloxDefaultPaths(),
+        UninstallDisplayNames: ["Roblox Player", "Roblox"]);
+
+    public override StoreKind Store => StoreKind.Roblox;
+    public override string Id => "roblox";
+    public override string DisplayName => "Roblox";
+    protected override OfficialClientDefinition ClientDefinition => Definition;
+    public override IReadOnlyList<string> ClientProcessNames => ["RobloxPlayerLauncher"];
+
+    public override Task<IReadOnlyList<GameEntry>> GetLibraryAsync(CancellationToken ct = default) =>
+        Task.FromResult(OfficialInstalledLibraries.ScanRoblox());
+
+    public override Task<LaunchResult> LaunchAsync(GameEntry game, LaunchOptions options, CancellationToken ct = default) =>
+        Task.FromResult(OfficialInstalledLibraries.LaunchRoblox(game));
+
+    private static IReadOnlyList<string> RobloxDefaultPaths() =>
+        OfficialInstalledLibraries.RobloxPlayerCandidates().ToArray();
+}
+
+public sealed class ParadoxAdapter : AgentPresentAdapterBase
+{
+    private static readonly OfficialClientDefinition Definition = new(
+        ExecutableNames: ["Paradox Launcher.exe", "ParadoxLauncher.exe"],
+        DefaultPaths:
+        [
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
+                "Paradox Interactive", "launcher", "Paradox Launcher.exe"),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+                "Paradox Interactive", "launcher", "Paradox Launcher.exe"),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "Programs", "Paradox Interactive", "Paradox Launcher.exe"),
+        ],
+        UninstallDisplayNames: ["Paradox Launcher", "Paradox Interactive"]);
+
+    public override StoreKind Store => StoreKind.Paradox;
+    public override string Id => "paradox";
+    public override string DisplayName => "Paradox";
+    protected override OfficialClientDefinition ClientDefinition => Definition;
+    public override IReadOnlyList<string> ClientProcessNames => ["Paradox Launcher", "ParadoxLauncher"];
+
+    public override Task<IReadOnlyList<GameEntry>> GetLibraryAsync(CancellationToken ct = default) =>
+        Task.FromResult(OfficialInstalledLibraries.ScanParadox());
+
+    public override Task<LaunchResult> LaunchAsync(GameEntry game, LaunchOptions options, CancellationToken ct = default) =>
+        Task.FromResult(OfficialInstalledLibraries.LaunchParadox(game));
+}
+
+public sealed class WargamingAdapter : AgentPresentAdapterBase
+{
+    private static readonly OfficialClientDefinition Definition = new(
+        ExecutableNames: ["wgc.exe"],
+        DefaultPaths:
+        [
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
+                "Wargaming.net", "GameCenter", "wgc.exe"),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+                "Wargaming.net", "GameCenter", "wgc.exe"),
+        ],
+        UninstallDisplayNames: ["Wargaming.net Game Center", "Wargaming Game Center"]);
+
+    public override StoreKind Store => StoreKind.Wargaming;
+    public override string Id => "wargaming";
+    public override string DisplayName => "Wargaming";
+    protected override OfficialClientDefinition ClientDefinition => Definition;
+    public override IReadOnlyList<string> ClientProcessNames => ["wgc"];
+
+    public override Task<IReadOnlyList<GameEntry>> GetLibraryAsync(CancellationToken ct = default) =>
+        Task.FromResult(OfficialInstalledLibraries.ScanWargaming());
+
+    public override Task<LaunchResult> LaunchAsync(GameEntry game, LaunchOptions options, CancellationToken ct = default) =>
+        Task.FromResult(OfficialInstalledLibraries.LaunchWargaming(game));
 }
 
 /// <summary>Known official-client evidence. Every positive file result must match one of <see cref="ExecutableNames"/>.</summary>

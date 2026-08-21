@@ -57,6 +57,58 @@ internal static class SteamContentLogProgress
     }
 
     /// <summary>
+    /// True when any Steam library has a non-empty <c>steamapps/downloading</c>
+    /// folder. Used to refuse closing Steam mid-transfer. Does not walk file
+    /// sizes.
+    /// </summary>
+    public static bool AnyDownloadingFolder(string? steamRoot = null)
+    {
+        steamRoot ??= TrySteamRoot();
+        if (string.IsNullOrWhiteSpace(steamRoot)) return false;
+        foreach (var lib in LibraryFolders(steamRoot))
+        {
+            var dir = Path.Combine(lib, "steamapps", "downloading");
+            try
+            {
+                if (Directory.Exists(dir) && Directory.EnumerateFileSystemEntries(dir).Any())
+                    return true;
+            }
+            catch
+            {
+                /* one library failed */
+            }
+        }
+
+        return false;
+    }
+
+    private static string? TrySteamRoot()
+    {
+        try
+        {
+            using var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"Software\Valve\Steam");
+            var path = key?.GetValue("SteamPath") as string;
+            if (!string.IsNullOrWhiteSpace(path))
+            {
+                var root = path.Replace('/', Path.DirectorySeparatorChar);
+                if (Directory.Exists(root)) return root;
+            }
+        }
+        catch { /* */ }
+
+        foreach (var root in new[]
+                 {
+                     Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "Steam"),
+                     Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Steam"),
+                 })
+        {
+            if (Directory.Exists(root)) return root;
+        }
+
+        return null;
+    }
+
+    /// <summary>
     /// Bytes currently sitting in steamapps/downloading/&lt;appId&gt; across
     /// library folders. This folder grows with the live job when the ACF is
     /// missing or still holding leftover totals.

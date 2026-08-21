@@ -18,13 +18,14 @@ internal interface IStoreClientProcessController
 }
 
 /// <summary>
-/// Hides launcher shells that the active game does not need and asks them to
-/// exit cleanly. After a short graceful retry, unused Steam/Epic/Riot shells
-/// are terminated. Anti-cheat and game processes are never in this set.
-/// </summary>
+    /// Hides launcher shells that the active game does not need and asks them to
+    /// exit cleanly. A client that ignores the request is left running; Exo
+    /// never force-terminates a vendor client it did not start.
+    /// </summary>
 internal static class StoreClientCleanup
 {
     internal static readonly TimeSpan GracefulExitTimeout = TimeSpan.FromSeconds(4);
+    private static readonly TimeSpan ExitPollInterval = TimeSpan.FromMilliseconds(150);
 
     internal static readonly string[] SteamExitProcessNames =
     [
@@ -86,6 +87,12 @@ internal static class StoreClientCleanup
         "Launcher", "LauncherPatcher",
     ];
 
+    internal static readonly string[] ItchExitProcessNames = ["itch"];
+    internal static readonly string[] MinecraftExitProcessNames = ["MinecraftLauncher"];
+    internal static readonly string[] RobloxExitProcessNames = ["RobloxPlayerLauncher"];
+    internal static readonly string[] ParadoxExitProcessNames = ["Paradox Launcher", "ParadoxLauncher"];
+    internal static readonly string[] WargamingExitProcessNames = ["wgc"];
+
     private static readonly StoreCleanupTarget[] Targets =
     [
         new(StoreKind.Steam, SteamExitProcessNames),
@@ -98,6 +105,11 @@ internal static class StoreClientCleanup
         new(StoreKind.BattleNet, BattleNetExitProcessNames),
         new(StoreKind.Amazon, AmazonExitProcessNames),
         new(StoreKind.Rockstar, RockstarExitProcessNames),
+        new(StoreKind.Itch, ItchExitProcessNames),
+        new(StoreKind.Minecraft, MinecraftExitProcessNames),
+        new(StoreKind.Roblox, RobloxExitProcessNames),
+        new(StoreKind.Paradox, ParadoxExitProcessNames),
+        new(StoreKind.Wargaming, WargamingExitProcessNames),
     ];
 
     private static readonly IStoreClientProcessController SystemController =
@@ -131,20 +143,21 @@ internal static class StoreClientCleanup
     }
 
     /// <summary>
-    /// Ask every unused launcher to exit and wait a fixed short interval. Any
-    /// client that remains is left hidden and running; a sibling store may own
-    /// a download/update Exo did not start and is not safe to kill.
+    /// Ask every unused launcher to exit, waiting only as long as it takes them
+    /// to go. A shell that ignores the graceful requests is left running.
     /// </summary>
     public static async Task<StoreCleanupReport> ExitUnusedAsync(
         StoreKind activeProvider,
         CancellationToken cancellationToken = default)
     {
+        bool Keep(StoreKind store) =>
+            StoreClientActivity.ShouldKeepRunning(store, ProcessHelper.IsProcessRunning);
         var report = await ExitUnusedAsync(
             activeProvider,
             SystemController,
             GracefulExitTimeout,
-            cancellationToken).ConfigureAwait(false);
-        TerminateRemainingUnused(activeProvider);
+            cancellationToken,
+            Keep).ConfigureAwait(false);
         QuietKeptBackend(activeProvider);
         return report;
     }
@@ -153,11 +166,13 @@ internal static class StoreClientCleanup
         StoreKind activeProvider,
         IStoreClientProcessController controller,
         TimeSpan gracefulExitTimeout,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        Func<StoreKind, bool>? shouldKeep = null)
     {
         ArgumentNullException.ThrowIfNull(controller);
         var candidates = TargetsFor(activeProvider)
             .Where(target => target.ExactProcessNames.Any(controller.IsRunning))
+            .Where(target => shouldKeep?.Invoke(target.Store) != true)
             .ToArray();
         var gracefulRequests = 0;
 
@@ -183,7 +198,8 @@ internal static class StoreClientCleanup
         if (gracefulRequests == 0)
             return new StoreCleanupReport(0, 0);
 
-        await DelayIfPositiveAsync(gracefulExitTimeout, cancellationToken).ConfigureAwait(false);
+        await WaitForExitAsync(candidates, controller, gracefulExitTimeout, cancellationToken)
+            .ConfigureAwait(false);
 
         var remaining = candidates
             .Where(target => target.ExactProcessNames.Any(controller.IsRunning))
@@ -207,7 +223,8 @@ internal static class StoreClientCleanup
             }
         }
 
-        await DelayIfPositiveAsync(gracefulExitTimeout, cancellationToken).ConfigureAwait(false);
+        await WaitForExitAsync(remaining, controller, gracefulExitTimeout, cancellationToken)
+            .ConfigureAwait(false);
 
         var remainingStores = candidates.Count(target =>
             target.ExactProcessNames.Any(controller.IsRunning));
@@ -215,27 +232,26 @@ internal static class StoreClientCleanup
     }
 
     /// <summary>
-    /// Unused launcher shells that ignored WM_CLOSE still occupy RAM and fight
-    /// the next store. Terminate those exact names only — never vgk/vgc/EAC.
+    /// A launcher that honours WM_CLOSE is normally gone well inside a second.
+    /// Sleeping each grace window whole made "close the launchers this game does
+    /// not need" cost a flat eight seconds on every launch and every install.
     /// </summary>
-    private static void TerminateRemainingUnused(StoreKind activeProvider)
+    private static async Task WaitForExitAsync(
+        IReadOnlyList<StoreCleanupTarget> targets,
+        IStoreClientProcessController controller,
+        TimeSpan gracefulExitTimeout,
+        CancellationToken cancellationToken)
     {
-        foreach (var target in TargetsFor(activeProvider))
+        var deadline = DateTimeOffset.UtcNow + gracefulExitTimeout;
+        while (DateTimeOffset.UtcNow < deadline)
         {
-            try
-            {
-                _ = HiddenStoreRuntime.TryWhileGameProviderInactive(target.Store, () =>
-                {
-                    if (target.Store == StoreKind.Rockstar)
-                        ProcessHelper.TerminateExactNames(target.ExactProcessNames.ToArray(), "Rockstar Games");
-                    else
-                        ProcessHelper.TerminateExactNames(target.ExactProcessNames.ToArray());
-                });
-            }
-            catch
-            {
-                /* best-effort */
-            }
+            if (!targets.Any(target => target.ExactProcessNames.Any(controller.IsRunning)))
+                return;
+
+            var left = deadline - DateTimeOffset.UtcNow;
+            if (left <= TimeSpan.Zero) return;
+            await Task.Delay(left < ExitPollInterval ? left : ExitPollInterval, cancellationToken)
+                .ConfigureAwait(false);
         }
     }
 
@@ -272,13 +288,13 @@ internal static class StoreClientCleanup
         StoreKind.BattleNet => StoreWindowHider.BattleNetClientProcessNames,
         StoreKind.Amazon => StoreWindowHider.AmazonClientProcessNames,
         StoreKind.Rockstar => StoreWindowHider.RockstarClientProcessNames,
+        StoreKind.Itch => StoreWindowHider.ItchClientProcessNames,
+        StoreKind.Minecraft => StoreWindowHider.MinecraftClientProcessNames,
+        StoreKind.Roblox => StoreWindowHider.RobloxClientProcessNames,
+        StoreKind.Paradox => StoreWindowHider.ParadoxClientProcessNames,
+        StoreKind.Wargaming => StoreWindowHider.WargamingClientProcessNames,
         _ => [],
     };
-
-    private static Task DelayIfPositiveAsync(TimeSpan delay, CancellationToken cancellationToken) =>
-        delay > TimeSpan.Zero
-            ? Task.Delay(delay, cancellationToken)
-            : Task.CompletedTask;
 
     private static string? ResolveSteamExe()
     {

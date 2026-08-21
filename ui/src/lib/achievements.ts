@@ -1,8 +1,5 @@
 import type { GameAchievementsResponse } from './host'
 
-/** Shared so the game plate doesn’t re-fetch covers. */
-export const achievementCache = new Map<string, GameAchievementsResponse>()
-
 export function isUsefulAchievement(result: GameAchievementsResponse | null | undefined): boolean {
   if (!result?.ok) return false
   const summary = result.summary

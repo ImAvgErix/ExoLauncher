@@ -6,51 +6,97 @@ using System.Xml;
 using System.Xml.Linq;
 using ExoLauncher.Adapters;
 using ExoLauncher.Models;
+using ExoLauncher.Services;
 using Microsoft.Win32;
 
 namespace ExoLauncher.Services.Achievements;
 
 /// <summary>
-/// Read-only Steam provider. Steam's local library cache is the only source
-/// used for account progress: the public Community XML is a catalog endpoint
-/// and does not reliably carry the signed-in account's unlock state.
+/// Read-only Steam provider. The local library cache is always consulted for
+/// progress bars. When the user has stored a Steam Web API key (the same
+/// opt-in key Friends uses), GetPlayerAchievements is the account authority:
+/// Valve updates that endpoint within a few seconds of StoreStats. The
+/// librarycache JSON is a library-UI snapshot, not a StoreStats bus — on this
+/// machine a populated cache sat unchanged for hours while localconfig.vdf
+/// kept writing. Community XML is still only a catalog and is never treated
+/// as unlock evidence.
 /// </summary>
 public sealed class SteamLibraryCacheAchievementProvider : IAchievementProvider
 {
     private const long MaxPayloadBytes = 8 * 1024 * 1024;
-    private const long MaxStoreCatalogBytes = 2 * 1024 * 1024;
     private const int MaxAchievements = 10_000;
-    private static readonly TimeSpan StoreCatalogTimeout = TimeSpan.FromSeconds(8);
-    private static readonly HttpClient StoreCatalogClient = CreateStoreCatalogClient();
+    private static readonly TimeSpan WebApiTimeout = TimeSpan.FromSeconds(8);
+    private static readonly TimeSpan WebApiPromotionBudget = TimeSpan.FromMilliseconds(650);
+    private static readonly TimeSpan[] LocalCacheRetryDelays =
+    [
+        TimeSpan.FromMilliseconds(120),
+        TimeSpan.FromMilliseconds(320),
+    ];
+    private static readonly HttpClient WebApiClient = CreateWebApiClient();
     private readonly Func<string?> _resolveSteamRoot;
     private readonly Func<string, string?> _resolveAccountId;
-    private readonly Func<Uri, CancellationToken, Task<string?>> _fetchStoreAppDetails;
+    private readonly Func<string?> _resolveWebApiKey;
+    private readonly Func<Uri, CancellationToken, Task<string?>> _fetchWebApi;
+    private readonly Dictionary<string, (DateTimeOffset At, string Json)> _schemaCache =
+        new(StringComparer.Ordinal);
+    private static readonly TimeSpan SchemaTtl = TimeSpan.FromHours(6);
 
     public SteamLibraryCacheAchievementProvider()
-        : this(ResolveSteamRoot, ResolveAccountId, FetchStoreAppDetailsAsync)
+        : this(ResolveSteamRoot, ResolveAccountId, ReadInstalledWebApiKey)
     {
     }
 
     internal SteamLibraryCacheAchievementProvider(
         Func<string?> resolveSteamRoot,
         Func<string, string?> resolveAccountId,
-        Func<Uri, CancellationToken, Task<string?>>? fetchStoreAppDetails = null)
+        Func<string?>? resolveWebApiKey = null,
+        Func<Uri, CancellationToken, Task<string?>>? fetchWebApi = null)
     {
         _resolveSteamRoot = resolveSteamRoot;
         _resolveAccountId = resolveAccountId;
-        _fetchStoreAppDetails = fetchStoreAppDetails ?? FetchStoreAppDetailsAsync;
+        // Tests that do not pass a key stay on the local cache path.
+        _resolveWebApiKey = resolveWebApiKey ?? (() => null);
+        _fetchWebApi = fetchWebApi ?? FetchWebApiAsync;
     }
 
     public string Id => "steam";
     public StoreKind Store => StoreKind.Steam;
     public AchievementProviderCapabilities Capabilities =>
         AchievementProviderCapabilities.Snapshot |
-        AchievementProviderCapabilities.Progress;
+        AchievementProviderCapabilities.Progress |
+        AchievementProviderCapabilities.CompleteCatalog;
+    public TimeSpan SuggestedPollInterval
+    {
+        get
+        {
+            try
+            {
+                return string.IsNullOrWhiteSpace(_resolveWebApiKey())
+                    ? TimeSpan.FromSeconds(12)
+                    : TimeSpan.FromSeconds(8);
+            }
+            catch
+            {
+                return TimeSpan.FromSeconds(12);
+            }
+        }
+    }
 
     public bool Supports(GameEntry game) =>
         game.Store == StoreKind.Steam &&
         (IsSteamAppId(game.LaunchTarget?.Trim()) ||
          game.Id.StartsWith("steam:", StringComparison.OrdinalIgnoreCase));
+
+    public string? GetCurrentCoverageKey(GameEntry game)
+    {
+        if (!Supports(game)) return null;
+        var root = _resolveSteamRoot();
+        if (string.IsNullOrWhiteSpace(root) || !Directory.Exists(root)) return null;
+        var accountId = _resolveAccountId(root);
+        return string.IsNullOrWhiteSpace(accountId)
+            ? null
+            : AchievementCoverageKeys.FromAccount("steam", accountId);
+    }
 
     public async Task<AchievementSnapshot> GetSnapshotAsync(
         GameEntry game,
@@ -70,7 +116,102 @@ public sealed class SteamLibraryCacheAchievementProvider : IAchievementProvider
         var coverageKey = AchievementCoverageKeys.FromAccount("steam", accountId);
         // Active Steam account only. Another userdata folder is a different person.
         var cachePath = FindSteamLibraryCachePath(root, accountId, sourceGameId);
-        AchievementSnapshot local;
+        var observedAtUtc = DateTimeOffset.UtcNow;
+        var localTask = ReadLocalCacheWithRetryAsync(cachePath, sourceGameId, coverageKey, observedAtUtc, cancellationToken);
+        using var webApiCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var webApiTask = ReadWebApiAsync(accountId, sourceGameId, coverageKey, observedAtUtc, webApiCts.Token);
+        var local = await localTask.ConfigureAwait(false);
+        AchievementSnapshot? webApi;
+        if (local.Coverage is AchievementCoverageStatus.Partial or AchievementCoverageStatus.Complete)
+        {
+            webApi = await AwaitWithinAsync(
+                webApiTask, WebApiPromotionBudget, cancellationToken).ConfigureAwait(false);
+            if (webApi is null && !webApiTask.IsCompleted)
+            {
+                webApiCts.Cancel();
+                _ = ObserveCompletionAsync(webApiTask);
+            }
+        }
+        else
+        {
+            webApi = await webApiTask.ConfigureAwait(false);
+        }
+
+        if (!IsCurrentAccount(root, accountId))
+            return Unavailable(sourceGameId,
+                "Steam account changed during achievement refresh.");
+
+        if (webApi is not null &&
+            webApi.Coverage is AchievementCoverageStatus.Partial or AchievementCoverageStatus.Complete)
+            return MergeLocalProgress(webApi, local);
+
+        if (!IsUncorroboratedLocalZero(local)) return local;
+        // Steam Store appdetails/category ids are not a documented achievement
+        // authority. Only a complete, account-matched Web API schema may prove
+        // a genuinely empty catalog.
+        return cachePath is null
+            ? Unavailable(sourceGameId,
+                "Steam has not provided current local achievement progress for this game.", coverageKey)
+            : Unavailable(sourceGameId,
+                "Steam local achievement cache is still catching up.", coverageKey);
+    }
+
+    private static async Task<AchievementSnapshot?> AwaitWithinAsync(
+        Task<AchievementSnapshot?> task,
+        TimeSpan budget,
+        CancellationToken cancellationToken)
+    {
+        if (task.IsCompleted)
+            return await task.ConfigureAwait(false);
+        var delay = Task.Delay(budget, cancellationToken);
+        return await Task.WhenAny(task, delay).ConfigureAwait(false) == task
+            ? await task.ConfigureAwait(false)
+            : null;
+    }
+
+    private static async Task ObserveCompletionAsync(Task task)
+    {
+        try { await task.ConfigureAwait(false); }
+        catch { /* detached provider cancellation/failure is intentionally observed */ }
+    }
+
+    /// <summary>
+    /// Steam writes librarycache JSON in place. A detail click can therefore
+    /// observe the file between truncate and replace; retry only that local
+    /// read, with a short bounded backoff, before falling back to honest
+    /// unavailable coverage.
+    /// </summary>
+    private async Task<AchievementSnapshot> ReadLocalCacheWithRetryAsync(
+        string? cachePath,
+        string sourceGameId,
+        string coverageKey,
+        DateTimeOffset observedAtUtc,
+        CancellationToken cancellationToken)
+    {
+        var snapshot = await ReadLocalCacheAsync(
+            cachePath, sourceGameId, coverageKey, observedAtUtc, cancellationToken).ConfigureAwait(false);
+        if (cachePath is null || snapshot.Coverage is AchievementCoverageStatus.Partial or AchievementCoverageStatus.Complete)
+            return snapshot;
+
+        foreach (var delay in LocalCacheRetryDelays)
+        {
+            await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
+            snapshot = await ReadLocalCacheAsync(
+                cachePath, sourceGameId, coverageKey, DateTimeOffset.UtcNow, cancellationToken).ConfigureAwait(false);
+            if (snapshot.Coverage is AchievementCoverageStatus.Partial or AchievementCoverageStatus.Complete)
+                return snapshot;
+        }
+
+        return snapshot;
+    }
+
+    private async Task<AchievementSnapshot> ReadLocalCacheAsync(
+        string? cachePath,
+        string sourceGameId,
+        string coverageKey,
+        DateTimeOffset observedAtUtc,
+        CancellationToken cancellationToken)
+    {
         try
         {
             if (cachePath is null)
@@ -93,7 +234,7 @@ public sealed class SteamLibraryCacheAchievementProvider : IAchievementProvider
             if (json.Length > MaxPayloadBytes)
                 return Unavailable(sourceGameId,
                     "Steam has not provided current local achievement progress for this game.", coverageKey);
-            local = ParseSnapshotJson(json, sourceGameId, coverageKey, DateTimeOffset.UtcNow);
+            return ParseSnapshotJson(json, sourceGameId, coverageKey, observedAtUtc);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -104,32 +245,134 @@ public sealed class SteamLibraryCacheAchievementProvider : IAchievementProvider
             return Unavailable(sourceGameId,
                 "Steam has not provided current local achievement progress for this game.", coverageKey);
         }
+    }
 
-        if (!IsCurrentAccount(root, accountId))
-            return Unavailable(sourceGameId,
-                "Steam account changed during achievement refresh.");
+    private async Task<AchievementSnapshot?> ReadWebApiAsync(
+        string accountId,
+        string sourceGameId,
+        string coverageKey,
+        DateTimeOffset observedAtUtc,
+        CancellationToken cancellationToken)
+    {
+        string? key;
+        try { key = _resolveWebApiKey(); }
+        catch { return null; }
+        if (string.IsNullOrWhiteSpace(key) ||
+            !SteamWebApiAchievementParser.TrySteamId64(accountId, out var steamId64))
+            return null;
 
-        if (!IsUncorroboratedLocalZero(local)) return local;
-
-        var catalogStatus = await GetStoreCatalogStatusAsync(sourceGameId, cancellationToken)
-            .ConfigureAwait(false);
-        if (!IsCurrentAccount(root, accountId))
-            return Unavailable(sourceGameId,
-                "Steam account changed during achievement refresh.");
-        return catalogStatus switch
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(WebApiTimeout);
+        try
         {
-            SteamStoreAchievementCatalogStatus.ConfirmedZero => local with
+            var playerUri = new Uri(
+                SteamWebApiAchievementParser.PlayerAchievementsUri(key, steamId64, sourceGameId),
+                UriKind.Absolute);
+            var playerJson = await _fetchWebApi(playerUri, timeout.Token).ConfigureAwait(false);
+            if (string.IsNullOrWhiteSpace(playerJson)) return null;
+
+            var schemaJson = await ReadSchemaAsync(key, sourceGameId, timeout.Token).ConfigureAwait(false);
+            var snapshot = SteamWebApiAchievementParser.ParsePlayerAchievements(
+                playerJson, schemaJson, sourceGameId, coverageKey, observedAtUtc,
+                expectedSteamId64: steamId64);
+            if (snapshot.Coverage == AchievementCoverageStatus.Unavailable &&
+                (snapshot.Message?.Contains("schema", StringComparison.OrdinalIgnoreCase) == true ||
+                 snapshot.Message?.Contains("did not match", StringComparison.OrdinalIgnoreCase) == true))
             {
-                Coverage = AchievementCoverageStatus.Complete,
-                Capabilities = AchievementProviderCapabilities.Snapshot |
-                               AchievementProviderCapabilities.CompleteCatalog,
-                Message = "Steam's local cache and Store catalog report no achievements for this game.",
-            },
-            // Keep Unavailable so the detail rail can retain last-good counts
-            // instead of painting a fabricated 0 / 0 row.
-            _ => Unavailable(sourceGameId,
-                "Steam local achievement cache is still catching up.", coverageKey),
-        };
+                schemaJson = await ReadSchemaAsync(
+                    key, sourceGameId, timeout.Token, forceRefresh: true).ConfigureAwait(false);
+                snapshot = SteamWebApiAchievementParser.ParsePlayerAchievements(
+                    playerJson, schemaJson, sourceGameId, coverageKey, observedAtUtc,
+                    expectedSteamId64: steamId64);
+            }
+            return snapshot.Coverage is AchievementCoverageStatus.Partial or AchievementCoverageStatus.Complete
+                ? snapshot
+                : null;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private async Task<string?> ReadSchemaAsync(
+        string key,
+        string sourceGameId,
+        CancellationToken cancellationToken,
+        bool forceRefresh = false)
+    {
+        lock (_schemaCache)
+        {
+            if (forceRefresh)
+            {
+                _schemaCache.Remove(sourceGameId);
+            }
+            else if (_schemaCache.TryGetValue(sourceGameId, out var cached) &&
+                DateTimeOffset.UtcNow - cached.At < SchemaTtl)
+                return cached.Json;
+        }
+
+        try
+        {
+            var uri = new Uri(SteamWebApiAchievementParser.SchemaUri(key, sourceGameId), UriKind.Absolute);
+            var json = await _fetchWebApi(uri, cancellationToken).ConfigureAwait(false);
+            if (!SteamWebApiAchievementParser.TryParseCompleteSchema(
+                    json, sourceGameId, out _))
+                return json;
+            lock (_schemaCache)
+            {
+                if (_schemaCache.Count < 256)
+                    _schemaCache[sourceGameId] = (DateTimeOffset.UtcNow, json!);
+            }
+            return json;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static AchievementSnapshot MergeLocalProgress(AchievementSnapshot webApi, AchievementSnapshot local)
+    {
+        if (local.Coverage is not (AchievementCoverageStatus.Partial or AchievementCoverageStatus.Complete) ||
+            local.Entries.Count == 0)
+            return webApi;
+
+        var progress = new Dictionary<string, AchievementEntry>(StringComparer.OrdinalIgnoreCase);
+        foreach (var row in local.Entries)
+            progress[row.Definition.ExternalId] = row;
+
+        var merged = new List<AchievementEntry>(webApi.Entries.Count);
+        foreach (var row in webApi.Entries)
+        {
+            if (!progress.TryGetValue(row.Definition.ExternalId, out var localRow) ||
+                (localRow.State.ProgressCurrent is null && localRow.State.ProgressTarget is null))
+            {
+                merged.Add(row);
+                continue;
+            }
+
+            merged.Add(row with
+            {
+                State = row.State with
+                {
+                    ProgressCurrent = row.State.ProgressCurrent ?? localRow.State.ProgressCurrent,
+                    ProgressTarget = row.State.ProgressTarget ?? localRow.State.ProgressTarget,
+                },
+            });
+        }
+
+        return webApi with { Entries = merged };
+    }
+
+    private static string? ReadInstalledWebApiKey()
+    {
+        try { return ExoLauncher.Services.SteamWebApiKeyStore.TryRead(); }
+        catch { return null; }
     }
 
     /// <summary>Active Steam account librarycache only.</summary>
@@ -225,109 +468,28 @@ public sealed class SteamLibraryCacheAchievementProvider : IAchievementProvider
         }
     }
 
-    private async Task<SteamStoreAchievementCatalogStatus> GetStoreCatalogStatusAsync(
-        string sourceGameId,
-        CancellationToken cancellationToken)
-    {
-        var uri = new Uri(
-            $"https://store.steampowered.com/api/appdetails?appids={sourceGameId}&l=english",
-            UriKind.Absolute);
-        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeout.CancelAfter(StoreCatalogTimeout);
-        try
-        {
-            var json = await _fetchStoreAppDetails(uri, timeout.Token).ConfigureAwait(false);
-            return ParseStoreAchievementCatalog(json, sourceGameId);
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            throw;
-        }
-        catch
-        {
-            return SteamStoreAchievementCatalogStatus.Unavailable;
-        }
-    }
-
-    internal static SteamStoreAchievementCatalogStatus ParseStoreAchievementCatalog(
-        string? json,
-        string sourceGameId)
-    {
-        if (string.IsNullOrWhiteSpace(json) || json.Length > MaxStoreCatalogBytes ||
-            string.IsNullOrWhiteSpace(sourceGameId))
-            return SteamStoreAchievementCatalogStatus.Unavailable;
-
-        try
-        {
-            using var document = JsonDocument.Parse(json, new JsonDocumentOptions { MaxDepth = 32 });
-            if (document.RootElement.ValueKind != JsonValueKind.Object ||
-                !document.RootElement.TryGetProperty(sourceGameId, out var envelope) ||
-                envelope.ValueKind != JsonValueKind.Object ||
-                !envelope.TryGetProperty("success", out var success) ||
-                success.ValueKind != JsonValueKind.True ||
-                !envelope.TryGetProperty("data", out var data) ||
-                data.ValueKind != JsonValueKind.Object)
-                return SteamStoreAchievementCatalogStatus.Unavailable;
-
-            if (data.TryGetProperty("achievements", out var achievements))
-            {
-                if (achievements.ValueKind != JsonValueKind.Object)
-                    return SteamStoreAchievementCatalogStatus.Unavailable;
-                var total = ReadInt(achievements, "total");
-                if (total is null or < 0)
-                    return SteamStoreAchievementCatalogStatus.Unavailable;
-                if (total > 0) return SteamStoreAchievementCatalogStatus.NonZero;
-            }
-
-            // Absence of the achievements object is only a positive zero signal
-            // when Steam also supplied a well-formed categories array that does
-            // not advertise achievement support.
-            if (!data.TryGetProperty("categories", out var categories) ||
-                categories.ValueKind != JsonValueKind.Array)
-                return SteamStoreAchievementCatalogStatus.Unavailable;
-            foreach (var category in categories.EnumerateArray())
-            {
-                if (category.ValueKind != JsonValueKind.Object)
-                    return SteamStoreAchievementCatalogStatus.Unavailable;
-                var id = ReadInt(category, "id");
-                var description = ReadText(category, "description", 128);
-                if (id is null or < 0 || string.IsNullOrWhiteSpace(description))
-                    return SteamStoreAchievementCatalogStatus.Unavailable;
-                if (id == 22 ||
-                    string.Equals(description,
-                        "Steam Achievements", StringComparison.OrdinalIgnoreCase))
-                    return SteamStoreAchievementCatalogStatus.Unavailable;
-            }
-            return SteamStoreAchievementCatalogStatus.ConfirmedZero;
-        }
-        catch (JsonException)
-        {
-            return SteamStoreAchievementCatalogStatus.Unavailable;
-        }
-    }
-
     private static bool IsUncorroboratedLocalZero(AchievementSnapshot snapshot) =>
         snapshot.Coverage == AchievementCoverageStatus.Unavailable &&
         snapshot.ReportedTotal == 0 &&
         snapshot.ReportedUnlocked == 0 &&
         snapshot.Entries.Count == 0;
 
-    private static HttpClient CreateStoreCatalogClient()
+    private static HttpClient CreateWebApiClient()
     {
         var client = new HttpClient { Timeout = Timeout.InfiniteTimeSpan };
         client.DefaultRequestHeaders.UserAgent.ParseAdd("ExoLauncher/1.0");
         return client;
     }
 
-    private static async Task<string?> FetchStoreAppDetailsAsync(
+    private static async Task<string?> FetchWebApiAsync(
         Uri uri,
         CancellationToken cancellationToken)
     {
         using var request = new HttpRequestMessage(HttpMethod.Get, uri);
-        using var response = await StoreCatalogClient.SendAsync(
+        using var response = await WebApiClient.SendAsync(
             request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
         if (response.StatusCode != HttpStatusCode.OK ||
-            response.Content.Headers.ContentLength is > MaxStoreCatalogBytes)
+            response.Content.Headers.ContentLength is > MaxPayloadBytes)
             return null;
 
         await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken)
@@ -338,7 +500,7 @@ public sealed class SteamLibraryCacheAchievementProvider : IAchievementProvider
         {
             var read = await stream.ReadAsync(buffer.AsMemory(), cancellationToken).ConfigureAwait(false);
             if (read == 0) break;
-            if (memory.Length + read > MaxStoreCatalogBytes) return null;
+            if (memory.Length + read > MaxPayloadBytes) return null;
             await memory.WriteAsync(buffer.AsMemory(0, read), cancellationToken).ConfigureAwait(false);
         }
         return Encoding.UTF8.GetString(memory.ToArray());
@@ -474,10 +636,7 @@ public sealed class SteamLibraryCacheAchievementProvider : IAchievementProvider
     private static string? XmlHttpsUrl(XElement row, string localName)
     {
         var text = XmlValue(row, localName);
-        return Uri.TryCreate(text, UriKind.Absolute, out var uri) &&
-               string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)
-            ? uri.AbsoluteUri
-            : null;
+        return AchievementIconCache.SanitizeProviderImageUrl(text);
     }
 
     private static bool TryGetSection(
@@ -660,7 +819,7 @@ public sealed class SteamLibraryCacheAchievementProvider : IAchievementProvider
                 Name = string.IsNullOrWhiteSpace(name) ? (hidden ? "Hidden achievement" : externalId) : name,
                 Description = description,
                 Hidden = hidden,
-                IconUnlockedUrl = ReadHttpsUrl(row, "strImage"),
+                IconUnlockedUrl = hidden && !unlocked ? null : ReadHttpsUrl(row, "strImage"),
             },
             State = new AchievementState
             {
@@ -691,7 +850,12 @@ public sealed class SteamLibraryCacheAchievementProvider : IAchievementProvider
                     ? string.Empty
                     : PreferredText(existing.Definition.Description, incoming.Definition.Description),
                 Hidden = hidden,
-                IconUnlockedUrl = existing.Definition.IconUnlockedUrl ?? incoming.Definition.IconUnlockedUrl,
+                IconUnlockedUrl = hidden && !existing.State.Unlocked
+                    ? null
+                    : existing.Definition.IconUnlockedUrl ?? incoming.Definition.IconUnlockedUrl,
+                IconLockedUrl = hidden && !existing.State.Unlocked
+                    ? null
+                    : existing.Definition.IconLockedUrl ?? incoming.Definition.IconLockedUrl,
             },
             State = existing.State with
             {
@@ -720,7 +884,12 @@ public sealed class SteamLibraryCacheAchievementProvider : IAchievementProvider
                     ? string.Empty
                     : PreferredText(accountEntry.Definition.Description, mapDescription),
                 Hidden = hidden,
-                IconUnlockedUrl = accountEntry.Definition.IconUnlockedUrl ?? ReadHttpsUrl(mapRow, "strImage"),
+                IconUnlockedUrl = hidden && !accountEntry.State.Unlocked
+                    ? null
+                    : accountEntry.Definition.IconUnlockedUrl ?? ReadHttpsUrl(mapRow, "strImage"),
+                IconLockedUrl = hidden && !accountEntry.State.Unlocked
+                    ? null
+                    : accountEntry.Definition.IconLockedUrl,
             },
             // The map is never account authority. In particular, ignore its
             // bAchieved, timestamps, and progress fields.
@@ -885,19 +1054,9 @@ public sealed class SteamLibraryCacheAchievementProvider : IAchievementProvider
     private static string? ReadHttpsUrl(JsonElement element, string property)
     {
         var text = ReadText(element, property, 2_048);
-        return Uri.TryCreate(text, UriKind.Absolute, out var uri) &&
-               string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)
-            ? uri.AbsoluteUri
-            : null;
+        return AchievementIconCache.SanitizeProviderImageUrl(text);
     }
 
     private static double? Max(double? left, double? right) =>
         left is null ? right : right is null ? left : Math.Max(left.Value, right.Value);
-}
-
-internal enum SteamStoreAchievementCatalogStatus
-{
-    Unavailable,
-    ConfirmedZero,
-    NonZero,
 }

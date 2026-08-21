@@ -6,29 +6,53 @@
     <ResourceDictionary.ThemeDictionaries>
         <ResourceDictionary x:Key="Dark">
             <Color x:Key="ExoColorPage">#000000</Color>
-            <Color x:Key="ExoColorSunken">#050505</Color>
-            <Color x:Key="ExoColorBase">#0A0A0A</Color>
-            <Color x:Key="ExoColorCard">#0E0E0E</Color>
-            <Color x:Key="ExoColorRaised">#141414</Color>
-            <Color x:Key="ExoColorHairline">#12FFFFFF</Color>
-            <Color x:Key="ExoColorPrimaryText">#F2F2F0</Color>
-            <Color x:Key="ExoColorSecondaryText">#C2C3C5</Color>
-            <Color x:Key="ExoColorMutedText">#8E9094</Color>
+            <Color x:Key="ExoColorSunken">#000000</Color>
+            <Color x:Key="ExoColorBase">#101010</Color>
+            <Color x:Key="ExoColorCard">#101010</Color>
+            <Color x:Key="ExoColorRaised">#1A1A1C</Color>
+            <Color x:Key="ExoColorHairline">#2A2A2C</Color>
+            <Color x:Key="ExoColorPrimaryText">#F5F5F7</Color>
+            <Color x:Key="ExoColorSecondaryText">#86868B</Color>
+            <Color x:Key="ExoColorMutedText">#6E6E73</Color>
+            <Color x:Key="ExoColorAction">#2997FF</Color>
+            <Color x:Key="ExoColorInverse">#F5F5F7</Color>
+            <Color x:Key="ExoColorInverseHover">#E8E8ED</Color>
+            <Color x:Key="ExoColorInverseInk">#000000</Color>
+            <Color x:Key="ExoColorEdge">#26FFFFFF</Color>
+            <Color x:Key="ExoColorSpot">#40FFFFFF</Color>
 
             <SolidColorBrush x:Key="ExoPageBackgroundBrush" Color="{StaticResource ExoColorPage}" />
             <SolidColorBrush x:Key="ExoCardFillBrush" Color="{StaticResource ExoColorCard}" />
+            <SolidColorBrush x:Key="ExoRaisedFillBrush" Color="{StaticResource ExoColorRaised}" />
             <SolidColorBrush x:Key="ExoDividerBrush" Color="{StaticResource ExoColorHairline}" />
             <SolidColorBrush x:Key="ExoPrimaryTextBrush" Color="{StaticResource ExoColorPrimaryText}" />
             <SolidColorBrush x:Key="ExoSecondaryTextBrush" Color="{StaticResource ExoColorSecondaryText}" />
             <SolidColorBrush x:Key="ExoMutedTextBrush" Color="{StaticResource ExoColorMutedText}" />
+            <SolidColorBrush x:Key="ExoActionBrush" Color="{StaticResource ExoColorAction}" />
+            <SolidColorBrush x:Key="ExoInverseFillBrush" Color="{StaticResource ExoColorInverse}" />
+            <SolidColorBrush x:Key="ExoInverseHoverBrush" Color="{StaticResource ExoColorInverseHover}" />
+            <SolidColorBrush x:Key="ExoInverseTextBrush" Color="{StaticResource ExoColorInverseInk}" />
+            <SolidColorBrush x:Key="ExoEdgeBrush" Color="{StaticResource ExoColorEdge}" />
+            <SolidColorBrush x:Key="ExoSpotFillBrush" Color="{StaticResource ExoColorSpot}" />
+            <SolidColorBrush x:Key="ExoChromeBrush" Color="#E6000000" />
+            <SolidColorBrush x:Key="ExoChipBrush" Color="#B3000000" />
         </ResourceDictionary>
         <ResourceDictionary x:Key="HighContrast">
             <StaticResource x:Key="ExoPageBackgroundBrush" ResourceKey="SystemColorWindowBrush" />
             <StaticResource x:Key="ExoCardFillBrush" ResourceKey="SystemColorWindowBrush" />
+            <StaticResource x:Key="ExoRaisedFillBrush" ResourceKey="SystemColorWindowBrush" />
             <StaticResource x:Key="ExoDividerBrush" ResourceKey="SystemColorWindowTextBrush" />
             <StaticResource x:Key="ExoPrimaryTextBrush" ResourceKey="SystemColorWindowTextBrush" />
             <StaticResource x:Key="ExoSecondaryTextBrush" ResourceKey="SystemColorWindowTextBrush" />
             <StaticResource x:Key="ExoMutedTextBrush" ResourceKey="SystemColorGrayTextBrush" />
+            <StaticResource x:Key="ExoActionBrush" ResourceKey="SystemColorHotlightBrush" />
+            <StaticResource x:Key="ExoInverseFillBrush" ResourceKey="SystemColorWindowTextBrush" />
+            <StaticResource x:Key="ExoInverseHoverBrush" ResourceKey="SystemColorWindowTextBrush" />
+            <StaticResource x:Key="ExoInverseTextBrush" ResourceKey="SystemColorWindowBrush" />
+            <StaticResource x:Key="ExoEdgeBrush" ResourceKey="SystemColorWindowTextBrush" />
+            <StaticResource x:Key="ExoSpotFillBrush" ResourceKey="SystemColorHighlightBrush" />
+            <StaticResource x:Key="ExoChromeBrush" ResourceKey="SystemColorWindowBrush" />
+            <StaticResource x:Key="ExoChipBrush" ResourceKey="SystemColorWindowBrush" />
         </ResourceDictionary>
     </ResourceDictionary.ThemeDictionaries>
 </ResourceDictionary>

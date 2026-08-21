@@ -315,10 +315,18 @@ public sealed class VerifiedGitHubReleaseDownloaderTests : IDisposable
         var epic = File.ReadAllText(FindRepoFile("ExoLauncher", "Adapters", "EpicAdapter.cs"));
         var gog = File.ReadAllText(FindRepoFile("ExoLauncher", "Adapters", "GogAdapter.cs"));
 
+        var cache = File.ReadAllText(FindRepoFile("ExoLauncher", "Adapters", "PinnedToolCache.cs"));
+
         Assert.Contains("VerifiedGitHubReleaseDownloader.Shared", epic, StringComparison.Ordinal);
         Assert.Contains("VerifiedGitHubReleaseDownloader.Shared", gog, StringComparison.Ordinal);
-        Assert.Contains("IsPinnedAssetFile", epic, StringComparison.Ordinal);
-        Assert.Contains("IsPinnedAssetFile", gog, StringComparison.Ordinal);
+        // Both adapters verify the managed cache through PinnedToolCache, which
+        // still does the size + SHA-256 check and re-runs it whenever the file's
+        // length or last-write time moves.
+        Assert.Contains("PinnedToolCache.IsPinnedAsset", epic, StringComparison.Ordinal);
+        Assert.Contains("PinnedToolCache.IsPinnedAsset", gog, StringComparison.Ordinal);
+        Assert.Contains("VerifiedGitHubReleaseDownloader.IsPinnedAssetFile", cache, StringComparison.Ordinal);
+        Assert.Contains("info.Length", cache, StringComparison.Ordinal);
+        Assert.Contains("info.LastWriteTimeUtc", cache, StringComparison.Ordinal);
         Assert.Contains("0.21.0", epic, StringComparison.Ordinal);
         Assert.Contains("17_610_944", epic, StringComparison.Ordinal);
         Assert.Contains("4c01a14c0acb0c46069b197ae7212ea4ea6b861661126ca0593cdac31658fb01", epic, StringComparison.Ordinal);

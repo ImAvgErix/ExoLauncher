@@ -141,4 +141,25 @@ public class RiotInstallProbeTests : IDisposable
         };
         Assert.Equal("install", missing.PrimaryAction);
     }
+
+    [Fact]
+    public void ProductUninstallKey_MapsKnownProductsOnly()
+    {
+        Assert.Equal("Riot Game valorant.live", RiotInstallProbe.ProductUninstallKey("valorant"));
+        Assert.Equal("Riot Game league_of_legends.live", RiotInstallProbe.ProductUninstallKey("league_of_legends"));
+        Assert.Equal("Riot Game bacon.live", RiotInstallProbe.ProductUninstallKey("bacon"));
+        Assert.Equal("Riot Game lion.live", RiotInstallProbe.ProductUninstallKey("lion"));
+        Assert.Null(RiotInstallProbe.ProductUninstallKey("steam"));
+        Assert.Null(RiotInstallProbe.ReadEstimatedSizeBytes(null));
+    }
+
+    [Fact]
+    public void TryReadInstallSizeBytes_UninstalledProduct_IsNull()
+    {
+        Assert.Null(RiotInstallProbe.TryReadInstallSizeBytes("not-a-riot-product"));
+        if (RiotInstallProbe.FindInstalledProduct("bacon") is null)
+            Assert.Null(RiotInstallProbe.TryReadInstallSizeBytes("bacon"));
+        if (RiotInstallProbe.FindInstalledProduct("lion") is null)
+            Assert.Null(RiotInstallProbe.TryReadInstallSizeBytes("lion"));
+    }
 }

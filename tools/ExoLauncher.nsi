@@ -282,6 +282,9 @@ Section "Exo Launcher" SecApp
   RMDir /r "$R5"
   Delete "$R8\update-error.log"
 
+  ; CreateShortCut inherits the current output directory as its working
+  ; directory. Point it at the managed app instead of the staging $TEMP path.
+  SetOutPath "$INSTDIR"
   CreateDirectory "$SMPROGRAMS"
   CreateShortCut "$SMPROGRAMS\Exo Launcher.lnk" "$INSTDIR\ExoLauncher.exe" "" "$INSTDIR\ExoLauncher.exe" 0
   WriteUninstaller "$INSTDIR\Uninstall.exe"

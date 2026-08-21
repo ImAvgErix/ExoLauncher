@@ -97,6 +97,21 @@ public sealed class OfficialClientLocatorTests
     }
 
     [Fact]
+    public void GalaxyClient_IsFoundFromUninstallEvidence()
+    {
+        var command = OfficialClientLocator.ResolveFromEvidence(
+            GogAdapter.GalaxyClientDefinition,
+            path => path == @"E:\Games\GOG Galaxy\GalaxyClient.exe",
+            Array.Empty<string?>(),
+            [new OfficialClientUninstallEntry("GOG Galaxy", @"E:\Games\GOG Galaxy", null)],
+            Array.Empty<string>());
+
+        Assert.NotNull(command);
+        Assert.Equal(@"E:\Games\GOG Galaxy\GalaxyClient.exe", command!.FileName);
+        Assert.False(command.IsAppx);
+    }
+
+    [Fact]
     public void StoreMatrix_OfficialClientPresenceDoesNotClaimSignIn()
     {
         var library = new LibraryService([new PresenceOnlyOfficialAdapter()], new SettingsService());
@@ -137,7 +152,7 @@ public sealed class OfficialClientLocatorTests
         Assert.Contains("no proven launch target", launch.Message, StringComparison.OrdinalIgnoreCase);
         Assert.False(install.Ok);
         Assert.False(install.HandoffOnly);
-        Assert.Contains("cannot install games", install.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("no install target", install.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

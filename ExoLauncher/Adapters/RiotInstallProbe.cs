@@ -108,7 +108,7 @@ public static class RiotInstallProbe
             "valorant" => ["VALORANT", "valorant"],
             "league_of_legends" => ["League of Legends", "LeagueOfLegends"],
             "bacon" => ["Legends of Runeterra", "LoR"],
-            "lion" => ["Teamfight Tactics", "TFT"],
+            "lion" => ["2XKO", "Lion"],
             _ => [productId],
         };
 
@@ -138,8 +138,9 @@ public static class RiotInstallProbe
             },
             "lion" => new[]
             {
-                // TFT ships via League client often — folder presence with any exe is weak signal.
-                Path.Combine(dir, "Teamfight Tactics.exe"),
+                Path.Combine(dir, "2XKO.exe"),
+                Path.Combine(dir, "Lion.exe"),
+                Path.Combine(dir, "live", "2XKO.exe"),
             },
             _ => Array.Empty<string>(),
         };
@@ -150,5 +151,51 @@ public static class RiotInstallProbe
         // bootstrap/patch stubs while downloading; only product-specific markers
         // are strong enough to expose Play or finish an install.
         return false;
+    }
+
+    /// <summary>
+    /// Windows Add/Remove Programs size for a Riot product, in bytes. This is
+    /// the game's own uninstall key — Vanguard and Riot Client are separate.
+    /// </summary>
+    public static long? TryReadInstallSizeBytes(string productId)
+    {
+        var keyName = ProductUninstallKey(productId);
+        if (keyName is null) return null;
+        try
+        {
+            using var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(
+                @"Software\Microsoft\Windows\CurrentVersion\Uninstall\" + keyName);
+            return ReadEstimatedSizeBytes(key);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    internal static string? ProductUninstallKey(string productId) =>
+        productId.Trim().ToLowerInvariant() switch
+        {
+            "valorant" => "Riot Game valorant.live",
+            "league_of_legends" => "Riot Game league_of_legends.live",
+            "bacon" => "Riot Game bacon.live",
+            "lion" => "Riot Game lion.live",
+            _ => null,
+        };
+
+    internal static long? ReadEstimatedSizeBytes(Microsoft.Win32.RegistryKey? key)
+    {
+        if (key is null) return null;
+        var raw = key.GetValue("EstimatedSize");
+        long kb = raw switch
+        {
+            int i => i,
+            uint u => u,
+            long l => l,
+            ulong ul => ul > long.MaxValue ? 0 : (long)ul,
+            _ => 0,
+        };
+        if (kb <= 0) return null;
+        return kb * 1024L;
     }
 }

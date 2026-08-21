@@ -6,19 +6,48 @@ namespace ExoLauncher.Tests;
 public sealed class TrophyNotificationServiceTests
 {
     [Fact]
-    public void PreviewUsesRepresentativeGoldArtContract()
+    public void PreviewUsesSharedDesignCopyWithoutProductBrand()
+    {
+        var service = new TrophyNotificationService(new SettingsService());
+        TrophyNotificationRequest? request = null;
+        service.Requested += value => request = value;
+        var sample = TrophyBannerDesign.Current.Preview;
+
+        Assert.True(service.Preview());
+
+        var payload = Assert.IsType<TrophyNotificationRequest>(request).Payload;
+        Assert.Equal(sample.AchievementName, payload.AchievementName);
+        Assert.Equal(sample.GameTitle, payload.GameTitle);
+        Assert.Equal(sample.Detail, payload.Detail);
+        Assert.DoesNotContain("Exo Launcher", payload.GameTitle, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Exo Launcher", payload.AchievementName, StringComparison.OrdinalIgnoreCase);
+        Assert.Null(payload.RarityPercent);
+        Assert.Equal(TrophyRarity.Bronze, payload.Rarity);
+        Assert.True(payload.IsPreview);
+
+        Assert.True(service.Preview());
+        Assert.Equal(TrophyRarity.Silver, Assert.IsType<TrophyNotificationRequest>(request).Payload.Rarity);
+    }
+
+    [Fact]
+    public void PreviewCanPinATierWithoutAdvancingTheCycle()
     {
         var service = new TrophyNotificationService(new SettingsService());
         TrophyNotificationRequest? request = null;
         service.Requested += value => request = value;
 
-        service.Preview();
+        Assert.True(service.Preview(null, null, null, TrophyRarity.Platinum, null));
+        Assert.Equal(TrophyRarity.Platinum, Assert.IsType<TrophyNotificationRequest>(request).Payload.Rarity);
 
-        var payload = Assert.IsType<TrophyNotificationRequest>(request).Payload;
-        Assert.Equal("First light", payload.AchievementName);
-        Assert.Equal(TrophyRarity.Gold, payload.Rarity);
-        Assert.Equal(4.8d, payload.RarityPercent);
-        Assert.True(payload.IsPreview);
+        Assert.True(service.Preview());
+        Assert.Equal(TrophyRarity.Bronze, Assert.IsType<TrophyNotificationRequest>(request).Payload.Rarity);
+    }
+
+    [Fact]
+    public void PreviewWithoutPresenterReturnsFalse()
+    {
+        var service = new TrophyNotificationService(new SettingsService());
+        Assert.False(service.Preview());
     }
 
     [Fact]

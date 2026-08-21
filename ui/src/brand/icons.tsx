@@ -17,6 +17,7 @@ import { SquareIcon } from '@phosphor-icons/react/dist/csr/Square'
 import { StarIcon } from '@phosphor-icons/react/dist/csr/Star'
 import { StopIcon } from '@phosphor-icons/react/dist/csr/Stop'
 import { TrashSimpleIcon } from '@phosphor-icons/react/dist/csr/TrashSimple'
+import { WrenchIcon } from '@phosphor-icons/react/dist/csr/Wrench'
 import { XIcon } from '@phosphor-icons/react/dist/csr/X'
 
 type IconProps = {
@@ -54,6 +55,7 @@ export const Stop = glyph(StopIcon, 'fill')
 export const Download = glyph(DownloadSimpleIcon)
 export const Trash = glyph(TrashSimpleIcon)
 export const FolderOpen = glyph(FolderOpenIcon)
+export const Wrench = glyph(WrenchIcon)
 export const Check = glyph(CheckIcon)
 export const ChevronLeft = glyph(CaretLeftIcon)
 export const ChevronRight = glyph(CaretRightIcon)

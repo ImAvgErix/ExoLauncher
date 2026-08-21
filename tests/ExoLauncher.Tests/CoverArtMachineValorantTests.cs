@@ -40,7 +40,7 @@ public class CoverArtMachineValorantTests
 
         Assert.NotNull(preferred);
         Assert.True(CoverArtService.IsUiLoadableCoverUrl(preferred),
-            $"Cover URL must satisfy the WebView CSP, got: {preferred}");
+            $"Cover URL must be loadable by native Image, got: {preferred}");
     }
 
     [Fact]

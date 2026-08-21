@@ -15,12 +15,16 @@ BundleArtifacts/
 **/node_modules/
 
 # Local scratch / IDE
+.tmp-reactbits/
+.env.local
 .idea/
+.vscode/
 *.DotSettings.user
 dist/
 work/
 .ui-shots/
 .tmp-grok-ui/
+.tmp-trophy-src/
 .tmp-exo-*.jpg
 .verify-*.jpg
 

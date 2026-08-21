@@ -3,6 +3,7 @@ using System.Text.Json;
 using ExoLauncher.Adapters.Cli;
 using ExoLauncher.Helpers;
 using ExoLauncher.Models;
+using ExoLauncher.Services;
 
 namespace ExoLauncher.Services.Achievements;
 
@@ -48,11 +49,19 @@ public sealed class EpicLegendaryAchievementProvider : IAchievementProvider
         AchievementProviderCapabilities.Progress |
         AchievementProviderCapabilities.Rarity |
         AchievementProviderCapabilities.CompleteCatalog;
+    /// <summary>
+    /// Legendary is a process spawn, not a file read. Twenty seconds keeps
+    /// EOS lag honest without forking legendary.exe on a 12s game-loop tick.
+    /// </summary>
+    public TimeSpan SuggestedPollInterval => TimeSpan.FromSeconds(20);
 
     public bool Supports(GameEntry game) =>
         game.Store == StoreKind.Epic &&
         (game.Id.StartsWith("epic:", StringComparison.OrdinalIgnoreCase) ||
          !string.IsNullOrWhiteSpace(game.LaunchTarget));
+
+    public string? GetCurrentCoverageKey(GameEntry game) =>
+        Supports(game) ? _resolveCoverageKey() : null;
 
     public async Task<AchievementSnapshot> GetSnapshotAsync(
         GameEntry game,
@@ -454,9 +463,6 @@ public sealed class EpicLegendaryAchievementProvider : IAchievementProvider
     private static string? ReadHttpsUrl(JsonElement element, string property)
     {
         var text = ReadText(element, property, 2_048);
-        return Uri.TryCreate(text, UriKind.Absolute, out var uri) &&
-               string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)
-            ? uri.AbsoluteUri
-            : null;
+        return AchievementIconCache.SanitizeProviderImageUrl(text);
     }
 }

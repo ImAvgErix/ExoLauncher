@@ -1,0 +1,11 @@
+# Local-only. Copy to .dev.vars and fill in. Never commit .dev.vars.
+# Wrangler reads .dev.vars for `wrangler dev` / local D1. Production secrets
+# go through `wrangler secret put`, not a file.
+
+BETTER_AUTH_SECRET=
+BETTER_AUTH_URL=http://127.0.0.1:8787
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+RESEND_API_KEY=
+RESEND_FROM=Exo <noreply@localhost>
+ENVIRONMENT=development

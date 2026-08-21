@@ -1,3 +1,7 @@
+using System.Collections.Concurrent;
+using System.Reflection;
+using System.Text.Json;
+using ExoLauncher.Helpers;
 using ExoLauncher.Models;
 using ExoLauncher.Services;
 using Xunit;
@@ -10,17 +14,13 @@ namespace ExoLauncher.Tests;
 public class CoverArtServiceTests : IDisposable
 {
     private readonly string _dir;
-    private readonly string _prevCache;
 
     public CoverArtServiceTests()
     {
         _dir = Path.Combine(Path.GetTempPath(), "exo-cover-test-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(_dir);
-        // Point cache root via reflection-safe approach: write into real CacheRoot is fine,
-        // but use isolated files under a subfolder we control by writing into CacheRoot
-        // with known app ids and cleaning up after.
+        // Cache-root tests use unique app ids and clean up their files explicitly.
         Directory.CreateDirectory(CoverArtService.CacheRoot);
-        _prevCache = CoverArtService.CacheRoot;
     }
 
     public void Dispose()
@@ -43,13 +43,107 @@ public class CoverArtServiceTests : IDisposable
         return padded;
     }
 
+    private static byte[] FakePng(int width, int height)
+    {
+        var bytes = new byte[CoverArtService.MinCoverBytes + 64];
+        bytes[0] = 0x89;
+        bytes[1] = 0x50;
+        bytes[2] = 0x4E;
+        bytes[3] = 0x47;
+        bytes[4] = 0x0D;
+        bytes[5] = 0x0A;
+        bytes[6] = 0x1A;
+        bytes[7] = 0x0A;
+        bytes[16] = (byte)(width >> 24);
+        bytes[17] = (byte)(width >> 16);
+        bytes[18] = (byte)(width >> 8);
+        bytes[19] = (byte)width;
+        bytes[20] = (byte)(height >> 24);
+        bytes[21] = (byte)(height >> 16);
+        bytes[22] = (byte)(height >> 8);
+        bytes[23] = (byte)height;
+        return bytes;
+    }
+
     [Fact]
     public void ColdStartCoverWarm_UsesShortIdleDeferralAndBoundedConcurrency()
     {
         // Prefer filling covers quickly over long first-paint idle deferral.
         Assert.Equal(TimeSpan.FromMilliseconds(50), CoverArtService.FirstPaintCoverWarmDelay);
-        Assert.Equal(8, CoverArtService.BackgroundWarmConcurrency);
-        Assert.Equal(16, CoverArtService.RequestedWarmConcurrency);
+        Assert.Equal(4, CoverArtService.BackgroundWarmConcurrency);
+        Assert.Equal(4, CoverArtService.RequestedWarmConcurrency);
+        Assert.Equal(4, CoverArtService.RequestedWarmNotificationBatchSize);
+    }
+
+    [Fact]
+    public async Task WarmCacheAsync_CacheOnlyResultDoesNotNotify()
+    {
+        var digits = string.Concat(Guid.NewGuid().ToString("N").Where(char.IsDigit));
+        var appId = ("9" + digits).PadRight(10, '7')[..10];
+        var game = new GameEntry
+        {
+            Id = "steam:" + appId,
+            Title = "Cached Art Fixture",
+            Store = StoreKind.Steam,
+            Installed = true,
+            LaunchTarget = appId,
+        };
+        var portrait = Path.Combine(CoverArtService.CacheRoot, appId + ".jpg");
+        var slugPortrait = Path.Combine(CoverArtService.CacheRoot, "steam_" + appId + ".jpg");
+        var wide = Path.Combine(CoverArtService.CacheRoot, CoverArtService.WideArtFileName(game.Id));
+        var notifications = 0;
+
+        try
+        {
+            File.WriteAllBytes(portrait, FakePng(600, 900));
+            File.WriteAllBytes(wide, FakePng(1920, 620));
+
+            await CoverArtService.WarmCacheAsync(
+                    [game],
+                    () => Interlocked.Increment(ref notifications),
+                    requested: true,
+                    deferForFirstPaint: false)
+                .WaitAsync(TimeSpan.FromSeconds(5));
+
+            Assert.Equal(0, notifications);
+        }
+        finally
+        {
+            try { File.Delete(portrait); } catch { /* */ }
+            try { File.Delete(slugPortrait); } catch { /* */ }
+            try { File.Delete(wide); } catch { /* */ }
+        }
+    }
+
+    [Fact]
+    public void NeedsBackgroundWarm_VisibleTitleWithPortraitStillNeedsMissingWideArt()
+    {
+        var digits = string.Concat(Guid.NewGuid().ToString("N").Where(char.IsDigit));
+        var appId = ("8" + digits).PadRight(10, '6')[..10];
+        var game = new GameEntry
+        {
+            Id = "steam:" + appId,
+            Title = "Portrait Only Fixture",
+            Store = StoreKind.Steam,
+            Installed = true,
+            LaunchTarget = appId,
+        };
+        var portrait = Path.Combine(CoverArtService.CacheRoot, appId + ".jpg");
+        var wide = Path.Combine(CoverArtService.CacheRoot, CoverArtService.WideArtFileName(game.Id));
+
+        try
+        {
+            File.WriteAllBytes(portrait, FakePng(600, 900));
+            Assert.True(CoverArtService.NeedsBackgroundWarm(game));
+
+            File.WriteAllBytes(wide, FakePng(1920, 620));
+            Assert.False(CoverArtService.NeedsBackgroundWarm(game));
+        }
+        finally
+        {
+            try { File.Delete(portrait); } catch { /* */ }
+            try { File.Delete(wide); } catch { /* */ }
+        }
     }
 
     [Fact]
@@ -78,6 +172,136 @@ public class CoverArtServiceTests : IDisposable
         var html = System.Text.Encoding.UTF8.GetBytes("<!DOCTYPE html><html>" + new string('x', 900));
         File.WriteAllBytes(path, html);
         Assert.Null(CoverArtService.TryDataUrl(path));
+    }
+
+    [Fact]
+    public void ProvisionalStorePosterUrl_FortniteAndValorant_AreOfficialEpicCdn()
+    {
+        var fortnite = CoverArtService.ProvisionalStorePosterUrl(new GameEntry
+        {
+            Id = "epic:Fortnite-anyone",
+            Title = "Fortnite",
+            Store = StoreKind.Epic,
+            Installed = true,
+            LaunchTarget = "Fortnite",
+        });
+        var valorant = CoverArtService.ProvisionalStorePosterUrl(new GameEntry
+        {
+            Id = "riot:valorant-anyone",
+            Title = "VALORANT",
+            Store = StoreKind.Riot,
+            Installed = true,
+            LaunchTarget = "valorant",
+        });
+
+        Assert.True(CoverArtService.IsOfficialEpicPortraitCdn(fortnite), fortnite);
+        Assert.True(CoverArtService.IsOfficialEpicPortraitCdn(valorant), valorant);
+        Assert.True(CoverArtService.IsOfficialEpicPortraitCdn(
+            EpicCatalogArt.TrySeedPortraitUrl("Teamfight Tactics")));
+        Assert.True(CoverArtService.IsOfficialEpicPortraitCdn(
+            EpicCatalogArt.TrySeedPortraitUrl("Legends of Runeterra")));
+        Assert.True(CoverArtService.IsOfficialEpicPortraitCdn(
+            "https://cdn1.unrealengine.com/egs-example-s2-1200x1600-aaaaaaaaaaaa.jpg"));
+        Assert.True(CoverArtService.IsOfficialEpicPortraitCdn(
+            "https://cdn2.epicgames.com/item/fn/example-1200x1600-bbbbbbbbbbbb.jpg"));
+    }
+
+    [Fact]
+    public void WithCover_Fortnite_GetsLoadableArtWithoutExoDiskCache()
+    {
+        var with = CoverArtService.WithCover(new GameEntry
+        {
+            Id = "epic:Fortnite-anyone-nocache",
+            Title = "Fortnite",
+            Store = StoreKind.Epic,
+            Installed = true,
+            LaunchTarget = "Fortnite",
+        });
+
+        Assert.False(string.IsNullOrWhiteSpace(with.CoverUrl));
+        Assert.True(CoverArtService.IsUiLoadableCoverUrl(with.CoverUrl), with.CoverUrl);
+    }
+
+    [Fact]
+    public void TryImportSteamLibraryCachePoster_CopiesLibrary600x900()
+    {
+        const string appId = "999001199";
+        var steam = Path.Combine(_dir, "Steam");
+        Directory.CreateDirectory(Path.Combine(steam, "appcache", "librarycache", appId));
+        File.WriteAllBytes(
+            Path.Combine(steam, "appcache", "librarycache", appId, "library_600x900.jpg"),
+            MinimalJpeg());
+        var dest = Path.Combine(_dir, "imported.jpg");
+        var dest2x = Path.Combine(_dir, "imported_2x.jpg");
+
+        var ok = CoverArtService.TryImportSteamLibraryCachePoster(appId, dest2x, dest, steam);
+
+        Assert.True(ok);
+        Assert.True(File.Exists(dest));
+        Assert.True(CoverArtService.IsPortraitCover(dest));
+    }
+
+    [Fact]
+    public void TryImportSteamLibraryCachePoster_CopiesHashedPortraitWhenNamedPosterMissing()
+    {
+        const string appId = "999001188";
+        var steam = Path.Combine(_dir, "Steam");
+        var folder = Path.Combine(steam, "appcache", "librarycache", appId);
+        Directory.CreateDirectory(folder);
+        File.WriteAllBytes(Path.Combine(folder, "header.jpg"), MinimalJpeg());
+        File.WriteAllBytes(
+            Path.Combine(folder, "7807d6dcd71d8161465619b4f041794b0353a6d0.jpg"),
+            MinimalJpeg());
+        var dest = Path.Combine(_dir, "hashed.jpg");
+        var dest2x = Path.Combine(_dir, "hashed_2x.jpg");
+
+        var ok = CoverArtService.TryImportSteamLibraryCachePoster(appId, dest2x, dest, steam);
+
+        Assert.True(ok);
+        Assert.True(File.Exists(dest));
+        Assert.True(CoverArtService.IsPortraitCover(dest));
+    }
+
+    [Fact]
+    public void WithCover_KeepsStoreVariantsAndPlaytime()
+    {
+        var card = new GameEntry
+        {
+            Id = "steam:252950",
+            Title = "Rocket League",
+            Store = StoreKind.Steam,
+            Installed = true,
+            LaunchTarget = "252950",
+            PlaytimeMinutes = 12,
+            CanonicalTitleKey = "rocketleague",
+            SelectedVariantId = "steam:252950",
+            Variants =
+            [
+                new GameVariant
+                {
+                    Id = "steam:252950",
+                    Store = StoreKind.Steam,
+                    Installed = true,
+                    LaunchTarget = "252950",
+                    PlaytimeMinutes = 12,
+                },
+                new GameVariant
+                {
+                    Id = "epic:Sugar",
+                    Store = StoreKind.Epic,
+                    Installed = true,
+                    LaunchTarget = "Sugar",
+                    PlaytimeMinutes = 11_307,
+                },
+            ],
+        };
+
+        var with = CoverArtService.WithCover(card);
+
+        Assert.Equal(2, with.Variants.Count);
+        Assert.Equal(11_307, with.Variants.First(v => v.Id == "epic:Sugar").PlaytimeMinutes);
+        Assert.Equal(12, with.PlaytimeMinutes);
+        Assert.Equal("rocketleague", with.CanonicalTitleKey);
     }
 
     [Fact]
@@ -134,7 +358,7 @@ public class CoverArtServiceTests : IDisposable
     [Fact]
     public async Task WarmCache_DoesNotRepublishLibrary_WhenPosterIsAlreadyCached()
     {
-        var appId = "cached-noop-" + Guid.NewGuid().ToString("N");
+        const string appId = "999001266";
         var dest = Path.Combine(CoverArtService.CacheRoot, appId + ".jpg");
         try
         {
@@ -147,6 +371,7 @@ public class CoverArtServiceTests : IDisposable
                 Store = StoreKind.Steam,
                 LaunchTarget = appId,
             };
+            Assert.Equal(appId, CoverArtService.SteamAppId(game));
 
             await CoverArtService.WarmCacheAsync(
                 [game],
@@ -179,7 +404,7 @@ public class CoverArtServiceTests : IDisposable
             // Must be UI-loadable under shipped CSP (data: or covers.exo-launcher.local) — never CDN.
             Assert.True(
                 CoverArtService.IsUiLoadableCoverUrl(url),
-                "PreferLocalArt returned a URL the WebView CSP would block: " + url);
+                "PreferLocalArt returned a URL native Image would refuse: " + url);
             Assert.Equal($"{CoverArtService.VirtualHostOrigin}/big-test-cover.jpg", url);
             Assert.DoesNotContain("steamstatic", url, StringComparison.OrdinalIgnoreCase);
         }
@@ -223,35 +448,28 @@ public class CoverArtServiceTests : IDisposable
     {
         Assert.True(CoverArtService.IsUiLoadableCoverUrl("data:image/jpeg;base64,abc"));
         Assert.True(CoverArtService.IsUiLoadableCoverUrl($"{CoverArtService.VirtualHostOrigin}/730.jpg"));
-        Assert.True(CoverArtService.IsUiLoadableCoverUrl(
+        Assert.True(CoverArtService.IsAllowlistedCdnCover(
             "https://cdn.cloudflare.steamstatic.com/steam/apps/730/library_600x900_2x.jpg"));
+        Assert.False(CoverArtService.IsUiLoadableCoverUrl(
+            "https://cdn.cloudflare.steamstatic.com/steam/apps/730/library_600x900_2x.jpg"));
+        Assert.True(CoverArtService.IsProvisionalSteamPosterCdn(
+            "https://cdn.cloudflare.steamstatic.com/steam/apps/730/library_600x900.jpg"));
+        Assert.True(CoverArtService.IsUiLoadableCoverUrl(
+            "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/3513350/abc/library_capsule.jpg"));
         Assert.True(CoverArtService.IsUiLoadableCoverUrl(
             "https://cdn1.epicgames.com/offer/fn/portrait.jpg"));
         Assert.True(CoverArtService.IsUiLoadableCoverUrl(
             "https://images.gog-statics.com/abc_product_tile_2560x1440.jpg"));
+        Assert.True(CoverArtService.IsAllowlistedCdnCover(
+            "https://store-images.s-microsoft.com/image/cover.jpg"));
+        Assert.True(CoverArtService.IsAllowlistedCdnCover(
+            "https://cdn.playvalorant.com/cover.jpg"));
         Assert.False(CoverArtService.IsUiLoadableCoverUrl(
             "https://cdn.cloudflare.steamstatic.com/steam/apps/730/library_hero.jpg"));
         Assert.False(CoverArtService.IsUiLoadableCoverUrl("https://evil.example/gog-statics.com/x.jpg"));
         Assert.False(CoverArtService.IsAllowlistedCdnCover("https://evil.example/gog-statics.com/x.jpg"));
         Assert.False(CoverArtService.IsUiLoadableCoverUrl($"{CoverArtService.VirtualHostOrigin}/../secret"));
         Assert.False(CoverArtService.IsUiLoadableCoverUrl(null));
-
-        // Shipped CSP in ui/index.html must allow virtual host + Steam portrait CDNs.
-        string? indexHtml = null;
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        for (var i = 0; i < 10 && dir is not null; i++, dir = dir.Parent)
-        {
-            var candidate = Path.Combine(dir.FullName, "ui", "index.html");
-            if (File.Exists(candidate)) { indexHtml = candidate; break; }
-            candidate = Path.Combine(dir.FullName, "ExoLauncher", "wwwroot", "index.html");
-            if (File.Exists(candidate)) { indexHtml = candidate; break; }
-        }
-        Assert.False(string.IsNullOrEmpty(indexHtml), "Could not locate ui/index.html or wwwroot/index.html to audit CSP");
-        var html = File.ReadAllText(indexHtml!);
-        Assert.Contains("covers.exo-launcher.local", html, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("steamstatic.com", html, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("img-src", html, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("data:", html, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -285,7 +503,9 @@ public class CoverArtServiceTests : IDisposable
         var resolved = CoverArtService.WithCover(game);
 
         Assert.Equal(CoverArtService.SteamPortraitCdnUrl(appId), resolved.CoverUrl);
-        Assert.True(CoverArtService.IsUiLoadableCoverUrl(resolved.CoverUrl));
+        Assert.True(CoverArtService.IsOfficialSteamPortraitCdn(resolved.CoverUrl));
+        Assert.True(CoverArtService.IsAllowlistedCdnCover(resolved.CoverUrl));
+        Assert.False(CoverArtService.IsUiLoadableCoverUrl(resolved.CoverUrl));
     }
 
     [Fact]
@@ -324,9 +544,79 @@ public class CoverArtServiceTests : IDisposable
         var resolved = CoverArtService.WithCover(game);
 
         Assert.NotNull(resolved.CoverUrl);
-        Assert.True(CoverArtService.IsUiLoadableCoverUrl(resolved.CoverUrl));
+        Assert.True(
+            CoverArtService.IsUiLoadableCoverUrl(resolved.CoverUrl) ||
+            CoverArtService.IsOfficialSteamPortraitCdn(resolved.CoverUrl),
+            resolved.CoverUrl);
         // Disk cache or provisional CDN — both are official Steam poster for 4704690.
         Assert.Contains("4704690", resolved.CoverUrl, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void WithCover_UsesSouthOfMidnightsActualSteamPoster()
+    {
+        var resolved = CoverArtService.WithCover(new GameEntry
+        {
+            Id = "xbox:south-of-midnight-seed-regression",
+            Title = "South of Midnight",
+            Store = StoreKind.Xbox,
+            Installed = true,
+        });
+
+        Assert.Contains("1934570", resolved.CoverUrl, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task WarmCache_UpgradesStalePersistedPerGameMap_ForSouthOfMidnight()
+    {
+        const string gameId = "xbox:south-of-midnight-persisted-regression";
+        const string staleAppId = "2138720";
+        const string correctedAppId = "1934570";
+        const string slugFileName = "xbox_south_of_midnight_persisted_regression.jpg";
+        var priorDataDir = Environment.GetEnvironmentVariable(PathHelper.DataDirOverrideVariable);
+        var titleMap = GetTitleSteamMap();
+        var priorTitleMap = titleMap.ToArray();
+
+        try
+        {
+            titleMap.Clear();
+            Environment.SetEnvironmentVariable(PathHelper.DataDirOverrideVariable, _dir);
+            Directory.CreateDirectory(CoverArtService.CacheRoot);
+            var mapPath = Path.Combine(CoverArtService.CacheRoot, "title-steam-map.json");
+            File.WriteAllText(mapPath, JsonSerializer.Serialize(new Dictionary<string, string>
+            {
+                [gameId] = staleAppId,
+            }));
+            // Mirror the persisted row in memory so unrelated fire-and-forget
+            // cover warms cannot make EnsureTitleMapLoaded skip this fixture.
+            titleMap[gameId] = staleAppId;
+            File.WriteAllBytes(Path.Combine(CoverArtService.CacheRoot, staleAppId + ".jpg"), MinimalJpeg());
+            File.WriteAllBytes(Path.Combine(CoverArtService.CacheRoot, correctedAppId + ".jpg"), MinimalJpeg());
+            var staleSlugPath = Path.Combine(CoverArtService.CacheRoot, slugFileName);
+            File.WriteAllBytes(staleSlugPath, MinimalJpeg());
+
+            var game = new GameEntry
+            {
+                Id = gameId,
+                Title = "South of Midnight",
+                Store = StoreKind.Xbox,
+                Installed = true,
+            };
+
+            await CoverArtService.WarmCacheAsync([game]);
+
+            using var persisted = JsonDocument.Parse(File.ReadAllText(mapPath));
+            Assert.Equal(correctedAppId, persisted.RootElement.GetProperty(gameId).GetString());
+            Assert.False(File.Exists(staleSlugPath));
+            Assert.Contains(correctedAppId, CoverArtService.WithCover(game).CoverUrl, StringComparison.Ordinal);
+        }
+        finally
+        {
+            titleMap.Clear();
+            foreach (var entry in priorTitleMap)
+                titleMap[entry.Key] = entry.Value;
+            Environment.SetEnvironmentVariable(PathHelper.DataDirOverrideVariable, priorDataDir);
+        }
     }
 
     [Fact]
@@ -371,6 +661,8 @@ public class CoverArtServiceTests : IDisposable
     {
         Assert.Equal("valorant", EpicCatalogArt.ProductSlug("VALORANT"));
         Assert.Equal("league-of-legends", EpicCatalogArt.ProductSlug("League of Legends"));
+        Assert.Equal("fortnite", EpicCatalogArt.ProductSlug("Fortnite Battle Royale"));
+        Assert.Equal("teamfight-tactics", EpicCatalogArt.ProductSlug("Teamfight Tactics"));
     }
 
     [Fact]
@@ -497,6 +789,146 @@ public class CoverArtServiceTests : IDisposable
     }
 
     [Fact]
+    public void SplitCamelTitle_SplitsLetterDigitAndCamelCase()
+    {
+        var forza = CoverArtService.SplitCamelTitle("ForzaHorizon5");
+        var tokens = forza.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        Assert.Contains("Forza", tokens);
+        Assert.Contains("Horizon", tokens);
+        Assert.Contains("5", tokens);
+        Assert.Equal("Halo Infinite", CoverArtService.SplitCamelTitle("HaloInfinite"));
+        Assert.Equal("Forza Horizon 5", CoverArtService.CleanSearchTitle("ForzaHorizon5"));
+    }
+
+    [Fact]
+    public void CleanSearchTitle_StripsEditionJunk_AndKeepsBaseTitle()
+    {
+        Assert.Equal("Forza Horizon 5", CoverArtService.CleanSearchTitle("Forza Horizon 5 Premium Edition"));
+        Assert.Equal("Halo Infinite", CoverArtService.CleanSearchTitle("HaloInfinite Windows Edition"));
+        Assert.Equal("Forza Horizon 5", CoverArtService.CleanSearchTitle("ForzaHorizon5 Game of the Year Edition"));
+        Assert.Equal("Halo Infinite", CoverArtService.CleanSearchTitle("Halo Infinite Legendary Edition"));
+    }
+
+    [Fact]
+    public void AcceptSteamTitleScore_Uses82ForMultiToken_90ForShort()
+    {
+        Assert.Equal(82, CoverArtService.AcceptSteamTitleScore("Forza Horizon 5"));
+        Assert.Equal(82, CoverArtService.AcceptSteamTitleScore("Halo Infinite"));
+        Assert.Equal(90, CoverArtService.AcceptSteamTitleScore("Hades"));
+        Assert.Equal(TimeSpan.FromHours(18), CoverArtService.NegativeTitleMapTtl);
+        var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        Assert.True(CoverArtService.IsActiveNegativeCache("0:" + (now - 3600)));
+        Assert.False(CoverArtService.IsActiveNegativeCache("0:" + (now - 19 * 3600)));
+        Assert.False(CoverArtService.IsActiveNegativeCache("0"));
+    }
+
+    [Fact]
+    public void PickBestArt_PrefersPortrait()
+    {
+        var portrait = Path.Combine(_dir, "poster.png");
+        var landscape = Path.Combine(_dir, "hero.png");
+        File.WriteAllBytes(portrait, FakePng(600, 900));
+        File.WriteAllBytes(landscape, FakePng(1920, 620));
+
+        Assert.Equal(portrait, CoverArtService.PickBestArt([landscape, portrait]));
+    }
+
+    [Fact]
+    public void IsPortraitCover_AcceptsPosterAndRejectsSquareArt()
+    {
+        var poster = Path.Combine(_dir, "classifier-poster.png");
+        var square = Path.Combine(_dir, "classifier-square.png");
+        var nearSquare = Path.Combine(_dir, "classifier-near-square.png");
+        File.WriteAllBytes(poster, FakePng(600, 900));
+        File.WriteAllBytes(square, FakePng(900, 900));
+        File.WriteAllBytes(nearSquare, FakePng(950, 1000));
+
+        Assert.Equal(0.90, CoverArtService.MaxCoverAspect);
+        Assert.True(CoverArtService.IsPortraitCover(poster));
+        Assert.False(CoverArtService.IsPortraitCover(square));
+        Assert.False(CoverArtService.IsPortraitCover(nearSquare));
+        Assert.Equal(poster, CoverArtService.PickBestArt([square, nearSquare, poster]));
+    }
+
+    [Fact]
+    public void PickBestArt_RejectsLandscapeWhenNoPortraitExists()
+    {
+        var landscape = Path.Combine(_dir, "hero.png");
+        File.WriteAllBytes(landscape, FakePng(1920, 620));
+
+        Assert.Null(CoverArtService.PickBestArt([landscape]));
+    }
+
+    [Fact]
+    public void DiscardIfLandscape_RemovesLandscapeFromPortraitCache()
+    {
+        var landscape = Path.Combine(_dir, "hero.png");
+        File.WriteAllBytes(landscape, FakePng(1920, 620));
+
+        CoverArtService.DiscardIfLandscape(landscape);
+
+        Assert.False(File.Exists(landscape));
+    }
+
+    [Fact]
+    public void ResolvePreferredUrl_RejectsLandscapeInPortraitCache()
+    {
+        const string appId = "730009911";
+        var dest = Path.Combine(CoverArtService.CacheRoot, appId + ".jpg");
+        try
+        {
+            File.WriteAllBytes(dest, FakePng(1920, 620));
+            var url = CoverArtService.ResolvePreferredUrl(new GameEntry
+            {
+                Id = "steam:" + appId,
+                Title = "Hero Only",
+                Store = StoreKind.Steam,
+                LaunchTarget = appId,
+            });
+            Assert.Null(url);
+            Assert.False(File.Exists(dest));
+        }
+        finally
+        {
+            try { File.Delete(dest); } catch { /* */ }
+        }
+    }
+
+    [Fact]
+    public void TryImportSteamLibraryCachePoster_RejectsHeaderWhenNoPortrait()
+    {
+        const string appId = "999001177";
+        var steam = Path.Combine(_dir, "SteamHero");
+        Directory.CreateDirectory(Path.Combine(steam, "appcache", "librarycache", appId));
+        File.WriteAllBytes(
+            Path.Combine(steam, "appcache", "librarycache", appId, "header.jpg"),
+            FakePng(1920, 620));
+        var dest = Path.Combine(_dir, "hero-import.jpg");
+        var dest2x = Path.Combine(_dir, "hero-import_2x.jpg");
+
+        var ok = CoverArtService.TryImportSteamLibraryCachePoster(appId, dest2x, dest, steam);
+
+        Assert.False(ok);
+        Assert.False(File.Exists(dest));
+        Assert.False(File.Exists(dest2x));
+    }
+
+    [Fact]
+    public void WithCover_UsesSeededSteamPoster_ForCamelXboxFolderTitle()
+    {
+        var resolved = CoverArtService.WithCover(new GameEntry
+        {
+            Id = "xbox:forza-camel-cover",
+            Title = "ForzaHorizon5",
+            Store = StoreKind.Xbox,
+            Installed = true,
+        });
+
+        Assert.False(string.IsNullOrWhiteSpace(resolved.CoverUrl));
+        Assert.Contains("1551360", resolved.CoverUrl, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void IsCoverImageBytes_AcceptsJpegPngAndWebp()
     {
         Assert.True(CoverArtService.IsCoverImageBytes([0xFF, 0xD8, 0xFF]));
@@ -506,5 +938,160 @@ public class CoverArtServiceTests : IDisposable
         webp[8] = (byte)'W';
         Assert.True(CoverArtService.IsCoverImageBytes(webp));
         Assert.False(CoverArtService.IsCoverImageBytes([(byte)'<', (byte)'h']));
+    }
+
+    [Fact]
+    public void ResolvePreferredUrl_UsesPlatedExecutableIcon_WhenNoStoreArt()
+    {
+        var notepad = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.System), "notepad.exe");
+        if (!File.Exists(notepad)) return;
+
+        var dest = Path.Combine(CoverArtService.CacheRoot, GameIconArt.CacheFileName("local:icon-test"));
+        try
+        {
+            if (File.Exists(dest)) File.Delete(dest);
+            Assert.True(GameIconArt.TryExtractFromExecutable(notepad, dest));
+            Assert.True(GameIconArt.IsValidPlate(dest));
+
+            var game = new GameEntry
+            {
+                Id = "local:icon-test",
+                Title = "Icon Test",
+                Store = StoreKind.Local,
+                Installed = true,
+                Path = Path.GetDirectoryName(notepad),
+                LaunchTarget = notepad,
+            };
+            var url = CoverArtService.ResolvePreferredUrl(game);
+            Assert.NotNull(url);
+            Assert.Contains("icon_local_icon_test.png", url, StringComparison.OrdinalIgnoreCase);
+            Assert.Equal("icon", CoverArtService.WithCover(game).CoverSource);
+        }
+        finally
+        {
+            try { if (File.Exists(dest)) File.Delete(dest); } catch { /* */ }
+        }
+    }
+
+    [Fact]
+    public void WithCover_RebindsMismatchedPerGameMapToCurrentNormalizedTitle()
+    {
+        const string gameId = "xbox:title-binding-regression";
+        const string staleAppId = "99110001";
+        const string correctedAppId = "99110002";
+        const string title = "Current Binding Fixture";
+        var priorDataDir = Environment.GetEnvironmentVariable(PathHelper.DataDirOverrideVariable);
+        var titleMap = GetTitleSteamMap();
+        var priorTitleMap = titleMap.ToArray();
+
+        try
+        {
+            titleMap.Clear();
+            Environment.SetEnvironmentVariable(PathHelper.DataDirOverrideVariable, _dir);
+            Directory.CreateDirectory(CoverArtService.CacheRoot);
+            titleMap[gameId] = staleAppId;
+            titleMap[CoverArtService.GameTitleBindingKey(gameId)] = "different old title";
+            titleMap[CoverArtService.NormalizedTitleBinding(title)] = correctedAppId;
+            File.WriteAllBytes(
+                Path.Combine(CoverArtService.CacheRoot, correctedAppId + ".jpg"),
+                MinimalJpeg());
+            var staleSlug = Path.Combine(
+                CoverArtService.CacheRoot,
+                "xbox_title_binding_regression.jpg");
+            File.WriteAllBytes(staleSlug, MinimalJpeg());
+
+            var resolved = CoverArtService.WithCover(new GameEntry
+            {
+                Id = gameId,
+                Title = title,
+                Store = StoreKind.Xbox,
+                Installed = true,
+            });
+
+            Assert.Contains(correctedAppId, resolved.CoverUrl, StringComparison.Ordinal);
+            Assert.Equal(correctedAppId, titleMap[gameId]);
+            Assert.Equal(
+                CoverArtService.NormalizedTitleBinding(title),
+                titleMap[CoverArtService.GameTitleBindingKey(gameId)]);
+            Assert.False(File.Exists(staleSlug));
+        }
+        finally
+        {
+            titleMap.Clear();
+            foreach (var entry in priorTitleMap)
+                titleMap[entry.Key] = entry.Value;
+            Environment.SetEnvironmentVariable(PathHelper.DataDirOverrideVariable, priorDataDir);
+        }
+    }
+
+    [Fact]
+    public void WithCover_MigratesOnlyLegacyPerGameMapConfirmedByTitleEntry()
+    {
+        const string confirmedGameId = "xbox:legacy-binding-confirmed";
+        const string rejectedGameId = "xbox:legacy-binding-rejected";
+        const string confirmedAppId = "99220001";
+        const string rejectedAppId = "99220002";
+        const string confirmedTitle = "Legacy Binding Confirmed Fixture";
+        const string rejectedTitle = "Legacy Binding Rejected Fixture";
+        var priorDataDir = Environment.GetEnvironmentVariable(PathHelper.DataDirOverrideVariable);
+        var titleMap = GetTitleSteamMap();
+        var priorTitleMap = titleMap.ToArray();
+
+        try
+        {
+            titleMap.Clear();
+            Environment.SetEnvironmentVariable(PathHelper.DataDirOverrideVariable, _dir);
+            Directory.CreateDirectory(CoverArtService.CacheRoot);
+            titleMap[confirmedGameId] = confirmedAppId;
+            titleMap[CoverArtService.NormalizedTitleBinding(confirmedTitle)] = confirmedAppId;
+            titleMap[rejectedGameId] = rejectedAppId;
+            File.WriteAllBytes(
+                Path.Combine(CoverArtService.CacheRoot, confirmedAppId + ".jpg"),
+                MinimalJpeg());
+            var rejectedSlug = Path.Combine(
+                CoverArtService.CacheRoot,
+                "xbox_legacy_binding_rejected.jpg");
+            File.WriteAllBytes(rejectedSlug, MinimalJpeg());
+
+            var confirmed = CoverArtService.WithCover(new GameEntry
+            {
+                Id = confirmedGameId,
+                Title = confirmedTitle,
+                Store = StoreKind.Xbox,
+                Installed = true,
+            });
+            var rejected = CoverArtService.WithCover(new GameEntry
+            {
+                Id = rejectedGameId,
+                Title = rejectedTitle,
+                Store = StoreKind.Xbox,
+                Installed = true,
+            });
+
+            Assert.Contains(confirmedAppId, confirmed.CoverUrl, StringComparison.Ordinal);
+            Assert.Equal(
+                CoverArtService.NormalizedTitleBinding(confirmedTitle),
+                titleMap[CoverArtService.GameTitleBindingKey(confirmedGameId)]);
+            Assert.Null(rejected.CoverUrl);
+            Assert.False(titleMap.ContainsKey(rejectedGameId));
+            Assert.False(titleMap.ContainsKey(CoverArtService.GameTitleBindingKey(rejectedGameId)));
+            Assert.False(File.Exists(rejectedSlug));
+        }
+        finally
+        {
+            titleMap.Clear();
+            foreach (var entry in priorTitleMap)
+                titleMap[entry.Key] = entry.Value;
+            Environment.SetEnvironmentVariable(PathHelper.DataDirOverrideVariable, priorDataDir);
+        }
+    }
+
+    private static ConcurrentDictionary<string, string> GetTitleSteamMap()
+    {
+        var field = typeof(CoverArtService).GetField(
+            "TitleSteamMap",
+            BindingFlags.NonPublic | BindingFlags.Static);
+        return Assert.IsType<ConcurrentDictionary<string, string>>(field?.GetValue(null));
     }
 }

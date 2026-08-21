@@ -78,6 +78,16 @@ internal static partial class SteamPlaytime
         return Directory.Exists(dir) ? dir : null;
     }
 
+    internal static string? TryGetLocalConfigPath(string steamRoot)
+    {
+        if (string.IsNullOrWhiteSpace(steamRoot)) return null;
+        var root = NormalizeRoot(steamRoot);
+        var accountId = ResolveActiveAccountId(root, ReadRegistryActiveAccountId());
+        if (!IsSafeAccountId(accountId)) return null;
+        var config = Path.Combine(root, "userdata", accountId!, "config", "localconfig.vdf");
+        return File.Exists(config) ? config : null;
+    }
+
     /// <summary>All app ids for the active Steam account only.</summary>
     public static IReadOnlyDictionary<string, Entry> LoadAll(string steamRoot) =>
         LoadActiveAccount(steamRoot)?.Entries ?? new Dictionary<string, Entry>();
@@ -96,7 +106,7 @@ internal static partial class SteamPlaytime
             if (_snapshot is not null &&
                 string.Equals(_loadedRoot, root, StringComparison.OrdinalIgnoreCase) &&
                 string.Equals(_loadedAccountId, accountId, StringComparison.Ordinal) &&
-                DateTime.UtcNow - _loadedUtc < TimeSpan.FromMinutes(2))
+                DateTime.UtcNow - _loadedUtc < CacheLifetime())
                 return _snapshot;
         }
         return LoadAccount(root, accountId);
@@ -125,14 +135,15 @@ internal static partial class SteamPlaytime
             if (_snapshot is not null &&
                 string.Equals(_loadedRoot, root, StringComparison.OrdinalIgnoreCase) &&
                 string.Equals(_loadedAccountId, accountId, StringComparison.Ordinal) &&
-                DateTime.UtcNow - _loadedUtc < TimeSpan.FromMinutes(2))
+                DateTime.UtcNow - _loadedUtc < CacheLifetime())
                 return _snapshot;
 
             var map = new Dictionary<string, Entry>(StringComparer.Ordinal);
             IReadOnlySet<string> appTickets;
             try
             {
-                var text = File.ReadAllText(config);
+                var text = ReadSharedText(config);
+                if (text is null) return null;
                 MergeFile(map, text);
                 appTickets = ParseAppTickets(text);
             }
@@ -156,6 +167,36 @@ internal static partial class SteamPlaytime
             _loadedAccountId = null;
             _loadedUtc = DateTime.MinValue;
         }
+    }
+
+    private static TimeSpan CacheLifetime() =>
+        ProcessHelper.IsProcessRunning("steam") ? TimeSpan.FromSeconds(20) : TimeSpan.FromMinutes(2);
+
+    internal static string? ReadSharedText(string path)
+    {
+        for (var attempt = 0; attempt < 3; attempt++)
+        {
+            try
+            {
+                using var stream = new FileStream(
+                    path,
+                    FileMode.Open,
+                    FileAccess.Read,
+                    FileShare.ReadWrite | FileShare.Delete);
+                using var reader = new StreamReader(stream);
+                return reader.ReadToEnd();
+            }
+            catch (IOException) when (attempt < 2)
+            {
+                Thread.Sleep(40);
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        return null;
     }
 
     internal static string? ResolveActiveAccountId(string steamRoot, string? registryAccountId)

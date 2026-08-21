@@ -39,11 +39,23 @@ public sealed class EpicAuthContractTests
 
         Assert.True(start >= 0 && end > start);
         var startup = source[start..end];
+        Assert.Contains("EpicPlaytime.RefreshCachedMinutes();", startup, StringComparison.Ordinal);
+        Assert.True(
+            startup.IndexOf("EpicPlaytime.RefreshCachedMinutes();", StringComparison.Ordinal)
+            < startup.IndexOf("if (legendary is not null)", StringComparison.Ordinal),
+            "Epic hours must refresh from Legendary/Heroic user.json even when legendary.exe is missing.");
+        Assert.Contains("ReadNativeInstalledLibrary", startup, StringComparison.Ordinal);
         Assert.Contains("LegendaryCli.ListInstalledArgs()", startup, StringComparison.Ordinal);
         Assert.Contains("ReadEpicManifests", startup, StringComparison.Ordinal);
         Assert.Contains("ReadLauncherInstalled", startup, StringComparison.Ordinal);
         Assert.Contains("ScheduleEglSyncImport(legendary)", startup, StringComparison.Ordinal);
-        Assert.Contains("ct.ThrowIfCancellationRequested()", startup, StringComparison.Ordinal);
+        Assert.Contains("TryParseLegendaryListAsync", startup, StringComparison.Ordinal);
+        Assert.Contains("OperationCanceledException", startup, StringComparison.Ordinal);
+        Assert.True(
+            startup.IndexOf("ReadNativeInstalledLibrary", StringComparison.Ordinal)
+            < startup.IndexOf("TryListLegendaryInstalledAsync", StringComparison.Ordinal),
+            "EGL/Legendary installed.json must be read before spawning legendary.exe.");
+        Assert.DoesNotContain("ct.ThrowIfCancellationRequested()", startup, StringComparison.Ordinal);
         Assert.DoesNotContain("LegendaryCli.ListOwnedArgs()", startup, StringComparison.Ordinal);
         Assert.DoesNotContain("await TryEglSyncImportOnceAsync", startup, StringComparison.Ordinal);
 

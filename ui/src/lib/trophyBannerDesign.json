@@ -1,0 +1,113 @@
+{
+  "width": 400,
+  "height": 92,
+  "radius": 14,
+  "icon": 56,
+  "iconRadius": 10,
+  "padX": 12,
+  "padY": 12,
+  "gap": 12,
+  "overlayPad": 24,
+  "overlayDocument": "trophy.html",
+  "fontFamily": "Geist",
+  "fontFamilyFallback": "Segoe UI Variable Text",
+  "fontFile": "Assets/Fonts/Geist-Regular.ttf",
+  "fontFileMedium": "Assets/Fonts/Geist-Medium.ttf",
+  "fontNativeFace": "Geist",
+  "fontNativeFaceMedium": "Geist Medium",
+  "colors": {
+    "bg": "#000000",
+    "fg": "#f2f2f2",
+    "muted": "#8a8a8a",
+    "faint": "#808080",
+    "hairline": "#161616",
+    "line": "#222222",
+    "good": "#3dd68c"
+  },
+  "type": {
+    "nameSize": 14,
+    "nameWeight": 500,
+    "detailSize": 12,
+    "metaSize": 11,
+    "raritySize": 10,
+    "rarityTrackingEm": 0.08
+  },
+  "preview": {
+    "gameTitle": "Exo Library",
+    "achievementName": "Signal acquired",
+    "detail": "A new path opened."
+  },
+  "previewCycle": ["bronze", "silver", "gold", "platinum"],
+  "accents": {
+    "unknown": { "rarity": "#808080", "hairline": "#161616" },
+    "bronze": { "rarity": "#9d7a62", "hairline": "#2b211c" },
+    "silver": { "rarity": "#b8c0c8", "hairline": "#343a40" },
+    "gold": { "rarity": "#f2d675", "hairline": "#55491f" },
+    "platinum": { "rarity": "#3dd68c", "hairline": "#3dd68c" }
+  },
+  "motion": {
+    "reducedFadeMs": 160,
+    "exitMs": 200,
+    "tiers": {
+      "unknown": {
+        "enterMs": 160,
+        "settleMs": 0,
+        "fromY": 6,
+        "fromScale": 1,
+        "overshoot": 1,
+        "sheen": false,
+        "ring": false,
+        "bloom": false,
+        "pulseIcon": false
+      },
+      "bronze": {
+        "enterMs": 160,
+        "settleMs": 0,
+        "fromY": 6,
+        "fromScale": 1,
+        "overshoot": 1,
+        "sheen": false,
+        "ring": false,
+        "bloom": false,
+        "pulseIcon": false,
+        "effect": "ignition"
+      },
+      "silver": {
+        "enterMs": 180,
+        "settleMs": 0,
+        "fromY": 8,
+        "fromScale": 0.99,
+        "overshoot": 1,
+        "sheen": true,
+        "ring": false,
+        "bloom": false,
+        "pulseIcon": false,
+        "effect": "orbit"
+      },
+      "gold": {
+        "enterMs": 220,
+        "settleMs": 100,
+        "fromY": 10,
+        "fromScale": 0.97,
+        "overshoot": 1.015,
+        "sheen": true,
+        "ring": false,
+        "bloom": false,
+        "pulseIcon": false,
+        "effect": "flare"
+      },
+      "platinum": {
+        "enterMs": 280,
+        "settleMs": 180,
+        "fromY": 14,
+        "fromScale": 0.96,
+        "overshoot": 1.025,
+        "sheen": true,
+        "ring": true,
+        "bloom": true,
+        "pulseIcon": true,
+        "effect": "nova"
+      }
+    }
+  }
+}

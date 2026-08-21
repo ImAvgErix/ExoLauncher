@@ -17,6 +17,11 @@ public sealed class StoreClientCleanupTests
     [InlineData(StoreKind.BattleNet)]
     [InlineData(StoreKind.Amazon)]
     [InlineData(StoreKind.Rockstar)]
+    [InlineData(StoreKind.Itch)]
+    [InlineData(StoreKind.Minecraft)]
+    [InlineData(StoreKind.Roblox)]
+    [InlineData(StoreKind.Paradox)]
+    [InlineData(StoreKind.Wargaming)]
     public void TargetsFor_NeverIncludesActiveProvider(StoreKind activeProvider)
     {
         var all = StoreClientCleanup.TargetsFor(StoreKind.Local);
@@ -62,6 +67,8 @@ public sealed class StoreClientCleanupTests
             "EasyAntiCheat_EOS", "GalaxyClient Service", "vgk", "vgc", "vgm",
             "LeagueClient", "LeagueClientUx", "League of Legends",
             "VALORANT-Win64-Shipping", "RockstarService", "SocialClubHelper",
+            "RobloxPlayerBeta", "Minecraft", "nile", "BattlEye", "BEService",
+            "Vanguard", "VALORANT-Win64-Shipping", "FortniteClient-Win64-Shipping",
         ];
         foreach (var processName in forbidden)
             Assert.DoesNotContain(processName, allowed);
@@ -84,6 +91,25 @@ public sealed class StoreClientCleanupTests
     }
 
     [Fact]
+    public async Task ExitUnused_ReturnsAsSoonAsTheClientsAreGone()
+    {
+        var controller = FakeController.ForAllTargets(gracefulExitSucceeds: true);
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+
+        var report = await StoreClientCleanup.ExitUnusedAsync(
+            StoreKind.Steam,
+            controller,
+            StoreClientCleanup.GracefulExitTimeout);
+
+        watch.Stop();
+        Assert.Equal(0, report.RemainingStoreClients);
+        Assert.True(report.GracefulStoreRequests > 0);
+        // Two flat four-second sleeps used to be the floor for every launch and
+        // every install, whether or not the clients had already exited.
+        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(2), $"cleanup took {watch.Elapsed}");
+    }
+
+    [Fact]
     public async Task ExitUnused_UnresponsiveClientsAreNeverForceKilled()
     {
         var controller = FakeController.ForAllTargets(gracefulExitSucceeds: false);
@@ -98,8 +124,8 @@ public sealed class StoreClientCleanupTests
         Assert.DoesNotContain(controller.Events, value => value.StartsWith("force:", StringComparison.Ordinal));
         var implementation = File.ReadAllText(Path.Combine(RepoRoot(), "ExoLauncher", "Adapters", "StoreClientCleanup.cs"));
         Assert.DoesNotContain(".Kill(", implementation, StringComparison.Ordinal);
-        Assert.Contains("TerminateRemainingUnused", implementation, StringComparison.Ordinal);
-        Assert.Contains("TerminateExactNames", implementation, StringComparison.Ordinal);
+        Assert.DoesNotContain("TerminateRemainingUnused", implementation, StringComparison.Ordinal);
+        Assert.DoesNotContain("TerminateExactNames", implementation, StringComparison.Ordinal);
         var helper = File.ReadAllText(Path.Combine(RepoRoot(), "ExoLauncher", "Adapters", "ProcessHelper.cs"));
         Assert.Contains("NeverTerminateNames", helper, StringComparison.Ordinal);
         Assert.Contains("\"vgk\"", helper, StringComparison.Ordinal);

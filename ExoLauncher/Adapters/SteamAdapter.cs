@@ -3,6 +3,7 @@ using System.Diagnostics;
 using ExoLauncher.Adapters.Cli;
 using ExoLauncher.Helpers;
 using ExoLauncher.Models;
+using ExoLauncher.Services;
 using Microsoft.Win32;
 
 namespace ExoLauncher.Adapters;
@@ -12,9 +13,12 @@ namespace ExoLauncher.Adapters;
 /// Steam runtime usually remains installed; user should not need to open Steam day-to-day.
 /// Anonymous SteamCMD is NOT used for owned paid games.
 /// </summary>
-public sealed class SteamAdapter : IStoreAdapter, IInstalledSteamManifestSource, IStoreAccountScope
+public sealed class SteamAdapter : IStoreAdapter, IInstalledSteamManifestSource, IStoreAccountScope, IAuthoritativeOwnershipSource, IStoreRepair
 {
     private readonly ConcurrentDictionary<string, InstallProgress> _progress = new(StringComparer.OrdinalIgnoreCase);
+    private static int _staleCleanupScheduled;
+
+    public IReadOnlySet<string>? LastAuthoritativeOwnedAppIds { get; private set; }
 
     public StoreKind Store => StoreKind.Steam;
     public string Id => "steam";
@@ -28,25 +32,66 @@ public sealed class SteamAdapter : IStoreAdapter, IInstalledSteamManifestSource,
 
     public bool IsAgentPresent() => ResolveSteamExe() is not null;
 
-    public Task<AuthResult> AuthenticateAsync(CancellationToken ct = default) =>
-        Task.FromResult(new AuthResult
-        {
-            Ok = IsAgentPresent(),
-            RequiresUserAction = true,
-            Message = IsAgentPresent()
-                ? "Steam uses its own login session. Exo does not store Steam passwords."
-                : "Install Steam first.",
-        });
+    public Task<AuthResult> AuthenticateAsync(CancellationToken ct = default)
+    {
+        var steamExe = ResolveSteamExe();
+        if (steamExe is null)
+            return Task.FromResult(new AuthResult
+            {
+                Ok = false,
+                RequiresUserAction = true,
+                Message = "Install Steam first.",
+            });
 
-    public Task<IReadOnlyList<GameEntry>> GetLibraryAsync(CancellationToken ct = default)
+        // Official Steam login window — Exo never collects a Steam password.
+        try
+        {
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = steamExe,
+                UseShellExecute = true,
+            });
+        }
+        catch (Exception ex)
+        {
+            return Task.FromResult(new AuthResult
+            {
+                Ok = false,
+                RequiresUserAction = true,
+                Message = "Could not open Steam. " + ex.Message,
+            });
+        }
+        return Task.FromResult(new AuthResult
+        {
+            Ok = true,
+            RequiresUserAction = true,
+            Message = "Steam opened. Sign in there if asked, then come back.",
+        });
+    }
+
+    public async Task<IReadOnlyList<GameEntry>> GetLibraryAsync(CancellationToken ct = default)
     {
         var games = new List<GameEntry>();
         var steamRoot = ResolveSteamRoot();
         if (steamRoot is null)
-            return Task.FromResult<IReadOnlyList<GameEntry>>(games);
+        {
+            LastAuthoritativeOwnedAppIds = null;
+            return games;
+        }
+        // Leftover download cleanup walks large trees. Never block the library
+        // scan — a cancelled 50 GB leftover used to trip the 25s adapter timeout.
+        ScheduleStaleDownloadCleanup(steamRoot);
         var activeAccount = SteamPlaytime.LoadActiveAccount(steamRoot);
-        var cacheDir = SteamPlaytime.TryGetLibraryCacheDirectory(steamRoot);
-        var appNames = SteamAppInfoNames.Load(Path.Combine(steamRoot, "appcache", "appinfo.vdf"));
+        IReadOnlySet<string>? authoritativeOwnedAppIds = null;
+        var apiKey = SteamWebApiKeyStore.TryRead();
+        var steamId64 = SteamFriends.LoadSelfSteamId64(steamRoot);
+        if (apiKey is not null && steamId64 is not null)
+        {
+            var ownedResult = await SteamWebApi.LoadOwnedGamesAsync(apiKey, steamId64, ct).ConfigureAwait(false);
+            if (ownedResult.Authoritative)
+                authoritativeOwnedAppIds = ownedResult.AppIds;
+        }
+        LastAuthoritativeOwnedAppIds = authoritativeOwnedAppIds;
         var presentAppIds = new HashSet<string>(StringComparer.Ordinal);
 
         foreach (var lib in CollectLibraryFolders(steamRoot))
@@ -91,13 +136,16 @@ public sealed class SteamAdapter : IStoreAdapter, IInstalledSteamManifestSource,
                                activeAccount.Entries.TryGetValue(appId, out var accountPlay)
                         ? accountPlay
                         : (SteamPlaytime.Entry?)null;
-                    // Tickets are incomplete. localconfig Apps + librarycache are
-                    // also positive evidence for the active account. Missing
-                    // evidence stays unknown rather than false.
-                    var ownedByActiveAccount =
-                        activeAccount?.AppTicketIds.Contains(appId) == true ||
-                        activeAccount?.Entries.ContainsKey(appId) == true ||
-                        SteamAccountLibrary.HasCache(cacheDir, appId);
+                    // App manifests, localconfig entries, app tickets, and
+                    // librarycache files can all outlive a refund. They prove
+                    // installation/history, not the current account's license.
+                    var ownershipVerified = authoritativeOwnedAppIds is not null;
+                    var ownedByActiveAccount = authoritativeOwnedAppIds?.Contains(appId) == true;
+                    var entitlementStatus = !ownershipVerified
+                        ? "Ownership unverified"
+                        : ownedByActiveAccount
+                            ? (installed ? (updateAvailable ? "Update" : "Ready") : "Not installed")
+                            : "Buy again";
 
                     presentAppIds.Add(appId);
                     games.Add(new GameEntry
@@ -107,8 +155,13 @@ public sealed class SteamAdapter : IStoreAdapter, IInstalledSteamManifestSource,
                         Store = StoreKind.Steam,
                         Installed = installed,
                         Owned = ownedByActiveAccount,
-                        CanInstall = true,
-                        UpdateAvailable = updateAvailable,
+                        EntitlementState = !ownershipVerified
+                            ? EntitlementState.Unverified
+                            : ownedByActiveAccount
+                                ? EntitlementState.Owned
+                                : EntitlementState.NotOwned,
+                        CanInstall = !installed && ownedByActiveAccount,
+                        UpdateAvailable = ownedByActiveAccount && updateAvailable,
                         Path = path,
                         LaunchTarget = appId,
                         // Native CoverArtService resolves official Steam art into its cache.
@@ -116,24 +169,50 @@ public sealed class SteamAdapter : IStoreAdapter, IInstalledSteamManifestSource,
                         SizeBytes = size,
                         PlaytimeMinutes = play is { Minutes: > 0 } ? play.Value.Minutes : null,
                         LastPlayedUtc = play?.LastPlayedUtc,
-                        Status = installed ? (updateAvailable ? "Update" : "Ready") : "Not installed",
+                        Status = entitlementStatus,
                         Deps = new[] { "Steam client" },
-                        LaunchNote = "Launches through Steam quietly — Steam stays a backend, not a window you use.",
+                        LaunchNote = !ownershipVerified
+                            ? "Installed files found. Ownership is unverified for the active Steam account."
+                            : ownedByActiveAccount
+                                ? "Ownership verified for this Steam account. Launches through Steam."
+                                : "Installed files found, but this Steam account does not currently own the game. Buy it again through Steam.",
                     });
                 }
                 catch { /* skip corrupt manifests */ }
             }
         }
 
+        // appinfo.vdf is only needed for owned-not-installed titles. Installed
+        // rows already have names from appmanifest. Steam rewrites appinfo often.
+        // Use account-local cache only as a name index for ids already present
+        // in the authoritative current-account snapshot. It is never the source
+        // of the ownership claim itself.
+        var ownedIds = authoritativeOwnedAppIds is null
+            ? new HashSet<string>(StringComparer.Ordinal)
+            : authoritativeOwnedAppIds.ToHashSet(StringComparer.Ordinal);
+        var appNames = ownedIds.Any(id => !presentAppIds.Contains(id))
+            ? SteamAppInfoNames.Load(Path.Combine(steamRoot, "appcache", "appinfo.vdf"))
+            : new Dictionary<string, SteamAppInfoNames.Entry>(StringComparer.Ordinal);
         foreach (var extra in SteamAccountLibrary.UninstalledOwnedGames(
-                     SteamAccountLibrary.ListCacheAppIds(cacheDir), presentAppIds, appNames))
+                     ownedIds, presentAppIds, appNames, authoritativeOwnedAppIds))
         {
             if (IsNonGameSteamEntry(extra.LaunchTarget ?? "", extra.Title, null))
                 continue;
             games.Add(extra);
         }
 
-        return Task.FromResult<IReadOnlyList<GameEntry>>(games);
+        return games;
+    }
+
+    private static void ScheduleStaleDownloadCleanup(string steamRoot)
+    {
+        if (Interlocked.CompareExchange(ref _staleCleanupScheduled, 1, 0) != 0) return;
+        _ = Task.Run(() =>
+        {
+            try { Services.SteamLeftoverCleanup.CleanStale(steamRoot); }
+            catch { /* leftover folders are best-effort */ }
+            finally { Interlocked.Exchange(ref _staleCleanupScheduled, 0); }
+        });
     }
 
     /// <summary>
@@ -203,6 +282,11 @@ public sealed class SteamAdapter : IStoreAdapter, IInstalledSteamManifestSource,
 
         Report(game.Id, progress, InstallPhase.Preparing, null, "Starting Steam…");
 
+        // Cancel may only undo what this request created. A manifest that already
+        // exists is the user's install (a paused or partially downloaded game
+        // still has one), and uninstalling it on cancel deleted real files.
+        var appManifestExistedBeforeRequest = FindAppManifestPath(appId) is not null;
+
         using var hider = StoreWindowHider.ForSteam();
 
         try
@@ -228,20 +312,21 @@ public sealed class SteamAdapter : IStoreAdapter, IInstalledSteamManifestSource,
             var stableTicks = 0;
             var steamRoot = ResolveSteamRoot();
             var baseline = ReadAppManifestSnapshot(appId);
+            var sampler = new SteamWatchSampler();
 
             while (!ct.IsCancellationRequested)
             {
                 var elapsed = (DateTimeOffset.UtcNow - start).TotalSeconds;
                 var hit = FindInstalled(appId);
                 var snap = ReadAppManifestSnapshot(appId);
-                var transfer = ReadTransfer(appId, steamRoot, snap, baseline);
+                var transfer = sampler.ReadTransfer(appId, steamRoot, snap, baseline);
                 if (hit is not null || snap.StateFlags is not null || transfer.ToDownload is not null)
                     sawManifest = true;
 
                 var liveBytes = transfer.ToDownload is > 0 &&
                                 transfer.Downloaded is not null &&
                                 transfer.Percent is > 0;
-                var size = hit is not null ? TryDirSize(hit.Value.Path) : 0L;
+                var size = hit is not null ? sampler.ReadInstalledSize(hit.Value.Path) : 0L;
                 var status = liveBytes
                     ? $"Downloading {game.Title}… ({FormatBytes(transfer.Downloaded ?? 0)} / {FormatBytes(transfer.ToDownload!.Value)})"
                     : transfer.ToDownload is > 0 || snap.StateFlags is not null
@@ -251,13 +336,15 @@ public sealed class SteamAdapter : IStoreAdapter, IInstalledSteamManifestSource,
                             : sawManifest
                                 ? $"Installing {game.Title}…"
                                 : "Starting Steam install…";
-                Report(game.Id, progress, InstallPhase.Installing, transfer.Percent, status);
+                Report(game.Id, progress, InstallPhase.Installing, transfer.Percent, status,
+                    transfer.Downloaded is > 0 ? transfer.Downloaded : null,
+                    transfer.ToDownload is > 0 ? transfer.ToDownload : null);
 
                 if (hit is not null)
                 {
                     var ready = SteamStateFlags.IsFullyInstalled(snap.StateFlags) &&
                                 !SteamStateFlags.IsBusy(snap.StateFlags, snap.BytesToDownload, snap.BytesDownloaded);
-                    if (ready && size > 5 * 1024 * 1024)
+                    if (ready)
                     {
                         if (size >= lastSize) stableTicks++;
                         else stableTicks = 0;
@@ -296,13 +383,15 @@ public sealed class SteamAdapter : IStoreAdapter, IInstalledSteamManifestSource,
                 await Task.Delay(400, ct).ConfigureAwait(false);
             }
 
-            const string cancelled = "Exo stopped watching. Steam may continue downloading.";
+            StopFreshSteamInstall(appId, appManifestExistedBeforeRequest);
+            const string cancelled = "Cancelled.";
             Report(game.Id, progress, InstallPhase.Cancelled, null, cancelled);
             return new InstallResult { Ok = false, Message = cancelled };
         }
         catch (OperationCanceledException)
         {
-            const string cancelled = "Exo stopped watching. Steam may continue downloading.";
+            StopFreshSteamInstall(appId, appManifestExistedBeforeRequest);
+            const string cancelled = "Cancelled.";
             Report(game.Id, progress, InstallPhase.Cancelled, null, cancelled);
             return new InstallResult { Ok = false, Message = cancelled };
         }
@@ -311,6 +400,19 @@ public sealed class SteamAdapter : IStoreAdapter, IInstalledSteamManifestSource,
             Report(game.Id, progress, InstallPhase.Failed, null, ex.Message);
             return new InstallResult { Ok = false, Message = ex.Message };
         }
+    }
+
+    private static void StopFreshSteamInstall(string appId, bool appManifestExistedBeforeRequest)
+    {
+        if (!SteamStateFlags.CanRollBackCancelledInstall(appManifestExistedBeforeRequest))
+        {
+            AppLog.Info(
+                $"Steam install cancel: appId={appId}; left the pre-existing install in place.");
+            return;
+        }
+
+        var status = SteamClientIpc.Command("uninstall", appId);
+        AppLog.Info($"Steam install cancel: appId={appId}; ipc={status}.");
     }
 
     /// <summary>
@@ -341,13 +443,17 @@ public sealed class SteamAdapter : IStoreAdapter, IInstalledSteamManifestSource,
         CancellationToken ct,
         bool retryCommandFailure = true)
     {
-        var installDir = FindInstalled(appId)?.Path;
         var last = SteamIpcStatus.Unavailable;
         for (var attempt = 0; attempt < 4; attempt++)
         {
             ct.ThrowIfCancellationRequested();
-            last = SteamClientIpc.Command(action, appId, installDir);
+            last = SteamClientIpc.Command(action, appId);
             if (last == SteamIpcStatus.Ok)
+                return last;
+            // A missing helper is not a transient failure. Four more spawns and
+            // 4.5s of delay only postponed the protocol fallback the caller
+            // already has.
+            if (last == SteamIpcStatus.HostMissing)
                 return last;
             if (last == SteamIpcStatus.CommandFailed && !retryCommandFailure)
                 return last;
@@ -433,6 +539,7 @@ public sealed class SteamAdapter : IStoreAdapter, IInstalledSteamManifestSource,
             double? lastPct = null;
             var readyStreak = 0;
             long lastDownloaded = -1;
+            var sampler = new SteamWatchSampler();
 
             while (!ct.IsCancellationRequested)
             {
@@ -448,7 +555,7 @@ public sealed class SteamAdapter : IStoreAdapter, IInstalledSteamManifestSource,
 
                 if (busy) sawBusy = true;
 
-                var transfer = ReadTransfer(appId, steamRoot, snap, initial);
+                var transfer = sampler.ReadTransfer(appId, steamRoot, snap, initial);
                 var transferPct = transfer.Percent;
 
                 if (transferPct is > 0 and < 100 &&
@@ -472,7 +579,9 @@ public sealed class SteamAdapter : IStoreAdapter, IInstalledSteamManifestSource,
                     Report(game.Id, progress, InstallPhase.Downloading, transferPct ?? lastPct,
                         liveBytes
                             ? $"Updating… {FormatBytes(done)} / {FormatBytes(to!.Value)}"
-                            : "Steam is applying the update…");
+                            : "Steam is applying the update…",
+                        liveBytes && done > 0 ? done : null,
+                        liveBytes && to is > 0 ? to : null);
                     readyStreak = 0;
                 }
                 else if (queuedNoProgress || (updateNeeded && !sawDownloadProgress))
@@ -552,13 +661,13 @@ public sealed class SteamAdapter : IStoreAdapter, IInstalledSteamManifestSource,
                 await Task.Delay(400, ct).ConfigureAwait(false);
             }
 
-            const string cancelled = "Exo stopped watching. Steam may continue downloading.";
+            const string cancelled = "Cancelled.";
             Report(game.Id, progress, InstallPhase.Cancelled, null, cancelled);
             return new InstallResult { Ok = false, Message = cancelled };
         }
         catch (OperationCanceledException)
         {
-            const string cancelled = "Exo stopped watching. Steam may continue downloading.";
+            const string cancelled = "Cancelled.";
             Report(game.Id, progress, InstallPhase.Cancelled, null, cancelled);
             return new InstallResult { Ok = false, Message = cancelled };
         }
@@ -644,24 +753,60 @@ public sealed class SteamAdapter : IStoreAdapter, IInstalledSteamManifestSource,
         }
     }
 
-    private static SteamTransferProgress.Sample ReadTransfer(
-        string appId,
-        string? steamRoot,
-        AppManifestSnapshot snap,
-        AppManifestSnapshot baseline)
+    /// <summary>
+    /// The content log tail and the downloading/install directory walks are the
+    /// expensive part of an install watch. Re-reading them on every 400ms tick
+    /// spent hundreds of milliseconds of disk I/O per second against the same
+    /// drive Steam is writing the download to. The ACF counters stay live; only
+    /// these two samples are held for a beat.
+    /// </summary>
+    private sealed class SteamWatchSampler
     {
-        var busy = SteamStateFlags.IsBusy(
-            snap.StateFlags, snap.BytesToDownload, snap.BytesDownloaded);
-        return SteamTransferProgress.Resolve(
-            snap.BytesDownloaded,
-            snap.BytesToDownload,
-            snap.BytesStaged,
-            snap.BytesToStage,
-            busy,
-            baseline.BytesDownloaded,
-            baseline.BytesToDownload,
-            SteamContentLogProgress.TryReadLatest(steamRoot, appId),
-            SteamContentLogProgress.TryReadDownloadingBytes(steamRoot, appId));
+        private static readonly TimeSpan SampleInterval = TimeSpan.FromSeconds(2);
+
+        private DateTimeOffset _contentAtUtc = DateTimeOffset.MinValue;
+        private SteamContentLogProgress.Job? _job;
+        private long? _downloadingBytes;
+        private DateTimeOffset _sizeAtUtc = DateTimeOffset.MinValue;
+        private long _installedBytes;
+
+        public SteamTransferProgress.Sample ReadTransfer(
+            string appId,
+            string? steamRoot,
+            AppManifestSnapshot snap,
+            AppManifestSnapshot baseline)
+        {
+            var now = DateTimeOffset.UtcNow;
+            if (now - _contentAtUtc >= SampleInterval)
+            {
+                _job = SteamContentLogProgress.TryReadLatest(steamRoot, appId);
+                _downloadingBytes = SteamContentLogProgress.TryReadDownloadingBytes(steamRoot, appId);
+                _contentAtUtc = now;
+            }
+
+            var busy = SteamStateFlags.IsBusy(
+                snap.StateFlags, snap.BytesToDownload, snap.BytesDownloaded);
+            return SteamTransferProgress.Resolve(
+                snap.BytesDownloaded,
+                snap.BytesToDownload,
+                snap.BytesStaged,
+                snap.BytesToStage,
+                busy,
+                baseline.BytesDownloaded,
+                baseline.BytesToDownload,
+                _job,
+                _downloadingBytes);
+        }
+
+        public long ReadInstalledSize(string? path)
+        {
+            var now = DateTimeOffset.UtcNow;
+            if (now - _sizeAtUtc < SampleInterval)
+                return _installedBytes;
+            _installedBytes = TryDirSize(path);
+            _sizeAtUtc = now;
+            return _installedBytes;
+        }
     }
 
     private static string? FindAppManifestPath(string appId)
@@ -674,6 +819,82 @@ public sealed class SteamAdapter : IStoreAdapter, IInstalledSteamManifestSource,
             if (File.Exists(p)) return p;
         }
         return null;
+    }
+
+    public bool CanRepair(GameEntry game) =>
+        game.Installed && SteamProtocol.IsValidAppId(game.LaunchTarget) && ResolveSteamExe() is not null;
+
+    public async Task<InstallResult> RepairAsync(
+        GameEntry game,
+        IProgress<InstallProgress>? progress,
+        CancellationToken ct = default)
+    {
+        var appId = game.LaunchTarget;
+        if (!SteamProtocol.IsValidAppId(appId))
+            return new InstallResult { Ok = false, Message = "Missing or invalid Steam app id." };
+        var steamExe = ResolveSteamExe();
+        if (steamExe is null)
+            return new InstallResult { Ok = false, Message = "Steam is not installed." };
+
+        Report(game.Id, progress, InstallPhase.Preparing, null, "Asking Steam to verify files…");
+        try
+        {
+            using var hider = StoreWindowHider.ForSteam();
+            hider.Start(TimeSpan.FromMinutes(35), restoreOnStop: false);
+            if (!ProcessHelper.IsProcessRunning("steam"))
+            {
+                ProcessHelper.StartHidden(steamExe, SteamUpdateCommandPlan.HiddenClientStartArguments());
+                await WaitForSteamCommandListenerAsync(ct).ConfigureAwait(false);
+            }
+
+            ProcessHelper.StartHidden(
+                steamExe,
+                [.. SteamUpdateCommandPlan.HiddenClientStartArguments(), SteamProtocol.ValidateUri(appId)]);
+
+            var start = DateTimeOffset.UtcNow;
+            var sawBusy = false;
+            while (!ct.IsCancellationRequested)
+            {
+                var snap = ReadAppManifestSnapshot(appId);
+                var busy = SteamStateFlags.IsBusy(snap.StateFlags, snap.BytesToDownload, snap.BytesDownloaded);
+                if (busy) sawBusy = true;
+                var ready = SteamStateFlags.IsFullyInstalled(snap.StateFlags) && !busy;
+                if (sawBusy && ready)
+                {
+                    Report(game.Id, progress, InstallPhase.Completed, 100, "Files verified.");
+                    return new InstallResult { Ok = true, Message = "Steam verified the files.", Path = game.Path };
+                }
+
+                var elapsed = DateTimeOffset.UtcNow - start;
+                if (!sawBusy && ready && elapsed > TimeSpan.FromSeconds(20))
+                {
+                    Report(game.Id, progress, InstallPhase.Completed, 100, "Files verified.");
+                    return new InstallResult { Ok = true, Message = "Steam verified the files.", Path = game.Path };
+                }
+
+                if (elapsed > TimeSpan.FromMinutes(30))
+                {
+                    Report(game.Id, progress, InstallPhase.Failed, null, "Steam verify timed out.");
+                    return new InstallResult { Ok = false, Message = "Steam did not finish verifying files." };
+                }
+
+                Report(game.Id, progress, InstallPhase.Installing, null, "Steam is verifying files…");
+                await Task.Delay(500, ct).ConfigureAwait(false);
+            }
+
+            Report(game.Id, progress, InstallPhase.Cancelled, null, "Cancelled.");
+            return new InstallResult { Ok = false, Message = "Cancelled." };
+        }
+        catch (OperationCanceledException)
+        {
+            Report(game.Id, progress, InstallPhase.Cancelled, null, "Cancelled.");
+            return new InstallResult { Ok = false, Message = "Cancelled." };
+        }
+        catch (Exception ex)
+        {
+            Report(game.Id, progress, InstallPhase.Failed, null, ex.Message);
+            return new InstallResult { Ok = false, Message = ex.Message };
+        }
     }
 
     public async Task<LaunchResult> LaunchAsync(GameEntry game, LaunchOptions options, CancellationToken ct = default)
@@ -721,7 +942,7 @@ public sealed class SteamAdapter : IStoreAdapter, IInstalledSteamManifestSource,
             try
             {
                 ct.ThrowIfCancellationRequested();
-                ProcessHelper.StartProtocol(SteamProtocol.RunGameUri(appId));
+                ProcessHelper.StartProtocol(SteamProtocol.RunGameUri(appId, options.ExtraArgs));
             }
             catch
             {
@@ -893,22 +1114,15 @@ public sealed class SteamAdapter : IStoreAdapter, IInstalledSteamManifestSource,
 
         try
         {
-            var initial = ReadAppManifestSnapshot(appId);
-            if (string.IsNullOrWhiteSpace(initial.Name) ||
-                !string.Equals(initial.Name.Trim(), game.Title.Trim(), StringComparison.OrdinalIgnoreCase))
-            {
-                return new InstallResult
-                {
-                    Ok = false,
-                    Message = "Steam uninstall was refused because the selected game did not match its app manifest.",
-                };
-            }
-
             if (FindAppManifestPath(appId) is null)
                 return new InstallResult { Ok = true, Message = "Already removed from Steam." };
 
             using var hider = StoreWindowHider.ForSteam();
             hider.Start(TimeSpan.FromMinutes(60), restoreOnStop: false);
+            StoreUninstallPromptAutomator.Arm(
+                game.Title,
+                TimeSpan.FromSeconds(120),
+                StoreWindowHider.SteamMainProcessNames);
             if (!ProcessHelper.IsProcessRunning("steam"))
             {
                 ProcessHelper.StartHidden(
@@ -924,9 +1138,10 @@ public sealed class SteamAdapter : IStoreAdapter, IInstalledSteamManifestSource,
                     ct,
                     retryCommandFailure: false)
                 .ConfigureAwait(false);
-            // UninstallApp shows Steam's confirm. Call it once. The URI is only
-            // for when the helper never reached the running client.
-            if (ipc == SteamIpcStatus.Unavailable)
+            // UninstallApp shows Steam's confirm. IPC is the command; the
+            // automator confirms the hidden dialog. The URI covers a helper
+            // that never reached the client or a refused IPC call.
+            if (ipc != SteamIpcStatus.Ok)
             {
                 ProcessHelper.StartHidden(
                     steamExe,
@@ -940,7 +1155,11 @@ public sealed class SteamAdapter : IStoreAdapter, IInstalledSteamManifestSource,
                 ct.ThrowIfCancellationRequested();
                 await Task.Delay(500, ct).ConfigureAwait(false);
                 if (FindAppManifestPath(appId) is null)
+                {
+                    try { Services.SteamLeftoverCleanup.CleanAfterUninstall(ResolveSteamRoot(), appId); }
+                    catch { /* leftover folders are best-effort */ }
                     return new InstallResult { Ok = true, Message = "Removed from Steam." };
+                }
 
                 var snap = ReadAppManifestSnapshot(appId);
                 if (!uninstallingSeen &&
@@ -980,13 +1199,22 @@ public sealed class SteamAdapter : IStoreAdapter, IInstalledSteamManifestSource,
         return Task.CompletedTask;
     }
 
-    private void Report(string gameId, IProgress<InstallProgress>? progress, InstallPhase phase, double? pct, string status)
+    private void Report(
+        string gameId,
+        IProgress<InstallProgress>? progress,
+        InstallPhase phase,
+        double? pct,
+        string status,
+        long? downloaded = null,
+        long? toDownload = null)
     {
         var p = new InstallProgress
         {
             GameId = gameId,
             Phase = phase,
             Percent = pct,
+            BytesDownloaded = downloaded,
+            BytesToDownload = toDownload,
             Status = status,
             CanCancel = phase is InstallPhase.Preparing or InstallPhase.Downloading or InstallPhase.Installing,
         };
@@ -1019,7 +1247,36 @@ public sealed class SteamAdapter : IStoreAdapter, IInstalledSteamManifestSource,
         return null;
     }
 
+    // Install/update/uninstall watches resolve the root and its library folders
+    // on every poll tick. The registry read plus libraryfolders.vdf parse cost
+    // more than the manifest read they exist to find; a few seconds of staleness
+    // is invisible because a new library folder only matters on the next scan.
+    private static readonly TimeSpan SteamPathTtl = TimeSpan.FromSeconds(5);
+    private static readonly object SteamPathGate = new();
+    private static string? _steamRoot;
+    private static DateTimeOffset _steamRootAtUtc = DateTimeOffset.MinValue;
+    private static string? _libraryFoldersRoot;
+    private static List<string>? _libraryFolders;
+    private static DateTimeOffset _libraryFoldersAtUtc = DateTimeOffset.MinValue;
+
     private static string? ResolveSteamRoot()
+    {
+        lock (SteamPathGate)
+        {
+            if (DateTimeOffset.UtcNow - _steamRootAtUtc < SteamPathTtl)
+                return _steamRoot;
+        }
+
+        var resolved = ReadSteamRoot();
+        lock (SteamPathGate)
+        {
+            _steamRoot = resolved;
+            _steamRootAtUtc = DateTimeOffset.UtcNow;
+        }
+        return resolved;
+    }
+
+    private static string? ReadSteamRoot()
     {
         try
         {
@@ -1050,7 +1307,27 @@ public sealed class SteamAdapter : IStoreAdapter, IInstalledSteamManifestSource,
         return File.Exists(exe) ? exe : null;
     }
 
-    private static List<string> CollectLibraryFolders(string steamRoot)
+    private static IReadOnlyList<string> CollectLibraryFolders(string steamRoot)
+    {
+        lock (SteamPathGate)
+        {
+            if (_libraryFolders is not null &&
+                string.Equals(_libraryFoldersRoot, steamRoot, StringComparison.OrdinalIgnoreCase) &&
+                DateTimeOffset.UtcNow - _libraryFoldersAtUtc < SteamPathTtl)
+                return _libraryFolders;
+        }
+
+        var folders = ReadLibraryFolders(steamRoot);
+        lock (SteamPathGate)
+        {
+            _libraryFoldersRoot = steamRoot;
+            _libraryFolders = folders;
+            _libraryFoldersAtUtc = DateTimeOffset.UtcNow;
+        }
+        return folders;
+    }
+
+    private static List<string> ReadLibraryFolders(string steamRoot)
     {
         var list = new List<string> { steamRoot };
         var vdf = Path.Combine(steamRoot, "steamapps", "libraryfolders.vdf");

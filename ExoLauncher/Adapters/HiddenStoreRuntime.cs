@@ -176,6 +176,15 @@ public sealed class HiddenStoreRuntime : IDisposable
     /// </summary>
     public static void SuspendFor(StoreKind store, TimeSpan duration)
     {
+        // Opening one official client from Settings is exclusive: the others
+        // are no longer the surface the user asked to see, so sibling cleanup
+        // may close them (unless they are transferring or hosting a game).
+        foreach (var other in s_suspended.Keys)
+        {
+            if (other != store)
+                s_suspended.TryRemove(other, out _);
+        }
+
         var until = DateTimeOffset.UtcNow + duration;
         s_suspended.AddOrUpdate(store, until, (_, existing) => existing > until ? existing : until);
     }
@@ -214,6 +223,16 @@ public sealed class HiddenStoreRuntime : IDisposable
             return !IsSuspended(StoreKind.Amazon);
         if (StoreWindowHider.RockstarClientProcessNames.Any(name => string.Equals(name, processName, StringComparison.OrdinalIgnoreCase)))
             return !IsSuspended(StoreKind.Rockstar);
+        if (StoreWindowHider.ItchClientProcessNames.Any(name => string.Equals(name, processName, StringComparison.OrdinalIgnoreCase)))
+            return !IsSuspended(StoreKind.Itch);
+        if (StoreWindowHider.MinecraftClientProcessNames.Any(name => string.Equals(name, processName, StringComparison.OrdinalIgnoreCase)))
+            return !IsSuspended(StoreKind.Minecraft);
+        if (StoreWindowHider.RobloxClientProcessNames.Any(name => string.Equals(name, processName, StringComparison.OrdinalIgnoreCase)))
+            return !IsSuspended(StoreKind.Roblox);
+        if (StoreWindowHider.ParadoxClientProcessNames.Any(name => string.Equals(name, processName, StringComparison.OrdinalIgnoreCase)))
+            return !IsSuspended(StoreKind.Paradox);
+        if (StoreWindowHider.WargamingClientProcessNames.Any(name => string.Equals(name, processName, StringComparison.OrdinalIgnoreCase)))
+            return !IsSuspended(StoreKind.Wargaming);
         return false;
     }
 
@@ -266,6 +285,11 @@ public sealed class HiddenStoreRuntime : IDisposable
             SweepStore(StoreKind.BattleNet, StoreWindowHider.BattleNetClientProcessNames);
             SweepStore(StoreKind.Amazon, StoreWindowHider.AmazonClientProcessNames);
             SweepStore(StoreKind.Rockstar, StoreWindowHider.RockstarClientProcessNames);
+            SweepStore(StoreKind.Itch, StoreWindowHider.ItchClientProcessNames);
+            SweepStore(StoreKind.Minecraft, StoreWindowHider.MinecraftClientProcessNames);
+            SweepStore(StoreKind.Roblox, StoreWindowHider.RobloxClientProcessNames);
+            SweepStore(StoreKind.Paradox, StoreWindowHider.ParadoxClientProcessNames);
+            SweepStore(StoreKind.Wargaming, StoreWindowHider.WargamingClientProcessNames);
         }
         catch
         {

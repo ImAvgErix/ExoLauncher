@@ -86,6 +86,13 @@ public sealed class EpicPlaytimeTests
     }
 
     [Fact]
+    public void ParseMinutesJson_DoesNotShiftALifetimeHourForTimezone()
+    {
+        var json = """[{ "artifactId": "Sugar", "totalTime": 710220 }]""";
+        Assert.Equal(11_837, EpicPlaytime.ParseMinutesJson(json)["Sugar"]);
+    }
+
+    [Fact]
     public void ParseMinutesJson_AcceptsWrappedRowsAndKeepsLargestValue()
     {
         const string json = """
@@ -128,6 +135,70 @@ public sealed class EpicPlaytimeTests
     }
 
     [Fact]
+    public void LegendaryUserJsonCandidates_IncludeHeroicRoamingAndExoAppDataSessions()
+    {
+        var paths = EpicPlaytime.LegendaryUserJsonCandidates().ToList();
+
+        Assert.Contains(paths, path =>
+            path.Contains(Path.Combine("heroic", "legendaryConfig", "legendary", "user.json"),
+                StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(paths, path =>
+            path.Contains(Path.Combine(".config", "legendary", "user.json"),
+                StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(paths, path =>
+            path.Contains(Path.Combine("legendary", "user.json"), StringComparison.OrdinalIgnoreCase) &&
+            path.Contains("Roaming", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(paths, path =>
+            path.Contains(Path.Combine("ExoLauncher", "legendary", "user.json"),
+                StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void ParseSessionJson_ReadsRefreshTokenAndExpiry()
+    {
+        const string json = """
+            {
+              "account_id": "account-id",
+              "access_token": "expired-access",
+              "refresh_token": "refresh-secret",
+              "token_type": "bearer",
+              "expires_at": "2020-01-01T00:00:00.000Z"
+            }
+            """;
+
+        var session = EpicPlaytime.ParseSessionJson(json);
+
+        Assert.NotNull(session);
+        Assert.Equal("refresh-secret", session!.RefreshToken);
+        Assert.True(EpicPlaytime.AccessTokenNeedsRefresh(session, DateTimeOffset.Parse("2026-08-13T00:00:00Z")));
+    }
+
+    [Fact]
+    public void TryParseRememberMeData_ReadsLegacyEglJsonArray()
+    {
+        const string raw = """
+            [{"email":"friend@example.com","token":"egl-refresh-token"}]
+            """;
+
+        Assert.True(EpicPlaytime.TryParseRememberMeData(raw, out var email, out var refresh));
+        Assert.Equal("friend@example.com", email);
+        Assert.Equal("egl-refresh-token", refresh);
+    }
+
+    [Fact]
+    public void EglRememberMeIniCandidates_IncludeWindowsEditor()
+    {
+        var paths = EpicPlaytime.EglRememberMeIniCandidates().ToList();
+
+        Assert.Contains(paths, path =>
+            path.Contains(Path.Combine("EpicGamesLauncher", "Saved", "Config", "WindowsEditor",
+                "GameUserSettings.ini"), StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(paths, path =>
+            path.Contains(Path.Combine("EpicGamesLauncher", "Saved", "Config", "Windows",
+                "GameUserSettings.ini"), StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
     public void ParseSessionJson_AcceptsLegendaryBearerShape()
     {
         const string json = """
@@ -143,6 +214,109 @@ public sealed class EpicPlaytimeTests
         Assert.NotNull(session);
         Assert.Equal("account-id", session!.AccountId);
         Assert.Equal("secret-token-value", session.AccessToken);
+    }
+
+    [Fact]
+    public void ParseSessionJson_AcceptsHeroicCamelCaseBearerShape()
+    {
+        const string json = """
+            {
+              "accountId": "account-id",
+              "accessToken": "secret-token-value",
+              "tokenType": "bearer"
+            }
+            """;
+
+        var session = EpicPlaytime.ParseSessionJson(json);
+
+        Assert.NotNull(session);
+        Assert.Equal("account-id", session!.AccountId);
+        Assert.Equal("secret-token-value", session.AccessToken);
+    }
+
+    [Fact]
+    public void TryReadRememberMeFromIni_RejectsEncryptedEglData()
+    {
+        const string ini = """
+            [RememberMe]
+            Enable=True
+            Data="CtpScvJAe96u+DECMq3TpXd8vfrAKOJfc3zDEXupNIVL4b/mJOjhk18azxykW8Yg"
+            """;
+
+        Assert.False(EpicPlaytime.TryReadRememberMeFromIni(ini, out var email, out var refresh));
+        Assert.Null(email);
+        Assert.Null(refresh);
+    }
+
+    [Fact]
+    public void ParseSessionJson_AcceptsEg1TokenType()
+    {
+        const string json = """
+            {
+              "account_id": "account-id",
+              "access_token": "secret-token-value",
+              "token_type": "eg1"
+            }
+            """;
+
+        var session = EpicPlaytime.ParseSessionJson(json);
+        Assert.NotNull(session);
+        Assert.Equal("account-id", session!.AccountId);
+    }
+
+    [Fact]
+    public void PersistMinutes_RoundTripsForMatchingAccountScopeOnly()
+    {
+        var scope = "abc123def4567890abcd";
+        EpicPlaytime.PersistMinutes(scope, new Dictionary<string, int> { ["Fortnite"] = 344, ["Sugar"] = 11_567 });
+
+        var loaded = EpicPlaytime.LoadPersistedMinutes(scope);
+        Assert.Equal(344, loaded["Fortnite"]);
+        Assert.Equal(11_567, loaded["Sugar"]);
+        Assert.Empty(EpicPlaytime.LoadPersistedMinutes("ffffffffffffffffffff"));
+    }
+
+    [Fact]
+    public void Apply_AddsNativeEpicTimeToFortniteByTitleOnCatalogSearchHit()
+    {
+        var fortnite = new GameEntry
+        {
+            Id = "epic:catalog:fortnite",
+            Title = "Fortnite",
+            Store = StoreKind.Epic,
+            Installed = false,
+            CanInstall = true,
+        };
+
+        var result = EpicPlaytime.Apply(
+            [fortnite],
+            new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["Fortnite"] = 344,
+            });
+
+        Assert.Equal(344, result[0].PlaytimeMinutes);
+    }
+
+    [Fact]
+    public void Apply_AddsNativeEpicTimeToFortniteByIdWhenLaunchTargetMissing()
+    {
+        var fortnite = new GameEntry
+        {
+            Id = "epic:Fortnite",
+            Title = "Fortnite",
+            Store = StoreKind.Epic,
+            Installed = true,
+        };
+
+        var result = EpicPlaytime.Apply(
+            [fortnite],
+            new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["Fortnite"] = 4_800,
+            });
+
+        Assert.Equal(4_800, result[0].PlaytimeMinutes);
     }
 
     [Fact]

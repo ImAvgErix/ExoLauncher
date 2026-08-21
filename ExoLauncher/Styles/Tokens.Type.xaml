@@ -5,7 +5,10 @@
 
     <FontFamily x:Key="ExoDisplayFont">Segoe UI Variable Display</FontFamily>
     <FontFamily x:Key="ExoUiFont">Segoe UI Variable Text</FontFamily>
+    <x:Double x:Key="ExoTypeEyebrowSize">11</x:Double>
     <x:Double x:Key="ExoTypeCaptionSize">12</x:Double>
+    <x:Double x:Key="ExoTypeUiSize">13</x:Double>
     <x:Double x:Key="ExoTypeBodySize">14</x:Double>
     <x:Double x:Key="ExoTypeTitleSize">28</x:Double>
+    <x:Double x:Key="ExoTypeDisplaySize">36</x:Double>
 </ResourceDictionary>

@@ -48,7 +48,7 @@ public sealed class DependencyService
             return new
             {
                 ok = true,
-                message = "Opened official installer page. Confirm the vendor download yourself.",
+                message = "Opened the official installer page.",
                 url = dep.OfficialUrl,
             };
         }
@@ -94,7 +94,7 @@ public sealed class DependencyService
             Status = d3d ? "Present" : "Missing",
             Detail = d3d
                 ? "d3d11.dll present (OS component)."
-                : "DirectX runtime files missing — unusual on Windows 11.",
+                : "DirectX runtime files are missing.",
             CanOfferInstall = true,
             OfficialUrl = "https://www.microsoft.com/download/details.aspx?id=35",
         };

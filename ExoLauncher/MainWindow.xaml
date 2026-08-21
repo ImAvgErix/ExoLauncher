@@ -24,23 +24,26 @@
 
         <Grid x:Name="AppTitleBar"
               Height="12"
-              Margin="56,0,184,0"
+              Margin="220,0,268,0"
               VerticalAlignment="Top"
               Background="Transparent"
-              IsHitTestVisible="True" />
+              IsHitTestVisible="False" />
 
         <StackPanel x:Name="WebBootPanel"
                     HorizontalAlignment="Center"
                     VerticalAlignment="Center"
+                    AutomationProperties.Name="Exo Launcher startup status"
                     Spacing="16">
             <ProgressRing IsActive="True"
                           Width="34"
                           Height="34"
+                          AutomationProperties.Name="Starting Exo Launcher"
                           HorizontalAlignment="Center" />
             <TextBlock x:Name="WebBootText"
                        Text="Starting Exo Launcher…"
                        Foreground="#B8B8BC"
                        FontSize="13"
+                       AutomationProperties.LiveSetting="Polite"
                        HorizontalAlignment="Center" />
         </StackPanel>
 
@@ -49,6 +52,7 @@
                     HorizontalAlignment="Center"
                     VerticalAlignment="Center"
                     MaxWidth="460"
+                    AutomationProperties.Name="Exo Launcher UI runtime error"
                     Spacing="12">
             <TextBlock x:Name="WebViewFallbackTitle"
                        Text="Exo Launcher couldn't start its UI runtime"
@@ -56,6 +60,7 @@
                        FontSize="18"
                        FontWeight="SemiBold"
                        TextWrapping="Wrap"
+                       AutomationProperties.LiveSetting="Assertive"
                        HorizontalAlignment="Center"
                        TextAlignment="Center" />
             <TextBlock x:Name="WebViewFallbackBody"
@@ -69,9 +74,11 @@
                         Spacing="10">
                 <Button x:Name="WebViewRestartButton"
                         Content="Restart"
+                        AutomationProperties.Name="Restart Exo Launcher"
                         Click="WebViewRestartButton_Click" />
                 <Button x:Name="WebViewFallbackButton"
                         Content="Get WebView2"
+                        AutomationProperties.Name="Get Microsoft WebView2 Runtime"
                         Click="WebViewFallbackButton_Click" />
             </StackPanel>
         </StackPanel>

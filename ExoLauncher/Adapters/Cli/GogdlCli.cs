@@ -255,8 +255,17 @@ public static partial class GogdlCli
         "--path", path,
     ];
 
-    public static string[] LaunchArgs(string gameId, string path, string platform = "windows") =>
-        ["launch", path, gameId, "--platform", platform];
+    public static string[] LaunchArgs(string gameId, string path, string platform = "windows", string? extraArgs = null)
+    {
+        var args = new List<string> { "launch", path, gameId, "--platform", platform };
+        if (!string.IsNullOrWhiteSpace(extraArgs))
+        {
+            args.Add("--");
+            args.AddRange(LegendaryCli.SplitExtraArgs(extraArgs));
+        }
+
+        return args.ToArray();
+    }
 
     public static string[] InfoArgs(string gameId) => ["info", gameId];
 
@@ -298,12 +307,15 @@ public static partial class GogdlCli
     public static InstallProgress ToProgress(string gameId, string line, InstallPhase phase = InstallPhase.Downloading)
     {
         TryParseProgressLine(line, out var pct, out var bps, out var status);
+        TryParseBytePair(line, out var downloaded, out var toDownload);
         return new InstallProgress
         {
             GameId = gameId,
             Phase = phase,
             Percent = pct,
             BytesPerSecond = bps,
+            BytesDownloaded = downloaded,
+            BytesToDownload = toDownload,
             Status = string.IsNullOrWhiteSpace(status) ? phase.ToString() : status,
             CanCancel = true,
         };
@@ -420,4 +432,33 @@ public static partial class GogdlCli
 
     [GeneratedRegex(@"([0-9]+(?:\.[0-9]+)?)\s*(KiB|MiB|GiB|KB|MB|GB)/s", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex SpeedRegex();
+
+    [GeneratedRegex(@"([0-9]+(?:\.[0-9]+)?)\s*/\s*([0-9]+(?:\.[0-9]+)?)\s*(KiB|MiB|GiB|KB|MB|GB)\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex BytePairRegex();
+
+    private static bool TryParseBytePair(string line, out long? downloaded, out long? toDownload)
+    {
+        downloaded = null;
+        toDownload = null;
+        var match = BytePairRegex().Match(line);
+        if (!match.Success) return false;
+        if (!double.TryParse(match.Groups[1].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out var done))
+            return false;
+        if (!double.TryParse(match.Groups[2].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out var total))
+            return false;
+        var unit = match.Groups[3].Value.ToLowerInvariant();
+        var scale = unit switch
+        {
+            "kib" or "kb" => 1024d,
+            "mib" or "mb" => 1024d * 1024,
+            "gib" or "gb" => 1024d * 1024 * 1024,
+            _ => 1d,
+        };
+        var down = (long)Math.Round(done * scale);
+        var to = (long)Math.Round(total * scale);
+        if (down <= 0 || to <= 0) return false;
+        downloaded = down;
+        toDownload = to;
+        return true;
+    }
 }

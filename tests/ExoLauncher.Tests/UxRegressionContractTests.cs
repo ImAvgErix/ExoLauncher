@@ -5,19 +5,20 @@ namespace ExoLauncher.Tests;
 public sealed class UxRegressionContractTests
 {
     [Fact]
-    public void LauncherUi_DoesNotExposeExoProfilesOrAccountSync()
+    public void LegacyProfileOverlayAndExoRpcNames_StayRemoved()
     {
-        var launcher = ReadRepoFile("ui", "src", "components", "LauncherApp.tsx");
-        var settings = ReadRepoFile("ui", "src", "components", "SettingsPanel.tsx");
-        var host = ReadRepoFile("ui", "src", "lib", "host.ts");
+        var settings = Path.Combine(RepoRoot(), "ui", "src", "components", "SettingsPanel.tsx");
+        var settingsText = File.ReadAllText(settings);
+        var window = ReadRepoFile("ExoLauncher", "MainWindow.xaml.cs");
+        var shell = ReadRepoFile("ExoLauncher", "Services", "WebHostBridge.cs");
+        var all = window + settingsText + shell;
 
-        Assert.DoesNotContain("ProfileOverlay", launcher, StringComparison.Ordinal);
-        Assert.DoesNotContain("ProfileButton", launcher + settings, StringComparison.Ordinal);
-        Assert.DoesNotContain("Exo Profile", launcher + settings, StringComparison.Ordinal);
-        Assert.DoesNotContain("exo.status", host, StringComparison.Ordinal);
-        Assert.DoesNotContain("exo.signIn", host, StringComparison.Ordinal);
-        Assert.DoesNotContain("exo.signOut", host, StringComparison.Ordinal);
-        Assert.DoesNotContain("exo.updateProfile", host, StringComparison.Ordinal);
+        Assert.DoesNotContain("ProfileOverlay", all, StringComparison.Ordinal);
+        Assert.DoesNotContain("ProfileButton", all, StringComparison.Ordinal);
+        Assert.DoesNotContain("Exo Profile", all, StringComparison.Ordinal);
+        Assert.DoesNotContain("exo.signIn", all, StringComparison.Ordinal);
+        Assert.DoesNotContain("exo.signOut", all, StringComparison.Ordinal);
+        Assert.DoesNotContain("exo.updateProfile", all, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -39,17 +40,20 @@ public sealed class UxRegressionContractTests
         var covers = ReadRepoFile("ExoLauncher", "Services", "CoverArtService.cs");
         var window = ReadRepoFile("ExoLauncher", "MainWindow.xaml.cs");
 
-        // Warm covers immediately so the library is not monogram-heavy after first paint.
-        Assert.Contains("deferForFirstPaint: false", library, StringComparison.Ordinal);
-        Assert.Contains("g.Installed || g.IsFavorite", library, StringComparison.Ordinal);
-        Assert.Contains("Task.Delay(TimeSpan.FromSeconds(20))", library, StringComparison.Ordinal);
+        Assert.Contains("requested: false, deferForFirstPaint: true", library, StringComparison.Ordinal);
+        Assert.Contains(".Where(CoverArtService.ShouldWarmLibraryCover)", library, StringComparison.Ordinal);
+        Assert.DoesNotContain("Task.WhenAny", library, StringComparison.Ordinal);
+        Assert.DoesNotContain("Task.Delay(TimeSpan.FromSeconds(20))", library, StringComparison.Ordinal);
         Assert.Contains("FirstPaintCoverWarmDelay = TimeSpan.FromMilliseconds(50)", covers, StringComparison.Ordinal);
         Assert.Contains("private static readonly HttpClient CoverHttp", covers, StringComparison.Ordinal);
-        Assert.Contains("BackgroundWarmConcurrency = 8", covers, StringComparison.Ordinal);
-        Assert.Contains("requested ? RequestedWarmConcurrency : BackgroundWarmConcurrency", covers, StringComparison.Ordinal);
+        Assert.Contains("BackgroundWarmConcurrency = 4", covers, StringComparison.Ordinal);
+        Assert.Contains("SearchWarmConcurrency = 4", covers, StringComparison.Ordinal);
+        Assert.Contains("ArtworkWarmIntent.SearchPortrait => SearchWarmConcurrency", covers, StringComparison.Ordinal);
         Assert.Contains("PERF startup milestone=", window, StringComparison.Ordinal);
+        Assert.Contains("window-constructed", window, StringComparison.Ordinal);
         Assert.Contains("webview-core-ready", window, StringComparison.Ordinal);
-        Assert.Contains("webview-navigation-complete", window, StringComparison.Ordinal);
+        Assert.Contains("EnsureCoreWebView2Async", window, StringComparison.Ordinal);
+        Assert.Contains("LogStartupMilestone(\"bridge-attached\")", window, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -58,15 +62,21 @@ public sealed class UxRegressionContractTests
         var covers = ReadRepoFile("ExoLauncher", "Services", "CoverArtService.cs");
         var library = ReadRepoFile("ExoLauncher", "Services", "LibraryService.cs");
 
-        // Title→Steam lookup must actually run during warm, not sit unused.
         Assert.Contains("await ResolveSteamAppIdByTitleAsync", covers, StringComparison.Ordinal);
         Assert.Contains("ShouldWarmLibraryCover", library, StringComparison.Ordinal);
         Assert.DoesNotContain(
             "game.Installed || game.IsFavorite",
             library,
             StringComparison.Ordinal);
+        Assert.Contains("ProvisionalStorePosterUrl", covers, StringComparison.Ordinal);
+        Assert.Contains("TryImportSteamLibraryCachePoster", covers, StringComparison.Ordinal);
+        Assert.Contains("TryImportHashedSteamPortrait", covers, StringComparison.Ordinal);
+        Assert.Contains("Variants = g.Variants", covers, StringComparison.Ordinal);
+        Assert.Contains("RefreshCovers();", library, StringComparison.Ordinal);
         Assert.Contains("GogCoverCandidateUrls", covers, StringComparison.Ordinal);
         Assert.DoesNotContain("{gogId}_product_tile_256_2x.jpg", covers, StringComparison.Ordinal);
+        Assert.Contains("public static Uri? TryImageUri", covers, StringComparison.Ordinal);
+        Assert.Contains("public static IReadOnlyList<string> SteamHeroUrls", covers, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -75,24 +85,25 @@ public sealed class UxRegressionContractTests
         var service = ReadRepoFile("ExoLauncher", "Services", "GogAuthService.cs");
         var helper = ReadRepoFile("ExoLauncher", "Adapters", "Cli", "GogdlCli.cs");
         var adapter = ReadRepoFile("ExoLauncher", "Adapters", "GogAdapter.cs");
-        var launcher = ReadRepoFile("ui", "src", "components", "LauncherApp.tsx");
+        var settings = File.ReadAllText(Path.Combine(RepoRoot(), "ui", "src", "components", "SettingsPanel.tsx"));
 
         Assert.Contains("CoreWebView2Environment.CreateWithOptionsAsync", service, StringComparison.Ordinal);
         Assert.Contains("NavigationStarting", service, StringComparison.Ordinal);
+        Assert.Contains("Path.Combine(PathHelper.AppDataDir, \"gog-webview\")", service, StringComparison.Ordinal);
         Assert.Contains("AuthConfigPath + \".pending-\"", service, StringComparison.Ordinal);
         Assert.Contains("File.Move(pendingPath, AuthConfigPath, overwrite: true)", service, StringComparison.Ordinal);
         Assert.Contains("origin", helper, StringComparison.Ordinal);
         Assert.Contains("embed.gog.com", helper, StringComparison.Ordinal);
         Assert.Contains("GogdlCli.WithAuthConfig", adapter, StringComparison.Ordinal);
         Assert.DoesNotContain("StartAuthConsole(gogdl", adapter, StringComparison.Ordinal);
-        Assert.DoesNotContain("runStoreAuth", launcher, StringComparison.Ordinal);
+        Assert.DoesNotContain("StoresAuthAsync", settings, StringComparison.Ordinal);
     }
 
     [Fact]
     public void StoreOpen_IsAsyncAndKeepsRevealingColdClients()
     {
         var text = ReadRepoFile("ExoLauncher", "Services", "WebHostBridge.cs");
-        Assert.Contains("\"shell.showStore\" => await ShowStoreAsync", text, StringComparison.Ordinal);
+        Assert.Contains("private async Task<object> ShowStoreAsync", text, StringComparison.Ordinal);
         Assert.Contains("TimeSpan.FromSeconds(15)", text, StringComparison.Ordinal);
         Assert.Contains("using var started = Process.Start", text, StringComparison.Ordinal);
         Assert.Contains("SteamProtocol.OpenMainUri()", text, StringComparison.Ordinal);
@@ -117,15 +128,26 @@ public sealed class UxRegressionContractTests
     [Fact]
     public void OwnedTitles_NeverRenderAPurchaseAction()
     {
-        var detail = ReadRepoFile("ui", "src", "components", "DetailPanel.tsx");
-        var launcher = ReadRepoFile("ui", "src", "components", "LauncherApp.tsx");
+        var format = ReadRepoFile("ExoLauncher", "Ui", "UiFormat.cs");
+        var storefront = ReadRepoFile("ExoLauncher", "Adapters", "Storefront.cs");
+        var app = File.ReadAllText(Path.Combine(RepoRoot(), "ui", "src", "components", "LauncherApp.tsx"));
+        var host = File.ReadAllText(Path.Combine(RepoRoot(), "ui", "src", "lib", "host.ts"));
+        var entitlement = File.ReadAllText(Path.Combine(RepoRoot(), "ui", "src", "lib", "entitlementActions.ts"));
         var bridge = ReadRepoFile("ExoLauncher", "Services", "WebHostBridge.cs");
 
-        Assert.Contains("game.installed || game.canInstall || game.owned", detail, StringComparison.Ordinal);
-        Assert.Contains("score: smartSearchScore(game.title, q)", launcher, StringComparison.Ordinal);
-        Assert.DoesNotContain("smartSearchScore(game.store, q)", launcher, StringComparison.Ordinal);
+        Assert.Contains("Storefront.BuyUrl(game)", format, StringComparison.Ordinal);
+        Assert.Contains("if (game.EntitlementState == EntitlementState.NotOwned) return Destination(game);", storefront, StringComparison.Ordinal);
+        Assert.Contains("if (game.EntitlementState == EntitlementState.Unverified) return null;", storefront, StringComparison.Ordinal);
+        Assert.Contains("if (game.Installed || game.Owned) return null;", storefront, StringComparison.Ordinal);
+        Assert.Contains("smartSearchScore(game.title, q)", app, StringComparison.Ordinal);
+        Assert.DoesNotContain("smartSearchScore(game.store", app, StringComparison.Ordinal);
+        Assert.Contains("return resolveEntitlementPrimaryAction(game)", host, StringComparison.Ordinal);
+        Assert.Contains("if (game.canInstall && game.owned === true) return 'install'", entitlement, StringComparison.Ordinal);
+        Assert.Contains("game.entitlementState === 'notOwned' || game.entitlementState === 'unverified'", entitlement, StringComparison.Ordinal);
+        Assert.DoesNotContain("if (game.canInstall || game.owned) return 'install'", entitlement, StringComparison.Ordinal);
         Assert.Contains("if (!proven.Owned) return null", bridge, StringComparison.Ordinal);
-        Assert.Contains("title:${titleKey}", launcher, StringComparison.Ordinal);
+        Assert.Contains("if (!game.Owned)", bridge, StringComparison.Ordinal);
+        Assert.DoesNotContain("game.Owned || game.CanInstall || game.Installed", bridge, StringComparison.Ordinal);
         Assert.Contains("TitleIdentity", ReadRepoFile("ExoLauncher", "Services", "StoreSearchService.cs"), StringComparison.Ordinal);
     }
 
@@ -156,14 +178,16 @@ public sealed class UxRegressionContractTests
     [Fact]
     public void Uninstall_IsDirectAndArmsStorePromptAutomation()
     {
-        var detail = ReadRepoFile("ui", "src", "components", "DetailPanel.tsx");
+        var plate = File.ReadAllText(Path.Combine(RepoRoot(), "ui", "src", "components", "GamePage.tsx"));
         var steam = ReadRepoFile("ExoLauncher", "Adapters", "SteamAdapter.cs");
         var riot = ReadRepoFile("ExoLauncher", "Adapters", "RiotAdapter.cs");
         var automator = ReadRepoFile("ExoLauncher", "Adapters", "StoreUninstallPromptAutomator.cs");
-        Assert.DoesNotContain("window.confirm", detail, StringComparison.Ordinal);
+        Assert.DoesNotContain("window.confirm", plate, StringComparison.Ordinal);
+        Assert.Contains("Confirm remove", plate, StringComparison.Ordinal);
+        Assert.Contains("removeArmed", plate, StringComparison.Ordinal);
         Assert.Contains("SteamClientIpc.Command", steam, StringComparison.Ordinal);
         Assert.DoesNotContain("SteamUninstallPromptAutomator", steam, StringComparison.Ordinal);
-        Assert.DoesNotContain("StoreUninstallPromptAutomator", steam, StringComparison.Ordinal);
+        Assert.Contains("StoreUninstallPromptAutomator", steam, StringComparison.Ordinal);
         Assert.Contains("StoreUninstallPromptAutomator", riot, StringComparison.Ordinal);
         Assert.DoesNotContain("$pid =", automator, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("SetForegroundWindow", automator, StringComparison.Ordinal);
@@ -172,137 +196,49 @@ public sealed class UxRegressionContractTests
     }
 
     [Fact]
-    public void TrophyNotifications_AreNativeCustomizableAndStayOutOfTheGameProcess()
+    public void TrophyNotifications_AreAnOverlayOfTheSameBannerAndStayOutOfTheGameProcess()
     {
         var broker = ReadRepoFile("ExoLauncher", "Services", "TrophyNotificationService.cs");
         var presenter = ReadRepoFile("ExoLauncher", "Services", "TrophyNotificationPresenter.cs");
+        var design = ReadRepoFile("ExoLauncher", "Services", "TrophyBannerDesign.cs");
         var bridge = ReadRepoFile("ExoLauncher", "Services", "WebHostBridge.cs");
-        var settings = ReadRepoFile("ui", "src", "components", "TrophyNotificationSettings.tsx");
-        var styles = ReadRepoFile("ui", "src", "components", "TrophyNotificationSettings.css");
+        var settings = File.ReadAllText(Path.Combine(RepoRoot(), "ui", "src", "components", "TrophyNotificationSettings.tsx"));
+        var banner = File.ReadAllText(Path.Combine(RepoRoot(), "ui", "src", "components", "TrophyBanner.tsx"));
+        var overlay = File.ReadAllText(Path.Combine(RepoRoot(), "ui", "src", "trophy-overlay.tsx"));
 
         Assert.Contains("Session-bound notification broker", broker, StringComparison.Ordinal);
         Assert.Contains("WsExNoActivate", presenter, StringComparison.Ordinal);
-        Assert.Contains("IsShownInSwitchers = false", presenter, StringComparison.Ordinal);
-        Assert.Contains("IsAlwaysOnTop = true", presenter, StringComparison.Ordinal);
-        Assert.Contains("NotificationWidth = 432", presenter, StringComparison.Ordinal);
-        Assert.Contains("NotificationHeight = 122", presenter, StringComparison.Ordinal);
-        Assert.Contains("TimeSpan.FromMilliseconds(4200)", presenter, StringComparison.Ordinal);
-        Assert.Contains("CornerRadius = new CornerRadius(12)", presenter, StringComparison.Ordinal);
-        Assert.Contains("Width = 64", presenter, StringComparison.Ordinal);
-        Assert.Contains("Height = 64", presenter, StringComparison.Ordinal);
+        Assert.Contains("WsExToolWindow", presenter, StringComparison.Ordinal);
+        Assert.Contains("HwndTopmost", presenter, StringComparison.Ordinal);
+        Assert.Contains("TrophyBannerDesign.Current", presenter, StringComparison.Ordinal);
+        Assert.Contains("CreateCoreWebView2ControllerAsync", presenter, StringComparison.Ordinal);
+        Assert.Contains("DefaultBackgroundColor", presenter, StringComparison.Ordinal);
+        Assert.Contains("DwmExtendFrameIntoClientArea", presenter, StringComparison.Ordinal);
+        Assert.Contains("DwmEnableBlurBehindWindow", presenter, StringComparison.Ordinal);
+        Assert.Contains("ui/src/lib/trophyBannerDesign.json", design, StringComparison.Ordinal);
+        Assert.Contains("from './TrophyBanner'", settings, StringComparison.Ordinal);
+        Assert.Contains("from './components/TrophyBanner'", overlay, StringComparison.Ordinal);
+        Assert.Contains("from '../lib/trophyBanner'", banner, StringComparison.Ordinal);
         Assert.Contains("TryGetSafeIconUri", presenter, StringComparison.Ordinal);
-        Assert.Contains("new BitmapImage(uri)", presenter, StringComparison.Ordinal);
-        Assert.Contains("ImageFailed", presenter, StringComparison.Ordinal);
         Assert.Contains("Uri.UriSchemeHttps", presenter, StringComparison.Ordinal);
-        Assert.Contains("Text = \"Unlocked\"", presenter, StringComparison.Ordinal);
+        Assert.DoesNotContain("Achievement unlocked", presenter, StringComparison.Ordinal);
         Assert.DoesNotContain("EXO // UNLOCKED", presenter, StringComparison.Ordinal);
-        Assert.Contains("AnimateIn(card)", presenter, StringComparison.Ordinal);
+        Assert.Contains("TrophySoundPlayer.Play(rarity)", presenter, StringComparison.Ordinal);
         Assert.DoesNotContain("TrophyMotion", presenter, StringComparison.Ordinal);
-        Assert.Contains("window.Content = card", presenter, StringComparison.Ordinal);
-        Assert.DoesNotContain("window.Content = new Border", presenter, StringComparison.Ordinal);
-        Assert.Contains("\"ScaleX\", 0.94, 1, 340", presenter, StringComparison.Ordinal);
-        Assert.DoesNotContain("\"TranslateX\", motion.X", presenter, StringComparison.Ordinal);
-        Assert.DoesNotContain("\"TranslateY\", motion.Y", presenter, StringComparison.Ordinal);
+        Assert.DoesNotContain("window.Content = built.Card", presenter, StringComparison.Ordinal);
+        Assert.DoesNotContain("new BitmapImage", presenter, StringComparison.Ordinal);
         Assert.Contains("BeginCloseCurrent", presenter, StringComparison.Ordinal);
-        Assert.Contains("OnExitAnimationCompleted", presenter, StringComparison.Ordinal);
-        Assert.Contains("CompleteCloseCurrent", presenter, StringComparison.Ordinal);
-        Assert.Contains("Window? pendingWindow = null", presenter, StringComparison.Ordinal);
-        Assert.Contains("pendingWindow?.Close()", presenter, StringComparison.Ordinal);
         Assert.DoesNotContain("BuildCollectibleBadge", presenter, StringComparison.Ordinal);
-        Assert.DoesNotContain("Gradient(", presenter, StringComparison.Ordinal);
-        Assert.DoesNotContain("EXO  /", presenter, StringComparison.Ordinal);
-        Assert.Contains("\"trophies.preview\"", bridge, StringComparison.Ordinal);
-        Assert.Contains("Achievement notifications", settings, StringComparison.Ordinal);
-        Assert.Contains("<i>Unlocked</i>", settings, StringComparison.Ordinal);
-        Assert.DoesNotContain("EXO // UNLOCKED", settings, StringComparison.Ordinal);
-        Assert.Contains("const anchors = [", settings, StringComparison.Ordinal);
-        Assert.Contains("role=\"radiogroup\"", settings, StringComparison.Ordinal);
-        Assert.Contains("trophyNotificationPosition: anchor.id", settings, StringComparison.Ordinal);
-        Assert.DoesNotContain("onPointerMove", settings, StringComparison.Ordinal);
-        Assert.DoesNotContain("trophyNotificationSoundCue", settings, StringComparison.Ordinal);
-        Assert.DoesNotContain("trophyNotificationDurationSeconds", settings, StringComparison.Ordinal);
-        Assert.DoesNotContain("trophyNotificationPreset", settings, StringComparison.Ordinal);
+        Assert.Contains("PreviewTrophyNotification", bridge, StringComparison.Ordinal);
+        Assert.Contains("Show unlocks", settings, StringComparison.Ordinal);
+        Assert.Contains("Exclusive fullscreen cannot be covered", settings, StringComparison.Ordinal);
+        Assert.Contains("id: 'top-left'", settings, StringComparison.Ordinal);
+        Assert.Contains("id: 'top-center'", settings, StringComparison.Ordinal);
+        Assert.Contains("id: 'top-right'", settings, StringComparison.Ordinal);
         Assert.Contains("UISettings().AnimationsEnabled", presenter, StringComparison.Ordinal);
-        Assert.Contains(".exo-trophy-anchor-grid", styles, StringComparison.Ordinal);
-        Assert.Contains(".exo-trophy-preview-stage", styles, StringComparison.Ordinal);
-        Assert.Contains(".exo-trophy-preview-card.is-top-left", styles, StringComparison.Ordinal);
-        Assert.Contains(".exo-trophy-preview-card.is-bottom-right", styles, StringComparison.Ordinal);
-        Assert.Contains("min-height: 248px", styles, StringComparison.Ordinal);
-        Assert.Contains("exo-trophy-preview-arrive", styles, StringComparison.Ordinal);
-        Assert.Contains("TrophyRarityResolver.Label", presenter, StringComparison.Ordinal);
         Assert.Contains("DwmSetWindowAttribute", presenter, StringComparison.Ordinal);
-        Assert.Contains("NotificationWidth = 432", presenter, StringComparison.Ordinal);
-        Assert.Contains("NotificationHeight = 122", presenter, StringComparison.Ordinal);
-        Assert.Contains("NotificationDuration = TimeSpan.FromMilliseconds(4200)", presenter, StringComparison.Ordinal);
-        Assert.Contains("width: min(432px", styles, StringComparison.Ordinal);
-        Assert.Contains("position: absolute", styles, StringComparison.Ordinal);
-        Assert.Contains("height: 122px", styles, StringComparison.Ordinal);
-        Assert.DoesNotContain("grid-area:", styles, StringComparison.Ordinal);
-        Assert.Contains("top: 8px; left: 8px", styles, StringComparison.Ordinal);
-        Assert.Contains("right: 8px; bottom: 8px", styles, StringComparison.Ordinal);
-        Assert.Contains("padding: 14px", styles, StringComparison.Ordinal);
-        Assert.Contains("border-radius: 2px", styles, StringComparison.Ordinal);
-        Assert.Contains("transform: scale(.94)", styles, StringComparison.Ordinal);
-        Assert.DoesNotContain("--trophy-enter-x", styles, StringComparison.Ordinal);
-        Assert.DoesNotContain("--trophy-enter-y", styles, StringComparison.Ordinal);
-        Assert.Contains("grid-template-columns: 4px 64px minmax(0, 1fr) auto", styles, StringComparison.Ordinal);
-        Assert.Contains("TrophySurface", presenter, StringComparison.Ordinal);
-        Assert.Contains("DecodePixelWidth = 128", presenter, StringComparison.Ordinal);
         Assert.DoesNotContain("SetWindowsHookEx", broker + presenter, StringComparison.Ordinal);
         Assert.DoesNotContain("WriteProcessMemory", broker + presenter, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void PrimaryActions_MorphProgressInPlaceWithoutLayoutAnimation()
-    {
-        var detail = ReadRepoFile("ui", "src", "components", "DetailPanel.tsx");
-        var launcher = ReadRepoFile("ui", "src", "components", "LauncherApp.tsx");
-        var settings = ReadRepoFile("ui", "src", "components", "SettingsPanel.tsx");
-        var tokens = ReadRepoFile("ui", "src", "tokens.css");
-        var actions = detail + launcher + settings;
-
-        Assert.Contains("exo-action-progress", detail, StringComparison.Ordinal);
-        Assert.Contains("exo-action-progress", launcher, StringComparison.Ordinal);
-        Assert.Contains("exo-action-progress", settings, StringComparison.Ordinal);
-        Assert.Contains("exo-action-state", actions, StringComparison.Ordinal);
-        Assert.Contains("exo-action-idle", actions, StringComparison.Ordinal);
-        Assert.Contains("exo-action-active", actions, StringComparison.Ordinal);
-        Assert.Contains("if (selectedProgress.canCancel) onCancel()", detail, StringComparison.Ordinal);
-        Assert.Contains("!!selectedProgress && !selectedProgress.canCancel", detail, StringComparison.Ordinal);
-        Assert.Contains("role=\"status\"", actions, StringComparison.Ordinal);
-        Assert.DoesNotContain("className=\"exo-status", actions, StringComparison.Ordinal);
-        Assert.DoesNotContain("exo-progress-track", actions + tokens, StringComparison.Ordinal);
-        Assert.DoesNotContain("exo-progress-fill", actions + tokens, StringComparison.Ordinal);
-        Assert.DoesNotContain("transition-[width]", actions, StringComparison.Ordinal);
-        Assert.Contains("transform: scaleX(var(--progress));", tokens, StringComparison.Ordinal);
-        Assert.Contains("transition: transform 360ms linear;", tokens, StringComparison.Ordinal);
-        Assert.Contains("transform: translateY(3px);", tokens, StringComparison.Ordinal);
-        Assert.Contains("transform: translateY(-3px);", tokens, StringComparison.Ordinal);
-        Assert.Contains("@media (prefers-reduced-motion: reduce)", tokens, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void RefreshAndSyncStayAutomaticWithoutVisibleTitlebarAffordances()
-    {
-        var launcher = ReadRepoFile("ui", "src", "components", "LauncherApp.tsx");
-        var settings = ReadRepoFile("ui", "src", "components", "SettingsPanel.tsx");
-        var onboarding = ReadRepoFile("ui", "src", "components", "OnboardingPanel.tsx");
-
-        Assert.DoesNotContain("RefreshCw", launcher + settings, StringComparison.Ordinal);
-        Assert.DoesNotContain("title=\"Refresh", launcher + settings, StringComparison.Ordinal);
-        Assert.DoesNotContain("onRefresh", settings, StringComparison.Ordinal);
-        Assert.Contains("e.key === 'F5'", launcher, StringComparison.Ordinal);
-        Assert.DoesNotContain("onRefreshStores", launcher + onboarding, StringComparison.Ordinal);
-        Assert.DoesNotContain("Rescan", onboarding, StringComparison.Ordinal);
-        Assert.Contains("statusMsg && statusGameId === null", launcher, StringComparison.Ordinal);
-        Assert.Contains("role=\"alert\"", launcher, StringComparison.Ordinal);
-        Assert.Contains("const card = cardForExactId(games, progress.gameId)", launcher, StringComparison.Ordinal);
-        Assert.Contains("setSelectedVariantId(card && card.id !== progress.gameId ? progress.gameId : null)", launcher, StringComparison.Ordinal);
-
-        var callbackStart = launcher.IndexOf("onSettings={(next) => {", StringComparison.Ordinal);
-        var callbackEnd = launcher.IndexOf("}}", callbackStart, StringComparison.Ordinal);
-        Assert.True(callbackStart >= 0 && callbackEnd > callbackStart);
-        Assert.DoesNotContain("loadLibrary", launcher[callbackStart..callbackEnd], StringComparison.Ordinal);
     }
 
     [Fact]
@@ -318,56 +254,181 @@ public sealed class UxRegressionContractTests
     }
 
     [Fact]
-    public void SettingsPanel_UsesDenseDividedRowsAndKeepsFunctionalActions()
+    public void SettingsPanel_KeepsFunctionalActionsWithoutStoreAuthChrome()
     {
-        var settings = ReadRepoFile("ui", "src", "components", "SettingsPanel.tsx");
+        var settings = File.ReadAllText(Path.Combine(RepoRoot(), "ui", "src", "components", "SettingsPanel.tsx"));
+        var trophies = File.ReadAllText(Path.Combine(RepoRoot(), "ui", "src", "components", "TrophyNotificationSettings.tsx"));
+        var onboarding = File.ReadAllText(Path.Combine(RepoRoot(), "ui", "src", "components", "OnboardingPanel.tsx"));
+        var portable = File.ReadAllText(Path.Combine(RepoRoot(), "ui", "src", "lib", "portable.ts"));
+        var library = ReadRepoFile("ExoLauncher", "Services", "LibraryService.cs");
 
-        Assert.Contains("max-w-[1280px]", settings, StringComparison.Ordinal);
-        Assert.Contains("xl:grid-cols-[1.15fr_0.85fr]", settings, StringComparison.Ordinal);
-        Assert.Contains("md:grid-cols-[0.9fr_1.1fr]", settings, StringComparison.Ordinal);
-        Assert.Contains("divide-y divide-line-soft", settings, StringComparison.Ordinal);
-        Assert.DoesNotContain("Launcher settings", settings, StringComparison.Ordinal);
-        Assert.DoesNotContain("Preferences", settings, StringComparison.Ordinal);
-        Assert.DoesNotContain("Stores, updates, and notifications.", settings, StringComparison.Ordinal);
-        Assert.DoesNotContain("Overlapping local sessions", settings, StringComparison.Ordinal);
-        Assert.DoesNotContain("Quiet Game Mode keeps", settings, StringComparison.Ordinal);
-        Assert.DoesNotContain("Open a client only when", settings, StringComparison.Ordinal);
-        Assert.DoesNotContain("rounded-2xl border border-line-soft bg-elevated p-5", settings, StringComparison.Ordinal);
+        Assert.Contains("Stores on this PC", settings, StringComparison.Ordinal);
+        Assert.Contains("Show unlocks", trophies, StringComparison.Ordinal);
+        Assert.Contains("Check for update", settings, StringComparison.Ordinal);
         Assert.DoesNotContain("Exo Profile", settings, StringComparison.Ordinal);
-        Assert.DoesNotContain("type=\"password\"", settings, StringComparison.Ordinal);
-        Assert.Contains("onCheckUpdate", settings, StringComparison.Ordinal);
-        Assert.Contains("onInstallUpdate", settings, StringComparison.Ordinal);
-        Assert.DoesNotContain("Connect", settings, StringComparison.Ordinal);
         Assert.DoesNotContain("Reconnect", settings, StringComparison.Ordinal);
-        Assert.Contains("host.pickFolder('Choose game folder')", settings, StringComparison.Ordinal);
-        Assert.Contains("<TrophyNotificationSettings", settings, StringComparison.Ordinal);
-        Assert.Contains("https://github.com/ImAvgErix/ExoLauncher/issues", settings, StringComparison.Ordinal);
-        Assert.Contains("https://www.buymeacoffee.com/UhhErix", settings, StringComparison.Ordinal);
-        Assert.Contains("PRIVACY", settings, StringComparison.Ordinal);
+        // Store login chrome stays out. The one password input is the opt-in
+        // Steam Web API key — it must stay masked, labelled, and free of a
+        // native title tooltip that would leak the value on hover.
+        Assert.Equal(1, CountOccurrences(settings, "type=\"password\""));
+        var keyInput = SliceBetween(settings, "<input", "/>");
+        Assert.Contains("type=\"password\"", keyInput, StringComparison.Ordinal);
+        Assert.Contains("aria-label=\"Steam Web API key\"", keyInput, StringComparison.Ordinal);
+        Assert.Contains("autoComplete=\"off\"", keyInput, StringComparison.Ordinal);
+        Assert.DoesNotContain(" title=", keyInput, StringComparison.Ordinal);
+        Assert.Contains("pickFolder('Choose game folder')", portable, StringComparison.Ordinal);
+        Assert.Contains("host.showStore", settings, StringComparison.Ordinal);
+        Assert.Contains("No store apps were found in the last local check.", settings, StringComparison.Ordinal);
+        Assert.Contains("Stores on this PC", onboarding, StringComparison.Ordinal);
+        Assert.Contains("Steam Web API key", onboarding, StringComparison.Ordinal);
+        Assert.Contains("Create or sign in to your Exo account", onboarding, StringComparison.Ordinal);
+        Assert.DoesNotContain("Continue offline", onboarding, StringComparison.Ordinal);
+        Assert.DoesNotContain("offlineChosen", onboarding, StringComparison.Ordinal);
+        Assert.Contains("serviceUnavailable || (!!accountState?.signedIn && !!accountState.handle)", onboarding, StringComparison.Ordinal);
+        Assert.Contains("Finish setup", onboarding, StringComparison.Ordinal);
+        Assert.DoesNotContain("onSkip", onboarding, StringComparison.Ordinal);
+        Assert.Contains("if (!clientPresent && !backendPresent && !signedIn)", library, StringComparison.Ordinal);
+        Assert.DoesNotContain("return \"Missing\";", library, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void StoreBackends_DescribeAbsentBackendsAsNotInstalled_AndHideReadyActions()
+    public void SettingsPanel_DoesNotSendCompletedUsersBackThroughOnboarding()
     {
         var settings = ReadRepoFile("ui", "src", "components", "SettingsPanel.tsx");
+        var account = ReadRepoFile("ui", "src", "components", "AccountPanel.tsx");
+
+        Assert.DoesNotContain("Run setup again", settings, StringComparison.Ordinal);
+        Assert.DoesNotContain("restartOnboarding", settings, StringComparison.Ordinal);
+        Assert.Contains("'Log out'", account, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Onboarding_IsAThreeStepAccountFlowThatFillsTheWindow()
+    {
         var onboarding = ReadRepoFile("ui", "src", "components", "OnboardingPanel.tsx");
-        var library = ReadRepoFile("ExoLauncher", "Services", "LibraryService.cs");
+        var app = ReadRepoFile("ui", "src", "components", "LauncherApp.tsx");
+        var tokens = ReadRepoFile("ui", "src", "tokens.css");
 
-        Assert.Contains("const clientInstalled = store.clientPresent ?? store.agentPresent", settings, StringComparison.Ordinal);
-        Assert.Contains("const canOpen = !!clientInstalled", settings, StringComparison.Ordinal);
-        Assert.DoesNotContain("While playing", settings, StringComparison.Ordinal);
-        Assert.DoesNotContain("Minimize Exo", settings, StringComparison.Ordinal);
-        Assert.Contains("'Not installed'", settings, StringComparison.Ordinal);
-        Assert.DoesNotContain("onAuth", settings, StringComparison.Ordinal);
-        Assert.DoesNotContain("Reconnect", settings, StringComparison.Ordinal);
+        Assert.Contains("{ id: 'stores', label: 'Stores' }", onboarding, StringComparison.Ordinal);
+        Assert.Contains("{ id: 'account', label: 'Account' }", onboarding, StringComparison.Ordinal);
+        Assert.Contains("{ id: 'profile', label: 'Make it yours' }", onboarding, StringComparison.Ordinal);
+        Assert.Contains("<AccountPanel", onboarding, StringComparison.Ordinal);
+        Assert.Contains("host.storesAuth(store.store)", onboarding, StringComparison.Ordinal);
+        Assert.Contains("host.profilePickImage(kind)", onboarding, StringComparison.Ordinal);
+        Assert.DoesNotContain("Continue offline", onboarding, StringComparison.Ordinal);
+        Assert.DoesNotContain("offlineChosen", onboarding, StringComparison.Ordinal);
+        Assert.Contains("serviceUnavailable || (!!accountState?.signedIn && !!accountState.handle)", onboarding, StringComparison.Ordinal);
+        Assert.DoesNotContain("StaggeredText", onboarding, StringComparison.Ordinal);
+        Assert.DoesNotContain("BlurHighlight", onboarding, StringComparison.Ordinal);
 
-        Assert.Contains("const clientInstalled = store.clientPresent ?? store.agentPresent", onboarding, StringComparison.Ordinal);
-        Assert.Contains("'Not installed'", onboarding, StringComparison.Ordinal);
-        Assert.DoesNotContain("onAuth", onboarding, StringComparison.Ordinal);
-        Assert.DoesNotContain("Reconnect", onboarding, StringComparison.Ordinal);
+        Assert.Contains("stores={stores}", app, StringComparison.Ordinal);
+        Assert.Contains("onComplete={finishOnboarding}", app, StringComparison.Ordinal);
+        Assert.Contains("if (refreshLibrary) await loadLibrary(true)", app, StringComparison.Ordinal);
 
-        Assert.Contains("if (!present) return \"Not installed\";", library, StringComparison.Ordinal);
-        Assert.DoesNotContain("if (!present) return \"Missing\";", library, StringComparison.Ordinal);
+        var shell = SliceBetween(tokens, ".exo-onboarding-shell {", ".exo-onboarding-rail {");
+        var main = SliceBetween(tokens, ".exo-onboarding-main {", ".exo-onboarding-content {");
+        var storeBody = SliceBetween(tokens, ".exo-onboarding-store-body {", ".exo-onboarding-store-body::-webkit-scrollbar");
+        Assert.Contains("width: 100%", shell, StringComparison.Ordinal);
+        Assert.Contains("height: 100%", shell, StringComparison.Ordinal);
+        Assert.DoesNotContain("width: min(", shell, StringComparison.Ordinal);
+        Assert.DoesNotContain("height: min(", shell, StringComparison.Ordinal);
+        Assert.Contains("overflow: hidden", shell, StringComparison.Ordinal);
+        Assert.Contains("grid-template-rows: minmax(0, 1fr) auto", main, StringComparison.Ordinal);
+        Assert.Contains("overflow-y: auto", storeBody, StringComparison.Ordinal);
+        Assert.Contains("scrollbar-width: none", storeBody, StringComparison.Ordinal);
+        Assert.Contains("exo-onboarding-step-in 190ms", tokens, StringComparison.Ordinal);
+        Assert.Contains("@media (prefers-reduced-motion: reduce)", tokens, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void FirstRun_WaitsForStoreDetectionAndDefersTheProfileIdentityRead()
+    {
+        var app = ReadRepoFile("ui", "src", "components", "LauncherApp.tsx");
+        var profileEffect = SliceBetween(
+            app,
+            "useEffect(() => {\n    if (settings?.onboardingComplete !== true) return",
+            "}, [applyIdentity, settings?.onboardingComplete])");
+
+        Assert.Contains("host.profileGet()", profileEffect, StringComparison.Ordinal);
+        Assert.Contains("const [storeMatrixReady, setStoreMatrixReady] = useState(false)", app, StringComparison.Ordinal);
+        Assert.Contains(".finally(() => setStoreMatrixReady(true))", app, StringComparison.Ordinal);
+        Assert.Contains("!settings.onboardingComplete && !storeMatrixReady", app, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void StoreSettings_RefreshTheLibraryAndKeepBusyStatePerRow()
+    {
+        var app = ReadRepoFile("ui", "src", "components", "LauncherApp.tsx");
+        var settings = ReadRepoFile("ui", "src", "components", "SettingsPanel.tsx");
+        var settingsPanel = SliceBetween(app, "const settingsPanel = (", "return (");
+        var storePanel = SliceBetween(settings, "{section === 'stores'", "<SteamWebApiKeyRow");
+
+        Assert.Contains("onStores={async (next) =>", settingsPanel, StringComparison.Ordinal);
+        Assert.Contains("await loadLibrary(true)", settingsPanel, StringComparison.Ordinal);
+        Assert.Contains("const storeBusyRef = useRef", settings, StringComparison.Ordinal);
+        Assert.DoesNotContain("openingStore", settings, StringComparison.Ordinal);
+        Assert.DoesNotContain("connectingStore", settings, StringComparison.Ordinal);
+        Assert.Contains("const next = await host.storesMatrix()", settings, StringComparison.Ordinal);
+        Assert.Contains("setCheckedStores(next)", settings, StringComparison.Ordinal);
+        Assert.Contains("await onStores?.(next)", settings, StringComparison.Ordinal);
+        Assert.Equal(2, CountOccurrences(storePanel, "disabled={rowBusy}"));
+    }
+
+    [Fact]
+    public void SteamKeyDraft_IsClearedBeforeTheSaveSettles()
+    {
+        var settings = ReadRepoFile("ui", "src", "components", "SettingsPanel.tsx");
+        var persist = SliceBetween(settings, "async function persist(value: string)", "return (");
+        var started = persist.IndexOf("const pending = host.setSettings", StringComparison.Ordinal);
+        var cleared = persist.IndexOf("setDraft('')", StringComparison.Ordinal);
+        var settled = persist.IndexOf("await pending", StringComparison.Ordinal);
+
+        Assert.True(started >= 0, "Steam key save must start through the host.");
+        Assert.True(started < cleared, "The input must clear only after the host save starts.");
+        Assert.True(cleared < settled, "The input must clear before the host save settles.");
+        Assert.Contains("catch (cause)", persist, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void PrimaryCta_OffersBuyAgainOnlyForExplicitRevocation()
+    {
+        var format = ReadRepoFile("ExoLauncher", "Ui", "UiFormat.cs");
+        var storefront = ReadRepoFile("ExoLauncher", "Adapters", "Storefront.cs");
+        var host = File.ReadAllText(Path.Combine(RepoRoot(), "ui", "src", "lib", "host.ts"));
+        var entitlement = File.ReadAllText(Path.Combine(RepoRoot(), "ui", "src", "lib", "entitlementActions.ts"));
+        Assert.Contains("return \"none\";", format, StringComparison.Ordinal);
+        Assert.DoesNotContain("return \"Buy\"", format, StringComparison.Ordinal);
+        Assert.Contains("return 'Not installed'", host, StringComparison.Ordinal);
+        Assert.Contains("if (game.entitlementState === 'notOwned') return 'Buy again'", entitlement, StringComparison.Ordinal);
+        Assert.Contains("if (game.entitlementState === 'unverified') return 'Unavailable'", entitlement, StringComparison.Ordinal);
+        Assert.Contains("if (game.entitlementState === 'unverified') return false", entitlement, StringComparison.Ordinal);
+        Assert.Contains("if (game.entitlementState === 'notOwned') return true", entitlement, StringComparison.Ordinal);
+        Assert.Contains("if (game.Installed || game.Owned) return null;", storefront, StringComparison.Ordinal);
+        Assert.Contains("\"Play\"", format, StringComparison.Ordinal);
+        Assert.Contains("\"Install\"", format, StringComparison.Ordinal);
+        Assert.Contains("\"Update\"", format, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Overlay_UsesHostBuyUrl_ForEveryPurchasableStore()
+    {
+        var overlay = File.ReadAllText(Path.Combine(RepoRoot(), "ui", "src", "components", "GamePage.tsx"));
+        var host = File.ReadAllText(Path.Combine(RepoRoot(), "ui", "src", "lib", "host.ts"));
+        var entitlement = File.ReadAllText(Path.Combine(RepoRoot(), "ui", "src", "lib", "entitlementActions.ts"));
+        var bridge = ReadRepoFile("ExoLauncher", "Services", "WebHostBridge.cs");
+
+        Assert.Contains("hostedBuyUrl(selected)", overlay, StringComparison.Ordinal);
+        Assert.Contains("const dealsUrl = buyUrl ? ggDealsUrl(selected) : null", overlay, StringComparison.Ordinal);
+        Assert.Contains("export function hostedBuyUrl", host, StringComparison.Ordinal);
+        Assert.Contains("buyUrl = UiFormat.BuyUrl(g)", bridge, StringComparison.Ordinal);
+        Assert.Contains("buyUrl = UiFormat.BuyUrl(SearchHitEntry(h))", bridge, StringComparison.Ordinal);
+        Assert.DoesNotContain("function storeBuyUrl", overlay, StringComparison.Ordinal);
+        Assert.DoesNotContain("https://www.gog.com/en/game/${encodeURIComponent(target)}", overlay, StringComparison.Ordinal);
+        Assert.DoesNotContain("steam://store/${target}", overlay, StringComparison.Ordinal);
+        Assert.DoesNotContain("epic:catalog:", overlay, StringComparison.Ordinal);
+        Assert.Contains("if (!canExposeBuyUrl(game)) return null", host, StringComparison.Ordinal);
+        Assert.Contains("return !game.installed && !game.owned", entitlement, StringComparison.Ordinal);
+        Assert.Contains("if (game.entitlementState === 'notOwned') return true", entitlement, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -386,333 +447,524 @@ public sealed class UxRegressionContractTests
     }
 
     [Fact]
-    public void GameDetail_IsCompactAndRefreshesMissingAchievementsAutomatically()
+    public void ReactShell_HoldsPlaytimeAndLeavesNowAlone()
     {
-        var detail = ReadRepoFile("ui", "src", "components", "DetailPanel.tsx");
-        var card = ReadRepoFile("ui", "src", "components", "GameCard.tsx");
-        var launcher = ReadRepoFile("ui", "src", "components", "LauncherApp.tsx");
-        var host = ReadRepoFile("ui", "src", "lib", "host.ts");
+        var overlay = File.ReadAllText(Path.Combine(RepoRoot(), "ui", "src", "components", "GamePage.tsx"));
+        var app = File.ReadAllText(Path.Combine(RepoRoot(), "ui", "src", "components", "LauncherApp.tsx"));
+        var nowTs = File.ReadAllText(Path.Combine(RepoRoot(), "ui", "src", "lib", "now.ts"));
+        var now = File.ReadAllText(Path.Combine(RepoRoot(), "ui", "src", "components", "NowStage.tsx"));
+        var tile = File.ReadAllText(Path.Combine(RepoRoot(), "ui", "src", "components", "GameCard.tsx"));
+        var cover = File.ReadAllText(Path.Combine(RepoRoot(), "ui", "src", "components", "CoverArt.tsx"));
+        var windowCs = ReadRepoFile("ExoLauncher", "MainWindow.xaml.cs");
+        var tokens = File.ReadAllText(Path.Combine(RepoRoot(), "ui", "src", "tokens.css"));
+
+        Assert.Contains("Confirm remove", overlay, StringComparison.Ordinal);
+        Assert.Contains("formatPlayed", overlay, StringComparison.Ordinal);
+        Assert.Contains("variant.id === selected.id", overlay, StringComparison.Ordinal);
+        Assert.DoesNotContain("hours >= 10", overlay, StringComparison.Ordinal);
+        Assert.Contains("UpscalerFiles", overlay, StringComparison.Ordinal);
+        Assert.Contains("<Wrench size={14} />", overlay, StringComparison.Ordinal);
+        Assert.Contains("retainNow(games, picked, holdNowId.current)", app, StringComparison.Ordinal);
+        Assert.Contains("Tile click / library churn must not steal the banner", nowTs, StringComparison.Ordinal);
+        Assert.Contains("{cta}", now, StringComparison.Ordinal);
+        Assert.Contains("exo-tile", tile, StringComparison.Ordinal);
+        Assert.DoesNotContain("StarFilled size={14}", tile, StringComparison.Ordinal);
+        Assert.DoesNotContain("GameMetadata", tile, StringComparison.Ordinal);
+        Assert.DoesNotContain("metadata?.genre", tile, StringComparison.Ordinal);
+        Assert.DoesNotContain("metadata?.year", tile, StringComparison.Ordinal);
+        Assert.DoesNotContain("exo-tile-shine", tile + tokens, StringComparison.Ordinal);
+        var tileHit = tile.IndexOf("className=\"exo-tile-hit\"", StringComparison.Ordinal);
+        var tileHitEnd = tile.IndexOf("</button>", tileHit, StringComparison.Ordinal);
+        Assert.True(tileHit >= 0 && tileHitEnd > tileHit, "The card must remain one complete button.");
+        Assert.Contains(".exo-tile-hit:focus-visible {", tokens, StringComparison.Ordinal);
+        Assert.DoesNotContain("translateY(-5px)", tokens, StringComparison.Ordinal);
+        Assert.Contains("exo-tile {", tokens, StringComparison.Ordinal);
+        Assert.DoesNotContain("exo-tile-pin", tile + tokens, StringComparison.Ordinal);
+        Assert.DoesNotContain("title=", tile, StringComparison.Ordinal);
+        Assert.DoesNotContain("ResizeObserver", tile, StringComparison.Ordinal);
+        Assert.DoesNotContain("data-card-name", tile, StringComparison.Ordinal);
+        Assert.Contains("safeUrl.startsWith(`${COVER_CACHE_ORIGIN}/`)", cover, StringComparison.Ordinal);
+        Assert.Contains("900", cover, StringComparison.Ordinal);
+        Assert.Contains("pinned", app, StringComparison.Ordinal);
+        Assert.Contains("DefaultWindowWidth = 1400", windowCs, StringComparison.Ordinal);
+        Assert.Contains("DefaultWindowHeight = 900", windowCs, StringComparison.Ordinal);
+        Assert.Contains("MinWindowWidth = 1100", windowCs, StringComparison.Ordinal);
+        Assert.Contains("IsMaximizable = true", windowCs, StringComparison.Ordinal);
+        Assert.Contains("IsResizable = true", windowCs, StringComparison.Ordinal);
+        Assert.Contains("NonClientRegionKind.Caption", windowCs, StringComparison.Ordinal);
+        Assert.Contains("TitleBarSearchPassthroughDip = 184", windowCs, StringComparison.Ordinal);
+        Assert.Contains("TitleBarSearchHeightDip = 32", windowCs, StringComparison.Ordinal);
+        Assert.Contains("NonClientRegionKind.Passthrough", windowCs, StringComparison.Ordinal);
+        Assert.Contains(".exo-titlebar-search:focus-within", tokens, StringComparison.Ordinal);
+        Assert.Contains(".exo-titlebar-search.has-query", tokens, StringComparison.Ordinal);
+        Assert.Contains("width: 96px", SliceBetween(tokens, ".exo-titlebar-search {", ".exo-search-capsule {"), StringComparison.Ordinal);
+        Assert.Contains("width: 184px", tokens, StringComparison.Ordinal);
+        Assert.Contains("exo-search-capsule", app, StringComparison.Ordinal);
+        Assert.Contains("width: 100%", SliceBetween(tokens, ".exo-search-capsule {", "}"), StringComparison.Ordinal);
+        Assert.Contains("transition:", SliceBetween(tokens, ".exo-search-capsule {", "}"), StringComparison.Ordinal);
+        Assert.Contains("width 200ms var(--ease-in-out)", SliceBetween(tokens, ".exo-titlebar-search {", ".exo-search-capsule {"), StringComparison.Ordinal);
+        Assert.DoesNotContain("scaleX(", SliceBetween(tokens, ".exo-search-capsule {", "}"), StringComparison.Ordinal);
+        Assert.Contains("width: 100%", SliceBetween(tokens, ".exo-titlebar-search:focus-within .exo-search-capsule,", "@media (prefers-reduced-motion: reduce)"), StringComparison.Ordinal);
+        Assert.DoesNotContain("box-shadow", SliceBetween(tokens, ".exo-search-capsule {", "@media (prefers-reduced-motion: reduce)"), StringComparison.Ordinal);
+        Assert.Contains("padding: 0 14px", tokens, StringComparison.Ordinal);
+        Assert.Contains("white-space: normal", SliceBetween(tokens, ".exo-card-title {", "}"), StringComparison.Ordinal);
+        Assert.Contains("overflow-wrap: anywhere", SliceBetween(tokens, ".exo-card-title {", "}"), StringComparison.Ordinal);
+        Assert.Contains("private object ToggleMaximize()", ReadRepoFile("ExoLauncher", "Services", "WebHostBridge.cs"), StringComparison.Ordinal);
+        Assert.DoesNotContain("ContinueBanner", app, StringComparison.Ordinal);
+        // GamePage is the details overlay. The old DetailPanel re-export shim is gone.
+        Assert.False(File.Exists(Path.Combine(RepoRoot(), "ui", "src", "components", "DetailPanel.tsx")));
+        Assert.True(File.Exists(Path.Combine(RepoRoot(), "ui", "src", "components", "GamePage.tsx")));
+        Assert.True(Directory.Exists(Path.Combine(RepoRoot(), "ui")));
+    }
+
+    [Fact]
+    public void LibrarySurface_KeepsCardsPointerSafeQuietAndScrollableWithoutVisibleBars()
+    {
         var tokens = ReadRepoFile("ui", "src", "tokens.css");
+        var tile = ReadRepoFile("ui", "src", "components", "GameCard.tsx");
+        var gridComponent = ReadRepoFile("ui", "src", "components", "WindowedGameGrid.tsx");
+        var hit = SliceBetween(tokens, ".exo-tile-hit {", "}");
+        var tileShell = SliceBetween(tokens, ".exo-tile {", "}");
+        var title = SliceBetween(tokens, ".exo-card-title {", "}");
+        var grid = SliceBetween(tokens, ".exo-game-grid {", "}");
+        var gridRow = SliceBetween(tokens, ".exo-game-grid-row {", "}");
+        var windowedGrid = SliceBetween(tokens, ".exo-windowed-game-grid {", "}");
+        var pinnedGrid = SliceBetween(tokens, ".exo-pin-track {", "}");
+        var library = SliceBetween(tokens, ".exo-library-pane {", "}");
+        var details = SliceBetween(tokens, ".exo-game-page-inner {", "}");
+        var webkit = SliceBetween(tokens, ".exo-library-pane::-webkit-scrollbar,", "}");
+        var ambientStart = tokens.LastIndexOf(".exo-ambient::after {", StringComparison.Ordinal);
+        Assert.True(ambientStart >= 0, "missing the second ambient radial");
+        var ambientEnd = tokens.IndexOf('}', ambientStart);
+        Assert.True(ambientEnd > ambientStart, "missing the second ambient radial block end");
+        var ambient = tokens[ambientStart..ambientEnd];
+
+        Assert.Contains("--exo-card-w: 160px", tokens, StringComparison.Ordinal);
+        Assert.Contains("--exo-card-w: clamp(148px", tokens, StringComparison.Ordinal);
+        Assert.Contains("resolveGridCardLayout", gridComponent, StringComparison.Ordinal);
+        Assert.Contains("gap: var(--exo-grid-row-gap)", grid, StringComparison.Ordinal);
+        Assert.Contains("repeat(var(--exo-grid-columns), var(--exo-card-w))", gridRow, StringComparison.Ordinal);
+        Assert.Contains("grid-auto-flow: column", pinnedGrid, StringComparison.Ordinal);
+        Assert.Contains("grid-auto-columns: var(--exo-card-w)", pinnedGrid, StringComparison.Ordinal);
+        Assert.Contains("overflow-x: auto", pinnedGrid, StringComparison.Ordinal);
+        Assert.DoesNotContain("grid-auto-flow: column", grid + gridRow, StringComparison.Ordinal);
+        Assert.Contains("height: calc((var(--exo-card-w) * 1.5) + 54px)", hit, StringComparison.Ordinal);
+        Assert.Contains("overflow-anchor: none", windowedGrid, StringComparison.Ordinal);
+        Assert.DoesNotContain("content-visibility", tileShell, StringComparison.Ordinal);
+        Assert.DoesNotContain("contain-intrinsic-size", tileShell, StringComparison.Ordinal);
+        Assert.Contains("transition: transform 170ms var(--ease-out)", tileShell, StringComparison.Ordinal);
+        Assert.Contains("transform: translateY(-2px)", tokens, StringComparison.Ordinal);
+        Assert.Contains("scale(1.02)", tokens, StringComparison.Ordinal);
+        Assert.Contains("0 12px 28px rgba(0, 0, 0, 0.28)", tokens, StringComparison.Ordinal);
+        Assert.Contains("scale(0.985)", tokens, StringComparison.Ordinal);
+        Assert.Contains("transition-duration: 120ms", tokens, StringComparison.Ordinal);
+        Assert.DoesNotContain("transition: all", tokens, StringComparison.Ordinal);
+        Assert.DoesNotContain("min-height", title, StringComparison.Ordinal);
+        Assert.DoesNotContain("exo-tile-shine", tile + tokens, StringComparison.Ordinal);
+        Assert.DoesNotContain("exo-tile-sweep", tokens, StringComparison.Ordinal);
+        Assert.DoesNotContain("exo-playing-pulse", tokens, StringComparison.Ordinal);
+        Assert.DoesNotContain("exo-update-breathe", tokens, StringComparison.Ordinal);
+
+        Assert.DoesNotContain("exo-tile-pin", tile + tokens + gridComponent, StringComparison.Ordinal);
+
+        Assert.DoesNotContain("\n.exo-ghost-btn:hover {", tokens, StringComparison.Ordinal);
+        Assert.Contains("@media (hover: hover) and (pointer: fine) {\n  .exo-ghost-btn:hover", tokens, StringComparison.Ordinal);
+
+        Assert.Contains("overflow-y: auto", library, StringComparison.Ordinal);
+        Assert.Contains("scrollbar-width: none", library, StringComparison.Ordinal);
+        Assert.Contains("overflow-y: auto", details, StringComparison.Ordinal);
+        Assert.Contains("scrollbar-width: none", details, StringComparison.Ordinal);
+        Assert.Contains("display: none", webkit, StringComparison.Ordinal);
+        Assert.Contains("radial-gradient", ambient, StringComparison.Ordinal);
+        Assert.DoesNotContain("animation", ambient, StringComparison.Ordinal);
+        Assert.DoesNotContain("text-rendering: optimizeSpeed", tokens, StringComparison.Ordinal);
+        Assert.Contains("@media (max-height: 760px)", tokens, StringComparison.Ordinal);
+        Assert.Contains("height: 168px", tokens, StringComparison.Ordinal);
+        Assert.DoesNotContain("exo-tile-pin", SliceBetween(tokens, "@media (prefers-reduced-motion: reduce) {", "/* ── Exo profile ── */"), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void FavoriteControlLivesOnlyInGameDetails_NotOnLibraryCards()
+    {
+        var page = ReadRepoFile("ui", "src", "components", "GamePage.tsx");
+        var card = ReadRepoFile("ui", "src", "components", "GameCard.tsx");
+        var tokens = ReadRepoFile("ui", "src", "tokens.css");
+
+        Assert.DoesNotContain("exo-tile-pin", card + tokens, StringComparison.Ordinal);
+        Assert.DoesNotContain("StarFilled", card, StringComparison.Ordinal);
+        Assert.DoesNotContain("onToggleFavorite", card, StringComparison.Ordinal);
+        Assert.DoesNotContain("exo-detail-cover", page, StringComparison.Ordinal);
+        Assert.Contains("exo-game-favorite", page, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void TileClick_OpensOverlayAndLeavesNowAlone()
+    {
+        var app = File.ReadAllText(Path.Combine(RepoRoot(), "ui", "src", "components", "LauncherApp.tsx"));
+        var nowTs = File.ReadAllText(Path.Combine(RepoRoot(), "ui", "src", "lib", "now.ts"));
+        var overlay = File.ReadAllText(Path.Combine(RepoRoot(), "ui", "src", "components", "GamePage.tsx"));
+
+        Assert.Contains("holdNowId.current = nowIdRef.current ?? holdNowId.current", app, StringComparison.Ordinal);
+        Assert.Contains("export function retainNow(", nowTs, StringComparison.Ordinal);
+        Assert.Contains("if (picked.kind === 'download' || picked.kind === 'playing') return picked", nowTs, StringComparison.Ordinal);
+        Assert.Contains("Confirm remove", overlay, StringComparison.Ordinal);
+        Assert.DoesNotContain("const box = nowBox ?? viewBox()", app, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void PlayLaunchesWithoutWaitingOnUpscalerPack()
+    {
         var bridge = ReadRepoFile("ExoLauncher", "Services", "WebHostBridge.cs");
-        var getStart = bridge.IndexOf("private object AchievementGet", StringComparison.Ordinal);
-        var getEnd = bridge.IndexOf("private async Task<object> AchievementRefreshAsync", getStart,
-            StringComparison.Ordinal);
-        Assert.True(getStart >= 0 && getEnd > getStart);
-        var achievementGet = bridge[getStart..getEnd];
+        var launchStart = bridge.IndexOf("private async Task<object> GameLaunchAsync", StringComparison.Ordinal);
+        var launchEnd = bridge.IndexOf("private async Task<object> GameStopAsync", launchStart, StringComparison.Ordinal);
+        Assert.True(launchStart >= 0 && launchEnd > launchStart);
+        var launch = bridge[launchStart..launchEnd];
+        Assert.DoesNotContain("EnsureLatest", launch, StringComparison.Ordinal);
+        Assert.DoesNotContain("Dlss", launch, StringComparison.Ordinal);
+        Assert.DoesNotContain("UpdateGame", launch, StringComparison.Ordinal);
 
-        Assert.DoesNotContain("Trophy cabinet", detail, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("achievementBusy", detail, StringComparison.Ordinal);
-        // Immediate paint from last known snapshot, then live account-scoped refresh.
-        // requestId freezes the selected source so a fast switch cannot paint the wrong counts.
-        Assert.Contains("const requestId = selected.id", detail, StringComparison.Ordinal);
-        Assert.Contains("host.getAchievements(requestId)", detail, StringComparison.Ordinal);
-        Assert.Contains("host.refreshAchievements(requestId)", detail, StringComparison.Ordinal);
-        Assert.Contains("achievementCache.get(requestId)", detail, StringComparison.Ordinal);
-        Assert.DoesNotContain("setAchievementData(null)", detail, StringComparison.Ordinal);
-        Assert.Contains("[selected.id]", detail, StringComparison.Ordinal);
-        Assert.DoesNotContain("selected.launchTarget, selected.store", detail, StringComparison.Ordinal);
-        Assert.Contains("achievements.updated", detail, StringComparison.Ordinal);
-        Assert.Contains("GetLatestSnapshot", achievementGet, StringComparison.Ordinal);
-        Assert.DoesNotContain("achievementRefreshing", detail, StringComparison.Ordinal);
-        Assert.DoesNotContain("Checking…", detail, StringComparison.Ordinal);
-        Assert.Contains("? 'Updating…'", detail, StringComparison.Ordinal);
-        Assert.DoesNotContain("Syncing…", detail, StringComparison.Ordinal);
-        Assert.Contains("exo-game-page", detail, StringComparison.Ordinal);
-        Assert.Contains("exo-game-close", detail, StringComparison.Ordinal);
-        Assert.Contains("const primaryAction = resolvePrimaryAction(game)", card, StringComparison.Ordinal);
-        Assert.Contains("game.variants?.some((variant) => variant.updateAvailable)", card, StringComparison.Ordinal);
-        Assert.Contains("primaryAction === 'update'", card, StringComparison.Ordinal);
-        Assert.Contains("primaryAction === 'install'", card, StringComparison.Ordinal);
-        Assert.DoesNotContain("exo-badge is-warn", card, StringComparison.Ordinal);
-        Assert.Contains("exo-badge is-update", card, StringComparison.Ordinal);
-        Assert.Contains("hasUpdate && !isPlaying && 'is-update'", card, StringComparison.Ordinal);
-        Assert.Contains("hasUpdate ? 'Update'", card, StringComparison.Ordinal);
-        Assert.DoesNotContain("game.updateAvailable &&", card, StringComparison.Ordinal);
-        Assert.DoesNotContain("formatPlaytime", card, StringComparison.Ordinal);
-        Assert.Contains("label=\"Time played\"", detail, StringComparison.Ordinal);
-        Assert.Contains("label=\"Last launched\"", detail, StringComparison.Ordinal);
-        Assert.DoesNotContain("label=\"Played\"", detail, StringComparison.Ordinal);
-        Assert.DoesNotContain("label=\"Last\"", detail, StringComparison.Ordinal);
-        Assert.Contains("formatPlaytime(bestPlaytimeMinutes(selected), selected.lastPlayedUtc)", detail, StringComparison.Ordinal);
-        Assert.Contains("formatRelativeLastPlayed(selected.lastPlayedUtc)", detail, StringComparison.Ordinal);
-        Assert.Contains("'None'", detail, StringComparison.Ordinal);
-        Assert.DoesNotContain("label=\"Status\"", detail, StringComparison.Ordinal);
-        Assert.Contains("selected.canStop", detail, StringComparison.Ordinal);
-        Assert.Contains("? 'Stop'", detail, StringComparison.Ordinal);
-        Assert.Contains("if (selected?.canStop)", launcher, StringComparison.Ordinal);
-        Assert.Contains("await onStopGame(selected)", launcher, StringComparison.Ordinal);
-        Assert.Contains("function setExactRunState", launcher, StringComparison.Ordinal);
-        Assert.Contains("setExactRunState(items, game.id, false, false)", launcher, StringComparison.Ordinal);
-        Assert.Contains("mergeExactGame(items, refreshed.game!)", launcher, StringComparison.Ordinal);
-        Assert.Contains("void host.getGame(exactId)", launcher, StringComparison.Ordinal);
-        Assert.DoesNotContain("const refreshed = await host.getGame(exactId)", launcher, StringComparison.Ordinal);
-        Assert.Contains(".exo-badge.is-warn", tokens, StringComparison.Ordinal);
-        Assert.Contains(".exo-badge.is-update", tokens, StringComparison.Ordinal);
-        Assert.DoesNotContain("background: #ffb020", tokens, StringComparison.Ordinal);
-        Assert.DoesNotContain("font-weight: 800", tokens, StringComparison.Ordinal);
-        Assert.Contains("box-shadow:", tokens, StringComparison.Ordinal);
-        Assert.Contains("closeDisabled={actionLocked}", launcher, StringComparison.Ordinal);
-        Assert.Contains("function isCardActionLocked", launcher, StringComparison.Ordinal);
-        Assert.Contains("disabled={isCardActionLocked(game)}", launcher, StringComparison.Ordinal);
-        Assert.True(
-            host.IndexOf("if (game.installed && game.updateAvailable) return 'update'", StringComparison.Ordinal) <
-            host.IndexOf("if (game.primaryAction === 'play'", StringComparison.Ordinal),
-            "Update availability must override a stale explicit Play action.");
-        Assert.True(
-            host.IndexOf("if (game.canInstall || game.owned) return 'install'", StringComparison.Ordinal) <
-            host.IndexOf("if (game.primaryAction === 'play'", StringComparison.Ordinal),
-            "Owned or installable titles must Download, not inherit a stale None/Buy action.");
+        var orchestrator = ReadRepoFile("ExoLauncher", "Services", "LaunchOrchestrator.cs");
+        Assert.DoesNotContain("EnsureLatestPackAsync", orchestrator, StringComparison.Ordinal);
+        Assert.DoesNotContain("DlssSwapService", orchestrator, StringComparison.Ordinal);
+
+        var app = File.ReadAllText(Path.Combine(RepoRoot(), "ui", "src", "components", "LauncherApp.tsx"));
+        Assert.Contains("host.launch(", app, StringComparison.Ordinal);
+        Assert.DoesNotContain("host.dlssApply", app, StringComparison.Ordinal);
+        // Applying lives in the details overlay's upscaler panel, never on the
+        // shelf, and one press covers every destination the game ships.
+        var upscalers = File.ReadAllText(Path.Combine(RepoRoot(), "ui", "src", "components", "UpscalerFiles.tsx"));
+        Assert.Contains("host.dlssApply(gameId)", upscalers, StringComparison.Ordinal);
+        Assert.Contains("host.dlssRestore(gameId)", upscalers, StringComparison.Ordinal);
+        Assert.DoesNotContain("dlssApplyFile", upscalers, StringComparison.Ordinal);
+
+        var swap = ReadRepoFile("ExoLauncher", "Services", "DlssSwapService.cs");
+        Assert.DoesNotContain("pack.Files.TryGetValue(Fsr4LoaderName", swap, StringComparison.Ordinal);
+        Assert.DoesNotContain("haveCore", swap, StringComparison.Ordinal);
+        Assert.DoesNotContain("Download the rest.", swap, StringComparison.Ordinal);
+        Assert.Contains("NeededPackFiles(targets.SelectMany(ScanGame))", swap, StringComparison.Ordinal);
+        Assert.DoesNotContain("foreach (var companion in Fsr4CompanionNames)", swap, StringComparison.Ordinal);
+        Assert.Contains("EvaluateSdkStatus(", swap, StringComparison.Ordinal);
+        Assert.DoesNotContain("string.IsNullOrWhiteSpace(remoteFsr) ? \"FSR 3.1\" : \"FSR \" + remoteFsr", swap, StringComparison.Ordinal);
+        Assert.DoesNotContain("\"XeSS\",\n            });", swap, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void Cards_UseAllStoreVariantsWithHonestLabelsAndHighQualityCoverSources()
+    public void Details_KnowEveryUpscalerDestination_ButRenderOnlyDetectedFiles()
     {
-        var card = ReadRepoFile("ui", "src", "components", "GameCard.tsx");
-        var cover = ReadRepoFile("ui", "src", "components", "CoverArt.tsx");
-        var host = ReadRepoFile("ui", "src", "lib", "host.ts");
-        var motion = ReadRepoFile("ui", "src", "motion.tsx");
-        var tokens = ReadRepoFile("ui", "src", "tokens.css");
+        var dests = File.ReadAllText(Path.Combine(RepoRoot(), "ui", "src", "lib", "upscalers.ts"));
+        var overlay = File.ReadAllText(Path.Combine(RepoRoot(), "ui", "src", "components", "GamePage.tsx"));
+        var files = File.ReadAllText(Path.Combine(RepoRoot(), "ui", "src", "components", "UpscalerFiles.tsx"));
+        var swap = ReadRepoFile("ExoLauncher", "Services", "DlssSwapService.cs");
 
-        Assert.Contains("stores?: Array<StoreId | string>", host, StringComparison.Ordinal);
-        Assert.Contains("game.stores?.length ? game.stores : [game.store]", card, StringComparison.Ordinal);
-        Assert.Contains("new Set", card, StringComparison.Ordinal);
-        Assert.Contains("stores.map(storeLabel).join(', ')", card, StringComparison.Ordinal);
-        Assert.Contains("exo-card-store", card, StringComparison.Ordinal);
-        Assert.DoesNotContain("exo-store-dot", card, StringComparison.Ordinal);
-        Assert.DoesNotContain("StoreMark", card, StringComparison.Ordinal);
-        Assert.Contains("steamPortraitUrlsForApp", cover, StringComparison.Ordinal);
-        Assert.Contains("loading={large ? 'eager' : 'lazy'}", cover, StringComparison.Ordinal);
-        Assert.Contains("opacity: loaded ? 1 : 0.02", cover, StringComparison.Ordinal);
-        Assert.DoesNotContain("opacity-0 pointer-events-none", cover, StringComparison.Ordinal);
-        Assert.Contains("raw.replace('library_600x900_2x', 'library_600x900')", cover, StringComparison.Ordinal);
-        Assert.DoesNotContain("raw.replace('library_600x900', 'library_600x900_2x')", cover, StringComparison.Ordinal);
-        Assert.Contains("/library_600x900.jpg", cover, StringComparison.Ordinal);
-        Assert.Contains("library_hero_2x.jpg", cover, StringComparison.Ordinal);
-        Assert.True(
-            cover.IndexOf("/library_600x900.jpg", StringComparison.Ordinal) <
-            cover.IndexOf("/library_600x900_2x.jpg", StringComparison.Ordinal),
-            "Grid tiles must request the 600×900 poster before the 2x bitmap.");
-        Assert.Contains("fit === 'banner'", cover, StringComparison.Ordinal);
-        Assert.Contains("width < 240 || height < 360", cover, StringComparison.Ordinal);
-        Assert.Contains("BannerIn", motion, StringComparison.Ordinal);
-        Assert.Contains("onExitComplete", motion, StringComparison.Ordinal);
-        Assert.DoesNotContain("exo-overlay-in", tokens, StringComparison.Ordinal);
-        Assert.DoesNotContain("PosterMorph", motion, StringComparison.Ordinal);
-        Assert.DoesNotContain("layoutId=", motion, StringComparison.Ordinal);
-        Assert.DoesNotContain("PosterMorph", card, StringComparison.Ordinal);
-        Assert.Contains("onMouseDown", card, StringComparison.Ordinal);
-        Assert.Contains("preventDefault()", card, StringComparison.Ordinal);
-        Assert.DoesNotContain("layoutId", ReadRepoFile("ui", "src", "components", "DetailPanel.tsx"), StringComparison.Ordinal);
-        Assert.DoesNotContain("LayoutGroup", ReadRepoFile("ui", "src", "components", "LauncherApp.tsx"), StringComparison.Ordinal);
-        Assert.Contains("translateY(-5px)", tokens, StringComparison.Ordinal);
-        Assert.DoesNotContain("cardSpring", motion, StringComparison.Ordinal);
-        Assert.DoesNotContain("stiffness:", motion, StringComparison.Ordinal);
-        Assert.DoesNotContain("willChange:", motion, StringComparison.Ordinal);
-        Assert.DoesNotContain("background: #ffb020", tokens, StringComparison.Ordinal);
-        Assert.DoesNotContain(".group:hover .exo-cover:not(.is-not-installed)", tokens, StringComparison.Ordinal);
-        Assert.Contains(".exo-tile-frame:hover .exo-tile-shine", tokens, StringComparison.Ordinal);
-        Assert.DoesNotContain(".exo-tile:hover .exo-tile-shine", tokens, StringComparison.Ordinal);
-        Assert.DoesNotContain(".exo-continue", tokens, StringComparison.Ordinal);
+        foreach (var name in new[]
+        {
+            "nvngx_dlss.dll",
+            "nvngx_dlssg.dll",
+            "nvngx_dlssd.dll",
+            "amd_fidelityfx_dx12.dll",
+            "amd_fidelityfx_vk.dll",
+            "amd_fidelityfx_loader_dx12.dll",
+            "amd_fidelityfx_upscaler_dx12.dll",
+            "amd_fidelityfx_framegeneration_dx12.dll",
+            "amd_fidelityfx_denoiser_dx12.dll",
+            "amd_fidelityfx_radiancecache_dx12.dll",
+            "libxess.dll",
+            "libxess_dx11.dll",
+            "libxess_fg.dll",
+            "libxell.dll",
+        })
+        {
+            Assert.Contains(name, dests, StringComparison.Ordinal);
+        }
+
+        Assert.Contains("UPSCALER_DESTS", dests, StringComparison.Ordinal);
+        Assert.Contains("present === true", dests, StringComparison.Ordinal);
+        Assert.Contains("'—'", dests, StringComparison.Ordinal);
+        Assert.Contains("UpscalerFiles", overlay, StringComparison.Ordinal);
+        Assert.Contains("const visibleRows = rows.filter((row) => row.present)", files, StringComparison.Ordinal);
+        Assert.Contains("upscalerGroup(visibleRows, gate)", files, StringComparison.Ordinal);
+        Assert.Contains("const visibleGate = antiCheat ? null : gateReason(gate)", files, StringComparison.Ordinal);
+        Assert.Contains("{visibleGate && <p className=\"exo-upscaler-gate\">{visibleGate}</p>}", files, StringComparison.Ordinal);
+        Assert.DoesNotContain("{blockedByGame &&", files, StringComparison.Ordinal);
+        Assert.Contains("const state = upscalerVisualState(row)", files, StringComparison.Ordinal);
+        Assert.Contains("exo-upscaler-signal", files, StringComparison.Ordinal);
+        Assert.DoesNotContain("visibleNoteText", files, StringComparison.Ordinal);
+        Assert.Contains("hideBlockedReason={antiCheat === true}", files, StringComparison.Ordinal);
+        Assert.DoesNotContain("/anti[- ]?cheat/i.test(note)", files, StringComparison.Ordinal);
+        Assert.Contains("if (visibleRows.length === 0 && run.kind === 'idle') return null", files, StringComparison.Ordinal);
+        Assert.Contains("{visibleRows.length} detected", files, StringComparison.Ordinal);
+        Assert.Contains("{visibleRows.map", files, StringComparison.Ordinal);
+        Assert.DoesNotContain("{rows.map", files, StringComparison.Ordinal);
+        Assert.DoesNotContain("exo-upscaler-toggle", files, StringComparison.Ordinal);
+        Assert.DoesNotContain("aria-expanded", files, StringComparison.Ordinal);
+        Assert.DoesNotContain("setOpen", files, StringComparison.Ordinal);
+        Assert.Contains("exo-game-tool exo-upscaler-btn", files, StringComparison.Ordinal);
+        Assert.Contains("host.dlssApply(gameId)", files, StringComparison.Ordinal);
+        Assert.Contains("host.dlssRestore(gameId)", files, StringComparison.Ordinal);
+        Assert.Contains("Already newest", dests, StringComparison.Ordinal);
+        Assert.Contains("Nothing to update", dests, StringComparison.Ordinal);
+        Assert.Contains("isNewest ? null", dests, StringComparison.Ordinal);
+        Assert.DoesNotContain("isNewest ? 'Newest'", dests, StringComparison.Ordinal);
+        Assert.Contains("WithFullDestCatalog", swap, StringComparison.Ordinal);
+        Assert.Contains("Present: false", swap, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void GroupedStoreCards_ExposeAnExactSourcePickerForAllActions()
+    public void LoadingIndicators_RespectReducedMotion()
     {
-        var host = ReadRepoFile("ui", "src", "lib", "host.ts");
-        var detail = ReadRepoFile("ui", "src", "components", "DetailPanel.tsx");
-        var launcher = ReadRepoFile("ui", "src", "components", "LauncherApp.tsx");
-        var card = ReadRepoFile("ui", "src", "components", "GameCard.tsx");
-        var bridge = ReadRepoFile("ExoLauncher", "Services", "WebHostBridge.cs");
-
-        Assert.Contains("export interface GameVariant", host, StringComparison.Ordinal);
-        Assert.Contains("variants?: GameVariant[]", host, StringComparison.Ordinal);
-        Assert.Contains("Choose game source", detail, StringComparison.Ordinal);
-        Assert.Contains("onSelectSource?: (id: string) => void", detail, StringComparison.Ordinal);
-        Assert.Contains("selected.variants.map", detail, StringComparison.Ordinal);
-        Assert.Contains("function materializeVariant", launcher, StringComparison.Ordinal);
-        Assert.Contains("const [selectedVariantId", launcher, StringComparison.Ordinal);
-        Assert.Contains("void host.getGame(exactId)", launcher, StringComparison.Ordinal);
-        Assert.Contains("onSelectSource={(id) =>", launcher, StringComparison.Ordinal);
-        Assert.Contains("g.variants?.some((variant) => variant.id === id)", launcher, StringComparison.Ordinal);
-        Assert.Contains("setExactRunState(items, d.gameId!, false, false)", launcher, StringComparison.Ordinal);
-        Assert.Contains("const card = cardForExactId(games, selectedId)", launcher, StringComparison.Ordinal);
-        Assert.Contains("setSelectedVariantId(retainedVariant)", launcher, StringComparison.Ordinal);
-        Assert.Contains("PeekCachedLibrary()", bridge, StringComparison.Ordinal);
-        Assert.Contains("TryLibraryOwnedSource", bridge, StringComparison.Ordinal);
-        Assert.DoesNotContain("ContinueBanner", launcher, StringComparison.Ordinal);
-        Assert.Contains("catalogHits.find", launcher, StringComparison.Ordinal);
-        Assert.Contains("hit.owned || hit.canInstall", launcher, StringComparison.Ordinal);
-        Assert.Contains("function mergeHostGames", launcher, StringComparison.Ordinal);
-        Assert.Contains("function findLibraryGame", launcher, StringComparison.Ordinal);
-        Assert.Contains("function findLibraryGameByTitle", launcher, StringComparison.Ordinal);
-        Assert.Contains("isSearchableLibraryGame", launcher, StringComparison.Ordinal);
-        Assert.Contains("className=\"exo-boot\"", launcher, StringComparison.Ordinal);
-        Assert.DoesNotContain("Scanning libraries", launcher, StringComparison.Ordinal);
-        Assert.DoesNotContain("Starting…", launcher, StringComparison.Ordinal);
-        Assert.DoesNotContain("['recent', 'Recent']", launcher, StringComparison.Ordinal);
-        Assert.DoesNotContain("['played', 'Played']", launcher, StringComparison.Ordinal);
-        Assert.DoesNotContain("exo-rail-count", launcher, StringComparison.Ordinal);
-        Assert.DoesNotContain("setLibrarySort", launcher, StringComparison.Ordinal);
-        Assert.Contains("showGamePage", launcher, StringComparison.Ordinal);
-        Assert.Contains("exo-game-overlay", launcher, StringComparison.Ordinal);
-        Assert.Contains("exo-game-overlay-scrim", launcher, StringComparison.Ordinal);
-        Assert.Contains("inert={overlayLock ? true : undefined}", launcher, StringComparison.Ordinal);
-        Assert.Contains("onExitComplete", launcher, StringComparison.Ordinal);
-        Assert.Contains("displayedGame", launcher, StringComparison.Ordinal);
-        Assert.DoesNotContain("exo-game-page-photo", detail, StringComparison.Ordinal);
-        Assert.DoesNotContain("exo-game-page-wash", detail, StringComparison.Ordinal);
-        Assert.DoesNotContain("coverBg(selected)", detail, StringComparison.Ordinal);
-        Assert.DoesNotContain("style={{ background: coverBg(game) }}", card, StringComparison.Ordinal);
-        Assert.Contains("confirmedEmpty", bridge, StringComparison.Ordinal);
-        Assert.DoesNotContain("|| snapshot.Coverage == AchievementCoverageStatus.Complete", bridge, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void PinnedRail_WrapsAndLibraryExcludesPinned()
-    {
-        var launcher = ReadRepoFile("ui", "src", "components", "LauncherApp.tsx");
-        var tokens = ReadRepoFile("ui", "src", "tokens.css");
-        var card = ReadRepoFile("ui", "src", "components", "GameCard.tsx");
-
-        Assert.Contains("className=\"exo-pin-track\"", launcher, StringComparison.Ordinal);
-        Assert.Contains("aria-label=\"Pinned games\"", launcher, StringComparison.Ordinal);
-        Assert.Contains("libraryGames.filter((g) => !pinnedIds.has(g.id) && g.id !== nowId)", launcher, StringComparison.Ordinal);
-        Assert.Contains("libraryGames.filter(", launcher, StringComparison.Ordinal);
-        Assert.Contains("g.installed || isInstallingGame(g, installingId)", launcher, StringComparison.Ordinal);
-        Assert.Contains("catalogHitIsPresent", launcher, StringComparison.Ordinal);
-        Assert.Contains("pickNow", launcher, StringComparison.Ordinal);
-        Assert.Contains("NowStage", launcher, StringComparison.Ordinal);
-        Assert.DoesNotContain("g.installed || g.owned || g.canInstall", launcher, StringComparison.Ordinal);
-        Assert.Contains("game.installed || game.owned || game.canInstall", launcher, StringComparison.Ordinal);
-        Assert.DoesNotContain("onWheel={(event)", launcher, StringComparison.Ordinal);
-        Assert.DoesNotContain("exo-pinned-edge", launcher, StringComparison.Ordinal);
-        Assert.DoesNotContain("exo-card-play", card, StringComparison.Ordinal);
-        Assert.Contains(".exo-pin-track", tokens, StringComparison.Ordinal);
-        Assert.Contains(".exo-tile-shine", tokens, StringComparison.Ordinal);
-        Assert.Contains("padding: 0 16px 20px", tokens, StringComparison.Ordinal);
-        Assert.Contains("minmax(116px, 128px)", tokens, StringComparison.Ordinal);
-        Assert.Contains("minmax(156px, 1fr)", tokens, StringComparison.Ordinal);
-        Assert.Contains("object-position: center", tokens, StringComparison.Ordinal);
-        Assert.Contains("left: 50%", tokens, StringComparison.Ordinal);
-        Assert.Contains("width: 6ch", tokens, StringComparison.Ordinal);
-        Assert.Contains("width: 18ch", tokens, StringComparison.Ordinal);
-        Assert.Contains(".exo-titlebar-search.is-open", tokens, StringComparison.Ordinal);
-        Assert.Contains("exo-titlebar-search exo-no-drag", launcher, StringComparison.Ordinal);
-        Assert.Contains("exo-search-glyph", launcher, StringComparison.Ordinal);
-        Assert.Contains(".exo-search:focus::placeholder", tokens, StringComparison.Ordinal);
-        Assert.DoesNotContain("exo-search-spin", launcher, StringComparison.Ordinal);
-        Assert.DoesNotContain(".exo-continue", tokens, StringComparison.Ordinal);
-        Assert.Contains(".exo-boot", tokens, StringComparison.Ordinal);
-        Assert.Contains("exo-tile-sweep", tokens, StringComparison.Ordinal);
-        Assert.Contains(".exo-game-overlay", tokens, StringComparison.Ordinal);
-        Assert.Contains("backdrop-filter: blur(22px)", tokens, StringComparison.Ordinal);
-        Assert.DoesNotContain("exo-game-page-wash", tokens, StringComparison.Ordinal);
-        Assert.DoesNotContain("exo-game-page-photo", tokens, StringComparison.Ordinal);
-        Assert.DoesNotContain("blur(52px)", tokens, StringComparison.Ordinal);
-        Assert.DoesNotContain("min(480px", tokens, StringComparison.Ordinal);
-        Assert.DoesNotContain("left: 18%", tokens, StringComparison.Ordinal);
-        Assert.DoesNotContain("overflow-x: auto;", tokens, StringComparison.Ordinal);
-        Assert.DoesNotContain(".exo-pinned-edge", tokens, StringComparison.Ordinal);
-        Assert.DoesNotContain("scroll-snap-type: x proximity;", tokens, StringComparison.Ordinal);
-        Assert.Contains("IsMaximizable = true", ReadRepoFile("ExoLauncher", "MainWindow.xaml.cs"), StringComparison.Ordinal);
-        Assert.Contains("IsResizable = true", ReadRepoFile("ExoLauncher", "MainWindow.xaml.cs"), StringComparison.Ordinal);
-        Assert.Contains("shell.maximize", ReadRepoFile("ExoLauncher", "Services", "WebHostBridge.cs"), StringComparison.Ordinal);
-        var mainWindow = ReadRepoFile("ExoLauncher", "MainWindow.xaml.cs");
-        var mainXaml = ReadRepoFile("ExoLauncher", "MainWindow.xaml");
-        Assert.Contains("NonClientRegionKind.Caption", mainWindow, StringComparison.Ordinal);
-        Assert.Contains("TitleBarDragDip = 52", mainWindow, StringComparison.Ordinal);
-        Assert.Contains("Height=\"12\"", mainXaml, StringComparison.Ordinal);
-        Assert.DoesNotContain("Height=\"8\"", mainXaml, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void MainWebView_StoresItsProfileOutsideTheReplaceableAppTree()
-    {
-        var mainWindow = ReadRepoFile("ExoLauncher", "MainWindow.xaml.cs");
-
-        Assert.Contains("Path.Combine(PathHelper.AppDataDir, \"webview\")", mainWindow, StringComparison.Ordinal);
-        Assert.Contains("CoreWebView2Environment.CreateWithOptionsAsync", mainWindow, StringComparison.Ordinal);
-        Assert.Contains("EnsureCoreWebView2Async(webViewEnvironment)", mainWindow, StringComparison.Ordinal);
-        Assert.DoesNotContain("await WebHost.EnsureCoreWebView2Async();", mainWindow, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void ChromeIcons_UsePhosphor_AndHtmlMark()
-    {
-        var icons = ReadRepoFile("ui", "src", "brand", "icons.tsx");
-        var mark = ReadRepoFile("ui", "src", "brand", "ExoMark.tsx");
-        var launcher = ReadRepoFile("ui", "src", "components", "LauncherApp.tsx");
-        var chrome = ReadRepoFile("ui", "src", "components", "WindowChrome.tsx");
-        var tokens = ReadRepoFile("ui", "src", "tokens.css");
-        var packageJson = ReadRepoFile("ui", "package.json");
-
-        Assert.Contains("\"@phosphor-icons/react\"", packageJson, StringComparison.Ordinal);
-        Assert.Contains("@phosphor-icons/react/dist/csr/", icons, StringComparison.Ordinal);
-        Assert.Contains("CircleNotchIcon", icons, StringComparison.Ordinal);
-        Assert.Contains("glyph(PlayIcon, 'fill')", icons, StringComparison.Ordinal);
-        Assert.Contains("glyph(StopIcon, 'fill')", icons, StringComparison.Ordinal);
-        Assert.Contains("glyph(StarIcon, 'fill')", icons, StringComparison.Ordinal);
-        Assert.DoesNotContain("amicons", packageJson, StringComparison.Ordinal);
-        Assert.DoesNotContain("amicons", icons, StringComparison.Ordinal);
-        Assert.DoesNotContain("size={14}", chrome, StringComparison.Ordinal);
-        Assert.DoesNotContain("size={14}", launcher, StringComparison.Ordinal);
-        Assert.Contains(".exo-search-glyph", tokens, StringComparison.Ordinal);
-        Assert.DoesNotContain("@tabler/icons-react", icons, StringComparison.Ordinal);
-        Assert.DoesNotContain("@tabler/icons-react", packageJson, StringComparison.Ordinal);
-        Assert.DoesNotContain("lucide-react", packageJson, StringComparison.Ordinal);
-        Assert.DoesNotContain("lucide-react", launcher, StringComparison.Ordinal);
-        Assert.DoesNotContain("lucide-react", chrome, StringComparison.Ordinal);
-        Assert.Contains("alive = false", mark, StringComparison.Ordinal);
-        Assert.Contains("alive={markBusy}", launcher, StringComparison.Ordinal);
-        Assert.Contains("1400", launcher, StringComparison.Ordinal);
-        Assert.Contains("exo-mark-bar", mark, StringComparison.Ordinal);
-        Assert.DoesNotContain("<polygon", mark, StringComparison.Ordinal);
-        Assert.Contains("skewX(-18deg)", tokens, StringComparison.Ordinal);
-        Assert.Contains("exo-mark-wave", tokens, StringComparison.Ordinal);
-        Assert.Contains("50% { opacity: 0.45; }", tokens, StringComparison.Ordinal);
-        Assert.DoesNotContain("scaleX(0.36)", tokens, StringComparison.Ordinal);
-        Assert.Contains("width: 36%", tokens, StringComparison.Ordinal);
-        Assert.Contains(".exo-mark.is-alive .exo-mark-bar-2 { top: 43.25%; left: 22%; width: 54%; }", tokens, StringComparison.Ordinal);
-        Assert.Contains("exo-busy-sweep", ReadRepoFile("ui", "src", "exo-shell.css"), StringComparison.Ordinal);
-        Assert.DoesNotContain("exo-mark-idle", tokens, StringComparison.Ordinal);
-        Assert.DoesNotContain("translate(2px, -1px)", tokens, StringComparison.Ordinal);
-        Assert.Contains("from '../brand/icons'", chrome, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void HomeLibrary_HasNoContinueCarousel()
-    {
-        var launcher = ReadRepoFile("ui", "src", "components", "LauncherApp.tsx");
-        var tokens = ReadRepoFile("ui", "src", "tokens.css");
-        var root = RepoRoot();
-
-        Assert.DoesNotContain("ContinueBanner", launcher, StringComparison.Ordinal);
-        Assert.DoesNotContain("exo-continue", launcher, StringComparison.Ordinal);
-        Assert.DoesNotContain(".exo-continue", tokens, StringComparison.Ordinal);
-        Assert.Contains("NowStage", launcher, StringComparison.Ordinal);
-        Assert.Contains("pickNow", launcher, StringComparison.Ordinal);
-        Assert.Contains(".exo-now", tokens, StringComparison.Ordinal);
-        Assert.Contains("naturalWidth / img.naturalHeight < 1.2", ReadRepoFile("ui", "src", "components", "NowStage.tsx"), StringComparison.Ordinal);
-        Assert.Contains("Last launched", ReadRepoFile("ui", "src", "lib", "now.ts"), StringComparison.Ordinal);
+        var app = ReadRepoFile("ui", "src", "components", "LauncherApp.tsx");
+        var page = ReadRepoFile("ui", "src", "components", "GamePage.tsx");
         var now = ReadRepoFile("ui", "src", "components", "NowStage.tsx");
-        var detail = ReadRepoFile("ui", "src", "components", "DetailPanel.tsx");
-        Assert.DoesNotContain("exo-now-hit", now, StringComparison.Ordinal);
-        Assert.DoesNotContain("PosterMorph", now, StringComparison.Ordinal);
-        Assert.DoesNotContain("PosterMorph", detail, StringComparison.Ordinal);
-        Assert.DoesNotContain("LayoutGroup", launcher, StringComparison.Ordinal);
-        Assert.Contains("exo-library-pane", launcher, StringComparison.Ordinal);
-        Assert.Contains("is-overlay-open", launcher, StringComparison.Ordinal);
-        Assert.Contains("preventScroll: true", launcher, StringComparison.Ordinal);
-        Assert.Contains("onMouseDown", now, StringComparison.Ordinal);
-        Assert.Contains("position: fixed", tokens, StringComparison.Ordinal);
-        Assert.Contains("visibleInstallPercent", now, StringComparison.Ordinal);
-        Assert.Contains("percent: null", launcher, StringComparison.Ordinal);
-        Assert.DoesNotContain("percent: 0", launcher, StringComparison.Ordinal);
-        Assert.Contains("Close details", detail, StringComparison.Ordinal);
-        Assert.DoesNotContain("Continue playing", launcher, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("scroll-snap-type", tokens, StringComparison.Ordinal);
-        Assert.False(File.Exists(Path.Combine(root, "ui", "src", "components", "ContinueBanner.tsx")));
-        Assert.False(File.Exists(Path.Combine(root, "ui", "src", "lib", "spotlight.ts")));
+
+        Assert.DoesNotContain("className=\"animate-spin\"", app + page + now, StringComparison.Ordinal);
+        Assert.DoesNotContain("className=\"shrink-0 animate-spin\"", page, StringComparison.Ordinal);
+        Assert.Equal(5, CountOccurrences(app + page + now, "motion-reduce:animate-none"));
+    }
+
+    [Fact]
+    public void GamePage_ResetsPerSourceStateAndRejectsStaleDlssRefreshes()
+    {
+        var page = ReadRepoFile("ui", "src", "components", "GamePage.tsx");
+        var reset = SliceBetween(page, "// Every local result belongs to one exact store entry.", "// Catalog text is fetched");
+        var refresh = SliceBetween(page, "const refreshDlss = useCallback", "useEffect(() => {");
+        var sources = SliceBetween(page, "{sources && onSelectSource && (", "<div className=\"exo-game-stats\">");
+
+        Assert.Contains("JSON.stringify([selected.id, selected.store])", page, StringComparison.Ordinal);
+        foreach (var state in new[]
+                 {
+                     "setUninstalling(false)",
+                     "setRemoveArmed(false)",
+                     "setRepairing(false)",
+                     "setRepair(null)",
+                     "setAchievementData(null)",
+                     "setDlss(selected.installed ? peekUpscalerStatus(selected.id) : null)",
+                     "setMetadata(null)",
+                 })
+        {
+            Assert.Contains(state, reset, StringComparison.Ordinal);
+        }
+        Assert.Contains("}, [selectionKey])", reset, StringComparison.Ordinal);
+
+        Assert.Contains("const requestKey = selectionKey", refresh, StringComparison.Ordinal);
+        Assert.Equal(2, CountOccurrences(refresh, "selectionKeyRef.current === requestKey"));
+        Assert.DoesNotContain(".then(setDlss)", refresh, StringComparison.Ordinal);
+        Assert.Contains("const sourceSwitchLocked =", page, StringComparison.Ordinal);
+        Assert.Contains("repairing", SliceBetween(page, "const sourceSwitchLocked =", "const action ="), StringComparison.Ordinal);
+        Assert.Contains("uninstalling", SliceBetween(page, "const sourceSwitchLocked =", "const action ="), StringComparison.Ordinal);
+        Assert.Contains("progress?.isActive", SliceBetween(page, "const sourceSwitchLocked =", "const action ="), StringComparison.Ordinal);
+        Assert.Contains("disabled={sourceSwitchLocked}", sources, StringComparison.Ordinal);
+        Assert.Contains("key={selectionKey}", page, StringComparison.Ordinal);
+        Assert.Contains("peekUpscalerStatus(selected.id)", page, StringComparison.Ordinal);
+        Assert.Contains("loadUpscalerStatus(selected.id", page, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ReactShell_KeepsDetailsScrollableAndModalActionsLocked()
+    {
+        var app = File.ReadAllText(Path.Combine(RepoRoot(), "ui", "src", "components", "LauncherApp.tsx"));
+        var page = File.ReadAllText(Path.Combine(RepoRoot(), "ui", "src", "components", "GamePage.tsx"));
+        var tokens = File.ReadAllText(Path.Combine(RepoRoot(), "ui", "src", "tokens.css"));
+
+        Assert.Contains("className=\"exo-game-page-inner\"", page, StringComparison.Ordinal);
+        Assert.Contains(".exo-game-page-inner", tokens, StringComparison.Ordinal);
+        Assert.Contains("overflow-y: auto", tokens, StringComparison.Ordinal);
+        Assert.Contains("inert={libraryPane === 'game' ? true : undefined}", app, StringComparison.Ordinal);
+        Assert.Contains("closeDisabled={actionLocked}", app, StringComparison.Ordinal);
+        Assert.Contains("disabled={actionLocked}", app, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Shell_NoticesOverlayContentInsteadOfChangingPageHeight()
+    {
+        var app = ReadRepoFile("ui", "src", "components", "LauncherApp.tsx");
+        var tokens = ReadRepoFile("ui", "src", "tokens.css");
+        var stack = SliceBetween(tokens, ".exo-toast-stack {", ".exo-toast {");
+
+        Assert.Contains("<div className=\"exo-toast-stack\">", app, StringComparison.Ordinal);
+        Assert.Contains("position: fixed", stack, StringComparison.Ordinal);
+        Assert.Contains("pointer-events: none", stack, StringComparison.Ordinal);
+        Assert.Contains("role=\"alert\"", app, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void FriendsRoom_ContainsScrollingInsideItsTwoColumns()
+    {
+        var tokens = ReadRepoFile("ui", "src", "tokens.css");
+        var room = SliceBetween(tokens, ".exo-friends {", ".exo-friend-list {");
+        var list = SliceBetween(tokens, ".exo-friend-list {", ".exo-friend-list-head {");
+        var body = SliceBetween(tokens, ".exo-friend-list-body {", ".exo-friend-group {");
+        var detail = SliceBetween(tokens, ".exo-friends-detail {", ".exo-friend-page {");
+
+        Assert.Contains("height: 100%", room, StringComparison.Ordinal);
+        Assert.Contains("overflow: hidden", room, StringComparison.Ordinal);
+        Assert.Contains("grid-template-columns: 300px minmax(0, 1fr)", room, StringComparison.Ordinal);
+        Assert.Contains("grid-template-rows: minmax(0, 1fr)", room, StringComparison.Ordinal);
+        Assert.Contains("overflow: hidden", list, StringComparison.Ordinal);
+        Assert.Contains("overflow-y: auto", body, StringComparison.Ordinal);
+        Assert.Contains("scrollbar-width: none", body, StringComparison.Ordinal);
+        Assert.Contains("overflow-y: auto", detail, StringComparison.Ordinal);
+        Assert.Contains("scrollbar-width: none", detail, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void FriendsDetail_UsesCompactScopedLayoutAtBothSupportedSizes()
+    {
+        var friends = ReadRepoFile("ui", "src", "components", "FriendsRoom.tsx");
+        var tokens = ReadRepoFile("ui", "src", "tokens.css");
+        var friendsCss = SliceBetween(tokens, ".exo-friends {", ".exo-set {");
+
+        Assert.Contains("className=\"exo-friends-detail\"", friends, StringComparison.Ordinal);
+        Assert.DoesNotContain("exo-friends-detail min-h-0 overflow-y-auto", friends, StringComparison.Ordinal);
+        Assert.Contains("exo-friend-page is-person", friends, StringComparison.Ordinal);
+        Assert.Contains("exo-friend-page is-store", friends, StringComparison.Ordinal);
+        Assert.Contains("exo-friend-person-grid", friends, StringComparison.Ordinal);
+        Assert.Contains("exo-friend-store-grid", friends, StringComparison.Ordinal);
+        Assert.Contains("playing && 'has-playing'", friends, StringComparison.Ordinal);
+        Assert.Contains("exo-friend-playing-actions", friends, StringComparison.Ordinal);
+        Assert.Contains("exo-friend-context", friends, StringComparison.Ordinal);
+
+        // Profile editing owns a full-height nested scroller. Friend details use
+        // their own compact form so that rule cannot create an empty canvas.
+        Assert.DoesNotContain("className=\"exo-profile-form\"", friends, StringComparison.Ordinal);
+        Assert.DoesNotContain("className=\"exo-profile-head\"", friends, StringComparison.Ordinal);
+        Assert.DoesNotContain(".exo-friend-page .exo-profile-form", friendsCss, StringComparison.Ordinal);
+        Assert.Contains("grid-template-columns: minmax(0, 1.55fr) minmax(230px, 0.72fr)", friendsCss, StringComparison.Ordinal);
+        Assert.Contains(".exo-friend-page.is-store:not(.has-playing)", friendsCss, StringComparison.Ordinal);
+        Assert.Contains("width: min(100%, 46rem)", friendsCss, StringComparison.Ordinal);
+        Assert.Contains("grid-template-columns: minmax(0, 42rem)", friendsCss, StringComparison.Ordinal);
+        Assert.Contains("@media (max-width: 1156px)", friendsCss, StringComparison.Ordinal);
+        Assert.Contains("grid-template-columns: 276px minmax(0, 1fr)", friendsCss, StringComparison.Ordinal);
+        Assert.Contains("@media (max-height: 760px)", friendsCss, StringComparison.Ordinal);
+        Assert.Contains("height: 122px", friendsCss, StringComparison.Ordinal);
+
+        // Layout work must not weaken the presence truth or remove shop parity.
+        Assert.Contains("presence === 'unknown' || !live", friends, StringComparison.Ordinal);
+        Assert.Contains("note ?? CACHE_PRESENCE_NOTE", friends, StringComparison.Ordinal);
+        Assert.Contains("Buy cheapest key", friends, StringComparison.Ordinal);
+        Assert.Contains("void openDeals()", friends, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void FriendsPlayingActivity_UsesPortraitCoverArtAndKeepsActions()
+    {
+        var friends = ReadRepoFile("ui", "src", "components", "FriendsRoom.tsx");
+        var tokens = ReadRepoFile("ui", "src", "tokens.css");
+        var playingCard = SliceBetween(friends, "function PlayingCard(", "function LinkPicker(");
+        var playingArt = SliceBetween(tokens, ".exo-friend-playing-art {", ".exo-friend-playing-copy {");
+
+        Assert.Contains("<CoverArt game={artGame} className=\"h-full w-full\" />", playingCard, StringComparison.Ordinal);
+        Assert.Contains("coverUrl: game.coverUrl ?? steamPlayingCoverUrl", playingCard, StringComparison.Ordinal);
+        Assert.Contains("<HeroWash game={artGame} />", playingCard, StringComparison.Ordinal);
+        Assert.Contains("exo-friend-playing-banner", playingCard, StringComparison.Ordinal);
+        Assert.Contains("aspect-ratio: 2 / 3", playingArt, StringComparison.Ordinal);
+        Assert.Contains("onClick={() => void run()}", playingCard, StringComparison.Ordinal);
+        Assert.Contains("Buy cheapest key", playingCard, StringComparison.Ordinal);
+        Assert.Contains("onClick={() => void openDeals()}", playingCard, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Details_KeepLongTitlesAndUpscalerMetadataReadable()
+    {
+        var page = ReadRepoFile("ui", "src", "components", "GamePage.tsx");
+        var tokens = ReadRepoFile("ui", "src", "tokens.css");
+
+        Assert.Contains("exo-ghost-btn exo-buy-key", page, StringComparison.Ordinal);
+        Assert.Contains("overflow-wrap: anywhere", SliceBetween(tokens, ".exo-game-title {", "}"), StringComparison.Ordinal);
+        Assert.Contains("display: flex", SliceBetween(tokens, ".exo-game-status {", "}"), StringComparison.Ordinal);
+        Assert.Contains("gap:", SliceBetween(tokens, ".exo-upscaler-id {", "}"), StringComparison.Ordinal);
+        Assert.Contains("gap:", SliceBetween(tokens, ".exo-upscaler-meta {", "}"), StringComparison.Ordinal);
+        Assert.Contains("min-width: 0", SliceBetween(tokens, ".exo-upscaler-row {", "}"), StringComparison.Ordinal);
+        Assert.Contains("min-width: 0", SliceBetween(tokens, ".exo-card-meta {", "}"), StringComparison.Ordinal);
+        Assert.Contains("white-space: normal", SliceBetween(tokens, ".exo-card-title {", "}"), StringComparison.Ordinal);
+        Assert.DoesNotContain("text-overflow: ellipsis", SliceBetween(tokens, ".exo-card-title {", "}"), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void LibraryKeyboardAndSearch_DoNotLaunchFromChromeOrFlashFalseEmptyState()
+    {
+        var app = File.ReadAllText(Path.Combine(RepoRoot(), "ui", "src", "components", "LauncherApp.tsx"));
+        var browse = File.ReadAllText(Path.Combine(RepoRoot(), "ui", "src", "components", "BrowseShelf.tsx"));
+        var grid = File.ReadAllText(Path.Combine(RepoRoot(), "ui", "src", "components", "WindowedGameGrid.tsx"));
+
+        Assert.Contains("interactiveTarget", app, StringComparison.Ordinal);
+        Assert.DoesNotContain("openGamePage(focused.id", app, StringComparison.Ordinal);
+        Assert.Contains("moveGridFocusIndex", grid, StringComparison.Ordinal);
+        Assert.Contains("key === 'ArrowDown'", grid, StringComparison.Ordinal);
+        Assert.Contains("key === 'PageDown'", grid, StringComparison.Ordinal);
+        Assert.DoesNotContain("onActivate?.()", grid, StringComparison.Ordinal);
+        Assert.Contains("setView('library')", app, StringComparison.Ordinal);
+        Assert.Contains("loading={catalogSearching}", app, StringComparison.Ordinal);
+        Assert.Contains("loading ? 'Searching stores…'", browse, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void RetainedRooms_StopHiddenPollingAndAcceptEmptyLibraryUpdates()
+    {
+        var app = File.ReadAllText(Path.Combine(RepoRoot(), "ui", "src", "components", "LauncherApp.tsx"));
+        var friends = File.ReadAllText(Path.Combine(RepoRoot(), "ui", "src", "components", "FriendsRoom.tsx"));
+        var profile = File.ReadAllText(Path.Combine(RepoRoot(), "ui", "src", "components", "ProfileRoom.tsx"));
+
+        Assert.Contains("<FriendsRoom active={view === 'friends'} />", app, StringComparison.Ordinal);
+        Assert.Contains("<ProfileRoom games={games} active={view === 'profile'} />", app, StringComparison.Ordinal);
+        Assert.Contains("if (!active || showcaseGames.length === 0) return", profile, StringComparison.Ordinal);
+        Assert.DoesNotContain("<AccountPanel", profile, StringComparison.Ordinal);
+        Assert.Contains("if (!active) return", friends, StringComparison.Ordinal);
+        Assert.DoesNotContain("payload?.games?.length", friends, StringComparison.Ordinal);
+        Assert.DoesNotContain("d?.games?.length", app, StringComparison.Ordinal);
+        Assert.DoesNotContain("payload?.games?.length", profile, StringComparison.Ordinal);
+        Assert.DoesNotContain("host.getLibrary()", profile, StringComparison.Ordinal);
+        Assert.DoesNotContain("onHostEvent('library.updated'", profile, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void CoalescedHostReads_DoNotCreateAnUnhandledFinallyPromise()
+    {
+        var host = File.ReadAllText(Path.Combine(RepoRoot(), "ui", "src", "lib", "host.ts"));
+
+        Assert.Contains("void work.then(clearInflight, clearInflight)", host, StringComparison.Ordinal);
+        Assert.DoesNotContain("void work.finally", host, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Chrome_UsesReactTitlebarNotHeroUi()
+    {
+        var chrome = File.ReadAllText(Path.Combine(RepoRoot(), "ui", "src", "components", "WindowChrome.tsx"));
+        var mark = File.ReadAllText(Path.Combine(RepoRoot(), "ui", "src", "brand", "ExoMark.tsx"));
+        var app = File.ReadAllText(Path.Combine(RepoRoot(), "ui", "src", "components", "LauncherApp.tsx"));
+        Assert.Contains("host.minimize()", chrome, StringComparison.Ordinal);
+        Assert.Contains("host.maximize()", chrome, StringComparison.Ordinal);
+        Assert.Contains("host.close()", chrome, StringComparison.Ordinal);
+        Assert.Contains("exo-titlebar-button", chrome, StringComparison.Ordinal);
+        Assert.Contains("export function ExoMark", mark, StringComparison.Ordinal);
+        Assert.DoesNotContain("exo-nav-ink", app, StringComparison.Ordinal);
+        Assert.Contains("placeholder=\"Search\"", app, StringComparison.Ordinal);
+        Assert.DoesNotContain("searchFocused", app, StringComparison.Ordinal);
+        Assert.DoesNotContain("@heroui/react", app, StringComparison.Ordinal);
+        Assert.DoesNotContain("lucide-react", chrome, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void TitlebarSearch_StaysCompactAndDelaysItsCaretUntilExpansionFinishes()
+    {
+        var app = ReadRepoFile("ui", "src", "components", "LauncherApp.tsx");
+        var tokens = ReadRepoFile("ui", "src", "tokens.css");
+        var shell = SliceBetween(tokens, ".exo-titlebar-search {", ".exo-search-capsule {");
+        var expanded = SliceBetween(tokens, ".exo-titlebar-search:focus-within .exo-search-capsule,", "@media (prefers-reduced-motion: reduce) {");
+        var input = SliceBetween(tokens, ".exo-titlebar-search .exo-search {", ".exo-titlebar-search:focus-within .exo-search,");
+
+        Assert.Contains("placeholder=\"Search\"", app, StringComparison.Ordinal);
+        Assert.DoesNotContain("exo-search-glyph", app + tokens, StringComparison.Ordinal);
+        Assert.Contains("width: 96px", shell, StringComparison.Ordinal);
+        Assert.Contains("padding: 0", shell, StringComparison.Ordinal);
+        Assert.DoesNotContain("padding: 0 12px", shell, StringComparison.Ordinal);
+        Assert.Contains("padding: 0 14px", input, StringComparison.Ordinal);
+        Assert.Contains("width: 100%", expanded, StringComparison.Ordinal);
+        Assert.Contains("width: 184px", expanded, StringComparison.Ordinal);
+        Assert.Contains("width: 96px", tokens, StringComparison.Ordinal);
+        Assert.Contains("width 200ms var(--ease-in-out)", tokens, StringComparison.Ordinal);
+        Assert.Contains("caret-color: transparent", input, StringComparison.Ordinal);
+        Assert.Contains("transition: caret-color 0s linear 200ms", input, StringComparison.Ordinal);
+        Assert.DoesNotContain("box-shadow", expanded, StringComparison.Ordinal);
     }
 
     private static string RepoRoot()
@@ -727,5 +979,22 @@ public sealed class UxRegressionContractTests
     private static string ReadRepoFile(params string[] relative)
     {
         return File.ReadAllText(Path.Combine(new[] { RepoRoot() }.Concat(relative).ToArray()));
+    }
+
+    private static int CountOccurrences(string haystack, string needle)
+    {
+        var count = 0;
+        for (var i = 0; (i = haystack.IndexOf(needle, i, StringComparison.Ordinal)) >= 0; i += needle.Length)
+            count++;
+        return count;
+    }
+
+    private static string SliceBetween(string haystack, string start, string end)
+    {
+        var from = haystack.IndexOf(start, StringComparison.Ordinal);
+        Assert.True(from >= 0, "missing " + start);
+        var to = haystack.IndexOf(end, from, StringComparison.Ordinal);
+        Assert.True(to > from, "missing " + end);
+        return haystack[from..(to + end.Length)];
     }
 }

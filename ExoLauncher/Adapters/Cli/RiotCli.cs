@@ -1,3 +1,5 @@
+using ExoLauncher.Adapters;
+
 namespace ExoLauncher.Adapters.Cli;
 
 /// <summary>
@@ -11,7 +13,7 @@ public static class RiotCli
         ("valorant", "VALORANT"),
         ("league_of_legends", "League of Legends"),
         ("bacon", "Legends of Runeterra"),
-        ("lion", "Teamfight Tactics"),
+        ("lion", "2XKO"),
     ];
 
     /// <summary>Retail patchline. Riot's local API takes this as a path segment.</summary>
@@ -38,11 +40,7 @@ public static class RiotCli
 
     /// <summary>Must never be force-closed by Exo.</summary>
     public static readonly string[] ProtectedProcessNames =
-    [
-        "vgk",
-        "vgc",
-        "vgm",
-    ];
+        StoreClientActivity.AntiCheatProcessNames;
 
     public static bool IsProtectedProcess(string processName) =>
         ProtectedProcessNames.Any(p => string.Equals(p, processName, StringComparison.OrdinalIgnoreCase));

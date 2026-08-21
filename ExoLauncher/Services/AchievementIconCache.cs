@@ -1,5 +1,5 @@
-using System.Security.Cryptography;
 using System.IO.Compression;
+using System.Security.Cryptography;
 using ExoLauncher.Helpers;
 
 namespace ExoLauncher.Services;
@@ -13,6 +13,20 @@ public sealed class AchievementIconCache
     private const int MaxImageBytes = 2 * 1024 * 1024;
     private const int MaxDimension = 4096;
     private const int MaxDecodedImageBytes = 32 * 1024 * 1024;
+    private static readonly HashSet<string> ApprovedProviderImageHosts = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "cdn.akamai.steamstatic.com",
+        "cdn.cloudflare.steamstatic.com",
+        "shared.steamstatic.com",
+        "shared.akamai.steamstatic.com",
+        "shared.cloudflare.steamstatic.com",
+        "steamcdn-a.akamaihd.net",
+        "shared-static-prod.epicgames.com",
+        "cdn1.epicgames.com",
+        "cdn2.unrealengine.com",
+        "images.gog.com",
+        "images.gog-statics.com",
+    };
     private readonly string _root;
     private readonly HttpClient _http;
 
@@ -24,7 +38,7 @@ public sealed class AchievementIconCache
     internal AchievementIconCache(string root, HttpClient? http)
     {
         _root = root;
-        _http = http ?? new HttpClient { Timeout = TimeSpan.FromSeconds(3) };
+        _http = http ?? CreateHttpClient();
     }
 
     public async Task<string?> CacheAsync(string? source, CancellationToken cancellationToken = default)
@@ -34,11 +48,15 @@ public sealed class AchievementIconCache
         var cached = GetCachedPath(key);
         if (cached is not null) return cached;
 
+        string? temporary = null;
         try
         {
             using var response = await _http.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
                 .ConfigureAwait(false);
-            if (!response.IsSuccessStatusCode || response.RequestMessage?.RequestUri is not { Scheme: "https" }) return null;
+            if (!response.IsSuccessStatusCode ||
+                response.RequestMessage?.RequestUri is not { } finalUri ||
+                !TryGetHttpsUri(finalUri.AbsoluteUri, out _))
+                return null;
             if (response.Content.Headers.ContentLength is > MaxImageBytes) return null;
 
             await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
@@ -56,10 +74,15 @@ public sealed class AchievementIconCache
             if (!TryValidateImage(bytes, out var extension)) return null;
             Directory.CreateDirectory(_root);
             var destination = Path.Combine(_root, key + extension);
-            var temporary = destination + ".tmp";
+            temporary = destination + "." + Guid.NewGuid().ToString("N") + ".tmp";
             await File.WriteAllBytesAsync(temporary, bytes, cancellationToken).ConfigureAwait(false);
             File.Move(temporary, destination, overwrite: true);
+            temporary = null;
             return destination;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
@@ -70,13 +93,22 @@ public sealed class AchievementIconCache
             AppLog.Debug("Achievement icon cache miss: " + ex.GetType().Name);
             return null;
         }
+        finally
+        {
+            if (temporary is not null)
+            {
+                try { File.Delete(temporary); } catch { }
+            }
+        }
     }
 
     internal static bool TryGetHttpsUri(string? source, out Uri uri)
     {
         if (Uri.TryCreate(source?.Trim(), UriKind.Absolute, out var parsed) &&
             parsed.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase) &&
-            !string.IsNullOrWhiteSpace(parsed.Host))
+            parsed.IsDefaultPort &&
+            string.IsNullOrEmpty(parsed.UserInfo) &&
+            ApprovedProviderImageHosts.Contains(parsed.IdnHost))
         {
             uri = parsed;
             return true;
@@ -84,6 +116,22 @@ public sealed class AchievementIconCache
         uri = null!;
         return false;
     }
+
+    /// <summary>
+    /// Canonicalizes provider-owned achievement art through the same exact
+    /// host policy used by the native cache. Untrusted legacy values become
+    /// null before persistence or WebView projection.
+    /// </summary>
+    internal static string? SanitizeProviderImageUrl(string? source) =>
+        source is { Length: <= 2_048 } && TryGetHttpsUri(source, out var uri)
+            ? uri.AbsoluteUri
+            : null;
+
+    private static HttpClient CreateHttpClient() => new(
+        new HttpClientHandler { AllowAutoRedirect = false })
+    {
+        Timeout = TimeSpan.FromSeconds(3),
+    };
 
     internal static bool TryValidateImage(ReadOnlySpan<byte> bytes, out string extension)
     {

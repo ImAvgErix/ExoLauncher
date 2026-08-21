@@ -3,8 +3,9 @@
  * Copy into every product UI. Do not fork styles per app.
  *
  * Layout:
- *   [logo 28] [Name 13sb / role 10 faint]  ···  [actions]  |  [−] [□] [×]
+ *   [mark 28]  ···  [search]  ···  [settings]  |  [−] [□] [×]
  * Height 52 · hairline #161616 · pure black · white CTAs · Geist
+ * Titlebar is the mark only. No wordmark. Play lives on the game.
  *
  * Motion rules (emil-design-eng / animate):
  *   - ease-out on enter/exit, never ease-in on UI
@@ -16,8 +17,8 @@
 
 :root {
   --exo-bg: #000000;
-  --exo-surface: #000000;
-  --exo-elevated: #000000;
+  --exo-surface: #030303;
+  --exo-elevated: #070707;
   --exo-hover: #080808;
   --exo-line: #222222;
   --exo-line-soft: #161616;
@@ -27,6 +28,7 @@
   --exo-good: #3dd68c;
   --exo-bad: #ff5c5c;
   --exo-close: #c0303c;
+  --exo-focus-ring: #f2f2f2;
   --exo-radius: 14px;
   --exo-titlebar-h: 52px;
   --exo-logo: 28px;
@@ -51,10 +53,10 @@
   align-items: center;
   flex-shrink: 0;
   height: var(--exo-titlebar-h);
-  padding: 0 8px 0 10px;
+  padding: 0 10px 0 12px;
   gap: 8px;
-  border-bottom: 1px solid #111;
-  background: #000;
+  border-bottom: 0;
+  background: transparent;
   color: var(--exo-fg);
   font-family: var(--exo-font);
   -webkit-app-region: drag;
@@ -119,28 +121,6 @@
   box-shadow: 0 0 0 1px #222;
 }
 
-.exo-brand-text {
-  display: flex;
-  flex-direction: column;
-  line-height: 1.15;
-  min-width: 0;
-}
-
-.exo-brand-name {
-  font-size: 13px;
-  font-weight: 600;
-  letter-spacing: -0.01em;
-  color: var(--exo-fg);
-  white-space: nowrap;
-}
-
-.exo-brand-role {
-  font-size: 10px;
-  font-weight: 500;
-  color: var(--exo-faint);
-  white-space: nowrap;
-}
-
 /* Right cluster */
 .exo-titlebar-actions {
   position: relative;
@@ -149,6 +129,9 @@
   align-items: center;
   gap: 2px;
   flex-shrink: 0;
+}
+.exo-titlebar-actions .exo-settings-btn {
+  margin-right: 0;
 }
 
 .exo-titlebar-divider {
@@ -207,13 +190,15 @@
 
 .exo-winbtn:focus-visible,
 .exo-titlebar-button:focus-visible,
-.exo-cta:focus-visible {
-  outline: 1.5px solid rgba(255, 255, 255, 0.75);
+.exo-cta:focus-visible,
+.exo-play:focus-visible {
+  outline: 2px solid var(--exo-focus-ring);
   outline-offset: 2px;
 }
 
 /* Primary CTA — white pill, every product */
-.exo-cta {
+.exo-cta,
+.exo-play {
   position: relative;
   overflow: hidden;
   display: inline-flex;
@@ -242,33 +227,21 @@
 }
 
 /* Instant press feedback — the interface must feel like it heard the user */
-.exo-cta:active:not(:disabled) {
+.exo-cta:active:not(:disabled),
+.exo-play:active:not(:disabled) {
   transform: scale(0.97);
 }
 
 @media (hover: hover) and (pointer: fine) {
-  .exo-cta:hover:not(:disabled):not(:active) {
+  .exo-cta:hover:not(:disabled):not(:active),
+  .exo-play:hover:not(:disabled):not(:active) {
     background: #fff;
     transform: translateY(-1px);
   }
 }
 
-.exo-cta.is-active::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(105deg, transparent 30%, rgba(255, 255, 255, 0.28) 48%, transparent 66%);
-  transform: translateX(-120%);
-  animation: exo-cta-sheen 1.6s var(--ease-in-out) infinite;
-  pointer-events: none;
-}
-
-@keyframes exo-cta-sheen {
-  0% { transform: translateX(-120%); }
-  100% { transform: translateX(120%); }
-}
-
-.exo-cta:disabled {
+.exo-cta:disabled,
+.exo-play:disabled {
   opacity: 0.4;
   cursor: not-allowed;
 }
@@ -321,6 +294,7 @@
   .exo-winbtn,
   .exo-titlebar-button,
   .exo-cta,
+  .exo-play,
   .exo-press {
     transition-duration: 0.01ms;
     transition-property: background, color, opacity, border-color, box-shadow;
@@ -330,6 +304,8 @@
   .exo-titlebar-button:active:not(:disabled),
   .exo-cta:active:not(:disabled),
   .exo-cta:hover:not(:disabled),
+  .exo-play:active:not(:disabled),
+  .exo-play:hover:not(:disabled),
   .exo-press:active:not(:disabled),
   .exo-press:hover:not(:disabled) {
     transform: none;
@@ -342,7 +318,8 @@
   }
 
   .exo-titlebar.is-busy::after,
-  .exo-cta.is-active::after {
+  .exo-cta.is-active::after,
+  .exo-play.is-active::after {
     animation: none;
     display: none;
   }

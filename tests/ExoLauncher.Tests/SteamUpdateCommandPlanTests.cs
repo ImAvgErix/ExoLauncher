@@ -196,13 +196,13 @@ public sealed class SteamUpdateCommandPlanTests
         Assert.Contains("SteamProtocol.UninstallUri(appId)", uninstall, StringComparison.Ordinal);
         Assert.Contains("ProcessHelper.StartHidden", uninstall, StringComparison.Ordinal);
         Assert.DoesNotContain("StartProtocol", uninstall, StringComparison.Ordinal);
-        Assert.DoesNotContain("StoreUninstallPromptAutomator", uninstall, StringComparison.Ordinal);
+        Assert.Contains("StoreUninstallPromptAutomator", uninstall, StringComparison.Ordinal);
         Assert.DoesNotContain("SteamUninstallPromptAutomator", uninstall, StringComparison.Ordinal);
         Assert.Contains("CommandSteamIpcAsync(", uninstall, StringComparison.Ordinal);
         Assert.Contains("\"uninstall\"", uninstall, StringComparison.Ordinal);
         Assert.Contains("retryCommandFailure: false", uninstall, StringComparison.Ordinal);
-        Assert.Contains("SteamIpcStatus.Unavailable", uninstall, StringComparison.Ordinal);
-        Assert.Contains("did not match its app manifest", uninstall, StringComparison.Ordinal);
+        Assert.Contains("ipc != SteamIpcStatus.Ok", uninstall, StringComparison.Ordinal);
+        Assert.DoesNotContain("did not match its app manifest", uninstall, StringComparison.Ordinal);
         Assert.Contains("StoreWindowHider.ForSteam()", uninstall, StringComparison.Ordinal);
         Assert.DoesNotContain("HiddenStoreRuntime.SuspendFor", uninstall, StringComparison.Ordinal);
         Assert.DoesNotContain("RestoreStoreWindows", uninstall, StringComparison.Ordinal);

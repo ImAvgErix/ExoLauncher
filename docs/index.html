@@ -24,6 +24,7 @@
       header img.mark { width: 72px; height: 72px; border-radius: 18px; }
       h1 { font-size: 28px; font-weight: 600; letter-spacing: -0.03em; margin: 18px 0 8px; }
       .lede { color: #8a8a8a; max-width: 36em; margin: 0 auto 28px; }
+      .version { color: #b8b8b8; font-size: 12px; letter-spacing: .12em; text-transform: uppercase; margin: -16px 0 24px; }
       .cta {
         display: inline-block;
         background: #f2f2f2;
@@ -46,6 +47,15 @@
         display: block;
       }
       figcaption { color: #808080; font-size: 12px; margin-top: 10px; }
+      section { margin-top: 48px; }
+      section h2 { font-size: 20px; letter-spacing: -.02em; margin: 0 0 8px; }
+      section > p { color: #8a8a8a; margin: 0 0 18px; }
+      .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+      .feature { padding: 18px; border: 1px solid #181818; border-radius: 14px; background: #070707; }
+      .feature h3 { font-size: 14px; margin: 0 0 6px; }
+      .feature p { color: #8a8a8a; font-size: 13px; margin: 0; }
+      .note { margin-top: 18px; font-size: 12px; color: #747474; }
+      @media (max-width: 640px) { .grid { grid-template-columns: 1fr; } }
     </style>
   </head>
   <body>
@@ -54,6 +64,7 @@
         <img class="mark" src="media/logo.png" alt="Exo" />
         <h1>Exo Launcher</h1>
         <p class="lede">One home. Install, update, and play Steam, Epic, GOG, Riot, and portable Windows games. The other clients stay out of the way.</p>
+        <p class="version">Version 2.0.0</p>
         <a class="cta" href="https://github.com/ImAvgErix/ExoLauncher/releases/latest/download/ExoLauncher-Setup.exe">Download for Windows 11</a>
         <p class="links">
           <a href="https://github.com/ImAvgErix/ExoLauncher">Source</a>
@@ -61,9 +72,22 @@
           <a href="https://github.com/ImAvgErix/ExoLauncher/blob/main/PRIVACY.md">Privacy</a>
         </p>
       </header>
+      <section>
+        <h2>What’s new in 2.0</h2>
+        <p>Online identity and friends without putting the network in front of your library.</p>
+        <div class="grid">
+          <article class="feature"><h3>Real Exo profiles</h3><p>Email/password accounts, handles, privacy, uploaded avatars and banners, galleries, badges, friend requests, blocking, and friends-only presence.</p></article>
+          <article class="feature"><h3>Truthful store state</h3><p>Exclusive linked store identities, refund-aware actions, unknown provider states, and safer Steam, Epic, GOG, and Riot integration.</p></article>
+          <article class="feature"><h3>Artwork and achievements</h3><p>High-resolution recoverable art, local replace/refetch/report controls, account-scoped achievements, secure icons, and profile trophies.</p></article>
+          <article class="feature"><h3>Faster, quieter shell</h3><p>Virtualized libraries, persistent caches, preloaded tools and art, compact search, controller navigation, and a 112px active Now dock.</p></article>
+          <article class="feature"><h3>Safer upscalers</h3><p>Signed-vendor validation, semantic version truth, official-source preference, guarded restore, and neutral unusable states.</p></article>
+          <article class="feature"><h3>Cloudflare social backend</h3><p>D1 profiles and friendships, R2 media, per-user Durable Object presence, strict privacy, and offline fail-open local behavior.</p></article>
+        </div>
+        <p class="note">Google sign-in and email magic links require real provider credentials and are not enabled. Email/password accounts are live.</p>
+      </section>
       <figure>
-        <img src="media/home.jpg" alt="Home — Now plate, pinned games, library" />
-        <figcaption>Now, pinned, library. One Play button.</figcaption>
+        <img src="media/home.jpg" alt="Exo Launcher library" />
+        <figcaption>One local-first library. Active work stays compact; recent-only state gets out of the way.</figcaption>
       </figure>
       <figure>
         <img src="media/game.jpg" alt="Game page with cover, facts, and Play" />

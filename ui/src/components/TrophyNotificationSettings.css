@@ -114,6 +114,29 @@
   background: #f4f4f5;
 }
 
+.exo-trophy-tier-row {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.exo-trophy-tier-row button {
+  min-height: 26px;
+  border: 1px solid var(--color-line-soft);
+  border-radius: 8px;
+  color: var(--color-faint);
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+}
+
+.exo-trophy-tier-row button.is-selected {
+  border-color: var(--color-line);
+  color: var(--color-fg);
+  background: var(--color-hover);
+}
+
 .exo-trophy-preview-stage {
   position: relative;
   display: block;
@@ -129,152 +152,22 @@
   background-size: 33.333% 33.333%;
 }
 
-.exo-trophy-preview-card {
-  --trophy-accent: #f0c76a;
+.exo-trophy-preview-slot {
   position: absolute;
   z-index: 1;
-  display: grid;
-  /* Same 432 × 122 native card proportions. It only shrinks when this
-     compact settings column is narrower than the real notification. */
-  width: min(432px, calc(100% - 16px));
-  height: 122px;
-  min-height: 0;
-  box-sizing: border-box;
-  grid-template-columns: 4px 64px minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 12px;
-  padding: 14px;
-  overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--trophy-accent) 34%, rgba(255, 255, 255, 0.12));
-  border-radius: 12px;
-  background: #000;
-  box-shadow: 0 12px 26px rgba(0, 0, 0, 0.78), 0 0 18px color-mix(in srgb, var(--trophy-accent) 15%, transparent);
-  animation: exo-trophy-preview-arrive 340ms cubic-bezier(.18,.8,.2,1) both;
+  width: max-content;
 }
 
-.exo-trophy-preview-card.is-top-left { top: 8px; left: 8px; }
-.exo-trophy-preview-card.is-top-center { top: 8px; right: 0; left: 0; margin: 0 auto; }
-.exo-trophy-preview-card.is-top-right { top: 8px; right: 8px; }
-.exo-trophy-preview-card.is-center-left { top: 0; bottom: 0; left: 8px; margin: auto 0; }
-.exo-trophy-preview-card.is-center { top: 0; right: 0; bottom: 0; left: 0; margin: auto; }
-.exo-trophy-preview-card.is-center-right { top: 0; right: 8px; bottom: 0; margin: auto 0; }
-.exo-trophy-preview-card.is-bottom-left { bottom: 8px; left: 8px; }
-.exo-trophy-preview-card.is-bottom-center { right: 0; bottom: 8px; left: 0; margin: 0 auto; }
-.exo-trophy-preview-card.is-bottom-right { right: 8px; bottom: 8px; }
-
-.exo-trophy-preview-rail {
-  align-self: stretch;
-  border-radius: 2px;
-  background: var(--trophy-accent);
-  box-shadow: 0 0 12px color-mix(in srgb, var(--trophy-accent) 72%, transparent);
-}
-
-.exo-trophy-preview-mark {
-  display: grid;
-  width: 64px;
-  height: 64px;
-  place-items: center;
-  overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--trophy-accent) 36%, rgba(255, 255, 255, 0.1));
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--trophy-accent) 15%, #000);
-  color: #fff6d7;
-}
-
-.exo-trophy-preview-art {
-  position: relative;
-  display: grid;
-  width: 30px;
-  height: 30px;
-  place-items: center;
-  border: 1px solid rgba(255,255,255,.28);
-  border-radius: 50%;
-  background: rgba(4,5,7,.34);
-  box-shadow: inset 0 0 12px rgba(255,255,255,.1);
-}
-
-.exo-trophy-preview-art > span {
-  width: 12px;
-  height: 12px;
-  border-radius: 2px;
-  background: var(--trophy-accent);
-  box-shadow: 0 0 10px color-mix(in srgb, var(--trophy-accent) 52%, transparent);
-  transform: rotate(45deg);
-}
-
-.exo-trophy-preview-copy {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 1px;
-  line-height: 1.1;
-}
-
-.exo-trophy-preview-copy i {
-  color: color-mix(in srgb, var(--trophy-accent) 70%, white);
-  font-size: 10px;
-  font-style: normal;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-}
-
-.exo-trophy-preview-copy b,
-.exo-trophy-preview-copy em {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.exo-trophy-preview-copy b {
-  color: #f6f6f7;
-  font-size: 16px;
-  font-weight: 600;
-}
-
-.exo-trophy-preview-copy em {
-  color: rgba(255, 255, 255, 0.5);
+.exo-trophy-note {
+  margin: 10px 0 0;
+  color: var(--color-faint);
   font-size: 11px;
-  font-style: normal;
-}
-
-.exo-trophy-preview-tier {
-  align-self: end;
-  margin-bottom: 3px;
-  color: var(--trophy-accent);
-  font-size: 8px;
-  font-weight: 600;
-  letter-spacing: .12em;
-}
-
-@keyframes exo-trophy-preview-arrive {
-  from { opacity: 0; transform: scale(.94); }
-  to { opacity: 1; transform: translate(0, 0) scale(1); }
-}
-
-.exo-trophy-preview {
-  width: 100%;
-  min-height: 34px;
-  margin-top: 8px;
-  border: 1px solid var(--color-line-soft);
-  border-radius: 999px;
-  color: var(--color-muted);
-  font-size: 11px;
-  transition: background 160ms ease, border-color 160ms ease, color 160ms ease;
-}
-
-.exo-trophy-preview:hover:not(:disabled) {
-  border-color: var(--color-line);
-  background: var(--color-hover);
-  color: var(--color-fg);
-}
-
-.exo-trophy-preview:disabled {
-  opacity: 0.45;
+  line-height: 1.35;
 }
 
 .exo-trophy-switch:focus-visible,
 .exo-trophy-anchor-grid button:focus-visible,
-.exo-trophy-preview:focus-visible {
+.exo-trophy-tier-row button:focus-visible {
   outline: 1.5px solid rgba(255, 255, 255, 0.75);
   outline-offset: 2px;
 }
@@ -283,12 +176,7 @@
   .exo-trophy-switch,
   .exo-trophy-switch span,
   .exo-trophy-anchor-grid button,
-  .exo-trophy-anchor-grid button span,
-  .exo-trophy-preview {
+  .exo-trophy-anchor-grid button span {
     transition: none;
-  }
-
-  .exo-trophy-preview-card {
-    animation: none;
   }
 }

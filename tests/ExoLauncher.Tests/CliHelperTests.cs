@@ -31,6 +31,21 @@ public class CliHelperTests
         Assert.Equal(
             ["launch", "Control", "--skip-version-check"],
             LegendaryCli.LaunchArgs("Control"));
+        Assert.Equal(
+            ["launch", "Control", "--skip-version-check", "--", "-dx11"],
+            LegendaryCli.LaunchArgs("Control", "-dx11"));
+    }
+
+    [Fact]
+    public void Legendary_RepairAndImportArgs_StayOfficial()
+    {
+        Assert.Equal(["install", "Control", "-y", "--repair"], LegendaryCli.RepairArgs("Control"));
+        Assert.Equal(["verify", "Control"], LegendaryCli.VerifyArgs("Control"));
+        Assert.Equal(
+            ["import", "Control", @"D:\Games\Control"],
+            LegendaryCli.ImportArgs("Control", @"D:\Games\Control"));
+        Assert.Equal(["egl-sync", "--one-shot", "--import-only"], LegendaryCli.EglImportOnlyArgs());
+        Assert.DoesNotContain("--import", LegendaryCli.AuthArgs());
     }
 
     [Fact]

@@ -6,8 +6,11 @@ namespace ExoLauncher.Services;
 
 public sealed class AppServices
 {
+    private readonly CancellationTokenSource _lifetime = new();
+    private int _deferredServicesStarted;
     public SettingsService Settings { get; } = new();
     public LibraryService Library { get; private set; } = null!;
+    public GameArtworkService Artwork { get; private set; } = null!;
     public LaunchOrchestrator Launcher { get; private set; } = null!;
     public DependencyService Dependencies { get; } = new();
     public AppUpdateService Updater { get; } = new();
@@ -43,26 +46,65 @@ public sealed class AppServices
             new BattleNetAdapter(),
             new AmazonAdapter(),
             new RockstarAdapter(),
+            new ItchAdapter(),
+            new MinecraftAdapter(),
+            new RobloxAdapter(),
+            new ParadoxAdapter(),
+            new WargamingAdapter(),
             new LocalAdapter(Settings),
         ];
         Library = new LibraryService(Adapters, Settings);
+        Artwork = new GameArtworkService(Library, Settings);
         GogOwnedLibrary.CacheUpdated += OnGogOwnedLibraryUpdated;
+        EpicAdapter.OwnedLibraryCacheUpdated += OnEpicOwnedLibraryUpdated;
         EpicPlaytime.CachedMinutesUpdated += OnEpicPlaytimeUpdated;
-        Launcher = new LaunchOrchestrator(Adapters, Settings, Dependencies, Achievements);
-        HiddenStores.Start();
+        Launcher = new LaunchOrchestrator(
+            Adapters,
+            Settings,
+            Dependencies,
+            Achievements,
+            revalidateQueuedGame: Library.RevalidateActionGameAsync);
         AppLog.Info($"Exo Launcher {AppVersion} services ready · {Adapters.Count} adapters");
+    }
+
+    /// <summary>
+    /// Starts background-only process and filesystem observation after the main
+    /// shell has painted. Neither service is required to construct the first
+    /// library response, and both remain in-process for the rest of the run.
+    /// </summary>
+    public void StartDeferredServices()
+    {
+        if (Interlocked.Exchange(ref _deferredServicesStarted, 1) != 0) return;
+        _ = Task.Run(() =>
+        {
+            try
+            {
+                if (_lifetime.IsCancellationRequested) return;
+                Library.StartWatchers();
+                if (_lifetime.IsCancellationRequested) return;
+                HiddenStores.Start();
+                AppLog.Info("Deferred store observers ready.");
+            }
+            catch (Exception ex)
+            {
+                AppLog.Warn("Deferred store observers failed: " + ex.GetType().Name);
+            }
+        }, _lifetime.Token);
     }
 
     public void Shutdown()
     {
+        try { _lifetime.Cancel(); } catch { }
         PlaytimeService.FlushActiveSessions();
         Achievements.NotificationDeliveryRequested -= OnAchievementNotificationDeliveryRequested;
         Achievements.Dispose();
         HiddenStores.Dispose();
         GogAuth.Dispose();
         EpicPlaytime.CachedMinutesUpdated -= OnEpicPlaytimeUpdated;
+        EpicAdapter.OwnedLibraryCacheUpdated -= OnEpicOwnedLibraryUpdated;
         GogOwnedLibrary.CacheUpdated -= OnGogOwnedLibraryUpdated;
         GogOwnedLibrary.Dispose();
+        Library.DisposeWatchers();
     }
 
     /// <summary>
@@ -105,20 +147,22 @@ public sealed class AppServices
     private async Task PresentAchievementNotificationAsync(AchievementNotificationDelivery delivery)
     {
         var unlock = delivery.Unlock;
-        var gameTitle = Library?.Find(unlock.GameId)?.Title ?? "Game trophy";
+        var game = Library?.Find(unlock.GameId);
+        var gameTitle = game?.Title ?? "Game trophy";
         var definition = unlock.Entry.Definition;
-        var iconUrl = definition.IconUnlockedUrl;
+        string? iconUrl = null;
+        var coverUrl = CoverArtService.TryResolveLocalFile(game?.CoverUrl);
         try
         {
             // A toast waits briefly for a bounded, validated local copy. This
-            // keeps the real provider art visible even if its CDN is busy when
-            // the notification reaches the screen.
-            iconUrl = await _achievementIconCache.CacheAsync(iconUrl).ConfigureAwait(false) ?? iconUrl;
+            // keeps provider art local before it reaches the overlay. A cache
+            // miss deliberately renders the built-in mark instead of a remote URL.
+            iconUrl = await _achievementIconCache.CacheAsync(definition.IconUnlockedUrl).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
             // Network/cache failure must never suppress the durable toast.
-            // The presenter can still use the source URL or its local mark.
+            // The presenter uses its local mark when no cached icon is available.
             AppLog.Debug("Achievement icon preparation failed: " + ex.GetType().Name);
         }
 
@@ -131,6 +175,7 @@ public sealed class AppServices
             IsRare: definition.GlobalUnlockPercent is <= 10,
             IsPerfect: unlock.IsPerfected,
             IconUrl: iconUrl,
+            CoverUrl: coverUrl,
             Rarity: TrophyRarityResolver.Resolve(definition, unlock.IsPerfected),
             RarityPercent: definition.GlobalUnlockPercent),
             onPresented: () =>
@@ -191,6 +236,28 @@ public sealed class AppServices
             catch (Exception ex)
             {
                 AppLog.Debug("Epic playtime derived refresh failed: " + ex.Message);
+            }
+        });
+    }
+
+    private void OnEpicOwnedLibraryUpdated()
+    {
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                if (_lifetime.IsCancellationRequested) return;
+                // Join the scan that may have scheduled Legendary's background
+                // refresh. Invalidating before it releases the gate can be
+                // coalesced away by the scan-generation guard.
+                _ = await Library.GetLibraryAsync().ConfigureAwait(false);
+                if (_lifetime.IsCancellationRequested) return;
+                Library.Invalidate();
+                _ = await Library.GetLibraryAsync(force: true).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                AppLog.Debug("Epic owned-library cache reload failed: " + ex.Message);
             }
         });
     }

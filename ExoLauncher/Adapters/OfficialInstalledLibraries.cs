@@ -10,7 +10,7 @@ namespace ExoLauncher.Adapters;
 /// Proven on-disk installs for official clients that Exo can launch without
 /// inventing ownership. A missing folder is not a library row.
 /// </summary>
-internal static class OfficialInstalledLibraries
+internal static partial class OfficialInstalledLibraries
 {
     internal static IReadOnlyList<GameEntry> ScanEa()
     {
@@ -46,7 +46,14 @@ internal static class OfficialInstalledLibraries
             }
             catch { /* skip */ }
         }
-        return ScanXboxGamesFolders(roots, Directory.Exists, File.Exists);
+
+        var games = new List<GameEntry>(ScanXboxGamesFolders(roots, Directory.Exists, File.Exists));
+        var seen = new HashSet<string>(games.Select(game => game.Id), StringComparer.OrdinalIgnoreCase);
+        foreach (var extra in ScanXboxMutableFolders(XboxMutableRoots(), Directory.Exists, File.Exists))
+        {
+            if (seen.Add(extra.Id)) games.Add(extra);
+        }
+        return games;
     }
 
     internal static IReadOnlyList<GameEntry> ScanBattleNet() =>
@@ -84,6 +91,9 @@ internal static class OfficialInstalledLibraries
                 if (string.IsNullOrWhiteSpace(title))
                     title = new DirectoryInfo(path).Name;
                 if (string.IsNullOrWhiteSpace(title)) continue;
+                var updateAvailable = ReadBool(info, "updateAvailable")
+                    || ReadBool(info, "dlcUpdateAvailable")
+                    || ReadBool(info, "needsUpdate");
                 games.Add(new GameEntry
                 {
                     Id = "ea:" + SanitizeId(id),
@@ -91,9 +101,10 @@ internal static class OfficialInstalledLibraries
                     Store = StoreKind.Ea,
                     Installed = true,
                     Owned = true,
+                    UpdateAvailable = updateAvailable,
                     Path = path,
                     LaunchTarget = id,
-                    Status = "Ready",
+                    Status = updateAvailable ? "Update" : "Ready",
                     LaunchNote = "Launches through the EA app.",
                 });
             }
@@ -124,9 +135,10 @@ internal static class OfficialInstalledLibraries
                 Store = StoreKind.Ubisoft,
                 Installed = true,
                 Owned = true,
+                UpdateAvailable = record.UpdateAvailable,
                 Path = record.InstallDir,
                 LaunchTarget = record.InstallId,
-                Status = "Ready",
+                Status = record.UpdateAvailable ? "Update" : "Ready",
                 LaunchNote = "Launches through Ubisoft Connect.",
             });
         }
@@ -170,6 +182,88 @@ internal static class OfficialInstalledLibraries
             }
         }
         return games;
+    }
+
+    internal static IEnumerable<string> XboxMutableRoots()
+    {
+        yield return Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+            "ModifiableWindowsApps");
+        yield return Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
+            "ModifiableWindowsApps");
+    }
+
+    /// <summary>
+    /// Game Pass mutable packages. Unlike XboxGames, these sit in a package
+    /// folder with MicrosoftGame.config at the root rather than Title/Content.
+    /// </summary>
+    internal static IReadOnlyList<GameEntry> ScanXboxMutableFolders(
+        IEnumerable<string> roots,
+        Func<string, bool> directoryExists,
+        Func<string, bool> fileExists)
+    {
+        var games = new List<GameEntry>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var root in roots)
+        {
+            if (string.IsNullOrWhiteSpace(root) || !directoryExists(root)) continue;
+            string[] dirs;
+            try { dirs = Directory.GetDirectories(root); }
+            catch { continue; }
+            foreach (var dir in dirs)
+            {
+                var config = Path.Combine(dir, "MicrosoftGame.config");
+                var content = Path.Combine(dir, "Content");
+                var search = fileExists(config) ? dir
+                    : directoryExists(content) && fileExists(Path.Combine(content, "MicrosoftGame.config")) ? content
+                    : directoryExists(content) ? content
+                    : null;
+                if (search is null) continue;
+                var exe = FindXboxExecutable(search, fileExists);
+                if (string.IsNullOrWhiteSpace(exe)) continue;
+                var title = ReadXboxDisplayName(Path.Combine(search, "MicrosoftGame.config"), fileExists)
+                            ?? new DirectoryInfo(dir).Name;
+                if (string.IsNullOrWhiteSpace(title) ||
+                    title.Equals("Content", StringComparison.OrdinalIgnoreCase))
+                    continue;
+                var id = "xbox:" + SanitizeId(title);
+                if (!seen.Add(id)) continue;
+                games.Add(new GameEntry
+                {
+                    Id = id,
+                    Title = title,
+                    Store = StoreKind.Xbox,
+                    Installed = true,
+                    Owned = true,
+                    Path = search,
+                    LaunchTarget = exe,
+                    Status = "Ready",
+                    LaunchNote = "Launches the installed Xbox PC executable.",
+                });
+            }
+        }
+        return games;
+    }
+
+    private static string? ReadXboxDisplayName(string configPath, Func<string, bool> fileExists)
+    {
+        if (!fileExists(configPath)) return null;
+        try
+        {
+            var xml = XDocument.Load(configPath);
+            var name = xml.Descendants()
+                .FirstOrDefault(e => e.Name.LocalName == "ShellVisuals")
+                ?.Attribute("DefaultDisplayName")?.Value
+                ?? xml.Descendants()
+                    .FirstOrDefault(e => e.Name.LocalName == "Identity")
+                    ?.Attribute("Name")?.Value;
+            return string.IsNullOrWhiteSpace(name) ? null : name.Trim();
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     internal static LaunchResult LaunchEa(GameEntry game)
@@ -251,11 +345,15 @@ internal static class OfficialInstalledLibraries
         return MissingTarget("Rockstar Games Launcher");
     }
 
-    internal readonly record struct UbisoftInstallRecord(string InstallId, string InstallDir, string? Title);
+    internal readonly record struct UbisoftInstallRecord(
+        string InstallId,
+        string InstallDir,
+        string? Title,
+        bool UpdateAvailable = false);
     internal readonly record struct BattleNetInstallRecord(string Uid, string InstallDir, string Title);
     internal readonly record struct RockstarInstallRecord(string Title, string InstallDir);
 
-    private static IEnumerable<string> EaInstallDatPaths()
+    internal static IEnumerable<string> EaInstallDatPaths()
     {
         var programData = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
         yield return Path.Combine(programData, "EA Desktop", "install.dat");
@@ -284,7 +382,13 @@ internal static class OfficialInstalledLibraries
                         var dir = game?.GetValue("InstallDir") as string
                                   ?? game?.GetValue("InstallDir", null)?.ToString();
                         if (string.IsNullOrWhiteSpace(dir)) continue;
-                        records.Add(new UbisoftInstallRecord(id, dir, null));
+                        records.Add(new UbisoftInstallRecord(
+                            id,
+                            dir,
+                            null,
+                            ReadRegistryFlag(game, "is_update_available")
+                            || ReadRegistryFlag(game, "UpdateAvailable")
+                            || ReadRegistryFlag(game, "NeedUpdate")));
                     }
                     catch { /* skip one */ }
                 }
@@ -520,12 +624,16 @@ internal static class OfficialInstalledLibraries
         return records;
     }
 
-    private static IEnumerable<string> AmazonGameRoots()
+    internal static IEnumerable<string> AmazonGameRoots()
     {
         var local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
         yield return Path.Combine(local, "Amazon Games", "Data", "Games");
+        yield return Path.Combine(local, "Amazon Games", "Installed");
         var programData = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
         yield return Path.Combine(programData, "Amazon Games", "Installed");
+        yield return Path.Combine(programData, "Amazon Games", "Data", "Games");
+        var user = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        yield return Path.Combine(user, "Amazon Games");
     }
 
     private static IReadOnlyList<RockstarInstallRecord> ReadRockstarInstallRecords()
@@ -736,6 +844,40 @@ internal static class OfficialInstalledLibraries
         element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String
             ? value.GetString()
             : null;
+
+    internal static bool ReadBool(JsonElement element, string name)
+    {
+        if (!element.TryGetProperty(name, out var value)) return false;
+        return value.ValueKind switch
+        {
+            JsonValueKind.True => true,
+            JsonValueKind.False => false,
+            JsonValueKind.Number => value.TryGetInt64(out var number) && number != 0,
+            JsonValueKind.String => value.GetString() is "1" or "true" or "True" or "yes" or "Yes",
+            _ => false,
+        };
+    }
+
+    private static bool ReadRegistryFlag(RegistryKey? key, string name)
+    {
+        if (key is null) return false;
+        try
+        {
+            var value = key.GetValue(name);
+            return value switch
+            {
+                bool flag => flag,
+                int number => number != 0,
+                long number => number != 0,
+                string text => text is "1" or "true" or "True" or "yes" or "Yes",
+                _ => false,
+            };
+        }
+        catch
+        {
+            return false;
+        }
+    }
 
     private static string SanitizeId(string value)
     {
