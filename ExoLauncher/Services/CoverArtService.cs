@@ -521,6 +521,7 @@ public static class CoverArtService
 
     private static string? MappedSteamAppId(GameEntry g)
     {
+        if (g.Store is StoreKind.Minecraft or StoreKind.Roblox) return null;
         EnsureTitleMapLoaded();
         var titleKeys = TitleLookupKeys(g.Title);
         foreach (var key in titleKeys)
@@ -2450,6 +2451,15 @@ public static class CoverArtService
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        // Minecraft and Roblox have official Microsoft Store posters. A Steam
+        // title search for "Roblox" binds junk and would skip that catalog.
+        if (g.Store is StoreKind.Minecraft or StoreKind.Roblox)
+        {
+            if (await DownloadMicrosoftStorePortraitAsync(http, g, cancellationToken).ConfigureAwait(false))
+                return true;
+            return TryExtractGameIcon(g);
+        }
+
         // Steam native app id
         var appId = SteamAppId(g);
         if (appId is not null)

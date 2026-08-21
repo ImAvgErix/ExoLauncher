@@ -133,6 +133,10 @@ public sealed class SettingsService
         // now gets the same authored Exo cue.
         loaded.TrophyNotificationSoundCue = "exo";
         loaded.TrophyNotificationSound = true;
+        if (!loaded.AccountSetupComplete &&
+            (!string.IsNullOrWhiteSpace(loaded.ProfileHandle) ||
+             File.Exists(Path.Combine(PathHelper.AppDataDir, "auth.bin"))))
+            loaded.AccountSetupComplete = true;
     }
 
     /// <summary>Keep an unreadable settings file for recovery instead of letting
