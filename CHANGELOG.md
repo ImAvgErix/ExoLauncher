@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.0.3 - 2026-08-21
+
+**Friend Exo profiles look like theirs. Search can install Minecraft and Roblox. Settings lists every launcher.**
+
+- Friend pages use the same profile chrome they authored, without this PC's hours or a handle line
+- Hosted avatars and banners load through the profile-media virtual host, including GIFs
+- Minecraft and Roblox appear as installable search hits
+- Settings lists every launcher with Get, even when the client is not installed
+- Steam same-person linking stays a local claim on this PC, not an account merge
+- The CEO badge is gone
+
 ## 2.0.2 - 2026-08-21
 
 **Issue #13: Roblox posters, Epic hours, home avatar, and the signed-in onboarding flash.**
