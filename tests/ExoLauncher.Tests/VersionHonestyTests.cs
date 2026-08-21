@@ -8,14 +8,14 @@ public sealed class VersionHonestyTests
     public void VersionFile_IsTheProductVersion()
     {
         var version = File.ReadAllText(Path.Combine(RepoRoot(), "VERSION")).Trim();
-        Assert.Equal("2.0.0", version);
+        Assert.Equal("2.0.1", version);
         var props = File.ReadAllText(Path.Combine(RepoRoot(), "Directory.Build.props"));
         Assert.Contains("$(VersionFile)", props, StringComparison.Ordinal);
         Assert.Contains("<Version>$(ExoLauncherVersion)</Version>", props, StringComparison.Ordinal);
         Assert.DoesNotContain("ui/package.json", props, StringComparison.Ordinal);
 
         var changelog = File.ReadAllText(Path.Combine(RepoRoot(), "CHANGELOG.md"));
-        Assert.StartsWith("# Changelog\n\n## 2.0.0 - 2026-08-21", changelog.Replace("\r\n", "\n"), StringComparison.Ordinal);
+        Assert.StartsWith("# Changelog\n\n## 2.0.1 - 2026-08-21", changelog.Replace("\r\n", "\n"), StringComparison.Ordinal);
     }
 
     [Fact]

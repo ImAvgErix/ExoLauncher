@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.0.1 - 2026-08-21
+
+**The 2.0 library people actually hit.**
+
+- Loaded Minecraft and Roblox posters from the Microsoft Store catalog instead of a missing Steam match
+- Matched Epic last-played to Legendary/EGL ids and titles, and accepted Riot product aliases
+- Opened Exo friend profiles with the reserved handle, kept roster avatars when media arrived without Content-Length, and stopped unverified installed Steam titles from becoming **Unavailable**
+- Offered Exo account setup after a 1.x → 2.0 upgrade instead of skipping it
+- Sent live download byte counts to the UI so install percent can move
+- Stopped the achievement preview from restarting mid-hold
+
 ## 2.0.0 - 2026-08-21
 
 **Online identity, truthful libraries, and a launcher that stays out of the way.**
