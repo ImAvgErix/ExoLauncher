@@ -25,7 +25,7 @@ import { applyTitlebarIdentity } from '../lib/titlebarIdentity'
 import { installGamepadNavigation } from '../lib/gamepadNavigation'
 import { preloadUpscalerStatuses } from '../lib/upscalerCache'
 import { BannerIn, GameOverlay } from '../motion'
-import { preloadInitialCoverArt, steamAppId } from './CoverArt'
+import { CoverArt, preloadInitialCoverArt, steamAppId } from './CoverArt'
 import { AppAmbient } from './AppAmbient'
 import { BrowseShelf } from './BrowseShelf'
 import { GamePage } from './GamePage'
@@ -363,6 +363,7 @@ export function LauncherApp() {
   const [catalogSearching, setCatalogSearching] = useState(false)
   const [authMsg, setAuthMsg] = useState<string | null>(null)
   const [selfAvatarImage, setSelfAvatarImage] = useState<string | null>(null)
+  const [selfAvatarGameId, setSelfAvatarGameId] = useState<string | null>(null)
   const [selfName, setSelfName] = useState<string | null>(null)
   const selfAvatarGameIdRef = useRef<string | null>(null)
   const selfAvatarImageRef = useRef<string | null>(null)
@@ -380,6 +381,9 @@ export function LauncherApp() {
   selectedIdRef.current = selectedId
   gamesRef.current = games
   const selfInitial = (selfName?.trim()?.[0] ?? 'E').toUpperCase()
+  const selfAvatarGame = selfAvatarGameId
+    ? games.find((game) => game.id === selfAvatarGameId) ?? null
+    : null
   const actionLocked = busy || !!progress?.isActive
   const lockedGameId = progress?.isActive ? progress.gameId : statusGameId ?? selectedId
 
@@ -493,7 +497,7 @@ export function LauncherApp() {
   }, [])
 
   // Titlebar identity is the Exo profile the user authored, not a store persona.
-  // The chip is their uploaded picture, or initials. Library covers stay off it.
+  // The chip is their uploaded picture, the game they chose as avatar, or initials.
   const applyIdentity = useCallback((self: ProfileResponse) => {
     lastProfileRef.current = self
     const next = applyTitlebarIdentity(
@@ -509,6 +513,7 @@ export function LauncherApp() {
     setSelfName(next.name)
     selfAvatarGameIdRef.current = next.avatarGameId
     selfAvatarImageRef.current = next.avatarImageUrl
+    setSelfAvatarGameId(next.avatarGameId)
     setSelfAvatarImage(next.avatarImageUrl)
   }, [])
 
@@ -1387,7 +1392,23 @@ export function LauncherApp() {
             }}
           >
             {selfAvatarImage ? (
-              <img src={selfAvatarImage} alt="" onError={() => setSelfAvatarImage(null)} />
+              <img
+                src={selfAvatarImage}
+                alt=""
+                onError={(event) => {
+                  const img = event.currentTarget
+                  if (img.dataset.retry === '1') {
+                    setSelfAvatarImage(null)
+                    return
+                  }
+                  img.dataset.retry = '1'
+                  window.setTimeout(() => {
+                    img.src = selfAvatarImage
+                  }, 400)
+                }}
+              />
+            ) : selfAvatarGame ? (
+              <CoverArt game={selfAvatarGame} />
             ) : (
               <span className="text-[10px] font-semibold text-faint">{selfInitial}</span>
             )}

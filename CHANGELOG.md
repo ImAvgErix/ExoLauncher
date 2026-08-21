@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.0.2 - 2026-08-21
+
+**Issue #13: Roblox posters, Epic hours, home avatar, and the signed-in onboarding flash.**
+
+- Applied Epic playtime on the library scan so Sugar/Fortnite hours show without waiting for a later refresh
+- Preferred Microsoft Store posters for Roblox and Minecraft instead of a Steam title match
+- Painted the titlebar chip with the chosen game-cover avatar, and retried a cover-host image once instead of wiping it
+- Marked account setup complete when a handle or session already exists, so a signed-in 2.0 install does not flash onboarding
+- Stopped Exo friend rows from toggling closed, and kept last-played across a small Epic/Riot clock skew
+
 ## 2.0.1 - 2026-08-21
 
 **The 2.0 library people actually hit.**

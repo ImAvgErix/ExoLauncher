@@ -94,7 +94,7 @@ public sealed class TitlebarIdentityTests
         var bridge = ReadRepoFile("ExoLauncher", "Services", "WebHostBridge.cs");
 
         Assert.Contains("applyTitlebarIdentity", app, StringComparison.Ordinal);
-        Assert.Contains("Library covers stay off it", app, StringComparison.Ordinal);
+        Assert.Contains("the game they chose as avatar", app, StringComparison.Ordinal);
         Assert.Contains("selfAvatarImage", app, StringComparison.Ordinal);
         Assert.Contains("export function applyTitlebarIdentity", identity, StringComparison.Ordinal);
         Assert.Contains("TitlebarIdentity.CoalesceSavedAvatarGameId", bridge, StringComparison.Ordinal);

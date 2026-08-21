@@ -479,6 +479,7 @@ export function FriendsRoom({ active }: { active: boolean }) {
     if (
       source === 'exo' &&
       selectedPersonId &&
+      visiblePeople.length > 0 &&
       !visiblePeople.some((person) => person.id === selectedPersonId)
     ) {
       setSelectedPersonId(null)
@@ -827,7 +828,7 @@ export function FriendsRoom({ active }: { active: boolean }) {
                       person={person}
                       games={games}
                     selected={person.id === selectedPersonId}
-                    onSelect={(id) => setSelectedPersonId((cur) => (cur === id ? null : id))}
+                    onSelect={(id) => setSelectedPersonId(id)}
                     presence={person.onlineUserId ? presence[person.onlineUserId] : undefined}
                   />
                 ))}

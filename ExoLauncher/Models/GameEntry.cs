@@ -92,7 +92,9 @@ public sealed class GameEntry
         {
             if (string.Equals(Id, "local:add", StringComparison.OrdinalIgnoreCase))
                 return "install";
-            if (EntitlementState is EntitlementState.Unverified or EntitlementState.NotOwned)
+            if (EntitlementState == EntitlementState.NotOwned)
+                return "none";
+            if (EntitlementState == EntitlementState.Unverified && !Installed)
                 return "none";
             if (Installed && UpdateAvailable) return "update";
             if (Installed) return "play";
@@ -122,7 +124,8 @@ public sealed record GameVariant
     public DateTimeOffset? LastPlayedUtc { get; init; }
     public string Status { get; init; } = "Ready";
     public string PrimaryAction =>
-        EntitlementState is EntitlementState.Unverified or EntitlementState.NotOwned ? "none" :
+        EntitlementState == EntitlementState.NotOwned ? "none" :
+        EntitlementState == EntitlementState.Unverified && !Installed ? "none" :
         Installed && UpdateAvailable ? "update" :
         Installed ? "play" :
         CanInstall || Owned ? "install" : "none";

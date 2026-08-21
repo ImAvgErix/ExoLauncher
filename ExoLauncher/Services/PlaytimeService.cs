@@ -216,11 +216,11 @@ public static class PlaytimeService
                 }
             }
 
-            // A store timestamp ahead of the clock is not a reading. Epic's
-            // launcher writes local wall-clock with a Z suffix, so east of UTC
-            // its last-played arrives in the future and would outrank every
-            // honest session, including the one Exo just started.
-            if (storeLast > now.AddMinutes(5)) storeLast = null;
+            // Epic's launcher writes local wall-clock with a Z suffix, so east
+            // of UTC last-played can arrive a few hours in the future. Drop only
+            // impossible stamps; clamp a small skew to now so the UI is not blank.
+            if (storeLast > now.AddHours(36)) storeLast = null;
+            else if (storeLast > now) storeLast = now;
 
             exo.TryGetValue(g.Id, out var exoMins);
             DateTimeOffset? exoPlayed = null;
@@ -831,8 +831,11 @@ internal static class EpicEglLastPlayed
                         continue;
                     var value = trimmed["LastPlayedGame=".Length..].Trim().Trim('"');
                     if (!TryParseLastPlayedGame(value, out var app, out var when)) continue;
-                    if (!map.TryGetValue(app, out var cur) || when > cur)
-                        map[app] = when;
+                    foreach (var key in EpicLastPlayedKeys(value, app))
+                    {
+                        if (!map.TryGetValue(key, out var cur) || when > cur)
+                            map[key] = when;
+                    }
                 }
             }
             catch (Exception ex)
@@ -857,6 +860,17 @@ internal static class EpicEglLastPlayed
         if (string.IsNullOrWhiteSpace(app) || app.Length > 128) return false;
         return DateTimeOffset.TryParse(
             stamp, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out when);
+    }
+
+    internal static IEnumerable<string> EpicLastPlayedKeys(string raw, string app)
+    {
+        yield return app;
+        var comma = raw.LastIndexOf(',');
+        var left = comma > 0 ? raw[..comma].Trim() : raw.Trim();
+        foreach (var part in left.Split(':', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            if (part.Length > 0 && part.Length <= 128) yield return part;
+        }
     }
 }
 

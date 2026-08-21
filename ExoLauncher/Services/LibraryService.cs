@@ -365,6 +365,8 @@ public sealed class LibraryService
 
         // Store + Exo-tracked playtime for every title (Steam VDF, GOG JSON, sessions).
         ordered = PlaytimeService.Enrich(ordered).ToList();
+        ordered = EpicPlaytime.Apply(ordered, EpicPlaytime.GetCachedMinutes()).ToList();
+        EpicPlaytime.RefreshCachedMinutes();
 
         // Keep source rows intact through every enrichment step, then project
         // exact-title matches into one card at the boundary consumed by the UI.

@@ -123,7 +123,10 @@ export function GamePage({
     sources?.find((variant) => variant.id === selected.id)?.playtimeMinutes
       ?? selected.playtimeMinutes,
   )
-  const lastLaunched = formatRelativeLastPlayed(selected.lastPlayedUtc)
+  const lastLaunched = formatRelativeLastPlayed(
+    sources?.find((variant) => variant.id === selected.id)?.lastPlayedUtc
+      ?? selected.lastPlayedUtc,
+  )
   const installedActions = selected.installed && !selected.isAddPortable
   const artworkEnabled = !selected.isAddPortable && (!!selected.owned || selected.installed)
   const artworkView = artworkGame

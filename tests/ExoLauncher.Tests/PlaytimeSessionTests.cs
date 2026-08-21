@@ -214,6 +214,17 @@ public sealed class PlaytimeSessionTests
     }
 
     [Fact]
+    public void EpicEglLastPlayed_IndexesEveryColonSegment()
+    {
+        const string raw = "9773aa1aa54f4f7b80e44bef04986cea:530145df28a24424923f5828cc9031a1:Sugar,2026-08-12T20:12:55.789Z";
+        Assert.True(EpicEglLastPlayed.TryParseLastPlayedGame(raw, out var app, out _));
+        var keys = EpicEglLastPlayed.EpicLastPlayedKeys(raw, app).ToArray();
+        Assert.Contains("Sugar", keys);
+        Assert.Contains("530145df28a24424923f5828cc9031a1", keys);
+        Assert.Contains("9773aa1aa54f4f7b80e44bef04986cea", keys);
+    }
+
+    [Fact]
     public void PlaytimeService_EndSession_PersistsMinutes()
     {
         var id = "riot:playtime-fixture-" + Guid.NewGuid().ToString("N")[..8];
@@ -295,6 +306,27 @@ public sealed class PlaytimeSessionTests
                 // Epic's launcher stamps local wall-clock with a Z suffix, so
                 // east of UTC its last-played lands ahead of the clock.
                 LastPlayedUtc = DateTimeOffset.UtcNow.AddHours(3),
+            },
+        ]);
+
+        Assert.NotNull(enriched[0].LastPlayedUtc);
+        Assert.True(enriched[0].LastPlayedUtc <= DateTimeOffset.UtcNow.AddMinutes(1));
+    }
+
+    [Fact]
+    public void PlaytimeService_DropsAnImpossibleFutureStoreTimestamp()
+    {
+        var suffix = Guid.NewGuid().ToString("N")[..8];
+        var enriched = PlaytimeService.Enrich(
+        [
+            new Models.GameEntry
+            {
+                Id = "steam:4000011",
+                Title = "Impossible stamp fixture " + suffix,
+                Store = Models.StoreKind.Steam,
+                Installed = true,
+                LaunchTarget = "4000011",
+                LastPlayedUtc = DateTimeOffset.UtcNow.AddDays(3),
             },
         ]);
 
