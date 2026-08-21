@@ -69,7 +69,7 @@ export function TrophyBanner({
       onAnimationEnd={(event: AnimationEvent<HTMLElement>) => {
         const name = event.animationName
         if (event.target !== event.currentTarget) return
-        if (name !== 'exo-trophy-enter' && name !== 'exo-trophy-enter-pop' && name !== 'exo-trophy-fade') return
+        if (name !== 'exo-trophy-enter' && name !== 'exo-trophy-enter-pop' && name !== 'exo-trophy-leave') return
         onAnimationComplete?.()
       }}
     >

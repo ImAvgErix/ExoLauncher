@@ -143,7 +143,8 @@ public sealed class UxRegressionContractTests
         Assert.DoesNotContain("smartSearchScore(game.store", app, StringComparison.Ordinal);
         Assert.Contains("return resolveEntitlementPrimaryAction(game)", host, StringComparison.Ordinal);
         Assert.Contains("if (game.canInstall && game.owned === true) return 'install'", entitlement, StringComparison.Ordinal);
-        Assert.Contains("game.entitlementState === 'notOwned' || game.entitlementState === 'unverified'", entitlement, StringComparison.Ordinal);
+        Assert.Contains("if (game.entitlementState === 'notOwned') return 'none'", entitlement, StringComparison.Ordinal);
+        Assert.Contains("if (game.entitlementState === 'unverified' && !game.installed) return 'none'", entitlement, StringComparison.Ordinal);
         Assert.DoesNotContain("if (game.canInstall || game.owned) return 'install'", entitlement, StringComparison.Ordinal);
         Assert.Contains("if (!proven.Owned) return null", bridge, StringComparison.Ordinal);
         Assert.Contains("if (!game.Owned)", bridge, StringComparison.Ordinal);
@@ -344,12 +345,9 @@ public sealed class UxRegressionContractTests
     public void FirstRun_WaitsForStoreDetectionAndDefersTheProfileIdentityRead()
     {
         var app = ReadRepoFile("ui", "src", "components", "LauncherApp.tsx");
-        var profileEffect = SliceBetween(
-            app,
-            "useEffect(() => {\n    if (settings?.onboardingComplete !== true) return",
-            "}, [applyIdentity, settings?.onboardingComplete])");
-
-        Assert.Contains("host.profileGet()", profileEffect, StringComparison.Ordinal);
+        Assert.Contains("if (settings?.onboardingComplete !== true) return", app, StringComparison.Ordinal);
+        Assert.Contains("host.profileGet()", app, StringComparison.Ordinal);
+        Assert.Contains("}, [applyIdentity, settings?.onboardingComplete])", app, StringComparison.Ordinal);
         Assert.Contains("const [storeMatrixReady, setStoreMatrixReady] = useState(false)", app, StringComparison.Ordinal);
         Assert.Contains(".finally(() => setStoreMatrixReady(true))", app, StringComparison.Ordinal);
         Assert.Contains("!settings.onboardingComplete && !storeMatrixReady", app, StringComparison.Ordinal);

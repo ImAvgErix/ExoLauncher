@@ -27,12 +27,16 @@ test('explicitly revoked install becomes Buy again, never Play', () => {
 })
 
 test('unavailable ownership stays unverified instead of inventing a revocation', () => {
-  const game = steam({ entitlementState: 'unverified' })
+  const missing = steam({ installed: false, entitlementState: 'unverified' })
+  const missingAction = resolveEntitlementPrimaryAction(missing)
+  assert.equal(missingAction, 'none')
+  assert.equal(canExposeBuyUrl(missing), false)
+  assert.equal(blockedEntitlementLabel(missing, missingAction), 'Unavailable')
 
-  const action = resolveEntitlementPrimaryAction(game)
-  assert.equal(action, 'none')
-  assert.equal(canExposeBuyUrl(game), false)
-  assert.equal(blockedEntitlementLabel(game, action), 'Unavailable')
+  const installed = steam({ installed: true, entitlementState: 'unverified' })
+  assert.equal(resolveEntitlementPrimaryAction(installed), 'play')
+  assert.equal(canExposeBuyUrl(installed), false)
+  assert.equal(blockedEntitlementLabel(installed, 'play'), null)
 })
 
 test('legacy and verified-owned installed rows still Play', () => {

@@ -31,6 +31,7 @@ public sealed class ExoAccountTests
         "profileAvatarImage",
         "profileBannerImage",
         "onboardingComplete",
+        "accountSetupComplete",
         "closeStoreClientsAfterLaunch",
         "antiCheatSafeMode",
         "autoInstallRedistributables",

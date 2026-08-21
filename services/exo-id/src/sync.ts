@@ -20,6 +20,7 @@ export const SYNC_DENYLIST = [
   "profileAvatarImage",
   "profileBannerImage",
   "onboardingComplete",
+  "accountSetupComplete",
   "closeStoreClientsAfterLaunch",
   "autoInstallRedistributables",
   "minimizeWhilePlaying",

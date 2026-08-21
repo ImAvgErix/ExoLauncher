@@ -501,7 +501,7 @@ export function FriendsRoom({ active }: { active: boolean }) {
 
   useEffect(() => {
     const userId = selectedPerson?.onlineUserId
-    const handle = selectedPerson?.onlineHandleDisplay || selectedPerson?.handle
+    const handle = (selectedPerson?.handle || selectedPerson?.onlineHandleDisplay || '').trim()
     if (!userId || !handle) {
       setPublicProfile(null)
       setProfileBusy(false)
@@ -1464,7 +1464,9 @@ function OnlinePersonPage({
   const handle = profile?.handle?.display || person.onlineHandleDisplay || person.handle
   const displayName = text('displayName') || handle || 'Exo connection'
   const badges = profile?.badges
-  const avatar = profile?.media.avatar?.available ? profile.media.avatar.url : null
+  const avatar = profile?.media.avatar?.available
+    ? profile.media.avatar.url
+    : person.onlineAvatarUrl ?? null
   const banner = profile?.media.banner?.available ? profile.media.banner.url : null
   const gallery = (['gallery0', 'gallery1', 'gallery2', 'gallery3', 'gallery4', 'gallery5'] as const)
     .map((key) => profile?.media[key])

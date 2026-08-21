@@ -341,6 +341,7 @@ public sealed class SettingsService
         string? sortMode = null,
         string? defaultInstallRoot = null,
         bool? onboardingComplete = null,
+        bool? accountSetupComplete = null,
         bool? trophyNotificationsEnabled = null,
         string? trophyNotificationPreset = null,
         string? trophyNotificationPosition = null,
@@ -362,6 +363,7 @@ public sealed class SettingsService
             if (defaultInstallRoot is not null)
                 _current.DefaultInstallRoot = string.IsNullOrWhiteSpace(defaultInstallRoot) ? null : defaultInstallRoot;
             if (onboardingComplete is not null) _current.OnboardingComplete = onboardingComplete.Value;
+            if (accountSetupComplete is not null) _current.AccountSetupComplete = accountSetupComplete.Value;
             if (trophyNotificationsEnabled is not null)
                 _current.TrophyNotificationsEnabled = trophyNotificationsEnabled.Value;
             if (trophyNotificationPreset is not null)
@@ -676,6 +678,7 @@ public sealed class SettingsService
             source.LastPlayed,
             StringComparer.OrdinalIgnoreCase),
         OnboardingComplete = source.OnboardingComplete,
+        AccountSetupComplete = source.AccountSetupComplete,
         TrophyNotificationsEnabled = source.TrophyNotificationsEnabled,
         TrophyNotificationPreset = source.TrophyNotificationPreset,
         TrophyNotificationPosition = source.TrophyNotificationPosition,

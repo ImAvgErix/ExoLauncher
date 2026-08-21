@@ -2481,6 +2481,9 @@ public static class CoverArtService
             DeadSteamCdn[mapped] = 0;
         }
 
+        if (await DownloadMicrosoftStorePortraitAsync(http, g, cancellationToken).ConfigureAwait(false))
+            return true;
+
         // Riot: Epic portrait first (fast when catcache hits), then theme card.
         if (g.Store == StoreKind.Riot)
         {
@@ -3041,6 +3044,50 @@ public static class CoverArtService
     {
         var path = TryResolveLocalFile(ResolvePreferredUrl(g));
         return path is not null && IsPortraitCover(path);
+    }
+
+    private static async Task<bool> DownloadMicrosoftStorePortraitAsync(
+        HttpClient http,
+        GameEntry g,
+        CancellationToken cancellationToken)
+    {
+        var productId = MicrosoftStoreArt.ProductIdFor(g);
+        if (string.IsNullOrWhiteSpace(productId)) return false;
+        try
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var dest = Path.Combine(CacheRoot, SanitizeId(g.Id) + ".jpg");
+            if (IsValidImageFile(dest) && IsPortraitCover(dest) && IsSharpEnough(dest))
+                return true;
+            DiscardIfLandscape(dest);
+
+            using var response = await http.GetAsync(
+                    MicrosoftStoreArt.CatalogUrl(productId),
+                    cancellationToken)
+                .ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode) return false;
+            var json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            var urls = MicrosoftStoreArt.PortraitUrlsFromCatalog(json);
+            if (urls.Count == 0) return false;
+            if (!await TryDownloadAnyAsync(http, urls, dest, cancellationToken).ConfigureAwait(false))
+                return false;
+            if (!IsPortraitCover(dest))
+            {
+                DiscardIfLandscape(dest);
+                return false;
+            }
+            AppLog.Info($"Cover: Microsoft Store portrait for '{g.Title}'.");
+            return true;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            AppLog.Debug($"Microsoft Store portrait failed for '{g.Title}': {ex.Message}");
+            return false;
+        }
     }
 
     /// <summary>

@@ -199,16 +199,21 @@ public static class PlaytimeService
             }
             else if (g.Store == StoreKind.Riot)
             {
-                var product = ExtractRiotProduct(g);
-                if (product is not null && riotLast.TryGetValue(product, out var rl))
-                    storeLast = rl;
+                foreach (var product in RiotProductKeys(g))
+                {
+                    if (riotLast.TryGetValue(product, out var rl) &&
+                        (storeLast is null || rl > storeLast))
+                        storeLast = rl;
+                }
             }
             else if (g.Store == StoreKind.Epic)
             {
-                var app = ExtractEpicApp(g);
-                if (app is not null && epicLast.TryGetValue(app, out var el) &&
-                    (storeLast is null || el > storeLast))
-                    storeLast = el;
+                foreach (var key in EpicPlaytime.ArtifactKeys(g))
+                {
+                    if (epicLast.TryGetValue(key, out var el) &&
+                        (storeLast is null || el > storeLast))
+                        storeLast = el;
+                }
             }
 
             // A store timestamp ahead of the clock is not a reading. Epic's
@@ -510,6 +515,18 @@ public static class PlaytimeService
         if (g.Id.StartsWith("riot:", StringComparison.OrdinalIgnoreCase))
             return g.Id["riot:".Length..].Trim().ToLowerInvariant();
         return null;
+    }
+
+    private static IEnumerable<string> RiotProductKeys(GameEntry g)
+    {
+        var product = ExtractRiotProduct(g);
+        if (string.IsNullOrWhiteSpace(product)) yield break;
+        yield return product;
+        if (product is "league_of_legends")
+        {
+            yield return "leagueoflegends";
+            yield return "lol";
+        }
     }
 
     private static string? ExtractEpicApp(GameEntry g)

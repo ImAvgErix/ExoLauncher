@@ -341,6 +341,7 @@ export function LauncherApp() {
   const [progress, setProgress] = useState<InstallProgress | null>(null)
   const [view, setView] = useState<View>('library')
   const [settings, setSettings] = useState<LauncherSettings | null>(null)
+  const [accountSetupKnown, setAccountSetupKnown] = useState(false)
   const [settingsError, setSettingsError] = useState<string | null>(null)
   const [stores, setStores] = useState<StoreStatus[]>([])
   const [storeMatrixReady, setStoreMatrixReady] = useState(false)
@@ -510,6 +511,35 @@ export function LauncherApp() {
     selfAvatarImageRef.current = next.avatarImageUrl
     setSelfAvatarImage(next.avatarImageUrl)
   }, [])
+
+  useEffect(() => {
+    if (settings?.onboardingComplete !== true) {
+      setAccountSetupKnown(true)
+      return
+    }
+    if (settings.accountSetupComplete === true) {
+      setAccountSetupKnown(true)
+      return
+    }
+    let cancelled = false
+    void host.accountGet().then((account) => {
+      if (cancelled) return
+      if (!account.signedIn) {
+        setAccountSetupKnown(true)
+        return
+      }
+      return host.setSettings({ accountSetupComplete: true }).then((next) => {
+        if (cancelled) return
+        if (next) setSettings(next)
+        setAccountSetupKnown(true)
+      })
+    }).catch(() => {
+      if (!cancelled) setAccountSetupKnown(true)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [settings?.accountSetupComplete, settings?.onboardingComplete])
 
   useEffect(() => {
     if (settings?.onboardingComplete !== true) return
@@ -1179,7 +1209,7 @@ export function LauncherApp() {
   const displayedGame = selected
 
   async function finishOnboarding(refreshLibrary = false) {
-    const next = await host.setSettings({ onboardingComplete: true })
+    const next = await host.setSettings({ onboardingComplete: true, accountSetupComplete: true })
     if (!next?.onboardingComplete) {
       throw new Error('Could not save settings — try again.')
     }
@@ -1239,6 +1269,28 @@ export function LauncherApp() {
         onStores={setStores}
         onComplete={finishOnboarding}
         onAddFolder={addFolderDuringOnboarding}
+      />
+    )
+  }
+
+  if (settings.accountSetupComplete !== true) {
+    if (!accountSetupKnown) {
+      return (
+        <div className="exo-app">
+          <AppAmbient />
+          <BootSplash />
+        </div>
+      )
+    }
+    return (
+      <OnboardingPanel
+        stores={stores}
+        message={authMsg}
+        onSettings={setSettings}
+        onStores={setStores}
+        onComplete={finishOnboarding}
+        onAddFolder={addFolderDuringOnboarding}
+        startAt="account"
       />
     )
   }

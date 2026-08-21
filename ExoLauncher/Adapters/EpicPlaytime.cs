@@ -500,6 +500,8 @@ internal static partial class EpicPlaytime
         return minutes > 0;
     }
 
+    internal static IEnumerable<string> ArtifactKeys(GameEntry game) => EpicArtifactKeys(game);
+
     private static IEnumerable<string> EpicArtifactKeys(GameEntry game)
     {
         if (!string.IsNullOrWhiteSpace(game.LaunchTarget))

@@ -1,5 +1,5 @@
 import { resolvePrimaryAction, type Game } from '../lib/host'
-import { cn, visibleInstallPercent } from '../lib/utils'
+import { cn, transferPercent } from '../lib/utils'
 import { CoverArt } from './CoverArt'
 import { type CSSProperties } from 'react'
 
@@ -41,7 +41,7 @@ export function GameCard({
     game.variants?.some((variant) => variant.canStop || variant.isRunning)
   )
   const transferring = !!transfer
-  const progressPercent = visibleInstallPercent(transfer?.percent)
+  const progressPercent = transferPercent(transfer)
   const canActivate = !!onActivate && (isPlaying || primaryAction === 'play' || primaryAction === 'install' || primaryAction === 'update')
   const titleClass = game.title.length > 62 ? 'is-very-long' : game.title.length > 40 ? 'is-long' : null
 

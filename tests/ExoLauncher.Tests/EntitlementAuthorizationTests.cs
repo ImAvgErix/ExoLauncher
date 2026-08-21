@@ -7,12 +7,8 @@ namespace ExoLauncher.Tests;
 
 public sealed class EntitlementAuthorizationTests
 {
-    [Theory]
-    [InlineData(EntitlementState.NotOwned, "not owned")]
-    [InlineData(EntitlementState.Unverified, "could not be verified")]
-    public async Task ExplicitlyBlockedEntitlement_StopsLaunchUpdateAndInstallBeforeAdapterWork(
-        EntitlementState entitlementState,
-        string expectedMessage)
+    [Fact]
+    public async Task ExplicitlyRevokedEntitlement_StopsLaunchUpdateAndInstallBeforeAdapterWork()
     {
         var adapter = new RecordingAdapter();
         var orchestrator = new LaunchOrchestrator(
@@ -27,7 +23,7 @@ public sealed class EntitlementAuthorizationTests
             Installed = true,
             Owned = false,
             CanInstall = false,
-            EntitlementState = entitlementState,
+            EntitlementState = EntitlementState.NotOwned,
             Path = Path.GetTempPath(),
         };
 
@@ -38,11 +34,36 @@ public sealed class EntitlementAuthorizationTests
         Assert.False(launch.Ok);
         Assert.False(update.Ok);
         Assert.False(install.Ok);
-        Assert.Contains(expectedMessage, launch.Message, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains(expectedMessage, update.Message, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains(expectedMessage, install.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("not owned", launch.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("not owned", update.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("not owned", install.Message, StringComparison.OrdinalIgnoreCase);
         Assert.Equal(0, adapter.LaunchCalls);
         Assert.Equal(0, adapter.UpdateCalls);
+        Assert.Equal(0, adapter.InstallCalls);
+    }
+
+    [Fact]
+    public async Task UnverifiedMissingTitle_BlocksInstallUntilOwnershipIsKnown()
+    {
+        var adapter = new RecordingAdapter();
+        var orchestrator = new LaunchOrchestrator(
+            new IStoreAdapter[] { adapter },
+            new SettingsService(new AppSettings { AutoInstallRedistributables = false }),
+            new DependencyService());
+        var game = new GameEntry
+        {
+            Id = "local:unverified-missing",
+            Title = "Unverified missing",
+            Store = StoreKind.Local,
+            Installed = false,
+            Owned = false,
+            CanInstall = true,
+            EntitlementState = EntitlementState.Unverified,
+        };
+
+        var install = await orchestrator.InstallAsync(game);
+        Assert.False(install.Ok);
+        Assert.Contains("could not be verified", install.Message, StringComparison.OrdinalIgnoreCase);
         Assert.Equal(0, adapter.InstallCalls);
     }
 

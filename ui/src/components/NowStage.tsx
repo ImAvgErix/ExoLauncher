@@ -7,7 +7,7 @@ import {
   type InstallProgress,
 } from '../lib/host'
 import { nowKicker, type NowKind } from '../lib/now'
-import { formatPlaytime, formatSpeed, storeLabel, visibleInstallPercent } from '../lib/utils'
+import { formatPlaytime, formatSpeed, storeLabel, transferPercent } from '../lib/utils'
 import { CoverArt } from './CoverArt'
 
 export function NowStage({
@@ -30,7 +30,7 @@ export function NowStage({
   const transferring = kind === 'download'
   const playing = kind === 'playing' || !!game.canStop
   const action = resolvePrimaryAction(game)
-  const percent = transferring ? visibleInstallPercent(progress?.percent) : null
+  const percent = transferring ? transferPercent(progress) : null
   const cta = playing
     ? 'Stop'
     : transferring

@@ -12,7 +12,8 @@ export type EntitlementActionGame = {
 }
 
 export function resolveEntitlementPrimaryAction(game: EntitlementActionGame): EntitlementPrimaryAction {
-  if (game.entitlementState === 'notOwned' || game.entitlementState === 'unverified') return 'none'
+  if (game.entitlementState === 'notOwned') return 'none'
+  if (game.entitlementState === 'unverified' && !game.installed) return 'none'
   if (game.installed && game.updateAvailable) return 'update'
   if (game.installed && game.variants?.some((variant) => variant.updateAvailable)) return 'update'
   if (game.installed) return 'play'

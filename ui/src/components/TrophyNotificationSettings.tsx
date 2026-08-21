@@ -111,7 +111,7 @@ export function TrophyNotificationSettings({
   useLayoutEffect(() => {
     if (!enabled) return
     const motion = trophyBannerDesign.motion.tiers[tier]
-    const holdMs = Math.max(1800, (motion?.enterMs ?? 220) + (motion?.settleMs ?? 0) + 900)
+    const holdMs = Math.max(1800, (motion?.enterMs ?? 220) + (motion?.settleMs ?? 0) + 2500)
     if (replayTimerRef.current !== null) window.clearTimeout(replayTimerRef.current)
     replayTimerRef.current = window.setTimeout(() => {
       replayTimerRef.current = null
@@ -140,11 +140,9 @@ export function TrophyNotificationSettings({
   }
 
   function queueReplay() {
-    if (replayTimerRef.current !== null) window.clearTimeout(replayTimerRef.current)
-    replayTimerRef.current = window.setTimeout(() => {
-      replayTimerRef.current = null
-      setPreviewRun((run) => run + 1)
-    }, 1800)
+    // Layout effect already owns the hold. A second timer here restarted the
+    // preview while sheen/bloom were still running.
+    if (replayTimerRef.current !== null) return
   }
 
   function moveAnchor(event: KeyboardEvent<HTMLButtonElement>, current: number) {

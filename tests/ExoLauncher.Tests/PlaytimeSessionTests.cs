@@ -199,6 +199,21 @@ public sealed class PlaytimeSessionTests
     }
 
     [Fact]
+    public void EpicArtifactKeys_IncludeTitleSoEglLastPlayedMatchesLegendaryIds()
+    {
+        var keys = ExoLauncher.Adapters.EpicPlaytime.ArtifactKeys(new Models.GameEntry
+        {
+            Id = "epic:9773aa1aa54f4f7b80e44bef04986cea",
+            Title = "Sugar",
+            Store = Models.StoreKind.Epic,
+            LaunchTarget = "9773aa1aa54f4f7b80e44bef04986cea",
+        }).ToArray();
+
+        Assert.Contains("Sugar", keys);
+        Assert.Contains("9773aa1aa54f4f7b80e44bef04986cea", keys);
+    }
+
+    [Fact]
     public void PlaytimeService_EndSession_PersistsMinutes()
     {
         var id = "riot:playtime-fixture-" + Guid.NewGuid().ToString("N")[..8];

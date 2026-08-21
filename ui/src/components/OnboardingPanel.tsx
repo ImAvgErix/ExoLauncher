@@ -68,6 +68,8 @@ export interface OnboardingPanelProps {
   onComplete: (refreshLibrary: boolean) => Promise<void>
   /** Return false when the picker was cancelled. Void and true mean the library changed. */
   onAddFolder?: () => boolean | void | Promise<boolean | void>
+  /** 2.0 upgrades skip store connect and start at the account step. */
+  startAt?: StepId
 }
 
 export function OnboardingPanel({
@@ -77,8 +79,9 @@ export function OnboardingPanel({
   onStores,
   onComplete,
   onAddFolder,
+  startAt = 'stores',
 }: OnboardingPanelProps) {
-  const [step, setStep] = useState<StepId>('stores')
+  const [step, setStep] = useState<StepId>(startAt)
   const [feedback, setFeedback] = useState<Feedback | null>(null)
   const [refreshLibrary, setRefreshLibrary] = useState(false)
   const [storeCheckState, setStoreCheckState] = useState<StoreCheckState>('checking')
@@ -98,7 +101,9 @@ export function OnboardingPanel({
   const stepHeadingRef = useRef<HTMLHeadingElement>(null)
   const stepFocusPendingRef = useRef(false)
 
-  const stepIndex = STEPS.findIndex((item) => item.id === step)
+  const setupSteps = startAt === 'account' ? STEPS.filter((item) => item.id !== 'stores') : STEPS
+  const stepIndex = setupSteps.findIndex((item) => item.id === step)
+  const upgradeAccountOnly = startAt === 'account'
   const serviceUnavailable = isAccountServiceUnavailable(accountState)
   const accountReady =
     serviceUnavailable || (!!accountState?.signedIn && !!accountState.handle)
@@ -195,6 +200,7 @@ export function OnboardingPanel({
 
   function chooseStep(next: StepId) {
     if (next === step) return
+    if (upgradeAccountOnly && next === 'stores') return
     setFeedback(null)
     stepFocusPendingRef.current = true
     setStep(next)
@@ -417,11 +423,11 @@ export function OnboardingPanel({
       <div className="exo-onboarding-shell">
         <aside className="exo-onboarding-rail" aria-label="Setup progress">
           <div className="exo-onboarding-rail-copy">
-            <p className="exo-onboarding-kicker">First run</p>
-            <p className="exo-onboarding-rail-title">Set up this PC</p>
+            <p className="exo-onboarding-kicker">{upgradeAccountOnly ? 'Version 2.0' : 'First run'}</p>
+            <p className="exo-onboarding-rail-title">{upgradeAccountOnly ? 'Exo accounts' : 'Set up this PC'}</p>
           </div>
           <ol className="exo-onboarding-steps">
-            {STEPS.map((item, index) => {
+            {setupSteps.map((item, index) => {
               const current = item.id === step
               return (
                 <li key={item.id}>
@@ -739,17 +745,27 @@ export function OnboardingPanel({
               <button
                 type="button"
                 className="exo-onboarding-back"
-                disabled={stepIndex === 0 || completing}
-                onClick={() => chooseStep(STEPS[stepIndex - 1].id)}
+                disabled={stepIndex <= 0 || completing}
+                onClick={() => chooseStep(setupSteps[stepIndex - 1].id)}
               >
                 Back
               </button>
-              {stepIndex < STEPS.length - 1 ? (
+              {upgradeAccountOnly ? (
+                <button
+                  type="button"
+                  className="exo-onboarding-back"
+                  disabled={completing}
+                  onClick={() => void finish()}
+                >
+                  Skip for now
+                </button>
+              ) : null}
+              {stepIndex < setupSteps.length - 1 ? (
                 <button
                   type="button"
                   className="exo-onboarding-primary"
                   disabled={completing || (step === 'account' && !accountReady)}
-                  onClick={() => chooseStep(STEPS[stepIndex + 1].id)}
+                  onClick={() => chooseStep(setupSteps[stepIndex + 1].id)}
                 >
                   Continue
                 </button>
@@ -757,7 +773,7 @@ export function OnboardingPanel({
                 <button
                   type="button"
                   className="exo-onboarding-primary"
-                  disabled={completing || !accountReady}
+                  disabled={completing || (!upgradeAccountOnly && !accountReady)}
                   onClick={() => void finish()}
                 >
                   {completing ? 'Finishing…' : 'Finish setup'}
