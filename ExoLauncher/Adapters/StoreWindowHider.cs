@@ -66,6 +66,11 @@ internal sealed class StoreWindowHider : IDisposable
     // are support components, not launcher chrome, and may be required by a
     // game session.
     public static readonly string[] RockstarClientProcessNames = ["Launcher", "LauncherPatcher"];
+    public static readonly string[] ItchClientProcessNames = ["itch"];
+    public static readonly string[] MinecraftClientProcessNames = ["MinecraftLauncher"];
+    public static readonly string[] RobloxClientProcessNames = ["RobloxPlayerLauncher"];
+    public static readonly string[] ParadoxClientProcessNames = ["Paradox Launcher", "ParadoxLauncher"];
+    public static readonly string[] WargamingClientProcessNames = ["wgc"];
 
     /// <summary>
     /// Legacy alias used by hide-all paths. Prefer <see cref="RiotUiProcessNames"/> for launch
@@ -202,6 +207,28 @@ internal sealed class StoreWindowHider : IDisposable
         new(GalaxyProcessNames, _ => !HiddenStoreRuntime.IsSuspended(StoreKind.Gog));
     public static StoreWindowHider ForRiot() =>
         new(RiotUiProcessNames, _ => !HiddenStoreRuntime.IsSuspended(StoreKind.Riot));
+    public static StoreWindowHider ForXbox() =>
+        new(XboxClientProcessNames, _ => !HiddenStoreRuntime.IsSuspended(StoreKind.Xbox));
+    public static StoreWindowHider ForEa() =>
+        new(EaClientProcessNames, _ => !HiddenStoreRuntime.IsSuspended(StoreKind.Ea));
+    public static StoreWindowHider ForUbisoft() =>
+        new(UbisoftClientProcessNames, _ => !HiddenStoreRuntime.IsSuspended(StoreKind.Ubisoft));
+    public static StoreWindowHider ForBattleNet() =>
+        new(BattleNetClientProcessNames, _ => !HiddenStoreRuntime.IsSuspended(StoreKind.BattleNet));
+    public static StoreWindowHider ForAmazon() =>
+        new(AmazonClientProcessNames, _ => !HiddenStoreRuntime.IsSuspended(StoreKind.Amazon));
+    public static StoreWindowHider ForRockstar() =>
+        new(RockstarClientProcessNames, _ => !HiddenStoreRuntime.IsSuspended(StoreKind.Rockstar));
+    public static StoreWindowHider ForItch() =>
+        new(ItchClientProcessNames, _ => !HiddenStoreRuntime.IsSuspended(StoreKind.Itch));
+    public static StoreWindowHider ForMinecraft() =>
+        new(MinecraftClientProcessNames, _ => !HiddenStoreRuntime.IsSuspended(StoreKind.Minecraft));
+    public static StoreWindowHider ForRoblox() =>
+        new(RobloxClientProcessNames, _ => !HiddenStoreRuntime.IsSuspended(StoreKind.Roblox));
+    public static StoreWindowHider ForParadox() =>
+        new(ParadoxClientProcessNames, _ => !HiddenStoreRuntime.IsSuspended(StoreKind.Paradox));
+    public static StoreWindowHider ForWargaming() =>
+        new(WargamingClientProcessNames, _ => !HiddenStoreRuntime.IsSuspended(StoreKind.Wargaming));
     internal static StoreWindowHider ForAllStoreChrome() => new(
         // The session guard is for client/message chrome only. In-game overlays
         // belong to the game and are intentionally outside this surface set.
@@ -215,6 +242,11 @@ internal sealed class StoreWindowHider : IDisposable
             .Concat(BattleNetClientProcessNames)
             .Concat(AmazonClientProcessNames)
             .Concat(RockstarClientProcessNames)
+            .Concat(ItchClientProcessNames)
+            .Concat(MinecraftClientProcessNames)
+            .Concat(RobloxClientProcessNames)
+            .Concat(ParadoxClientProcessNames)
+            .Concat(WargamingClientProcessNames)
             .ToArray(),
         HiddenStoreRuntime.IsStoreSurfaceSuppressed);
 
@@ -331,18 +363,8 @@ internal sealed class StoreWindowHider : IDisposable
     private static void RefreshTrackedPids(IEnumerable<string> processNames)
     {
         var live = new HashSet<uint>();
-        foreach (var name in processNames)
-        {
-            Process[] procs;
-            try { procs = Process.GetProcessesByName(name); }
-            catch { continue; }
-            foreach (var p in procs)
-            {
-                try { if (!p.HasExited) live.Add((uint)p.Id); }
-                catch { /* */ }
-                finally { p.Dispose(); }
-            }
-        }
+        foreach (var (processId, _) in SnapshotNamedProcesses(processNames))
+            live.Add((uint)processId);
         foreach (var pid in live) s_trackedPids[pid] = 0;
         foreach (var known in s_trackedPids.Keys.ToArray())
         {
@@ -473,29 +495,75 @@ internal sealed class StoreWindowHider : IDisposable
         }
     }
 
+    internal static bool IsAgreementTitle(string? title)
+    {
+        if (string.IsNullOrWhiteSpace(title)) return false;
+        return title.Contains("EULA", StringComparison.OrdinalIgnoreCase) ||
+               title.Contains("License Agreement", StringComparison.OrdinalIgnoreCase) ||
+               title.Contains("Subscriber Agreement", StringComparison.OrdinalIgnoreCase) ||
+               title.Contains("End User License", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsAgreementWindow(IntPtr hWnd)
+    {
+        try
+        {
+            if (!IsWindow(hWnd)) return false;
+            var sb = new System.Text.StringBuilder(512);
+            _ = GetWindowText(hWnd, sb, sb.Capacity);
+            return IsAgreementTitle(sb.ToString());
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     private static void SuppressAllNow(IEnumerable<string> processNames, Func<string, bool>? shouldSuppressName = null)
     {
         var activeNames = new HashSet<string>(processNames, StringComparer.OrdinalIgnoreCase);
         t_activeNames = activeNames;
         t_shouldSuppressName = shouldSuppressName;
-        foreach (var name in activeNames)
+        foreach (var (processId, name) in SnapshotNamedProcesses(activeNames))
         {
             if (shouldSuppressName is not null && !shouldSuppressName(name)) continue;
-            Process[] procs;
-            try { procs = Process.GetProcessesByName(name); }
-            catch { continue; }
-
-            foreach (var p in procs)
-            {
-                try
-                {
-                    if (p.HasExited) continue;
-                    EnumWindows(EnumProc, new IntPtr(p.Id));
-                }
-                catch { /* ignore */ }
-                finally { p.Dispose(); }
-            }
+            try { EnumWindows(EnumProc, new IntPtr(processId)); }
+            catch { /* ignore */ }
         }
+    }
+
+    /// <summary>
+    /// Live PIDs whose process name is in <paramref name="processNames"/>.
+    /// Looking each name up individually snapshots the whole process table once
+    /// per name, and the guard polls up to 25 names four times a second for a
+    /// full game session. One snapshot per pass keeps that cost flat.
+    /// </summary>
+    private static List<(int ProcessId, string Name)> SnapshotNamedProcesses(IEnumerable<string> processNames)
+    {
+        var wanted = processNames is HashSet<string> set &&
+                     ReferenceEquals(set.Comparer, StringComparer.OrdinalIgnoreCase)
+            ? set
+            : new HashSet<string>(processNames, StringComparer.OrdinalIgnoreCase);
+        var hits = new List<(int, string)>();
+        if (wanted.Count == 0) return hits;
+
+        Process[] all;
+        try { all = Process.GetProcesses(); }
+        catch { return hits; }
+
+        foreach (var process in all)
+        {
+            try
+            {
+                var name = process.ProcessName;
+                if (wanted.Contains(name) && !process.HasExited)
+                    hits.Add((process.Id, name));
+            }
+            catch { /* process exited during inspection */ }
+            finally { process.Dispose(); }
+        }
+
+        return hits;
     }
 
     private static bool IsTrackedProcess(uint pid)
@@ -518,6 +586,8 @@ internal sealed class StoreWindowHider : IDisposable
         {
             var original = GetWindowLongPtr(hWnd, GwlExstyle);
             // Only remember titled chrome for later Open Steam restore.
+            if (IsAgreementWindow(hWnd))
+                return;
             if (IsChromeWindow(hWnd))
                 s_originalExStyle.TryAdd(hWnd, original);
 
@@ -583,22 +653,14 @@ internal sealed class StoreWindowHider : IDisposable
     public static void RevealProcessWindows(params string[] processNames)
     {
         if (processNames.Length == 0) return;
-        foreach (var name in processNames)
+        foreach (var (processId, _) in SnapshotNamedProcesses(processNames))
         {
-            Process[] procs;
-            try { procs = Process.GetProcessesByName(name); }
-            catch { continue; }
-            foreach (var p in procs)
+            try
             {
-                try
-                {
-                    if (p.HasExited) continue;
-                    s_trackedPids.TryRemove((uint)p.Id, out _);
-                    EnumWindows(EnumRevealProc, new IntPtr(p.Id));
-                }
-                catch { /* */ }
-                finally { p.Dispose(); }
+                s_trackedPids.TryRemove((uint)processId, out _);
+                EnumWindows(EnumRevealProc, new IntPtr(processId));
             }
+            catch { /* */ }
         }
     }
 
@@ -681,21 +743,12 @@ internal sealed class StoreWindowHider : IDisposable
     public static void CollapseOrphanSurfaces(string[] processNames, string? pathMustContain)
     {
         var names = processNames.Length > 0 ? processNames : SteamProcessNames;
-        foreach (var name in names)
+        foreach (var (processId, _) in SnapshotNamedProcesses(names))
         {
             try
             {
-                foreach (var p in Process.GetProcessesByName(name))
-                {
-                    try
-                    {
-                        if (p.HasExited) continue;
-                        if (!ProcessHelper.MatchesOptionalPath(p, pathMustContain)) continue;
-                        EnumWindows(EnumCollapseProc, new IntPtr(p.Id));
-                    }
-                    catch { /* */ }
-                    finally { p.Dispose(); }
-                }
+                if (!ProcessHelper.MatchesOptionalPath(processId, pathMustContain)) continue;
+                EnumWindows(EnumCollapseProc, new IntPtr(processId));
             }
             catch { /* */ }
         }

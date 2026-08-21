@@ -544,7 +544,7 @@ public sealed class GogOwnedLibraryService : IDisposable
     {
         if (string.IsNullOrWhiteSpace(raw)) return null;
         var candidate = raw.Trim()
-            .Replace("{formatter}", string.Empty, StringComparison.OrdinalIgnoreCase)
+            .Replace("{formatter}", "_glx_vertical_cover", StringComparison.OrdinalIgnoreCase)
             .Replace("{ext}", "jpg", StringComparison.OrdinalIgnoreCase);
         if (candidate.StartsWith("//", StringComparison.Ordinal)) candidate = "https:" + candidate;
         if (!Uri.TryCreate(candidate, UriKind.Absolute, out var uri) ||

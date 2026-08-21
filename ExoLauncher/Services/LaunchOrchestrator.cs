@@ -10,7 +10,9 @@ namespace ExoLauncher.Services;
 /// </summary>
 public sealed class LaunchOrchestrator
 {
-    private static readonly TimeSpan AchievementBaselineBudget = TimeSpan.FromSeconds(2);
+    private static readonly TimeSpan AchievementBaselineBudget = TimeSpan.FromMilliseconds(350);
+    private static readonly TimeSpan HandoffSettle = TimeSpan.FromMilliseconds(400);
+    private static readonly TimeSpan BoundStopTargetRecheck = TimeSpan.FromSeconds(2);
     private readonly IReadOnlyList<IStoreAdapter> _adapters;
     private readonly SettingsService _settings;
     private readonly DependencyService _deps;
@@ -19,8 +21,10 @@ public sealed class LaunchOrchestrator
     private readonly GameProcessRegistry _runningGames = new();
     private readonly Func<GameEntry, CancellationToken, Task<GameStopResult>> _stopGame;
     private readonly Func<StoreKind, IDisposable> _beginQuietGameSession;
+    private readonly Func<string, CancellationToken, Task<GameEntry?>>? _revalidateQueuedGame;
     private readonly object _gate = new();
     private JobState? _activeJob;
+    private readonly Queue<PendingJob> _pendingJobs = new();
     private readonly HashSet<string> _activeOrLaunchingGames = new(StringComparer.OrdinalIgnoreCase);
     // A launch becomes a session as soon as Exo reserves the game id, not only
     // once the delayed watcher begins. That lets Stop cancel a just-started
@@ -35,6 +39,23 @@ public sealed class LaunchOrchestrator
         public string GameId { get; } = gameId;
         public bool PublishProgress { get; } = publishProgress;
         public bool CancelRequested { get; set; }
+    }
+
+    private sealed class PendingJob
+    {
+        public required GameEntry Game { get; init; }
+        public required Func<GameEntry, IStoreAdapter, IProgress<InstallProgress>, CancellationToken, Task<InstallResult>> Work { get; init; }
+        public required CancellationToken Outer { get; init; }
+        public required bool PublishProgress { get; init; }
+        public EntitlementMutation? EntitlementMutation { get; init; }
+        public string? AccountScope { get; init; }
+        public TaskCompletionSource<InstallResult>? Completion { get; init; }
+    }
+
+    private enum EntitlementMutation
+    {
+        Install,
+        Update,
     }
 
     private sealed class GameSessionState(GameEntry game)
@@ -108,8 +129,10 @@ public sealed class LaunchOrchestrator
         IReadOnlyList<IStoreAdapter> adapters,
         SettingsService settings,
         DependencyService deps,
-        AchievementService? achievements = null)
-        : this(adapters, settings, deps, achievements, stopGame: null)
+        AchievementService? achievements = null,
+        Func<string, CancellationToken, Task<GameEntry?>>? revalidateQueuedGame = null)
+        : this(adapters, settings, deps, achievements, stopGame: null,
+            revalidateQueuedGame: revalidateQueuedGame)
     {
     }
 
@@ -120,7 +143,8 @@ public sealed class LaunchOrchestrator
         AchievementService? achievements,
         Func<GameEntry, CancellationToken, Task<GameStopResult>>? stopGame,
         Func<StoreKind, IDisposable>? beginQuietGameSession = null,
-        Func<GameEntry, IReadOnlyList<DependencyInfo>>? missingDependencies = null)
+        Func<GameEntry, IReadOnlyList<DependencyInfo>>? missingDependencies = null,
+        Func<string, CancellationToken, Task<GameEntry?>>? revalidateQueuedGame = null)
     {
         _adapters = adapters;
         _settings = settings;
@@ -129,6 +153,7 @@ public sealed class LaunchOrchestrator
         _stopGame = stopGame ?? _runningGames.StopAsync;
         _beginQuietGameSession = beginQuietGameSession ?? Adapters.HiddenStoreRuntime.GameSession;
         _missingDependencies = missingDependencies ?? _deps.GetMissingRequired;
+        _revalidateQueuedGame = revalidateQueuedGame;
     }
 
     public InstallProgress CurrentProgress
@@ -146,7 +171,15 @@ public sealed class LaunchOrchestrator
             // Cancellation is only a request. A vendor backend may ignore its
             // token while it finishes touching manifests/files, so the job
             // remains busy until that task has actually unwound.
-            lock (_gate) return _activeJob is not null;
+            lock (_gate) return _activeJob is not null || _pendingJobs.Count > 0;
+        }
+    }
+
+    public IReadOnlyList<string> QueuedGameIds
+    {
+        get
+        {
+            lock (_gate) return _pendingJobs.Select(job => job.Game.Id).ToArray();
         }
     }
 
@@ -155,6 +188,10 @@ public sealed class LaunchOrchestrator
         if (ct.IsCancellationRequested)
             return new LaunchResult { Ok = false, Message = "Launch cancelled." };
 
+        if (EntitlementBlockReason(game) is { } entitlementError)
+            return new LaunchResult { Ok = false, Message = entitlementError };
+
+        AppLog.Info($"Launch: gameId={game.Id}; store={game.Store}.");
         var adapter = Find(game.Store);
         if (adapter is null)
             return new LaunchResult { Ok = false, Message = $"No adapter for store {game.Store}." };
@@ -196,7 +233,7 @@ public sealed class LaunchOrchestrator
                 }
             }
 
-            var options = BuildOptions();
+            var options = BuildOptions(game);
             IDisposable? quietGameSession = null;
             using var launchCts = CancellationTokenSource.CreateLinkedTokenSource(ct, session.StopCts.Token);
             try
@@ -267,6 +304,8 @@ public sealed class LaunchOrchestrator
                         result.ProcessId,
                         session);
                 }
+                AppLog.Info(
+                    $"Launch result: gameId={game.Id}; ok={result.Ok}; pid={result.ProcessId?.ToString() ?? "—"}; {result.Message}");
                 return result;
             }
             catch (Exception ex)
@@ -290,7 +329,12 @@ public sealed class LaunchOrchestrator
         }
     }
 
-    private static async Task CloseUnusedStoreClientsAsync(StoreKind keep)
+    /// <summary>
+    /// Sibling-client cleanup never runs on the caller's thread. Hiding chrome
+    /// walks every store's processes and windows, and callers fire this while a
+    /// launch or an RPC turn is waiting on them.
+    /// </summary>
+    private static Task CloseUnusedStoreClientsAsync(StoreKind keep) => Task.Run(async () =>
     {
         try
         {
@@ -308,7 +352,7 @@ public sealed class LaunchOrchestrator
         {
             /* best-effort */
         }
-    }
+    });
 
     private async Task ScheduleCleanupAsync(
         IStoreAdapter adapter,
@@ -324,8 +368,10 @@ public sealed class LaunchOrchestrator
         var stopped = false;
         try
         {
-            // Brief settle so protocol handoff can complete before we hide store chrome.
-            await Task.Delay(2500, session.StopCts.Token).ConfigureAwait(false);
+            // Brief settle so a protocol handoff can name its first process.
+            // This used to be 2.5s, which is 2.5s where Stop had nothing to bind
+            // to; the rebind loop below already tolerates an empty first scan.
+            await Task.Delay(HandoffSettle, session.StopCts.Token).ConfigureAwait(false);
 
             // Re-bind Stop to the real game process. Steam/Epic often return a
             // bootstrap PID (or nothing) that ObserveLaunch correctly rejects —
@@ -345,6 +391,7 @@ public sealed class LaunchOrchestrator
                 : null;
             var isLeagueHandoff = game.Store == StoreKind.Riot &&
                                   game.LaunchTarget?.Trim().ToLowerInvariant() is "league_of_legends" or "lion";
+            var protocolLaunch = game.Store is StoreKind.Ea or StoreKind.Ubisoft or StoreKind.BattleNet;
             var handoffNames = isLeagueHandoff
                 ? RiotAdapter.LaunchReadyProcessNames(game.LaunchTarget!)
                 : null;
@@ -365,7 +412,14 @@ public sealed class LaunchOrchestrator
                         // dropping playtime and Quiet Game Mode after 90s. A
                         // cold launch still has to produce that handoff soon,
                         // otherwise the user must be able to retry.
-                        appearTimeout: isLeagueHandoff ? TimeSpan.FromHours(4) : TimeSpan.FromSeconds(90),
+                        // EA / Ubisoft / Battle.net fire a protocol with no PID;
+                        // the vendor client can patch for minutes before a game
+                        // exe appears under the install path.
+                        appearTimeout: isLeagueHandoff
+                            ? TimeSpan.FromHours(4)
+                            : protocolLaunch
+                                ? TimeSpan.FromMinutes(30)
+                                : TimeSpan.FromSeconds(90),
                         goneDebounce: TimeSpan.FromSeconds(12),
                         handoffProcessNames: handoffNames,
                         handoffAppearTimeout: isLeagueHandoff ? TimeSpan.FromSeconds(90) : null,
@@ -466,6 +520,23 @@ public sealed class LaunchOrchestrator
         var first = true;
         while (!cancellationToken.IsCancellationRequested)
         {
+            // A live binding cannot be improved by another scan. Verifying the
+            // bound identity is one process handle; the scan below opens one for
+            // every process on the machine, six times per rebind window, for the
+            // whole session.
+            if (!first && _runningGames.GetState(game).IsRunning)
+            {
+                try
+                {
+                    await Task.Delay(BoundStopTargetRecheck, cancellationToken).ConfigureAwait(false);
+                    continue;
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    return;
+                }
+            }
+
             try
             {
                 var boundPid = await ProcessHelper.WaitForProcessUnderPathAsync(
@@ -571,6 +642,18 @@ public sealed class LaunchOrchestrator
         [
             "GalaxyClient", "GalaxyClient Service", "GOG Galaxy Notifications",
         ],
+        StoreKind.Ea =>
+        [
+            "EADesktop", "Origin", "EasyAntiCheat", "EasyAntiCheat_EOS",
+        ],
+        StoreKind.Ubisoft =>
+        [
+            "UbisoftConnect", "upc", "UplayWebCore", "EasyAntiCheat", "EasyAntiCheat_EOS",
+        ],
+        StoreKind.BattleNet =>
+        [
+            "Battle.net", "Agent",
+        ],
         _ => [],
     };
 
@@ -580,13 +663,41 @@ public sealed class LaunchOrchestrator
         bool skipDeps = false,
         CancellationToken outer = default)
     {
+        var accountScopeAtAuthorization = ActiveAccountScope(game.Store);
         // local:add is a real portable-install entry (not mock:*).
         if (game.Id.StartsWith("mock:", StringComparison.OrdinalIgnoreCase))
         {
             return new InstallResult
             {
                 Ok = false,
-                Message = "Demo entry — install uses the real store backend when the title is discovered. For portable games use “Add portable game”.",
+                Message = "Demo entry. Install the real title, then refresh. For portable games use \"Add portable game\".",
+            };
+        }
+
+        if (EntitlementBlockReason(game) is { } entitlementError)
+            return new InstallResult { Ok = false, Message = entitlementError };
+
+        // Install is an entitlement-bearing operation. Keep the check in the
+        // orchestrator as well as the bridge so future native callers cannot
+        // turn a stale capability hint into a store install.
+        if (!game.Owned)
+        {
+            return new InstallResult
+            {
+                Ok = false,
+                Message = "This title is not owned by the active store account. Buy it from the store first.",
+            };
+        }
+        if (game.Installed)
+        {
+            return new InstallResult { Ok = false, Message = "This title is already installed." };
+        }
+        if (!game.CanInstall)
+        {
+            return new InstallResult
+            {
+                Ok = false,
+                Message = "Install is unavailable until the store backend is ready.",
             };
         }
 
@@ -598,27 +709,66 @@ public sealed class LaunchOrchestrator
 
         path ??= PathHelper.GamesRoot;
 
-        return await RunJobAsync(game, async (adapter, progress, ct) =>
-            await adapter.InstallAsync(game, path, progress, ct).ConfigureAwait(false), outer).ConfigureAwait(false);
+        return await RunJobAsync(game, async (current, adapter, progress, ct) =>
+                await adapter.InstallAsync(current, path, progress, ct).ConfigureAwait(false),
+            outer,
+            entitlementMutation: EntitlementMutation.Install,
+            authorizationAccountScope: accountScopeAtAuthorization).ConfigureAwait(false);
     }
 
     public async Task<InstallResult> UpdateAsync(GameEntry game, bool skipDeps = false, CancellationToken outer = default)
     {
+        var accountScopeAtAuthorization = ActiveAccountScope(game.Store);
+        if (EntitlementBlockReason(game) is { } entitlementError)
+            return new InstallResult { Ok = false, Message = entitlementError };
+
         // Updates must target the selected vendor title directly. Store clients
         // own their redistributable/update prerequisites and can adjudicate them
         // without Exo opening an unrelated dependency installer first.
         _ = skipDeps;
 
-        return await RunJobAsync(game, async (adapter, progress, ct) =>
-            await adapter.UpdateAsync(game, progress, ct).ConfigureAwait(false), outer).ConfigureAwait(false);
+        return await RunJobAsync(game, async (current, adapter, progress, ct) =>
+                await adapter.UpdateAsync(current, progress, ct).ConfigureAwait(false),
+            outer,
+            entitlementMutation: EntitlementMutation.Update,
+            authorizationAccountScope: accountScopeAtAuthorization).ConfigureAwait(false);
     }
+
+    private static string? EntitlementBlockReason(GameEntry game) => game.EntitlementState switch
+    {
+        EntitlementState.NotOwned =>
+            "This title is not owned by the active store account. Buy it from the store first.",
+        EntitlementState.Unverified =>
+            "Ownership could not be verified for the active store account. Refresh the store connection and try again.",
+        _ => null,
+    };
 
     public Task<InstallResult> UninstallAsync(GameEntry game, CancellationToken outer = default) =>
         RunJobAsync(
             game,
-            (adapter, _, ct) => adapter.UninstallAsync(game, ct),
+            (current, adapter, _, ct) => adapter.UninstallAsync(current, ct),
             outer,
-            publishProgress: false);
+            publishProgress: false,
+            waitIfQueued: true);
+
+    public Task<InstallResult> RepairAsync(GameEntry game, CancellationToken outer = default)
+    {
+        var adapter = Find(game.Store);
+        if (adapter is not IStoreRepair repair || !repair.CanRepair(game))
+        {
+            return Task.FromResult(new InstallResult
+            {
+                Ok = false,
+                Message = $"{game.Title} cannot be verified from Exo.",
+            });
+        }
+
+        return RunJobAsync(
+            game,
+            (current, _, progress, ct) => repair.RepairAsync(current, progress, ct),
+            outer,
+            waitIfQueued: true);
+    }
 
     public object Cancel()
     {
@@ -628,6 +778,7 @@ public sealed class LaunchOrchestrator
                 return new { ok = false, message = "Nothing is running." };
             _activeJob.CancelRequested = true;
             try { _activeJob.Cts.Cancel(); } catch { }
+            AppLog.Info($"Cancel requested: gameId={_activeJob.GameId}.");
             var cancellingPhase = _lastProgress.IsActive
                 ? _lastProgress.Phase
                 : InstallPhase.Preparing;
@@ -663,7 +814,7 @@ public sealed class LaunchOrchestrator
     {
         var adapter = Find(game.Store);
         if (adapter is null) return;
-        await adapter.CleanupAfterExitAsync(game, BuildOptions()).ConfigureAwait(false);
+        await adapter.CleanupAfterExitAsync(game, BuildOptions(game)).ConfigureAwait(false);
     }
 
     internal GameRunState GetGameRunState(GameEntry game, bool discoverExternal = false) =>
@@ -672,6 +823,7 @@ public sealed class LaunchOrchestrator
     internal async Task<GameStopResult> StopGameAsync(GameEntry game, CancellationToken ct = default)
     {
         var result = await _stopGame(game, ct).ConfigureAwait(false);
+        AppLog.Info($"Stop: gameId={game.Id}; ok={result.Ok}; {result.Message}");
         if (!result.Ok)
             return result;
 
@@ -694,9 +846,14 @@ public sealed class LaunchOrchestrator
 
     private async Task<InstallResult> RunJobAsync(
         GameEntry game,
-        Func<IStoreAdapter, IProgress<InstallProgress>, CancellationToken, Task<InstallResult>> work,
+        Func<GameEntry, IStoreAdapter, IProgress<InstallProgress>, CancellationToken, Task<InstallResult>> work,
         CancellationToken outer,
-        bool publishProgress = true)
+        bool publishProgress = true,
+        bool waitIfQueued = false,
+        EntitlementMutation? entitlementMutation = null,
+        bool revalidateQueuedExecution = false,
+        string? queuedAccountScope = null,
+        string? authorizationAccountScope = null)
     {
         var adapter = Find(game.Store);
         if (adapter is null)
@@ -707,11 +864,12 @@ public sealed class LaunchOrchestrator
             return new InstallResult
             {
                 Ok = false,
-                Message = "Demo entry — install uses the real store backend when the title is discovered. For portable games use “Add portable game”.",
+                Message = "Demo entry. Install the real title, then refresh. For portable games use \"Add portable game\".",
             };
         }
 
-        JobState job;
+        JobState? job = null;
+        TaskCompletionSource<InstallResult>? queuedWaiter = null;
         lock (_gate)
         {
             if (_activeOrLaunchingGames.Contains(game.Id))
@@ -724,26 +882,79 @@ public sealed class LaunchOrchestrator
             // ownership: some vendor backends cannot stop immediately (or at
             // all), and a replacement install/update/uninstall must wait until
             // the original task has returned.
-            if (_activeJob is not null)
-                return new InstallResult { Ok = false, Message = "Another install, update, or uninstall is already running." };
-
-            job = new JobState(
-                CancellationTokenSource.CreateLinkedTokenSource(outer),
-                game.Id,
-                publishProgress);
-            _activeJob = job;
-            if (job.PublishProgress)
+            if (_activeJob is not null &&
+                string.Equals(_activeJob.GameId, game.Id, StringComparison.OrdinalIgnoreCase))
             {
-                PublishProgressLocked(new InstallProgress
+                return new InstallResult
                 {
-                    GameId = game.Id,
-                    Phase = InstallPhase.Preparing,
-                    Percent = null,
-                    Status = "Starting…",
-                    CanCancel = true,
+                    Ok = false,
+                    Message = "Another install, update, or uninstall is already running.",
+                };
+            }
+
+            if (_pendingJobs.Any(pending =>
+                    string.Equals(pending.Game.Id, game.Id, StringComparison.OrdinalIgnoreCase)))
+            {
+                return new InstallResult
+                {
+                    Ok = false,
+                    Message = "This title is already queued.",
+                };
+            }
+
+            if (_activeJob is not null)
+            {
+                queuedWaiter = waitIfQueued
+                    ? new TaskCompletionSource<InstallResult>(TaskCreationOptions.RunContinuationsAsynchronously)
+                    : null;
+                _pendingJobs.Enqueue(new PendingJob
+                {
+                    Game = game,
+                    Work = work,
+                    Outer = outer,
+                    PublishProgress = publishProgress,
+                    EntitlementMutation = entitlementMutation,
+                    AccountScope = adapter is IStoreAccountScope
+                        ? authorizationAccountScope
+                        : null,
+                    Completion = queuedWaiter,
                 });
+                if (queuedWaiter is null)
+                {
+                    return new InstallResult
+                    {
+                        Ok = true,
+                        Queued = true,
+                        Message = $"Queued behind the current job. {game.Title} will start next.",
+                    };
+                }
+            }
+            else
+            {
+                job = new JobState(
+                    CancellationTokenSource.CreateLinkedTokenSource(outer),
+                    game.Id,
+                    publishProgress);
+                _activeJob = job;
+                if (job.PublishProgress)
+                {
+                    PublishProgressLocked(new InstallProgress
+                    {
+                        GameId = game.Id,
+                        Phase = InstallPhase.Preparing,
+                        Percent = null,
+                        Status = "Starting…",
+                        CanCancel = true,
+                    });
+                }
             }
         }
+
+        if (queuedWaiter is not null)
+            return await queuedWaiter.Task.WaitAsync(outer).ConfigureAwait(false);
+
+        if (job is null)
+            return new InstallResult { Ok = false, Message = "Install did not start." };
 
         var progress = new Progress<InstallProgress>(p =>
         {
@@ -764,11 +975,32 @@ public sealed class LaunchOrchestrator
 
         try
         {
-            // Install/update/uninstall are vendor-client operations too. Keep
-            // their client windows and audio scoped to the actual backend work.
-            using var driving = HiddenStoreRuntime.Operation();
-            _ = CloseUnusedStoreClientsAsync(game.Store);
-            var result = await work(adapter, progress, job.Cts.Token).ConfigureAwait(false);
+            var currentGame = game;
+            string? authorizationError = null;
+            if (revalidateQueuedExecution && entitlementMutation is not null && adapter is IStoreAccountScope)
+            {
+                (currentGame, authorizationError) = await RevalidateQueuedEntitlementAsync(
+                        game,
+                        adapter,
+                        entitlementMutation.Value,
+                        queuedAccountScope,
+                        job.Cts.Token)
+                    .ConfigureAwait(false);
+            }
+
+            InstallResult result;
+            if (authorizationError is not null)
+            {
+                result = new InstallResult { Ok = false, Message = authorizationError };
+            }
+            else
+            {
+                // Install/update/uninstall are vendor-client operations too. Keep
+                // their client windows and audio scoped to the actual backend work.
+                using var driving = HiddenStoreRuntime.Operation();
+                _ = CloseUnusedStoreClientsAsync(currentGame.Store);
+                result = await work(currentGame, adapter, progress, job.Cts.Token).ConfigureAwait(false);
+            }
             lock (_gate)
             {
                 var cancelled = job.CancelRequested || job.Cts.IsCancellationRequested;
@@ -802,6 +1034,18 @@ public sealed class LaunchOrchestrator
                             CanCancel = false,
                         });
                     }
+                }
+                // Official-store Open is a handoff, not a certified Update complete.
+                else if (job.PublishProgress && result.HandoffOnly)
+                {
+                    PublishProgressLocked(new InstallProgress
+                    {
+                        GameId = game.Id,
+                        Phase = InstallPhase.Idle,
+                        Percent = null,
+                        Status = result.Message,
+                        CanCancel = false,
+                    });
                 }
                 // Finalize when the job ended but adapters left progress stuck in an active phase.
                 else if (job.PublishProgress && _lastProgress.IsActive)
@@ -877,7 +1121,97 @@ public sealed class LaunchOrchestrator
                     _activeJob = null;
             }
             job.Cts.Dispose();
+            DrainQueue();
         }
+    }
+
+    private void DrainQueue()
+    {
+        PendingJob? next;
+        lock (_gate)
+        {
+            if (_activeJob is not null || _pendingJobs.Count == 0) return;
+            next = _pendingJobs.Dequeue();
+        }
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                var result = await RunJobAsync(
+                        next.Game,
+                        next.Work,
+                        next.Outer,
+                        next.PublishProgress,
+                        entitlementMutation: next.EntitlementMutation,
+                        revalidateQueuedExecution: true,
+                        queuedAccountScope: next.AccountScope)
+                    .ConfigureAwait(false);
+                next.Completion?.TrySetResult(result);
+            }
+            catch (Exception ex)
+            {
+                AppLog.Warn("Queued install failed: " + ex.Message);
+                next.Completion?.TrySetResult(new InstallResult { Ok = false, Message = ex.Message });
+            }
+        });
+    }
+
+    private async Task<(GameEntry Game, string? Error)> RevalidateQueuedEntitlementAsync(
+        GameEntry queuedGame,
+        IStoreAdapter adapter,
+        EntitlementMutation mutation,
+        string? expectedAccountScope,
+        CancellationToken ct)
+    {
+        var scoped = (IStoreAccountScope)adapter;
+        if (string.IsNullOrWhiteSpace(expectedAccountScope) ||
+            !string.Equals(scoped.GetActiveAccountScope(), expectedAccountScope, StringComparison.Ordinal))
+        {
+            return (queuedGame,
+                "Queued action cancelled because the active store account changed. Refresh the library and try again.");
+        }
+
+        if (_revalidateQueuedGame is null)
+        {
+            return (queuedGame,
+                "Queued action cancelled because current ownership could not be revalidated. Refresh the library and try again.");
+        }
+
+        var current = await _revalidateQueuedGame(queuedGame.Id, ct).ConfigureAwait(false);
+        if (current is null ||
+            current.Store != queuedGame.Store ||
+            !string.Equals(current.Id, queuedGame.Id, StringComparison.OrdinalIgnoreCase))
+        {
+            return (queuedGame,
+                "Queued action cancelled because this title is no longer available to the active store account.");
+        }
+
+        if (!string.Equals(scoped.GetActiveAccountScope(), expectedAccountScope, StringComparison.Ordinal))
+        {
+            return (queuedGame,
+                "Queued action cancelled because the active store account changed. Refresh the library and try again.");
+        }
+
+        if (EntitlementBlockReason(current) is { } entitlementError)
+            return (current, entitlementError);
+        if (!current.Owned)
+            return (current, "Queued action cancelled because current ownership could not be verified.");
+
+        if (mutation == EntitlementMutation.Install && (current.Installed || !current.CanInstall))
+        {
+            return (current,
+                current.Installed
+                    ? "Queued install cancelled because this title is already installed."
+                    : "Queued install cancelled because installation is no longer available.");
+        }
+        if (mutation == EntitlementMutation.Update && (!current.Installed || !current.UpdateAvailable))
+        {
+            return (current,
+                "Queued update cancelled because an update is no longer available for the current installation.");
+        }
+
+        return (current, null);
     }
 
     /// <summary>Publishes while <see cref="_gate"/> is held so job events cannot
@@ -889,15 +1223,38 @@ public sealed class LaunchOrchestrator
         catch (Exception ex) { AppLog.Debug($"Progress observer failed: {ex.Message}"); }
     }
 
-    private LaunchOptions BuildOptions() => new()
+    private LaunchOptions BuildOptions(GameEntry? game = null)
     {
-        CloseStoreUiAfterExit = _settings.Current.CloseStoreClientsAfterLaunch,
-        MinimizeStoreUi = true,
-        AntiCheatSafeMode = true,
-    };
+        GameLaunchOverride? launch = null;
+        if (game is not null)
+            _settings.Current.LaunchOverrides.TryGetValue(game.Id, out launch);
+        var antiCheat = IsAntiCheatTitle(game);
+        return new LaunchOptions
+        {
+            CloseStoreUiAfterExit = _settings.Current.CloseStoreClientsAfterLaunch,
+            MinimizeStoreUi = true,
+            AntiCheatSafeMode = true,
+            ExtraArgs = antiCheat ? null : launch?.ExtraArgs,
+            WorkingDirectory = antiCheat ? null : launch?.WorkingDirectory,
+            RunAsAdmin = !antiCheat && launch?.RunAsAdmin == true,
+        };
+    }
+
+    internal static bool IsAntiCheatTitle(GameEntry? game)
+    {
+        if (game is null) return false;
+        if (game.Store == StoreKind.Riot) return true;
+        var title = game.Title ?? "";
+        return title.Contains("Fortnite", StringComparison.OrdinalIgnoreCase) ||
+               title.Contains("VALORANT", StringComparison.OrdinalIgnoreCase) ||
+               title.Contains("League of Legends", StringComparison.OrdinalIgnoreCase);
+    }
 
     private IStoreAdapter? Find(StoreKind store) =>
         _adapters.FirstOrDefault(a => a.Store == store);
+
+    private string? ActiveAccountScope(StoreKind store) =>
+        Find(store) is IStoreAccountScope scoped ? scoped.GetActiveAccountScope() : null;
 
     private IStoreAdapter? FindByGameId(string gameId)
     {

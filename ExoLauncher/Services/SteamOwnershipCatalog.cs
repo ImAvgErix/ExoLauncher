@@ -6,13 +6,14 @@ using ExoLauncher.Models;
 namespace ExoLauncher.Services;
 
 /// <summary>
-/// Durable proof that a Steam title was previously discovered from an installed
-/// appmanifest. Search results never write this catalog. Keeping that proof lets
-/// Exo offer Install after Steam removes the manifest during an Exo uninstall.
+/// Durable, account-scoped proof that a Steam title was both installed and in a
+/// current authoritative owned-games snapshot. An appmanifest alone never
+/// writes this catalog.
 /// </summary>
 internal sealed class SteamOwnershipCatalog
 {
-    private const int CurrentVersion = 2;
+    private const int CurrentVersion = 3;
+    private const string VerifiedProvenance = "steam-owned-games";
     // Compatibility-only scope for direct unit tests/old internal callers.
     // Production always passes the active opaque Steam scope.
     private const string LegacyScope = "legacy-unscoped";
@@ -45,20 +46,24 @@ internal sealed class SteamOwnershipCatalog
         Load();
     }
 
-    /// <summary>Record only manifest-backed, currently installed Steam entries.</summary>
-    internal void RememberInstalled(IEnumerable<GameEntry> games) => RememberInstalled(LegacyScope, games);
-
-    /// <summary>Record manifest proof only for one active opaque Steam account scope.</summary>
-    internal void RememberInstalled(string accountScope, IEnumerable<GameEntry> games)
+    /// <summary>
+    /// Record installed titles only when the same current-account ownership
+    /// snapshot contains the app id. This is the only catalog write boundary.
+    /// </summary>
+    internal void RememberVerifiedInstalled(
+        string accountScope,
+        IEnumerable<GameEntry> games,
+        IReadOnlySet<string> authoritativeOwnedAppIds)
     {
         ArgumentNullException.ThrowIfNull(games);
+        ArgumentNullException.ThrowIfNull(authoritativeOwnedAppIds);
         if (string.IsNullOrWhiteSpace(accountScope)) return;
         lock (_gate)
         {
             var changed = false;
             foreach (var game in games)
             {
-                if (!TryCreateEntry(accountScope, game, out var entry)) continue;
+                if (!TryCreateEntry(accountScope, game, authoritativeOwnedAppIds, out var entry)) continue;
                 var key = EntryKey(entry.AccountScope, entry.AppId);
                 if (_entries.TryGetValue(key, out var existing) && existing == entry)
                     continue;
@@ -79,12 +84,24 @@ internal sealed class SteamOwnershipCatalog
         }
     }
 
-    /// <summary>Return proven-owned titles absent from the current manifest scan.</summary>
+    /// <summary>Return last-verified owned titles absent from the current scan.</summary>
     internal IReadOnlyList<GameEntry> RestoreMissing(IEnumerable<GameEntry> currentGames) =>
         RestoreMissing(LegacyScope, currentGames);
 
-    /// <summary>Return only the current account's manifest-proven titles.</summary>
+    /// <summary>Return only the current account's last-verified titles.</summary>
     internal IReadOnlyList<GameEntry> RestoreMissing(string accountScope, IEnumerable<GameEntry> currentGames)
+        => RestoreMissing(accountScope, currentGames, authoritativeOwnedAppIds: null);
+
+    /// <summary>
+    /// Return verified titles absent from the current scan, optionally
+    /// intersected with a current authoritative Steam ownership snapshot. A
+    /// verified empty set therefore removes stale/refunded install claims while
+    /// a null set preserves the offline-safe historical behavior.
+    /// </summary>
+    internal IReadOnlyList<GameEntry> RestoreMissing(
+        string accountScope,
+        IEnumerable<GameEntry> currentGames,
+        IReadOnlySet<string>? authoritativeOwnedAppIds)
     {
         ArgumentNullException.ThrowIfNull(currentGames);
         if (string.IsNullOrWhiteSpace(accountScope)) return Array.Empty<GameEntry>();
@@ -95,10 +112,46 @@ internal sealed class SteamOwnershipCatalog
                 .ToHashSet(StringComparer.OrdinalIgnoreCase);
             return _entries.Values
                 .Where(entry => string.Equals(entry.AccountScope, accountScope, StringComparison.Ordinal))
+                .Where(entry => authoritativeOwnedAppIds is null || authoritativeOwnedAppIds.Contains(entry.AppId))
                 .Where(entry => !present.Contains("steam:" + entry.AppId))
                 .OrderBy(entry => entry.Title, StringComparer.OrdinalIgnoreCase)
                 .Select(ToUninstalledGame)
                 .ToList();
+        }
+    }
+
+    /// <summary>
+    /// Permanently remove cached ownership proof that a verified Steam ownership
+    /// snapshot says this account no longer owns. This prevents a refunded title
+    /// from returning as installable after a later offline refresh.
+    /// </summary>
+    internal void PruneToAuthoritative(string accountScope, IReadOnlySet<string> authoritativeOwnedAppIds)
+    {
+        ArgumentNullException.ThrowIfNull(authoritativeOwnedAppIds);
+        if (string.IsNullOrWhiteSpace(accountScope)) return;
+
+        var owned = authoritativeOwnedAppIds.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        lock (_gate)
+        {
+            var removed = _entries
+                .Where(pair => string.Equals(pair.Value.AccountScope, accountScope, StringComparison.Ordinal) &&
+                               !owned.Contains(pair.Value.AppId))
+                .Select(pair => pair.Key)
+                .ToList();
+            if (removed.Count is 0) return;
+
+            foreach (var key in removed)
+                _entries.Remove(key);
+            _dirty = true;
+            try
+            {
+                // Revocation must update both recovery copies. Keeping the
+                // previous owned set in .bak could resurrect a refunded title
+                // after unrelated primary-file corruption.
+                Save(replaceBackupWithCurrent: true);
+                _dirty = false;
+            }
+            catch (Exception ex) { AppLog.Warn("Steam ownership catalog prune failed: " + ex.Message); }
         }
     }
 
@@ -169,7 +222,7 @@ internal sealed class SteamOwnershipCatalog
             _entries[EntryKey(entry.AccountScope, entry.AppId)] = entry;
     }
 
-    private void Save()
+    private void Save(bool replaceBackupWithCurrent = false)
     {
         lock (FileGate)
         {
@@ -193,7 +246,10 @@ internal sealed class SteamOwnershipCatalog
                     File.Copy(_path, _backupPath, overwrite: true);
                 File.Move(temp, _path, overwrite: true);
                 _primaryHealthy = true;
-                if (!File.Exists(_backupPath))
+                // A schema migration can leave a physically present but
+                // untrusted backup. Replace it with the first verified v3
+                // document so later primary corruption still recovers safely.
+                if (replaceBackupWithCurrent || !TryRead(_backupPath, out _))
                     File.Copy(_path, _backupPath, overwrite: true);
             }
             finally
@@ -203,18 +259,23 @@ internal sealed class SteamOwnershipCatalog
         }
     }
 
-    private static bool TryCreateEntry(string accountScope, GameEntry game, out CatalogEntry entry)
+    private static bool TryCreateEntry(
+        string accountScope,
+        GameEntry game,
+        IReadOnlySet<string> authoritativeOwnedAppIds,
+        out CatalogEntry entry)
     {
         entry = default!;
         if (game.Store != StoreKind.Steam || !game.Installed)
             return false;
         var appId = (game.LaunchTarget ?? "").Trim();
         if (!IsValidAppId(appId) ||
-            !string.Equals(game.Id, "steam:" + appId, StringComparison.OrdinalIgnoreCase))
+            !string.Equals(game.Id, "steam:" + appId, StringComparison.OrdinalIgnoreCase) ||
+            !authoritativeOwnedAppIds.Contains(appId))
             return false;
         var title = (game.Title ?? "").Trim();
         if (title.Length is 0 or > 512) return false;
-        entry = new CatalogEntry(accountScope, appId, title, game.SizeBytes);
+        entry = new CatalogEntry(accountScope, appId, title, game.SizeBytes, VerifiedProvenance);
         return true;
     }
 
@@ -222,7 +283,8 @@ internal sealed class SteamOwnershipCatalog
         !string.IsNullOrWhiteSpace(entry.AccountScope) && entry.AccountScope.Length <= 128 &&
         IsValidAppId(entry.AppId) &&
         !string.IsNullOrWhiteSpace(entry.Title) &&
-        entry.Title.Length <= 512;
+        entry.Title.Length <= 512 &&
+        string.Equals(entry.Provenance, VerifiedProvenance, StringComparison.Ordinal);
 
     private static bool IsValidAppId(string appId) => SteamProtocol.IsValidAppId(appId);
 
@@ -233,6 +295,7 @@ internal sealed class SteamOwnershipCatalog
         Store = StoreKind.Steam,
         Installed = false,
         Owned = true,
+        EntitlementState = EntitlementState.Owned,
         CanInstall = true,
         UpdateAvailable = false,
         Path = null,
@@ -241,7 +304,7 @@ internal sealed class SteamOwnershipCatalog
         SizeBytes = entry.SizeBytes,
         Status = "Not installed",
         Deps = new[] { "Steam client" },
-        LaunchNote = "Installs through Steam quietly — Steam stays a backend, not a window you use.",
+        LaunchNote = "Ownership was last verified through Steam for this account. Installs through Steam.",
         LaunchTarget = entry.AppId,
     };
 
@@ -253,5 +316,10 @@ internal sealed class SteamOwnershipCatalog
 
     private static string EntryKey(string accountScope, string appId) => accountScope + "\0" + appId;
 
-    private sealed record CatalogEntry(string AccountScope, string AppId, string Title, long? SizeBytes);
+    private sealed record CatalogEntry(
+        string AccountScope,
+        string AppId,
+        string Title,
+        long? SizeBytes,
+        string Provenance);
 }

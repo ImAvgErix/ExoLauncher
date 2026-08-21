@@ -13,10 +13,11 @@ namespace ExoLauncher.Adapters;
 /// Epic via Legendary CLI — true no-Epic-GUI path when Legendary is present.
 /// https://github.com/derrod/legendary
 /// </summary>
-public sealed class EpicAdapter : IStoreAdapter, IStoreClientPresence, IStoreAccountScope
+public sealed class EpicAdapter : IStoreAdapter, IStoreClientPresence, IStoreAccountScope, IStoreRepair
 {
     private readonly ConcurrentDictionary<string, InstallProgress> _progress = new(StringComparer.OrdinalIgnoreCase);
     private static readonly TimeSpan LegendaryAuthTimeout = TimeSpan.FromMinutes(10);
+    private static readonly TimeSpan LegendaryUninstallTimeout = TimeSpan.FromMinutes(30);
     private static readonly TimeSpan LegendarySessionProbeTimeout = TimeSpan.FromSeconds(45);
     private static readonly string[] EpicBootstrapProcessNames =
     [
@@ -230,52 +231,177 @@ public sealed class EpicAdapter : IStoreAdapter, IStoreClientPresence, IStoreAcc
     }
 
     private static int _eglSyncScheduled;
+    private const int OwnedCacheSchemaVersion = 2;
+    private const string OwnedCacheProvenance = "legendary-authenticated-list";
+    private static readonly ConcurrentDictionary<string, byte> OwnedRefreshInFlight =
+        new(StringComparer.Ordinal);
+    internal static event Action? OwnedLibraryCacheUpdated;
+    private static int _installedRefreshScheduled;
+    private static readonly object InstalledRowsGate = new();
+    private static readonly TimeSpan InstalledRowsTtl = TimeSpan.FromMinutes(2);
+    private static IReadOnlyList<LegendaryCli.GameRow>? _installedRows;
+    private static DateTimeOffset _installedRowsAtUtc;
 
     public async Task<IReadOnlyList<GameEntry>> GetLibraryAsync(CancellationToken ct = default)
     {
-        var installed = new List<LegendaryCli.GameRow>();
-        var legendary = ResolveLegendary();
         var playtimes = EpicPlaytime.GetCachedMinutes();
+        // Hours live in Legendary/Heroic user.json, not legendary.exe. A friend
+        // with Heroic or a session file and no CLI must still get a refresh.
+        EpicPlaytime.RefreshCachedMinutes();
+
+        var legendary = ResolveLegendary();
+        var hasLegendary = legendary is not null;
+        var accountScope = GetActiveAccountScope();
+
+        // Native first. A hung `legendary list-installed` used to throw on the
+        // library 25s timeout and skip EGL manifests, emptying Epic.
+        var native = ReadNativeInstalledLibrary(hasLegendary);
 
         if (legendary is not null)
         {
-            // Owned-title discovery has its own background cache in StoreSearchService.
-            // Keep startup installed-only and query native Epic playtime alongside
-            // Legendary so neither account entitlement refresh nor EGL import gates
-            // the first library paint.
-            // Never hold the first library response behind a remote playtime
-            // request. The last-good snapshot is applied now; a changed remote
-            // snapshot raises a derived-library refresh after it arrives.
-            EpicPlaytime.RefreshCachedMinutes();
-
-            try
+            // Spawning legendary here cost about a second of every scan to enrich
+            // rows the native read already produced. Use the last CLI answer and
+            // refresh it off the scan; install watchers trigger the next rescan.
+            var cliRows = CachedLegendaryInstalledRows();
+            if (cliRows.Count > 0)
+                native = EnrichWithLegendaryCli(native, cliRows, hasLegendary: true);
+            if (!ct.IsCancellationRequested)
             {
-                var (code, stdout, _) = await CliRunner.RunAsync(
-                    legendary, LegendaryCli.ListInstalledArgs(), null, null, ct).ConfigureAwait(false);
-                if (code == 0 && !string.IsNullOrWhiteSpace(stdout))
-                    installed.AddRange(LegendaryCli.ParseLibraryJson(stdout, forceInstalled: true));
+                ScheduleInstalledRowsRefresh(legendary);
+                ScheduleEglSyncImport(legendary);
+                ScheduleOwnedLibraryRefresh(legendary, accountScope);
             }
-            catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
-            catch { /* fall through to manifests */ }
-
-            // Importing EGL state may mutate Legendary's local manifests. Start it
-            // only after list-installed releases Legendary's files, and never await
-            // it on the startup library path. Native EGL manifests below already
-            // preserve installed titles until a later scan sees the import.
-            ct.ThrowIfCancellationRequested();
-            ScheduleEglSyncImport(legendary);
         }
 
-        var merged = LegendaryCli.MergeOwnedAndInstalled(
-            Array.Empty<LegendaryCli.GameRow>(),
-            installed);
-        var hasLegendary = legendary is not null;
-        var games = merged.Select(row => MapInstalledRow(row, hasLegendary)).ToList();
+        return EpicPlaytime.Apply(MergeOwned(native, ReadOwnedCache(accountScope), hasLegendary), playtimes);
+    }
 
-        // EGL manifests + LauncherInstalled.dat win when Legendary still says not installed.
+    /// <summary>Last `legendary list-installed` answer, or empty before the first one lands.</summary>
+    internal static IReadOnlyList<LegendaryCli.GameRow> CachedLegendaryInstalledRows()
+    {
+        lock (InstalledRowsGate)
+        {
+            return _installedRows ?? Array.Empty<LegendaryCli.GameRow>();
+        }
+    }
+
+    /// <summary>
+    /// Refreshes the CLI view off the scan thread. Scans stay on disk reads; the
+    /// install watchers already trigger the rescan that picks this up.
+    /// </summary>
+    private static void ScheduleInstalledRowsRefresh(string legendary)
+    {
+        lock (InstalledRowsGate)
+        {
+            if (_installedRows is not null &&
+                DateTimeOffset.UtcNow - _installedRowsAtUtc < InstalledRowsTtl)
+                return;
+        }
+
+        if (Interlocked.CompareExchange(ref _installedRefreshScheduled, 1, 0) != 0) return;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+                var rows = await TryListLegendaryInstalledAsync(legendary, timeout.Token).ConfigureAwait(false);
+                lock (InstalledRowsGate)
+                {
+                    _installedRows = rows;
+                    _installedRowsAtUtc = DateTimeOffset.UtcNow;
+                }
+            }
+            catch { /* the native read already carries installed Epic titles */ }
+            finally
+            {
+                Interlocked.Exchange(ref _installedRefreshScheduled, 0);
+            }
+        });
+    }
+
+    /// <summary>
+    /// EGL item files, LauncherInstalled.dat, and Legendary installed.json.
+    /// No process spawn — a missing or hung CLI cannot hide on-disk installs.
+    /// </summary>
+    internal static IReadOnlyList<GameEntry> ReadNativeInstalledLibrary(bool hasLegendary)
+    {
+        var nativeRows = ReadLegendaryInstalledJson();
+        var games = nativeRows.Select(row => MapInstalledRow(row, hasLegendary)).ToList();
         var egl = ReadEpicManifests(hasLegendary).Concat(ReadLauncherInstalled(games)).ToList();
-        var withEgl = EpicEglMerge.ApplyInstalledOverlays(games, egl);
-        return EpicPlaytime.Apply(withEgl, playtimes);
+        return EpicEglMerge.ApplyInstalledOverlays(games, egl);
+    }
+
+    internal static IReadOnlyList<GameEntry> EnrichWithLegendaryCli(
+        IReadOnlyList<GameEntry> native,
+        IReadOnlyList<LegendaryCli.GameRow> cliRows,
+        bool hasLegendary)
+    {
+        if (cliRows.Count == 0) return native;
+        var cliGames = cliRows.Select(row => MapInstalledRow(row, hasLegendary)).ToList();
+        return EpicEglMerge.ApplyInstalledOverlays(cliGames, native);
+    }
+
+    internal static IReadOnlyList<LegendaryCli.GameRow> ReadLegendaryInstalledJson()
+    {
+        foreach (var path in LegendaryInstalledJsonCandidates())
+        {
+            try
+            {
+                if (!File.Exists(path)) continue;
+                var rows = LegendaryCli.ParseLibraryJson(File.ReadAllText(path), forceInstalled: true);
+                if (rows.Count > 0) return rows;
+            }
+            catch { /* next candidate */ }
+        }
+
+        return Array.Empty<LegendaryCli.GameRow>();
+    }
+
+    internal static IEnumerable<string> LegendaryInstalledJsonCandidates()
+    {
+        foreach (var userJson in EpicPlaytime.LegendaryUserJsonCandidates())
+        {
+            var dir = Path.GetDirectoryName(userJson);
+            if (!string.IsNullOrWhiteSpace(dir))
+                yield return Path.Combine(dir, "installed.json");
+        }
+    }
+
+    internal static async Task<IReadOnlyList<LegendaryCli.GameRow>> TryListLegendaryInstalledAsync(
+        string legendary,
+        CancellationToken ct)
+    {
+        return await TryParseLegendaryListAsync(
+            token => CliRunner.RunAsync(legendary, LegendaryCli.ListInstalledArgs(), null, null, token),
+            ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Bounded CLI probe. Timeout or caller cancel returns empty so native EGL
+    /// results already collected by the caller stay in the library.
+    /// </summary>
+    internal static async Task<IReadOnlyList<LegendaryCli.GameRow>> TryParseLegendaryListAsync(
+        Func<CancellationToken, Task<(int ExitCode, string StdOut, string StdErr)>> run,
+        CancellationToken ct)
+    {
+        try
+        {
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            timeout.CancelAfter(TimeSpan.FromSeconds(8));
+            var (code, stdout, _) = await run(timeout.Token).ConfigureAwait(false);
+            if (code == 0 && !string.IsNullOrWhiteSpace(stdout))
+                return LegendaryCli.ParseLibraryJson(stdout, forceInstalled: true);
+        }
+        catch (OperationCanceledException)
+        {
+            AppLog.Debug("Legendary list-installed cancelled or timed out; using native EGL/Legendary manifests.");
+        }
+        catch (Exception ex)
+        {
+            AppLog.Debug("Legendary list-installed failed: " + ex.Message);
+        }
+
+        return Array.Empty<LegendaryCli.GameRow>();
     }
 
     private static void ScheduleEglSyncImport(string legendary)
@@ -288,29 +414,267 @@ public sealed class EpicAdapter : IStoreAdapter, IStoreClientPresence, IStoreAcc
         });
     }
 
+    private static void ScheduleOwnedLibraryRefresh(string legendary, string? expectedAccountScope)
+    {
+        if (string.IsNullOrWhiteSpace(expectedAccountScope)) return;
+        if (!OwnedRefreshInFlight.TryAdd(expectedAccountScope, 0)) return;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                if (IsOwnedCacheFresh(expectedAccountScope)) return;
+                using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(90));
+                var (code, stdout, _) = await CliRunner.RunAsync(
+                        legendary, LegendaryCli.ListOwnedArgs(), null, null, timeout.Token)
+                    .ConfigureAwait(false);
+                if (!LegendaryCli.IsAuthenticatedLibraryResponse(code, stdout)) return;
+                CommitOwnedLibraryRefresh(
+                    expectedAccountScope,
+                    LegendaryCli.ParseLibraryJson(stdout, forceInstalled: false),
+                    EpicPlaytime.GetActiveAccountScope,
+                    WriteOwnedCache);
+            }
+            catch { /* owned cache is best-effort */ }
+            finally
+            {
+                OwnedRefreshInFlight.TryRemove(expectedAccountScope, out _);
+            }
+        });
+    }
+
+    /// <summary>
+    /// Commits an authenticated Legendary snapshot only inside the account scope
+    /// that requested it. The second scope read closes the account-switch race;
+    /// only a durable, still-active snapshot can ask the library to repaint.
+    /// </summary>
+    internal static bool CommitOwnedLibraryRefresh(
+        string expectedAccountScope,
+        IReadOnlyList<LegendaryCli.GameRow> rows,
+        Func<string?> readActiveAccountScope,
+        Func<string, IReadOnlyList<LegendaryCli.GameRow>, bool> writeCache)
+    {
+        if (string.IsNullOrWhiteSpace(expectedAccountScope) ||
+            !string.Equals(readActiveAccountScope(), expectedAccountScope, StringComparison.Ordinal))
+            return false;
+        if (!writeCache(expectedAccountScope, rows)) return false;
+        if (!string.Equals(readActiveAccountScope(), expectedAccountScope, StringComparison.Ordinal))
+            return false;
+
+        try { OwnedLibraryCacheUpdated?.Invoke(); }
+        catch { /* a repaint listener must not invalidate the verified cache */ }
+        return true;
+    }
+
+    internal static IReadOnlyList<GameEntry> MergeOwned(
+        IReadOnlyList<GameEntry> installed,
+        IEnumerable<LegendaryCli.GameRow> owned,
+        bool hasLegendary)
+    {
+        var ownedRows = owned as IReadOnlyList<LegendaryCli.GameRow> ?? owned.ToList();
+        if (ownedRows.Count == 0) return installed;
+        var ownedByApp = ownedRows
+            .Where(row => !string.IsNullOrWhiteSpace(row.AppName))
+            .GroupBy(row => row.AppName, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
+        var present = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var extra = new List<GameEntry>(installed.Count + ownedByApp.Count);
+        foreach (var game in installed)
+        {
+            var appName = EpicAppKey(game);
+            if (string.IsNullOrWhiteSpace(appName))
+            {
+                extra.Add(game);
+                continue;
+            }
+            present.Add(appName);
+            extra.Add(ownedByApp.ContainsKey(appName)
+                ? WithVerifiedEpicOwnership(game, hasLegendary)
+                : game);
+        }
+        foreach (var row in ownedRows)
+        {
+            if (string.IsNullOrWhiteSpace(row.AppName) || present.Contains(row.AppName))
+                continue;
+            extra.Add(MapOwnedRow(row, hasLegendary));
+            present.Add(row.AppName);
+        }
+
+        return extra;
+    }
+
+    private static string? EpicAppKey(GameEntry game)
+    {
+        if (!string.IsNullOrWhiteSpace(game.LaunchTarget))
+            return game.LaunchTarget;
+        return game.Id.StartsWith("epic:", StringComparison.OrdinalIgnoreCase) && game.Id.Length > 5
+            ? game.Id[5..]
+            : null;
+    }
+
+    internal static GameEntry MapOwnedRow(LegendaryCli.GameRow row, bool hasLegendary) =>
+        new()
+        {
+            Id = "epic:" + row.AppName,
+            Title = row.Title,
+            Store = StoreKind.Epic,
+            Installed = false,
+            Owned = true,
+            EntitlementState = EntitlementState.Owned,
+            CanInstall = hasLegendary,
+            CoverUrl = row.CoverUrl,
+            CoverSource = row.CoverUrl is null ? null : "epic-catalog",
+            LaunchTarget = row.AppName,
+            SizeBytes = row.SizeBytes,
+            Status = "Not installed",
+            Deps = new[] { "Legendary" },
+            LaunchNote = "Ownership was last verified through Legendary for this Epic account. Install via Legendary.",
+        };
+
+    private static GameEntry WithVerifiedEpicOwnership(GameEntry game, bool hasLegendary) => new()
+    {
+        Id = game.Id,
+        Title = game.Title,
+        Store = game.Store,
+        Installed = game.Installed,
+        Owned = true,
+        EntitlementState = EntitlementState.Owned,
+        UpdateAvailable = game.UpdateAvailable,
+        CanInstall = !game.Installed && hasLegendary,
+        Path = game.Path,
+        CoverUrl = game.CoverUrl,
+        CoverSource = game.CoverSource,
+        ArtRevision = game.ArtRevision,
+        PlaytimeMinutes = game.PlaytimeMinutes,
+        SizeBytes = game.SizeBytes,
+        Status = game.Installed
+            ? (game.UpdateAvailable ? "Update" : "Ready")
+            : "Not installed",
+        Deps = game.Deps,
+        LaunchNote = game.Installed
+            ? "Ownership was last verified through Legendary for this Epic account."
+            : "Ownership was last verified through Legendary for this Epic account. Install via Legendary.",
+        LaunchTarget = game.LaunchTarget,
+        LastPlayedUtc = game.LastPlayedUtc,
+        IsFavorite = game.IsFavorite,
+        CanonicalTitleKey = game.CanonicalTitleKey,
+        SelectedVariantId = game.SelectedVariantId,
+        Variants = game.Variants,
+    };
+
+    private static string OwnedCachePath =>
+        Path.Combine(PathHelper.AppDataDir, "epic-owned.json");
+
+    private static bool IsOwnedCacheFresh(string expectedAccountScope)
+    {
+        try
+        {
+            if (!File.Exists(OwnedCachePath)) return false;
+            using var document = JsonDocument.Parse(File.ReadAllText(OwnedCachePath));
+            var root = document.RootElement;
+            return root.ValueKind == JsonValueKind.Object &&
+                   root.TryGetProperty("schemaVersion", out var schema) &&
+                   schema.TryGetInt32(out var schemaVersion) &&
+                   schemaVersion == OwnedCacheSchemaVersion &&
+                   root.TryGetProperty("accountScope", out var scope) &&
+                   string.Equals(scope.GetString(), expectedAccountScope, StringComparison.Ordinal) &&
+                   root.TryGetProperty("provenance", out var provenance) &&
+                   string.Equals(provenance.GetString(), OwnedCacheProvenance, StringComparison.Ordinal) &&
+                   root.TryGetProperty("verifiedAtUtc", out var verified) &&
+                   verified.TryGetDateTimeOffset(out var verifiedAt) &&
+                   DateTimeOffset.UtcNow - verifiedAt < TimeSpan.FromHours(6);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    internal static IReadOnlyList<LegendaryCli.GameRow> ReadOwnedCache(string? expectedAccountScope)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(expectedAccountScope) || !File.Exists(OwnedCachePath))
+                return Array.Empty<LegendaryCli.GameRow>();
+            return ParseOwnedCache(File.ReadAllText(OwnedCachePath), expectedAccountScope);
+        }
+        catch
+        {
+            return Array.Empty<LegendaryCli.GameRow>();
+        }
+    }
+
+    internal static IReadOnlyList<LegendaryCli.GameRow> ParseOwnedCache(
+        string? json,
+        string? expectedAccountScope)
+    {
+        if (string.IsNullOrWhiteSpace(json) || string.IsNullOrWhiteSpace(expectedAccountScope))
+            return Array.Empty<LegendaryCli.GameRow>();
+        try
+        {
+            using var document = JsonDocument.Parse(json);
+            var root = document.RootElement;
+            if (root.ValueKind != JsonValueKind.Object ||
+                !root.TryGetProperty("schemaVersion", out var schema) ||
+                !schema.TryGetInt32(out var schemaVersion) ||
+                schemaVersion != OwnedCacheSchemaVersion ||
+                !root.TryGetProperty("accountScope", out var scope) ||
+                !string.Equals(scope.GetString(), expectedAccountScope, StringComparison.Ordinal) ||
+                !root.TryGetProperty("provenance", out var provenance) ||
+                !string.Equals(provenance.GetString(), OwnedCacheProvenance, StringComparison.Ordinal) ||
+                !root.TryGetProperty("verifiedAtUtc", out var verified) ||
+                !verified.TryGetDateTimeOffset(out _) ||
+                !root.TryGetProperty("games", out var games) ||
+                games.ValueKind != JsonValueKind.Array)
+                return Array.Empty<LegendaryCli.GameRow>();
+            return LegendaryCli.ParseLibraryJson(games.GetRawText(), forceInstalled: false);
+        }
+        catch
+        {
+            return Array.Empty<LegendaryCli.GameRow>();
+        }
+    }
+
+    internal static bool WriteOwnedCache(string accountScope, IReadOnlyList<LegendaryCli.GameRow> rows)
+    {
+        if (string.IsNullOrWhiteSpace(accountScope)) return false;
+        try
+        {
+            Directory.CreateDirectory(PathHelper.AppDataDir);
+            var payload = JsonSerializer.Serialize(new
+            {
+                schemaVersion = OwnedCacheSchemaVersion,
+                accountScope,
+                verifiedAtUtc = DateTimeOffset.UtcNow,
+                provenance = OwnedCacheProvenance,
+                games = rows.Select(row => new
+                {
+                    app_name = row.AppName,
+                    app_title = row.Title,
+                    title = row.Title,
+                    install_size = row.SizeBytes,
+                }).ToArray(),
+            });
+            var temp = OwnedCachePath + ".tmp";
+            File.WriteAllText(temp, payload);
+            File.Move(temp, OwnedCachePath, overwrite: true);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     private static async Task TryEglSyncImportOnceAsync(string legendary, CancellationToken ct)
     {
         try
         {
-            var installedJson = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-                ".config", "legendary", "installed.json");
-            // Still sync when file missing or empty — EGL may have installs Legendary doesn't know.
-            if (File.Exists(installedJson))
-            {
-                try
-                {
-                    var text = await File.ReadAllTextAsync(installedJson, ct).ConfigureAwait(false);
-                    if (text.Contains("\"app_name\"", StringComparison.OrdinalIgnoreCase)
-                        || text.Contains("\"appName\"", StringComparison.OrdinalIgnoreCase))
-                        return;
-                }
-                catch { /* sync anyway */ }
-            }
-
+            // Import EGL *installs* only. Never `auth --import` — that logs the
+            // Epic Games Launcher out. Re-run even when Legendary already has
+            // some titles so later EGL installs are picked up.
             await CliRunner.RunAsync(
                 legendary,
-                ["egl-sync", "--one-shot", "--import-only"],
+                LegendaryCli.EglImportOnlyArgs(),
                 null, null, ct).ConfigureAwait(false);
         }
         catch { /* best-effort */ }
@@ -327,7 +691,8 @@ public sealed class EpicAdapter : IStoreAdapter, IStoreClientPresence, IStoreAcc
             // `legendary list-installed` is machine-local install evidence. It
             // does not prove that the active Epic account owns this title.
             Owned = false,
-            CanInstall = !row.Installed && hasLegendary,
+            EntitlementState = EntitlementState.Unverified,
+            CanInstall = false,
             Path = row.InstallPath,
             CoverUrl = row.CoverUrl,
             CoverSource = row.CoverUrl is null ? null : "epic-catalog",
@@ -337,7 +702,7 @@ public sealed class EpicAdapter : IStoreAdapter, IStoreClientPresence, IStoreAcc
             Deps = new[] { "Legendary" },
             LaunchNote = row.Installed
                 ? "Launches via Legendary when available."
-                : "Owned on Epic. Install via Legendary.",
+                : "Install via Legendary when this account owns it.",
         };
     }
 
@@ -349,18 +714,12 @@ public sealed class EpicAdapter : IStoreAdapter, IStoreClientPresence, IStoreAcc
     {
         Report(game.Id, progress, InstallPhase.Preparing, 0, "Preparing Legendary…");
         var legendary = ResolveLegendary() ?? await EnsureLegendaryAsync(ct).ConfigureAwait(false);
-        if (legendary is null)
-        {
-            return new InstallResult
-            {
-                Ok = false,
-                Message = "Legendary required for install. Could not download legendary_windows_x64 — check network, or place legendary.exe in tools/.",
-            };
-        }
-
         var appName = game.LaunchTarget;
         if (string.IsNullOrWhiteSpace(appName))
             return new InstallResult { Ok = false, Message = "Missing Epic app name." };
+
+        if (legendary is null)
+            return await WatchEpicLauncherJobAsync(game, appName, progress, uninstall: false, ct).ConfigureAwait(false);
 
         var basePath = installPath ?? Path.Combine(PathHelper.AppDataDir, "Epic");
         Directory.CreateDirectory(basePath);
@@ -384,6 +743,9 @@ public sealed class EpicAdapter : IStoreAdapter, IStoreClientPresence, IStoreAcc
 
             if (code != 0)
             {
+                var egl = await WatchEpicLauncherJobAsync(game, appName, progress, uninstall: false, ct)
+                    .ConfigureAwait(false);
+                if (egl.Ok) return egl;
                 Report(game.Id, progress, InstallPhase.Failed, null, err.Trim().Length > 0 ? err.Trim() : "Legendary install failed.");
                 return new InstallResult { Ok = false, Message = err.Trim().Length > 0 ? err.Trim() : $"Legendary exited {code}." };
             }
@@ -422,45 +784,26 @@ public sealed class EpicAdapter : IStoreAdapter, IStoreClientPresence, IStoreAcc
         var legendary = ResolveLegendary() ?? await EnsureLegendaryAsync(ct).ConfigureAwait(false);
         if (legendary is null)
         {
-            // Fall back to Epic URI reinstall/update nudge.
+            // Epic documents updatecheck as a handoff. Required client UI is
+            // user-controlled; install/update is never fabricated as complete.
             var meta = FindManifestMeta(appName, game.Path);
             var epic = ResolveEpicLauncher();
             if (epic is not null)
             {
-                using var hider = StoreWindowHider.ForEpic();
-                hider.Start(TimeSpan.FromSeconds(8));
+                HiddenStoreRuntime.SuspendFor(StoreKind.Epic, TimeSpan.FromMinutes(30));
                 if (!ProcessHelper.IsProcessRunning("EpicGamesLauncher"))
                 {
-                    ProcessHelper.StartHidden(epic, "-silent");
+                    Process.Start(new ProcessStartInfo(epic) { UseShellExecute = true });
                     await Task.Delay(2000, ct).ConfigureAwait(false);
                 }
-                StoreWindowHider.HideOnce(StoreWindowHider.EpicProcessNames);
-                foreach (var uri in BuildEpicLaunchUris(appName, meta))
+                foreach (var uri in BuildEpicActionUris(
+                             appName, meta?.CatalogNamespace, meta?.CatalogItemId, "updatecheck"))
                 {
-                    try
-                    {
-                        // Launch URI often triggers updates before start.
-                        ProcessHelper.StartProtocol(uri.Replace("action=launch", "action=install")
-                            .Replace("action=install&silent", "action=install&silent"));
-                    }
+                    try { ProcessHelper.StartProtocol(uri); }
                     catch { /* try next */ }
                 }
-                // Standard install action
-                try
-                {
-                    if (meta?.CatalogNamespace is not null && meta.CatalogItemId is not null)
-                    {
-                        var triple = Uri.EscapeDataString($"{meta.CatalogNamespace}:{meta.CatalogItemId}:{appName}");
-                        ProcessHelper.StartProtocol($"com.epicgames.launcher://apps/{triple}?action=install&silent=true");
-                    }
-                    else
-                    {
-                        ProcessHelper.StartProtocol($"com.epicgames.launcher://apps/{Uri.EscapeDataString(appName)}?action=install&silent=true");
-                    }
-                }
-                catch { /* */ }
                 Report(game.Id, progress, InstallPhase.Failed, null,
-                    "Epic update handed off — install Legendary for in-app progress.");
+                    "Epic update handed off. Install Legendary for in-app progress.");
                 return new InstallResult
                 {
                     Ok = false,
@@ -511,6 +854,62 @@ public sealed class EpicAdapter : IStoreAdapter, IStoreClientPresence, IStoreAcc
         }
     }
 
+    public bool CanRepair(GameEntry game) =>
+        game.Installed && !string.IsNullOrWhiteSpace(game.LaunchTarget) && ResolveLegendary() is not null;
+
+    public async Task<InstallResult> RepairAsync(
+        GameEntry game,
+        IProgress<InstallProgress>? progress,
+        CancellationToken ct = default)
+    {
+        var appName = game.LaunchTarget;
+        if (string.IsNullOrWhiteSpace(appName))
+            return new InstallResult { Ok = false, Message = "Missing Epic app name." };
+
+        var legendary = ResolveLegendary() ?? await EnsureLegendaryAsync(ct).ConfigureAwait(false);
+        if (legendary is null)
+            return new InstallResult { Ok = false, Message = "Legendary is required to verify Epic titles." };
+
+        Report(game.Id, progress, InstallPhase.Preparing, 0, "Verifying Epic files…");
+        try
+        {
+            var (code, _, err) = await CliRunner.RunAsync(
+                    legendary,
+                    LegendaryCli.RepairArgs(appName),
+                    null,
+                    line =>
+                    {
+                        var p = LegendaryCli.ToProgress(game.Id, line, InstallPhase.Installing);
+                        _progress[game.Id] = p;
+                        progress?.Report(p);
+                    },
+                    ct)
+                .ConfigureAwait(false);
+            if (code != 0)
+            {
+                Report(game.Id, progress, InstallPhase.Failed, null, err.Trim());
+                return new InstallResult
+                {
+                    Ok = false,
+                    Message = err.Trim().Length > 0 ? err.Trim() : $"Legendary repair exited {code}.",
+                };
+            }
+
+            Report(game.Id, progress, InstallPhase.Completed, 100, "Verified.");
+            return new InstallResult { Ok = true, Message = "Epic files verified via Legendary." };
+        }
+        catch (OperationCanceledException)
+        {
+            Report(game.Id, progress, InstallPhase.Cancelled, null, "Cancelled.");
+            return new InstallResult { Ok = false, Message = "Cancelled." };
+        }
+        catch (Exception ex)
+        {
+            Report(game.Id, progress, InstallPhase.Failed, null, ex.Message);
+            return new InstallResult { Ok = false, Message = ex.Message };
+        }
+    }
+
     public async Task<LaunchResult> LaunchAsync(GameEntry game, LaunchOptions options, CancellationToken ct = default)
     {
         // Cancellation must win before probing routes or starting any store/game process.
@@ -542,7 +941,9 @@ public sealed class EpicAdapter : IStoreAdapter, IStoreClientPresence, IStoreAcc
         {
             try
             {
-                using var helper = ProcessHelper.StartHidden(legendary, LegendaryCli.LaunchArgs(appName))
+                using var helper = ProcessHelper.StartHidden(
+                    legendary,
+                    LegendaryCli.LaunchArgs(appName, options.ExtraArgs))
                     ?? throw new InvalidOperationException("Legendary did not start.");
                 using var waitCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
                 var processWait = ProcessHelper.WaitForProcessUnderPathAsync(
@@ -836,7 +1237,8 @@ public sealed class EpicAdapter : IStoreAdapter, IStoreClientPresence, IStoreAcc
         string? CatalogNamespace,
         string? CatalogItemId,
         string? LaunchExecutable,
-        string? InstallLocation);
+        string? InstallLocation,
+        bool UpdatePending);
 
     private static EpicManifestMeta? FindManifestMeta(string? appName, string? installPath)
     {
@@ -868,7 +1270,8 @@ public sealed class EpicAdapter : IStoreAdapter, IStoreClientPresence, IStoreAcc
                     root.TryGetProperty("CatalogNamespace", out var ns) ? ns.GetString() : null,
                     root.TryGetProperty("CatalogItemId", out var ci) ? ci.GetString() : null,
                     root.TryGetProperty("LaunchExecutable", out var le) ? le.GetString() : null,
-                    loc);
+                    loc,
+                    IsEglUpdatePending(root));
             }
             catch { /* skip */ }
         }
@@ -895,6 +1298,126 @@ public sealed class EpicAdapter : IStoreAdapter, IStoreClientPresence, IStoreAcc
         // Fallback: bare AppName (works for some older titles).
         yield return $"com.epicgames.launcher://apps/{Uri.EscapeDataString(appName)}?action=launch&silent=true";
         yield return $"com.epicgames.launcher://apps/{Uri.EscapeDataString(appName)}?action=launch";
+    }
+
+    internal static IEnumerable<string> BuildEpicActionUris(
+        string appName,
+        string? catalogNamespace,
+        string? catalogItemId,
+        string action)
+    {
+        if (action is not ("launch" or "updatecheck" or "installer"))
+            yield break;
+        foreach (var uri in BuildEpicLaunchUris(appName, catalogNamespace, catalogItemId))
+        {
+            var next = uri.Replace("action=launch", "action=" + action, StringComparison.Ordinal);
+            if (action != "launch") next = next.Replace("&silent=true", "", StringComparison.Ordinal);
+            yield return next;
+        }
+    }
+
+    private async Task<InstallResult> WatchEpicLauncherJobAsync(
+        GameEntry game,
+        string appName,
+        IProgress<InstallProgress>? progress,
+        bool uninstall,
+        CancellationToken ct)
+    {
+        var epic = ResolveEpicLauncher();
+        if (epic is null)
+        {
+            return new InstallResult
+            {
+                Ok = false,
+                Message = uninstall
+                    ? "Epic Games Launcher is not installed."
+                    : "Legendary / Epic not available for install.",
+            };
+        }
+
+        if (uninstall)
+        {
+            HiddenStoreRuntime.SuspendFor(StoreKind.Epic, TimeSpan.FromMinutes(30));
+            Process.Start(new ProcessStartInfo(epic) { UseShellExecute = true });
+            StoreWindowHider.RestoreStoreWindows(StoreWindowHider.EpicProcessNames);
+            return new InstallResult
+            {
+                Ok = false,
+                HandoffOnly = true,
+                Message = "Epic opened. Choose Uninstall in the official client.",
+            };
+        }
+
+        Report(game.Id, progress, InstallPhase.Preparing, null,
+            uninstall ? "Starting Epic uninstall…" : "Starting Epic install…");
+
+        HiddenStoreRuntime.SuspendFor(StoreKind.Epic, TimeSpan.FromMinutes(30));
+        if (!ProcessHelper.IsProcessRunning("EpicGamesLauncher"))
+        {
+            Process.Start(new ProcessStartInfo(epic) { UseShellExecute = true });
+            await WaitForEpicCommandListenerAsync(ct).ConfigureAwait(false);
+        }
+
+        StoreWindowHider.RestoreStoreWindows(StoreWindowHider.EpicProcessNames);
+        var meta = FindManifestMeta(appName, game.Path);
+        foreach (var uri in BuildEpicActionUris(appName, meta?.CatalogNamespace, meta?.CatalogItemId, "installer"))
+        {
+            try { ProcessHelper.StartProtocol(uri); }
+            catch { /* try next */ }
+        }
+
+        var start = DateTimeOffset.UtcNow;
+        var limit = uninstall ? TimeSpan.FromMinutes(20) : TimeSpan.FromHours(2);
+        while (!ct.IsCancellationRequested)
+        {
+            var present = FindManifestMeta(appName, game.Path) is not null ||
+                          FindManifestMeta(appName, null) is not null;
+            if (uninstall && !present)
+            {
+                Report(game.Id, progress, InstallPhase.Completed, 100, "Uninstalled.");
+                return new InstallResult { Ok = true, Message = "Removed through Epic Games Launcher." };
+            }
+
+            if (!uninstall)
+            {
+                var installed = FindManifestMeta(appName, null);
+                if (IsEglInstallComplete(
+                        installed is not null,
+                        installed is not null &&
+                        !string.IsNullOrWhiteSpace(installed.InstallLocation) &&
+                        Directory.Exists(installed.InstallLocation),
+                        installed?.UpdatePending == true))
+                {
+                    Report(game.Id, progress, InstallPhase.Completed, 100, "Install complete.");
+                    return new InstallResult
+                    {
+                        Ok = true,
+                        Message = "Installed through Epic Games Launcher.",
+                        Path = installed!.InstallLocation,
+                    };
+                }
+            }
+
+            if (DateTimeOffset.UtcNow - start > limit)
+            {
+                Report(game.Id, progress, InstallPhase.Failed, null,
+                    uninstall ? "Epic uninstall timed out." : "Epic install timed out.");
+                return new InstallResult
+                {
+                    Ok = false,
+                    Message = uninstall
+                        ? "Epic Games Launcher did not finish removing this game."
+                        : "Epic Games Launcher did not finish installing this game.",
+                };
+            }
+
+            Report(game.Id, progress, InstallPhase.Installing, null,
+                uninstall ? $"Removing {game.Title}…" : $"Installing {game.Title}…");
+            await Task.Delay(1000, ct).ConfigureAwait(false);
+        }
+
+        Report(game.Id, progress, InstallPhase.Cancelled, null, "Cancelled.");
+        return new InstallResult { Ok = false, Message = "Cancelled." };
     }
 
     private static Process? TryStartInstalledGame(string? installPath, string? launchExecutable, string? appName)
@@ -941,24 +1464,50 @@ public sealed class EpicAdapter : IStoreAdapter, IStoreClientPresence, IStoreAcc
 
     public async Task<InstallResult> UninstallAsync(GameEntry game, CancellationToken ct = default)
     {
-        var legendary = ResolveLegendary();
-        if (legendary is null || string.IsNullOrWhiteSpace(game.LaunchTarget))
-            return new InstallResult { Ok = false, Message = "Legendary required to uninstall Epic titles cleanly." };
+        var appName = game.LaunchTarget;
+        if (string.IsNullOrWhiteSpace(appName))
+            return new InstallResult { Ok = false, Message = "Missing Epic app name." };
 
-        try
+        var legendary = ResolveLegendary();
+        if (legendary is not null)
         {
-            var (code, _, err) = await CliRunner.RunAsync(
-                legendary, LegendaryCli.UninstallArgs(game.LaunchTarget), null, null, ct).ConfigureAwait(false);
-            return new InstallResult
+            try
             {
-                Ok = code == 0,
-                Message = code == 0 ? "Uninstalled via Legendary." : (err.Trim().Length > 0 ? err.Trim() : $"Exit {code}"),
-            };
+                // An unbounded CLI wait wedges the orchestrator: the job never
+                // returns, so every later install, update, or remove is refused
+                // until Exo restarts.
+                using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                timeout.CancelAfter(LegendaryUninstallTimeout);
+                var (code, _, err) = await CliRunner.RunAsync(
+                    legendary, LegendaryCli.UninstallArgs(appName), null, null, timeout.Token)
+                    .ConfigureAwait(false);
+                if (code == 0)
+                    return new InstallResult { Ok = true, Message = "Uninstalled via Legendary." };
+                AppLog.Debug("Legendary uninstall failed, trying Epic launcher: " + err.Trim());
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (OperationCanceledException)
+            {
+                // Legendary owned the files for this attempt. Do not also ask the
+                // Epic launcher to remove a title mid-delete.
+                AppLog.Warn($"Legendary uninstall for '{appName}' timed out.");
+                return new InstallResult
+                {
+                    Ok = false,
+                    Message = "Legendary did not finish removing this game. Check its install folder before retrying.",
+                };
+            }
+            catch (Exception ex)
+            {
+                AppLog.Debug("Legendary uninstall failed, trying Epic launcher: " + ex.Message);
+            }
         }
-        catch (Exception ex)
-        {
-            return new InstallResult { Ok = false, Message = ex.Message };
-        }
+
+        return await WatchEpicLauncherJobAsync(game, appName, progress: null, uninstall: true, ct)
+            .ConfigureAwait(false);
     }
 
     public InstallProgress GetDownloadProgress(string gameId) =>
@@ -1011,6 +1560,7 @@ public sealed class EpicAdapter : IStoreAdapter, IStoreClientPresence, IStoreAcc
                     title = appName!;
 
                 var installed = !string.IsNullOrWhiteSpace(install) && Directory.Exists(install);
+                var updateAvailable = installed && IsEglUpdatePending(root);
                 entry = new GameEntry
                 {
                     Id = "epic:" + (appName ?? name!.ToLowerInvariant()),
@@ -1020,11 +1570,13 @@ public sealed class EpicAdapter : IStoreAdapter, IStoreClientPresence, IStoreAcc
                     // EGL manifests are machine-install evidence, not proof
                     // that the currently active Epic account owns the title.
                     Owned = false,
-                    CanInstall = !installed && hasLegendary,
+                    EntitlementState = EntitlementState.Unverified,
+                    UpdateAvailable = updateAvailable,
+                    CanInstall = false,
                     Path = install,
                     LaunchTarget = appName,
                     SizeBytes = size,
-                    Status = installed ? "Ready" : "Not installed",
+                    Status = installed ? (updateAvailable ? "Update" : "Ready") : "Not installed",
                     Deps = hasLegendary
                         ? new[] { "Legendary (preferred)" }
                         : new[] { "Epic Games Launcher" },
@@ -1037,6 +1589,53 @@ public sealed class EpicAdapter : IStoreAdapter, IStoreClientPresence, IStoreAcc
 
             if (entry is not null) yield return entry;
         }
+    }
+
+    /// <summary>
+    /// Local EGL item flags only. Incomplete or validation-required installs
+    /// are a pending update/repair. PendingManifestPath is always populated
+    /// and is not evidence.
+    /// </summary>
+    internal static bool IsEglUpdatePending(string json)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            return IsEglUpdatePending(doc.RootElement);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    internal static bool IsEglUpdatePending(JsonElement root) =>
+        ReadEglBool(root, "bIsIncompleteInstall") || ReadEglBool(root, "bNeedsValidation");
+
+    /// <summary>
+    /// The Epic Games Launcher writes the .item manifest and creates the install
+    /// folder when a download starts, so folder existence alone reported
+    /// "Install complete" while the download was still at zero percent. The
+    /// manifest's own incomplete / needs-validation flags are the completion
+    /// evidence.
+    /// </summary>
+    internal static bool IsEglInstallComplete(
+        bool manifestPresent,
+        bool installLocationExists,
+        bool updatePending) =>
+        manifestPresent && installLocationExists && !updatePending;
+
+    private static bool ReadEglBool(JsonElement element, string name)
+    {
+        if (!element.TryGetProperty(name, out var value)) return false;
+        return value.ValueKind switch
+        {
+            JsonValueKind.True => true,
+            JsonValueKind.False => false,
+            JsonValueKind.Number => value.TryGetInt64(out var number) && number != 0,
+            JsonValueKind.String => value.GetString() is "1" or "true" or "True",
+            _ => false,
+        };
     }
 
     /// <summary>Parse ProgramData LauncherInstalled.dat (EGL install registry).</summary>
@@ -1092,6 +1691,7 @@ public sealed class EpicAdapter : IStoreAdapter, IStoreClientPresence, IStoreAcc
                         // the playable install without leaking another user's
                         // entitlement into the active account.
                         Owned = false,
+                        EntitlementState = EntitlementState.Unverified,
                         CanInstall = false,
                         Path = install,
                         LaunchTarget = appName,
@@ -1125,7 +1725,7 @@ public sealed class EpicAdapter : IStoreAdapter, IStoreClientPresence, IStoreAcc
             if (string.IsNullOrWhiteSpace(candidate)) continue;
             if (IsSamePath(candidate, managedCache) || IsSamePath(candidate, packagedTool))
             {
-                if (VerifiedGitHubReleaseDownloader.IsPinnedAssetFile(
+                if (PinnedToolCache.IsPinnedAsset(
                         LegendaryReleaseAsset,
                         candidate,
                         IsValidAmd64Pe))
@@ -1136,7 +1736,7 @@ public sealed class EpicAdapter : IStoreAdapter, IStoreClientPresence, IStoreAcc
         }
 
         foreach (var managed in new[] { managedCache, packagedTool })
-            if (VerifiedGitHubReleaseDownloader.IsPinnedAssetFile(
+            if (PinnedToolCache.IsPinnedAsset(
                     LegendaryReleaseAsset,
                     managed,
                     IsValidAmd64Pe))

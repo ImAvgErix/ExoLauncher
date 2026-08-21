@@ -1,16 +1,13 @@
-using System.IO;
-using System.Numerics;
+using System.Collections.Concurrent;
+using System.Globalization;
 using System.Runtime.InteropServices;
+using System.Text.Json;
+using ExoLauncher.Helpers;
 using ExoLauncher.Models;
 using Microsoft.UI;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Windowing;
-using Microsoft.UI.Xaml;
-using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Media;
-using Microsoft.UI.Xaml.Media.Animation;
-using Microsoft.UI.Xaml.Media.Imaging;
-using Microsoft.UI.Xaml.Shapes;
+using Microsoft.Web.WebView2.Core;
 using Windows.Foundation;
 using Windows.Graphics;
 using Windows.UI;
@@ -20,32 +17,83 @@ using WinRT.Interop;
 namespace ExoLauncher.Services;
 
 /// <summary>
-/// Native no-activate trophy surface. It is created only while a notification
-/// is visible, stays out of Alt+Tab/the taskbar, and serializes bursts so unlocks
-/// are not stacked over the game.
+/// Pre-warmed trophy overlay. The visible banner is the same React
+/// <c>TrophyBanner</c> as settings. The host is a Win32 layered popup with a
+/// WebView2 controller — not the WinUI WebView2 control, which cannot do
+/// real transparency. HWND_TOPMOST covers borderless fullscreen; exclusive fullscreen cannot be covered.
 /// </summary>
 internal sealed class TrophyNotificationPresenter : IDisposable
 {
+    internal const string OverlayDocument = "trophy.html";
+    internal const string OverlayStartUri = "https://" + WebViewTrustPolicy.TrustedAppHost + "/" + OverlayDocument;
+    private const string OverlayClassName = "ExoLauncherTrophyOverlay";
+    private const string TrophyIconHost = "trophy-icons.exo-launcher.local";
+
     private const int GwlExStyle = -20;
-    private const long WsExToolWindow = 0x00000080L;
-    private const long WsExNoActivate = 0x08000000L;
+    private const int GwlpUserData = -21;
+    private const int WsPopup = unchecked((int)0x80000000);
+    private const int WsExToolWindow = 0x00000080;
+    private const int WsExNoActivate = 0x08000000;
+    private const int WsExLayered = 0x00080000;
+    private const int WsExTransparent = 0x00000020;
+    private const int WsExTopmost = 0x00000008;
     private const int DwmWindowCornerPreference = 33;
-    private const int DwmWindowCornerPreferenceRound = 2;
-    private const int NotificationWidth = 432;
-    private const int NotificationHeight = 122;
-    private static readonly TimeSpan NotificationDuration = TimeSpan.FromMilliseconds(4200);
-    private static readonly Color TrophySurface = Color.FromArgb(255, 0, 0, 0);
+    private const int DwmWindowCornerPreferenceDonotRound = 1;
+    private const int DwmBorderColor = 34;
+    private const uint DwmColorNone = 0xFFFFFFFE;
+    private const uint DwmBbEnable = 0x1;
+    private const uint DwmBbBlurRegion = 0x2;
+    private const int HwndTopmost = -1;
+    private const uint SwpNoActivate = 0x0010;
+    private const uint SwpNoMove = 0x0002;
+    private const uint SwpNoSize = 0x0001;
+    private const uint SwpShowWindow = 0x0040;
+    private const uint SwpHideWindow = 0x0080;
+    private const int SwShowNoActivate = 4;
+    private const int SwHide = 0;
+    private const int WmSize = 0x0005;
+    private const int WmDestroy = 0x0002;
+    private const int WmDpiChanged = 0x02E0;
+    private const int ErrorClassAlreadyExists = 1410;
+
+    private static readonly ConcurrentDictionary<nint, TrophyNotificationPresenter> Hosts = new();
+    private static readonly WndProc OverlayWndProc = OnOverlayMessage;
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+    };
+    private static bool _classRegistered;
 
     private readonly Queue<(TrophyNotificationPayload Payload, TrophyNotificationOptions Options, Action? OnPresented)> _queue = new();
     private readonly DispatcherQueue _dispatcher;
-    private Window? _window;
-    private Border? _card;
+    private readonly TaskCompletionSource<bool> _ready = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    private IntPtr _hwnd;
+    private GCHandle _selfHandle;
+    private CoreWebView2Controller? _controller;
+    private CoreWebView2? _web;
     private DispatcherQueueTimer? _timer;
-    private Storyboard? _exitStoryboard;
+    private bool _visible;
     private bool _closing;
     private bool _disposed;
+    private bool _warming;
+    private bool _pageReady;
+    private int _warmAttempts;
 
-    public TrophyNotificationPresenter(DispatcherQueue dispatcher) => _dispatcher = dispatcher;
+    public TrophyNotificationPresenter(DispatcherQueue dispatcher)
+    {
+        _dispatcher = dispatcher;
+    }
+
+    /// <summary>
+    /// Warms the overlay after the main shell is visible. A real queued trophy
+    /// still starts warming immediately through <see cref="Enqueue"/>.
+    /// </summary>
+    public void Warm()
+    {
+        if (_disposed || _web is not null || _warming) return;
+        EnqueueWarm();
+    }
 
     public void Enqueue(
         TrophyNotificationPayload payload,
@@ -54,217 +102,373 @@ internal sealed class TrophyNotificationPresenter : IDisposable
     {
         if (_disposed) return;
         _queue.Enqueue((payload, TrophyNotificationOptions.From(settings), onPresented));
-        if (_window is null) ShowNext();
+        if (!_visible && !_closing) ShowNext();
+    }
+
+    private void EnqueueWarm()
+    {
+        if (_dispatcher.HasThreadAccess) _ = WarmAsync();
+        else _dispatcher.TryEnqueue(() => _ = WarmAsync());
+    }
+
+    private async Task WarmAsync()
+    {
+        if (_disposed || _web is not null || _warming) return;
+        if (_warmAttempts >= 3) return;
+        _warmAttempts++;
+        _warming = true;
+        try
+        {
+            var spec = TrophyBannerDesign.Current;
+            EnsureWindowClass();
+            var hwnd = CreateOverlayWindow(spec);
+            if (hwnd == IntPtr.Zero)
+                throw new InvalidOperationException("Trophy overlay window was not created.");
+            _hwnd = hwnd;
+            _selfHandle = GCHandle.Alloc(this);
+            SetWindowLongPtr(hwnd, GwlpUserData, GCHandle.ToIntPtr(_selfHandle));
+            Hosts[hwnd] = this;
+            ApplyOverlayChrome(hwnd);
+
+            var www = ResolveWwwRoot();
+            if (www is null || !File.Exists(Path.Combine(www, OverlayDocument)))
+                throw new InvalidOperationException("Trophy overlay document is missing. Expected wwwroot/" + OverlayDocument + ".");
+
+            var environment = await WebViewEnvironmentFactory.GetAsync();
+
+            var parent = CoreWebView2ControllerWindowReference.CreateFromWindowHandle(unchecked((ulong)hwnd.ToInt64()));
+            CoreWebView2ControllerOptions? controllerOptions = null;
+            try
+            {
+                // Transparent corners are per-controller, not per-environment.
+                controllerOptions = environment.CreateCoreWebView2ControllerOptions();
+                controllerOptions.DefaultBackgroundColor = Color.FromArgb(0, 0, 0, 0);
+            }
+            catch { /* Older runtimes still accept DefaultBackgroundColor on the controller. */ }
+
+            _controller = controllerOptions is null
+                ? await environment.CreateCoreWebView2ControllerAsync(parent)
+                : await environment.CreateCoreWebView2ControllerAsync(parent, controllerOptions);
+            _controller.DefaultBackgroundColor = Color.FromArgb(0, 0, 0, 0);
+            _controller.IsVisible = false;
+            try { _controller.ShouldDetectMonitorScaleChanges = true; } catch { }
+            try { _controller.AllowExternalDrop = false; } catch { }
+            _controller.RasterizationScale = DpiScale(hwnd);
+            SyncControllerBounds();
+
+            var web = _controller.CoreWebView2
+                ?? throw new InvalidOperationException("Trophy overlay WebView2 core was not created.");
+            _web = web;
+            web.Settings.IsStatusBarEnabled = false;
+            web.Settings.AreDefaultContextMenusEnabled = false;
+            web.Settings.IsZoomControlEnabled = false;
+            try { web.Settings.AreBrowserAcceleratorKeysEnabled = false; } catch { }
+            try { web.Settings.IsWebMessageEnabled = true; } catch { }
+            try { web.Settings.AreHostObjectsAllowed = false; } catch { }
+            try { web.Settings.AreDevToolsEnabled = OverlayCdpRequested(); } catch { }
+            try { web.MemoryUsageTargetLevel = CoreWebView2MemoryUsageTargetLevel.Low; } catch { }
+
+            web.SetVirtualHostNameToFolderMapping(
+                WebViewTrustPolicy.TrustedAppHost,
+                www,
+                CoreWebView2HostResourceAccessKind.DenyCors);
+            try
+            {
+                Directory.CreateDirectory(CoverArtService.CacheRoot);
+                web.SetVirtualHostNameToFolderMapping(
+                    CoverArtService.VirtualHost,
+                    CoverArtService.CacheRoot,
+                    CoreWebView2HostResourceAccessKind.DenyCors);
+            }
+            catch { }
+            try
+            {
+                var icons = Path.Combine(PathHelper.AppDataDir, "achievement-icons");
+                Directory.CreateDirectory(icons);
+                web.SetVirtualHostNameToFolderMapping(
+                    TrophyIconHost,
+                    icons,
+                    CoreWebView2HostResourceAccessKind.DenyCors);
+            }
+            catch { }
+
+            web.NavigationStarting += OnNavigationStarting;
+            web.NewWindowRequested += (_, e) => e.Handled = true;
+            web.WebMessageReceived += OnWebMessage;
+
+            var loaded = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            void OnLoaded(CoreWebView2 sender, CoreWebView2NavigationCompletedEventArgs args)
+            {
+                web.NavigationCompleted -= OnLoaded;
+                if (args.IsSuccess) loaded.TrySetResult(true);
+                else loaded.TrySetException(new InvalidOperationException("Trophy overlay failed to load."));
+            }
+            web.NavigationCompleted += OnLoaded;
+            web.Navigate(OverlayStartUri);
+            await loaded.Task.WaitAsync(TimeSpan.FromSeconds(12));
+            var pageDeadline = DateTime.UtcNow.AddMilliseconds(1500);
+            while (!_pageReady && DateTime.UtcNow < pageDeadline)
+                await Task.Delay(40);
+            HideOverlay();
+            _ready.TrySetResult(true);
+            ShowNext();
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error("Trophy overlay failed to pre-warm", ex);
+            DestroyOverlay();
+        }
+        finally
+        {
+            _warming = false;
+        }
     }
 
     private void ShowNext()
     {
-        if (_disposed || _window is not null || _queue.Count == 0) return;
-        var (payload, options, onPresented) = _queue.Dequeue();
-        Window? pendingWindow = null;
+        if (_disposed || _visible || _closing || _queue.Count == 0) return;
+        if (_web is null)
+        {
+            if (_warmAttempts >= 3 && _ready.Task.IsCompleted) return;
+            EnqueueWarm();
+            _ = WaitThenShow();
+            return;
+        }
 
+        var (payload, options, onPresented) = _queue.Dequeue();
         try
         {
-            var window = new Window { Title = "Achievement notification" };
-            pendingWindow = window;
-            var card = BuildCard(payload);
-            // The notification has one visual surface. Wrapping the card in a
-            // second rounded black Border made the outer backing show during
-            // movement and produced a visibly broken double silhouette.
-            window.Content = card;
-
-            var hwnd = WindowNative.GetWindowHandle(window);
-            var appWindow = window.AppWindow;
-            appWindow.IsShownInSwitchers = false;
-            if (appWindow.Presenter is OverlappedPresenter presenter)
+            var spec = TrophyBannerDesign.Current;
+            var rarity = payload.Rarity != TrophyRarity.Unknown
+                ? payload.Rarity
+                : payload.IsPerfect ? TrophyRarity.Platinum
+                : payload.IsRare ? TrophyRarity.Gold
+                : TrophyRarity.Bronze;
+            var reduced = !AnimationsEnabled();
+            PostJson(new Dictionary<string, object?>
             {
-                presenter.IsResizable = false;
-                presenter.IsMaximizable = false;
-                presenter.IsMinimizable = false;
-                presenter.IsAlwaysOnTop = true;
-                presenter.SetBorderAndTitleBar(hasBorder: false, hasTitleBar: false);
-            }
-
-            var exStyle = GetWindowLongPtr(hwnd, GwlExStyle).ToInt64();
-            SetWindowLongPtr(hwnd, GwlExStyle, new IntPtr(exStyle | WsExToolWindow | WsExNoActivate));
-            var cornerPreference = DwmWindowCornerPreferenceRound;
-            try { _ = DwmSetWindowAttribute(hwnd, DwmWindowCornerPreference, ref cornerPreference, sizeof(int)); }
-            catch { /* Windows chooses its normal borderless corner behavior. */ }
-            Position(appWindow, hwnd, options.PositionX, options.PositionY);
-
-            _window = window;
-            _card = card;
+                ["type"] = "show",
+                ["id"] = Guid.NewGuid().ToString("N"),
+                ["tier"] = TrophyBannerDesign.Key(rarity),
+                ["name"] = (payload.AchievementName ?? "").Trim(),
+                ["detail"] = OverlayDetail(payload),
+                ["game"] = (payload.GameTitle ?? "").Trim(),
+                ["iconUrl"] = OverlayIconUrl(payload.IconUrl),
+                ["reducedMotion"] = reduced,
+            });
+            PlaceOverlay(options.PositionX, options.PositionY, spec);
+            ShowOverlay();
+            _visible = true;
             _closing = false;
-            appWindow.Show(activateWindow: false);
-            // The outbox can be acknowledged only after WinUI has accepted the
-            // native notification window. Animation/image loading are cosmetic
-            // and must not block durable delivery acknowledgement.
             try { onPresented?.Invoke(); }
-            catch (Exception ex) { Helpers.AppLog.Debug("Trophy presentation acknowledgement failed: " + ex.Message); }
-            AnimateIn(card);
-            TrophySoundPlayer.Play();
+            catch (Exception ex) { AppLog.Debug("Trophy presentation acknowledgement failed: " + ex.Message); }
+            TrophySoundPlayer.Play(rarity);
 
+            var arrivalMs = reduced
+                ? Math.Max(0, spec.Motion.ReducedFadeMs)
+                : Math.Max(0, spec.Tier(rarity).EnterMs + spec.Tier(rarity).SettleMs);
+            // Duration is the readable hold after arrival, not the entire lifecycle.
+            var holdMs = arrivalMs + Math.Max(options.DurationSeconds, 1) * 1000;
+            if (!string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("EXO_TROPHY_CAPTURE")))
+                holdMs = Math.Max(holdMs, 16_000);
             _timer = _dispatcher.CreateTimer();
-            _timer.Interval = NotificationDuration;
+            _timer.Interval = TimeSpan.FromMilliseconds(holdMs);
             _timer.IsRepeating = false;
             _timer.Tick += OnTimer;
             _timer.Start();
         }
         catch (Exception ex)
         {
-            Helpers.AppLog.Error("Trophy notification display failed", ex);
-            // Failures before _window assignment still own a native Window.
-            // Close that local instance so queue recovery cannot orphan or
-            // stack a hidden notification surface.
-            if (!ReferenceEquals(_window, pendingWindow))
-            {
-                try { pendingWindow?.Close(); } catch { }
-            }
-            CloseCurrentImmediately();
+            AppLog.Error("Trophy notification display failed", ex);
+            ParkCurrent();
             ShowNext();
         }
     }
 
-    private static Border BuildCard(TrophyNotificationPayload payload)
+    private async Task WaitThenShow()
     {
-        var visual = TrophyVisual.For(payload);
-        var secondary = string.IsNullOrWhiteSpace(payload.GameTitle)
-            ? payload.Detail
-            : payload.GameTitle;
-        if (string.IsNullOrWhiteSpace(secondary)) secondary = "Achievement unlocked";
-
-        var copy = new StackPanel
-        {
-            Spacing = 2,
-            VerticalAlignment = VerticalAlignment.Center,
-        };
-        copy.Children.Add(new TextBlock
-        {
-            Text = "Unlocked",
-            FontSize = 10,
-            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
-            CharacterSpacing = 80,
-            Foreground = visual.MutedAccentBrush,
-        });
-        copy.Children.Add(new TextBlock
-        {
-            Text = payload.AchievementName,
-            FontSize = 16,
-            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
-            Foreground = new SolidColorBrush(Color.FromArgb(255, 247, 247, 248)),
-            TextTrimming = TextTrimming.CharacterEllipsis,
-        });
-
-        var metadata = new StackPanel
-        {
-            Orientation = Orientation.Horizontal,
-            Spacing = 8,
-        };
-        metadata.Children.Add(new TextBlock
-        {
-            Text = secondary,
-            MaxWidth = 268,
-            FontSize = 11,
-            Foreground = new SolidColorBrush(Color.FromArgb(255, 151, 151, 156)),
-            TextTrimming = TextTrimming.CharacterEllipsis,
-        });
-
-        copy.Children.Add(metadata);
-
-        var iconTile = BuildIconTile(payload, visual);
-        var accent = new Rectangle
-        {
-            Width = 4,
-            Fill = visual.AccentBrush,
-            VerticalAlignment = VerticalAlignment.Stretch,
-            RadiusX = 2,
-            RadiusY = 2,
-        };
-        var tier = new TextBlock
-        {
-            VerticalAlignment = VerticalAlignment.Bottom,
-            Margin = new Thickness(0, 0, 0, 3),
-            Text = TrophyRarityResolver.Label(visual.Rarity),
-            FontSize = 8,
-            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
-            CharacterSpacing = 85,
-            Foreground = visual.AccentBrush,
-        };
-        var layout = new Grid
-        {
-            // Keep the rail inside the rounded card rather than allowing it
-            // to collide with the top/bottom corners.
-            Padding = new Thickness(14, 14, 14, 14),
-            ColumnSpacing = 12,
-        };
-        layout.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(4) });
-        layout.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(64) });
-        layout.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        layout.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        Grid.SetColumn(iconTile, 1);
-        Grid.SetColumn(copy, 2);
-        Grid.SetColumn(tier, 3);
-        layout.Children.Add(accent);
-        layout.Children.Add(iconTile);
-        layout.Children.Add(copy);
-        layout.Children.Add(tier);
-
-        return new Border
-        {
-            Background = new SolidColorBrush(TrophySurface),
-            BorderBrush = visual.OutlineBrush,
-            BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(12),
-            Child = layout,
-            Opacity = 0,
-        };
+        try { await _ready.Task.WaitAsync(TimeSpan.FromSeconds(15)); }
+        catch { return; }
+        if (_dispatcher.HasThreadAccess) ShowNext();
+        else _dispatcher.TryEnqueue(ShowNext);
     }
 
-    private static Border BuildIconTile(TrophyNotificationPayload payload, TrophyVisual visual)
+    private void BeginCloseCurrent()
     {
-        var content = new Grid();
-        var fallback = payload.IsPreview ? BuildPreviewMark(visual) : BuildTrophyMark(visual.Accent);
-        content.Children.Add(fallback);
+        if (_closing || !_visible) return;
+        _closing = true;
+        StopTimer();
+        var exitMs = AnimationsEnabled() ? Math.Max(0, TrophyBannerDesign.Current.Motion.ExitMs) : TrophyBannerDesign.Current.Motion.ReducedFadeMs;
+        try { PostJson(new Dictionary<string, object?> { ["type"] = "hide" }); }
+        catch { exitMs = 0; }
 
-        if (TryGetSafeIconUri(payload.IconUrl, out var uri))
+        if (exitMs <= 0)
         {
-            try
-            {
-                var image = new Image
-                {
-                    // Icons are rendered at 64 DIPs. Decode above that target
-                    // so native achievement art stays crisp on high-DPI panels
-                    // without claiming to invent detail from a poor source.
-                    Source = new BitmapImage(uri) { DecodePixelWidth = 128 },
-                    Stretch = Stretch.UniformToFill,
-                    Opacity = 0,
-                };
-                image.ImageOpened += (_, _) =>
-                {
-                    fallback.Visibility = Visibility.Collapsed;
-                    image.Opacity = 1;
-                };
-                image.ImageFailed += (_, _) =>
-                {
-                    image.Visibility = Visibility.Collapsed;
-                    fallback.Visibility = Visibility.Visible;
-                };
-                content.Children.Add(image);
-            }
-            catch
-            {
-                // A malformed or unavailable icon always leaves the local mark visible.
-            }
+            ParkCurrent();
+            ShowNext();
+            return;
         }
 
-        return new Border
+        var timer = _dispatcher.CreateTimer();
+        timer.Interval = TimeSpan.FromMilliseconds(exitMs);
+        timer.IsRepeating = false;
+        timer.Tick += (_, _) =>
         {
-            Width = 64,
-            Height = 64,
-            CornerRadius = new CornerRadius(8),
-            Background = visual.IconBackgroundBrush,
-            Child = content,
+            try { timer.Stop(); } catch { }
+            ParkCurrent();
+            if (!_disposed) ShowNext();
         };
+        timer.Start();
+    }
+
+    private void ParkCurrent()
+    {
+        StopTimer();
+        try { PostJson(new Dictionary<string, object?> { ["type"] = "clear" }); } catch { }
+        HideOverlay();
+        _visible = false;
+        _closing = false;
+    }
+
+    private void PostJson(Dictionary<string, object?> payload)
+    {
+        if (_web is null) return;
+        _web.PostWebMessageAsJson(JsonSerializer.Serialize(payload, JsonOptions));
+    }
+
+    private void PlaceOverlay(double positionX, double positionY, TrophyBannerSpec spec)
+    {
+        if (_hwnd == IntPtr.Zero) return;
+        var display = ResolveDisplay(_hwnd);
+        var pad = (int)Math.Round(spec.OverlayPad * display.Scale);
+        var width = (int)Math.Round(spec.Width * display.Scale) + (pad * 2);
+        var height = (int)Math.Round(spec.Height * display.Scale) + (pad * 2);
+        var card = TrophyNotificationLayout.Calculate(
+            display.WorkArea.X,
+            display.WorkArea.Y,
+            display.WorkArea.Width,
+            display.WorkArea.Height,
+            width - (pad * 2),
+            height - (pad * 2),
+            positionX,
+            positionY,
+            (int)Math.Round(24 * display.Scale));
+        var left = card.Left - pad;
+        var top = card.Top - pad;
+        if (_controller is not null)
+        {
+            try { _controller.RasterizationScale = display.Scale; } catch { }
+        }
+        _ = SetWindowPos(
+            _hwnd,
+            new IntPtr(HwndTopmost),
+            left,
+            top,
+            width,
+            height,
+            SwpNoActivate | SwpShowWindow);
+        SyncControllerBounds();
+    }
+
+    private void ShowOverlay()
+    {
+        if (_hwnd == IntPtr.Zero) return;
+        _ = ShowWindow(_hwnd, SwShowNoActivate);
+        _ = SetWindowPos(
+            _hwnd,
+            new IntPtr(HwndTopmost),
+            0, 0, 0, 0,
+            SwpNoMove | SwpNoSize | SwpNoActivate);
+        if (_controller is not null)
+        {
+            try { _controller.CoreWebView2.MemoryUsageTargetLevel = CoreWebView2MemoryUsageTargetLevel.Normal; } catch { }
+            try { _controller.IsVisible = true; } catch { }
+        }
+    }
+
+    private void HideOverlay()
+    {
+        if (_hwnd == IntPtr.Zero) return;
+        _ = SetWindowPos(
+            _hwnd,
+            new IntPtr(HwndTopmost),
+            0, 0, 0, 0,
+            SwpNoMove | SwpNoSize | SwpNoActivate | SwpHideWindow);
+        _ = ShowWindow(_hwnd, SwHide);
+        if (_controller is not null)
+        {
+            try { _controller.IsVisible = false; } catch { }
+            try { _controller.CoreWebView2.MemoryUsageTargetLevel = CoreWebView2MemoryUsageTargetLevel.Low; } catch { }
+        }
+    }
+
+    private void SyncControllerBounds()
+    {
+        if (_controller is null || _hwnd == IntPtr.Zero) return;
+        if (!GetClientRect(_hwnd, out var rect)) return;
+        var width = Math.Max(1, rect.Right - rect.Left);
+        var height = Math.Max(1, rect.Bottom - rect.Top);
+        _controller.Bounds = new Rect(0, 0, width, height);
+    }
+
+    private void OnTimer(DispatcherQueueTimer sender, object args) => BeginCloseCurrent();
+
+    private void StopTimer()
+    {
+        if (_timer is null) return;
+        try { _timer.Stop(); } catch { }
+        _timer.Tick -= OnTimer;
+        _timer = null;
+    }
+
+    private static void OnNavigationStarting(CoreWebView2 sender, CoreWebView2NavigationStartingEventArgs e)
+    {
+        if (WebViewTrustPolicy.IsTrustedAppUri(e.Uri)
+            && e.Uri.Contains(OverlayDocument, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+        e.Cancel = true;
+        AppLog.Warn("Blocked an untrusted trophy overlay navigation.");
+    }
+
+    private void OnWebMessage(CoreWebView2 sender, CoreWebView2WebMessageReceivedEventArgs e)
+    {
+        try
+        {
+            var raw = e.WebMessageAsJson;
+            if (string.IsNullOrWhiteSpace(raw) || raw.IndexOf("ready", StringComparison.OrdinalIgnoreCase) < 0)
+                return;
+            _pageReady = true;
+        }
+        catch { }
+    }
+
+    private static string OverlayDetail(TrophyNotificationPayload payload)
+    {
+        var gameTitle = (payload.GameTitle ?? "").Trim();
+        var detail = (payload.Detail ?? "").Trim();
+        if (string.Equals(detail, gameTitle, StringComparison.OrdinalIgnoreCase)) return "";
+        return detail;
+    }
+
+    private static string? OverlayIconUrl(string? value)
+    {
+        if (!TryGetSafeIconUri(value, out var uri)) return null;
+        if (IsTrustedVirtualIconUri(uri)) return uri.AbsoluteUri;
+        if (!uri.IsFile) return null;
+
+        var path = Path.GetFullPath(uri.LocalPath);
+        var icons = Path.GetFullPath(Path.Combine(PathHelper.AppDataDir, "achievement-icons"))
+            .TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+        if (path.StartsWith(icons, StringComparison.OrdinalIgnoreCase))
+            return "https://" + TrophyIconHost + "/" + Path.GetFileName(path);
+
+        var covers = Path.GetFullPath(CoverArtService.CacheRoot)
+            .TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+        if (path.StartsWith(covers, StringComparison.OrdinalIgnoreCase))
+            return CoverArtService.VirtualHostOrigin + "/" + Path.GetFileName(path);
+        return null;
     }
 
     private static bool TryGetSafeIconUri(string? value, out Uri uri)
@@ -274,7 +478,7 @@ internal sealed class TrophyNotificationPresenter : IDisposable
 
         if (Uri.TryCreate(value.Trim(), UriKind.Absolute, out var parsed))
         {
-            if (parsed.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
+            if (IsTrustedVirtualIconUri(parsed))
             {
                 uri = parsed;
                 return true;
@@ -289,9 +493,9 @@ internal sealed class TrophyNotificationPresenter : IDisposable
 
         try
         {
-            if (System.IO.Path.IsPathFullyQualified(value) && File.Exists(value))
+            if (Path.IsPathFullyQualified(value) && File.Exists(value))
             {
-                uri = new Uri(System.IO.Path.GetFullPath(value));
+                uri = new Uri(Path.GetFullPath(value));
                 return true;
             }
         }
@@ -299,181 +503,12 @@ internal sealed class TrophyNotificationPresenter : IDisposable
         return false;
     }
 
-    private static Viewbox BuildTrophyMark(Color accent)
-    {
-        var ink = new SolidColorBrush(Color.FromArgb(240, accent.R, accent.G, accent.B));
-        var quietInk = new SolidColorBrush(Color.FromArgb(126, accent.R, accent.G, accent.B));
-        var canvas = new Canvas { Width = 28, Height = 28 };
-
-        var leftHandle = new Ellipse
-        {
-            Width = 10,
-            Height = 12,
-            Stroke = quietInk,
-            StrokeThickness = 1.6,
-        };
-        Canvas.SetLeft(leftHandle, 1);
-        Canvas.SetTop(leftHandle, 3);
-        var rightHandle = new Ellipse
-        {
-            Width = 10,
-            Height = 12,
-            Stroke = quietInk,
-            StrokeThickness = 1.6,
-        };
-        Canvas.SetLeft(rightHandle, 17);
-        Canvas.SetTop(rightHandle, 3);
-
-        var bowl = new Polygon
-        {
-            Points = new PointCollection
-            {
-                new(6, 2),
-                new(22, 2),
-                new(20, 11),
-                new(17, 16),
-                new(11, 16),
-                new(8, 11),
-            },
-            Fill = new SolidColorBrush(Color.FromArgb(26, 255, 255, 255)),
-            Stroke = ink,
-            StrokeThickness = 1.6,
-            StrokeLineJoin = PenLineJoin.Round,
-        };
-        var stem = new Border
-        {
-            Width = 3,
-            Height = 6,
-            CornerRadius = new CornerRadius(1.5),
-            Background = ink,
-        };
-        Canvas.SetLeft(stem, 12.5);
-        Canvas.SetTop(stem, 16);
-        var basePlate = new Border
-        {
-            Width = 15,
-            Height = 3,
-            CornerRadius = new CornerRadius(1.5),
-            Background = ink,
-        };
-        Canvas.SetLeft(basePlate, 6.5);
-        Canvas.SetTop(basePlate, 22);
-
-        canvas.Children.Add(leftHandle);
-        canvas.Children.Add(rightHandle);
-        canvas.Children.Add(bowl);
-        canvas.Children.Add(stem);
-        canvas.Children.Add(basePlate);
-        return new Viewbox
-        {
-            Width = 24,
-            Height = 24,
-            HorizontalAlignment = HorizontalAlignment.Center,
-            VerticalAlignment = VerticalAlignment.Center,
-            Child = canvas,
-        };
-    }
-
-    private static Viewbox BuildPreviewMark(TrophyVisual visual)
-    {
-        var canvas = new Canvas { Width = 40, Height = 40 };
-        var ring = new Ellipse
-        {
-            Width = 30,
-            Height = 30,
-            Stroke = visual.AccentBrush,
-            StrokeThickness = 1.4,
-            Fill = new SolidColorBrush(Color.FromArgb(28, visual.Accent.R, visual.Accent.G, visual.Accent.B)),
-        };
-        Canvas.SetLeft(ring, 5);
-        Canvas.SetTop(ring, 5);
-        var diamond = new Polygon
-        {
-            Points = new PointCollection { new(20, 10), new(28, 20), new(20, 30), new(12, 20) },
-            Fill = visual.AccentBrush,
-        };
-        canvas.Children.Add(ring);
-        canvas.Children.Add(diamond);
-        return new Viewbox
-        {
-            Width = 36,
-            Height = 36,
-            HorizontalAlignment = HorizontalAlignment.Center,
-            VerticalAlignment = VerticalAlignment.Center,
-            Child = canvas,
-        };
-    }
-
-    private static void AnimateIn(Border target)
-    {
-        var transform = new CompositeTransform
-        {
-            // The window bounds cannot accommodate a translated child without
-            // clipping it. A small pop/fade stays fully inside the one surface.
-            ScaleX = 0.94,
-            ScaleY = 0.94,
-            CenterX = NotificationWidth / 2d,
-            CenterY = NotificationHeight / 2d,
-        };
-        target.RenderTransform = transform;
-        target.Opacity = 0;
-        if (!AnimationsEnabled())
-        {
-            transform.ScaleX = 1;
-            transform.ScaleY = 1;
-            target.Opacity = 1;
-            return;
-        }
-
-        var storyboard = new Storyboard();
-        storyboard.Children.Add(CreateAnimation(target, "Opacity", 0, 1, 280, EasingMode.EaseOut));
-        storyboard.Children.Add(CreateAnimation(transform, "ScaleX", 0.94, 1, 340, EasingMode.EaseOut));
-        storyboard.Children.Add(CreateAnimation(transform, "ScaleY", 0.94, 1, 340, EasingMode.EaseOut));
-        storyboard.Begin();
-    }
-
-    private void BeginCloseCurrent()
-    {
-        if (_closing || _window is null) return;
-        _closing = true;
-        StopTimer();
-
-        if (_card is null || !AnimationsEnabled())
-        {
-            CompleteCloseCurrent();
-            return;
-        }
-
-        var transform = _card.RenderTransform as CompositeTransform ?? new CompositeTransform();
-        _card.RenderTransform = transform;
-        var storyboard = new Storyboard();
-        storyboard.Children.Add(CreateAnimation(_card, "Opacity", 1, 0, 200, EasingMode.EaseInOut));
-        storyboard.Children.Add(CreateAnimation(transform, "ScaleX", 1, 0.96, 200, EasingMode.EaseInOut));
-        storyboard.Children.Add(CreateAnimation(transform, "ScaleY", 1, 0.96, 200, EasingMode.EaseInOut));
-        storyboard.Completed += OnExitAnimationCompleted;
-        _exitStoryboard = storyboard;
-        storyboard.Begin();
-    }
-
-    private static DoubleAnimation CreateAnimation(
-        DependencyObject target,
-        string property,
-        double from,
-        double to,
-        int durationMilliseconds,
-        EasingMode easingMode)
-    {
-        var animation = new DoubleAnimation
-        {
-            From = from,
-            To = to,
-            Duration = new Duration(TimeSpan.FromMilliseconds(durationMilliseconds)),
-            EasingFunction = new CubicEase { EasingMode = easingMode },
-        };
-        Storyboard.SetTarget(animation, target);
-        Storyboard.SetTargetProperty(animation, property);
-        return animation;
-    }
+    private static bool IsTrustedVirtualIconUri(Uri uri) =>
+        uri.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase) &&
+        uri.IsDefaultPort &&
+        string.IsNullOrEmpty(uri.UserInfo) &&
+        (uri.IdnHost.Equals(TrophyIconHost, StringComparison.OrdinalIgnoreCase) ||
+         uri.IdnHost.Equals(CoverArtService.VirtualHost, StringComparison.OrdinalIgnoreCase));
 
     private static bool AnimationsEnabled()
     {
@@ -481,24 +516,33 @@ internal sealed class TrophyNotificationPresenter : IDisposable
         catch { return true; }
     }
 
-    private static void Position(AppWindow appWindow, IntPtr notificationHwnd, double positionX, double positionY)
+    private static bool OverlayCdpRequested()
     {
-        var display = ResolveDisplay(appWindow, notificationHwnd);
-        var work = display.WorkArea;
-        var bounds = TrophyNotificationLayout.Calculate(
-            work.X,
-            work.Y,
-            work.Width,
-            work.Height,
-            (int)Math.Round(NotificationWidth * display.Scale),
-            (int)Math.Round(NotificationHeight * display.Scale),
-            positionX,
-            positionY,
-            (int)Math.Round(24 * display.Scale));
-        appWindow.MoveAndResize(new RectInt32(bounds.Left, bounds.Top, bounds.Width, bounds.Height));
+        if (!string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("EXO_TROPHY_CAPTURE")))
+            return true;
+        var cdp = Environment.GetEnvironmentVariable("EXO_CDP")
+            ?? Environment.GetEnvironmentVariable("EXOOS_CDP");
+        return string.Equals(cdp, "1", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(cdp, "true", StringComparison.OrdinalIgnoreCase);
     }
 
-    private static TrophyDisplay ResolveDisplay(AppWindow appWindow, IntPtr notificationHwnd)
+    private static string? ResolveWwwRoot()
+    {
+        var baseDir = AppContext.BaseDirectory;
+        var candidates = new[]
+        {
+            Path.Combine(baseDir, "wwwroot"),
+            Path.GetFullPath(Path.Combine(baseDir, "..", "..", "..", "wwwroot")),
+        };
+        foreach (var candidate in candidates)
+        {
+            if (Directory.Exists(candidate) && File.Exists(Path.Combine(candidate, OverlayDocument)))
+                return candidate;
+        }
+        return null;
+    }
+
+    private static TrophyDisplay ResolveDisplay(IntPtr notificationHwnd)
     {
         try
         {
@@ -511,12 +555,18 @@ internal sealed class TrophyNotificationPresenter : IDisposable
                     return new TrophyDisplay(foregroundDisplay.WorkArea, DpiScale(foreground));
             }
         }
-        catch { /* fall through to the notification display */ }
+        catch { }
 
-        var display = DisplayArea.GetFromWindowId(appWindow.Id, DisplayAreaFallback.Primary);
-        return new TrophyDisplay(
-            display?.WorkArea ?? new RectInt32(0, 0, 1920, 1080),
-            DpiScale(notificationHwnd));
+        try
+        {
+            var id = Win32Interop.GetWindowIdFromWindow(notificationHwnd);
+            var display = DisplayArea.GetFromWindowId(id, DisplayAreaFallback.Primary);
+            if (display is not null)
+                return new TrophyDisplay(display.WorkArea, DpiScale(notificationHwnd));
+        }
+        catch { }
+
+        return new TrophyDisplay(new RectInt32(0, 0, 1920, 1080), DpiScale(notificationHwnd));
     }
 
     private static double DpiScale(IntPtr hwnd)
@@ -530,42 +580,138 @@ internal sealed class TrophyNotificationPresenter : IDisposable
         return 1d;
     }
 
-    private void OnTimer(DispatcherQueueTimer sender, object args) => BeginCloseCurrent();
-
-    private void OnExitAnimationCompleted(object? sender, object args)
+    private static void EnsureWindowClass()
     {
-        if (sender is Storyboard storyboard)
-            storyboard.Completed -= OnExitAnimationCompleted;
-        _exitStoryboard = null;
-        CompleteCloseCurrent();
+        if (_classRegistered) return;
+        var wnd = new WndClassEx
+        {
+            cbSize = (uint)Marshal.SizeOf<WndClassEx>(),
+            style = 0,
+            lpfnWndProc = Marshal.GetFunctionPointerForDelegate(OverlayWndProc),
+            hInstance = GetModuleHandle(null),
+            lpszClassName = OverlayClassName,
+            hCursor = IntPtr.Zero,
+            hbrBackground = IntPtr.Zero,
+        };
+        var atom = RegisterClassEx(ref wnd);
+        if (atom == 0)
+        {
+            var error = Marshal.GetLastWin32Error();
+            if (error != ErrorClassAlreadyExists)
+                throw new InvalidOperationException("Trophy overlay class failed to register (" + error.ToString(CultureInfo.InvariantCulture) + ").");
+        }
+        _classRegistered = true;
     }
 
-    private void CompleteCloseCurrent()
+    private static IntPtr CreateOverlayWindow(TrophyBannerSpec spec)
     {
-        CloseCurrentImmediately();
-        if (!_disposed) ShowNext();
+        var width = spec.Width + (spec.OverlayPad * 2);
+        var height = spec.Height + (spec.OverlayPad * 2);
+        var exStyle = WsExToolWindow | WsExNoActivate | WsExLayered | WsExTransparent | WsExTopmost;
+        return CreateWindowEx(
+            exStyle,
+            OverlayClassName,
+            "Achievement notification",
+            WsPopup,
+            -32000,
+            -32000,
+            width,
+            height,
+            IntPtr.Zero,
+            IntPtr.Zero,
+            GetModuleHandle(null),
+            IntPtr.Zero);
     }
 
-    private void StopTimer()
+    private static void ApplyOverlayChrome(IntPtr hwnd)
     {
-        if (_timer is null) return;
-        try { _timer.Stop(); } catch { }
-        _timer.Tick -= OnTimer;
-        _timer = null;
+        var exStyle = GetWindowLongPtr(hwnd, GwlExStyle).ToInt64();
+        SetWindowLongPtr(
+            hwnd,
+            GwlExStyle,
+            new IntPtr(exStyle | WsExToolWindow | WsExNoActivate | WsExLayered | WsExTransparent | WsExTopmost));
+        var margins = new Margins(-1, -1, -1, -1);
+        try { _ = DwmExtendFrameIntoClientArea(hwnd, ref margins); }
+        catch { }
+        var cornerPreference = DwmWindowCornerPreferenceDonotRound;
+        try { _ = DwmSetWindowAttribute(hwnd, DwmWindowCornerPreference, ref cornerPreference, sizeof(int)); }
+        catch { }
+        var noBorder = DwmColorNone;
+        try { _ = DwmSetWindowAttributeU32(hwnd, DwmBorderColor, ref noBorder, sizeof(uint)); }
+        catch { }
+        EnableTransparentFrame(hwnd);
     }
 
-    private void CloseCurrentImmediately()
+    private static void EnableTransparentFrame(IntPtr hwnd)
+    {
+        var empty = IntPtr.Zero;
+        try
+        {
+            empty = CreateRectRgn(0, 0, 0, 0);
+            var blur = new DwmBlurBehind
+            {
+                DwFlags = DwmBbEnable | DwmBbBlurRegion,
+                FEnable = 1,
+                HRgnBlur = empty,
+            };
+            _ = DwmEnableBlurBehindWindow(hwnd, ref blur);
+        }
+        catch { }
+        finally
+        {
+            if (empty != IntPtr.Zero)
+            {
+                try { _ = DeleteObject(empty); } catch { }
+            }
+        }
+    }
+
+    private static IntPtr OnOverlayMessage(IntPtr hwnd, uint msg, IntPtr wParam, IntPtr lParam)
+    {
+        if (Hosts.TryGetValue(hwnd, out var presenter))
+        {
+            if (msg == WmSize || msg == WmDpiChanged)
+            {
+                try { presenter.SyncControllerBounds(); } catch { }
+                if (msg == WmDpiChanged && presenter._controller is not null)
+                {
+                    try { presenter._controller.RasterizationScale = DpiScale(hwnd); } catch { }
+                }
+            }
+            else if (msg == WmDestroy)
+            {
+                Hosts.TryRemove(hwnd, out _);
+            }
+        }
+        return DefWindowProc(hwnd, msg, wParam, lParam);
+    }
+
+    private void DestroyOverlay()
     {
         StopTimer();
-        if (_exitStoryboard is not null)
+        var web = _web;
+        if (web is not null)
         {
-            _exitStoryboard.Completed -= OnExitAnimationCompleted;
-            try { _exitStoryboard.Stop(); } catch { }
-            _exitStoryboard = null;
+            try { web.NavigationStarting -= OnNavigationStarting; } catch { }
+            try { web.WebMessageReceived -= OnWebMessage; } catch { }
         }
-        try { _window?.Close(); } catch { }
-        _window = null;
-        _card = null;
+        _web = null;
+        if (_controller is not null)
+        {
+            try { _controller.Close(); } catch { }
+            _controller = null;
+        }
+        if (_hwnd != IntPtr.Zero)
+        {
+            Hosts.TryRemove(_hwnd, out _);
+            try { _ = DestroyWindow(_hwnd); } catch { }
+            _hwnd = IntPtr.Zero;
+        }
+        if (_selfHandle.IsAllocated)
+        {
+            try { _selfHandle.Free(); } catch { }
+        }
+        _visible = false;
         _closing = false;
     }
 
@@ -574,64 +720,136 @@ internal sealed class TrophyNotificationPresenter : IDisposable
         if (_disposed) return;
         _disposed = true;
         _queue.Clear();
-        CloseCurrentImmediately();
+        if (_dispatcher.HasThreadAccess) DestroyOverlay();
+        else _dispatcher.TryEnqueue(DestroyOverlay);
     }
 
     private sealed record TrophyNotificationOptions(
         double PositionX,
-        double PositionY)
+        double PositionY,
+        int DurationSeconds)
     {
         public static TrophyNotificationOptions From(AppSettings settings) => new(
             settings.TrophyNotificationPositionX,
-            settings.TrophyNotificationPositionY);
+            settings.TrophyNotificationPositionY,
+            settings.TrophyNotificationDurationSeconds);
     }
 
     private readonly record struct TrophyDisplay(RectInt32 WorkArea, double Scale);
 
-    private sealed record TrophyVisual(
-        TrophyRarity Rarity,
-        Color Accent,
-        SolidColorBrush AccentBrush,
-        SolidColorBrush MutedAccentBrush,
-        SolidColorBrush OutlineBrush,
-        SolidColorBrush IconBackgroundBrush)
+    private delegate IntPtr WndProc(IntPtr hwnd, uint msg, IntPtr wParam, IntPtr lParam);
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    private struct WndClassEx
     {
-        public static TrophyVisual For(TrophyNotificationPayload payload)
+        public uint cbSize;
+        public uint style;
+        public IntPtr lpfnWndProc;
+        public int cbClsExtra;
+        public int cbWndExtra;
+        public IntPtr hInstance;
+        public IntPtr hIcon;
+        public IntPtr hCursor;
+        public IntPtr hbrBackground;
+        public string? lpszMenuName;
+        public string lpszClassName;
+        public IntPtr hIconSm;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct RectWin
+    {
+        public int Left;
+        public int Top;
+        public int Right;
+        public int Bottom;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct Margins
+    {
+        public int Left;
+        public int Right;
+        public int Top;
+        public int Bottom;
+
+        public Margins(int left, int right, int top, int bottom)
         {
-            var rarity = payload.Rarity != TrophyRarity.Unknown
-                ? payload.Rarity
-                : payload.IsPerfect ? TrophyRarity.Platinum
-                : payload.IsRare ? TrophyRarity.Gold
-                : TrophyRarity.Unknown;
-            var accent = rarity switch
-            {
-                TrophyRarity.Bronze => Color.FromArgb(255, 201, 130, 84),
-                TrophyRarity.Silver => Color.FromArgb(255, 191, 201, 212),
-                TrophyRarity.Gold => Color.FromArgb(255, 240, 199, 106),
-                TrophyRarity.Platinum => Color.FromArgb(255, 147, 221, 253),
-                _ => Color.FromArgb(255, 212, 215, 221),
-            };
-            return new TrophyVisual(
-                rarity,
-                accent,
-                new SolidColorBrush(accent),
-                new SolidColorBrush(Color.FromArgb(190, accent.R, accent.G, accent.B)),
-                new SolidColorBrush(Color.FromArgb(92, accent.R, accent.G, accent.B)),
-                new SolidColorBrush(Color.FromArgb(255,
-                    (byte)Math.Max(10, accent.R / 7),
-                    (byte)Math.Max(11, accent.G / 7),
-                    (byte)Math.Max(13, accent.B / 6))));
+            Left = left;
+            Right = right;
+            Top = top;
+            Bottom = bottom;
         }
     }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct DwmBlurBehind
+    {
+        public uint DwFlags;
+        public int FEnable;
+        public IntPtr HRgnBlur;
+        public int FTransitionOnMaximized;
+    }
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern ushort RegisterClassEx(ref WndClassEx lpwcx);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern IntPtr CreateWindowEx(
+        int dwExStyle,
+        string lpClassName,
+        string lpWindowName,
+        int dwStyle,
+        int x,
+        int y,
+        int nWidth,
+        int nHeight,
+        IntPtr hWndParent,
+        IntPtr hMenu,
+        IntPtr hInstance,
+        IntPtr lpParam);
+
+    [DllImport("user32.dll")]
+    private static extern bool DestroyWindow(IntPtr hwnd);
+
+    [DllImport("user32.dll")]
+    private static extern bool ShowWindow(IntPtr hwnd, int nCmdShow);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr DefWindowProc(IntPtr hwnd, uint msg, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("user32.dll")]
+    private static extern bool GetClientRect(IntPtr hwnd, out RectWin lpRect);
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
+    private static extern IntPtr GetModuleHandle(string? lpModuleName);
 
     [DllImport("user32.dll")]
     private static extern IntPtr GetForegroundWindow();
 
     [DllImport("dwmapi.dll")]
+    private static extern int DwmExtendFrameIntoClientArea(IntPtr hwnd, ref Margins margins);
+
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmEnableBlurBehindWindow(IntPtr hwnd, ref DwmBlurBehind blurBehind);
+
+    [DllImport("gdi32.dll")]
+    private static extern IntPtr CreateRectRgn(int x1, int y1, int x2, int y2);
+
+    [DllImport("gdi32.dll")]
+    private static extern int DeleteObject(IntPtr ho);
+
+    [DllImport("dwmapi.dll")]
     private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int valueSize);
+
+    [DllImport("dwmapi.dll", EntryPoint = "DwmSetWindowAttribute")]
+    private static extern int DwmSetWindowAttributeU32(IntPtr hwnd, int attribute, ref uint value, int valueSize);
 
     [DllImport("user32.dll")]
     private static extern uint GetDpiForWindow(IntPtr hwnd);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool SetWindowPos(IntPtr hwnd, IntPtr hwndInsertAfter, int x, int y, int cx, int cy, uint flags);
 
     [DllImport("user32.dll", EntryPoint = "GetWindowLong")]
     private static extern int GetWindowLong32(IntPtr hwnd, int index);

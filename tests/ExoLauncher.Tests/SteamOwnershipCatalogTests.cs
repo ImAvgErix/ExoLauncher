@@ -11,7 +11,10 @@ public sealed class SteamOwnershipCatalogTests
     public async Task RefreshAfterUninstall_PreservesProvenSteamOwnershipForSearchAndInstall()
     {
         var path = NewCatalogPath();
-        var adapter = new MutableSteamAdapter(InstalledSteamGame("424242", "Known Steam Game"));
+        var adapter = new MutableSteamAdapter(InstalledSteamGame("424242", "Known Steam Game"))
+        {
+            LastAuthoritativeOwnedAppIds = Owned("424242"),
+        };
         var catalog = new SteamOwnershipCatalog(path);
         var library = new LibraryService(
             new IStoreAdapter[] { adapter },
@@ -46,7 +49,10 @@ public sealed class SteamOwnershipCatalogTests
     public async Task RestartWithNoManifest_RecoversProvenSteamOwnershipFromDisk()
     {
         var path = NewCatalogPath();
-        var installed = new MutableSteamAdapter(InstalledSteamGame("515151", "Restart Proof"));
+        var installed = new MutableSteamAdapter(InstalledSteamGame("515151", "Restart Proof"))
+        {
+            LastAuthoritativeOwnedAppIds = Owned("515151"),
+        };
         var first = new LibraryService(
             new IStoreAdapter[] { installed },
             new SettingsService(),
@@ -54,7 +60,7 @@ public sealed class SteamOwnershipCatalogTests
         await first.GetLibraryAsync(force: true);
 
         var restarted = new LibraryService(
-            new IStoreAdapter[] { new MutableSteamAdapter() },
+            new IStoreAdapter[] { new MutableSteamAdapter { AccountScope = installed.AccountScope } },
             new SettingsService(),
             new SteamOwnershipCatalog(path));
         var games = await restarted.GetLibraryAsync(force: true);
@@ -66,11 +72,154 @@ public sealed class SteamOwnershipCatalogTests
     }
 
     [Fact]
+    public void RestoreMissing_DropsEntriesExcludedByAuthoritativeOwnershipSnapshot()
+    {
+        var path = NewCatalogPath();
+        var catalog = new SteamOwnershipCatalog(path);
+        catalog.RememberVerifiedInstalled(
+            "scope",
+            new[] { InstalledSteamGame("515151", "Refunded Proof") },
+            Owned("515151"));
+
+        var restored = catalog.RestoreMissing("scope", Array.Empty<GameEntry>(),
+            new HashSet<string>(StringComparer.Ordinal));
+
+        Assert.Empty(restored);
+    }
+
+    [Fact]
+    public async Task LibraryRefresh_DropsStaleManifestProofWhenAuthoritativeSnapshotExcludesIt()
+    {
+        var path = NewCatalogPath();
+        var adapter = new MutableSteamAdapter(InstalledSteamGame("717171", "Refunded Library Entry"))
+        {
+            LastAuthoritativeOwnedAppIds = Owned("717171"),
+        };
+        var library = new LibraryService(
+            new IStoreAdapter[] { adapter },
+            new SettingsService(),
+            new SteamOwnershipCatalog(path));
+
+        await library.GetLibraryAsync(force: true);
+        adapter.LastAuthoritativeOwnedAppIds = new HashSet<string>(StringComparer.Ordinal);
+        adapter.Games = Array.Empty<GameEntry>();
+        library.Invalidate();
+
+        var refreshed = await library.GetLibraryAsync(force: true);
+
+        Assert.DoesNotContain(refreshed, game => game.Id == "steam:717171");
+
+        // A later offline refresh must not resurrect a title already revoked by
+        // an authoritative empty snapshot.
+        var reloaded = new SteamOwnershipCatalog(path);
+        Assert.Empty(reloaded.RestoreMissing("scope-a", Array.Empty<GameEntry>()));
+    }
+
+    [Fact]
+    public async Task AuthoritativeExclusion_KeepsInstalledFilesButDoesNotClaimOwnershipOrDownload()
+    {
+        var adapter = new MutableSteamAdapter(InstalledSteamGame("818181", "Refunded But Installed"))
+        {
+            LastAuthoritativeOwnedAppIds = new HashSet<string>(StringComparer.Ordinal),
+        };
+        var library = new LibraryService(
+            new IStoreAdapter[] { adapter },
+            new SettingsService(),
+            new SteamOwnershipCatalog(NewCatalogPath()));
+
+        var game = Assert.Single(await library.GetLibraryAsync(force: true));
+
+        Assert.True(game.Installed);
+        Assert.False(game.Owned);
+        Assert.False(game.CanInstall);
+        Assert.Equal(EntitlementState.NotOwned, game.EntitlementState);
+        Assert.Equal("Buy again", game.Status);
+        Assert.Equal("none", game.PrimaryAction);
+    }
+
+    [Fact]
+    public async Task OwnershipUnavailable_KeepsInstalledFilesAsUnverifiedNotOwned()
+    {
+        var adapter = new MutableSteamAdapter(InstalledSteamGame("828282", "Offline Install"));
+        var library = new LibraryService(
+            new IStoreAdapter[] { adapter },
+            new SettingsService(),
+            new SteamOwnershipCatalog(NewCatalogPath()));
+
+        var game = Assert.Single(await library.GetLibraryAsync(force: true));
+
+        Assert.True(game.Installed);
+        Assert.False(game.Owned);
+        Assert.False(game.CanInstall);
+        Assert.Equal(EntitlementState.Unverified, game.EntitlementState);
+        Assert.Equal("Ownership unverified", game.Status);
+    }
+
+    [Fact]
+    public async Task SameAccountOffline_RestoresOnlyLastVerifiedOwnedTitle()
+    {
+        var path = NewCatalogPath();
+        var adapter = new MutableSteamAdapter(InstalledSteamGame("838383", "Same Account Proof"))
+        {
+            AccountScope = "scope-a",
+            LastAuthoritativeOwnedAppIds = Owned("838383"),
+        };
+        var first = new LibraryService(
+            new IStoreAdapter[] { adapter },
+            new SettingsService(),
+            new SteamOwnershipCatalog(path));
+        await first.GetLibraryAsync(force: true);
+
+        adapter.Games = Array.Empty<GameEntry>();
+        adapter.LastAuthoritativeOwnedAppIds = null;
+        var offline = new LibraryService(
+            new IStoreAdapter[] { adapter },
+            new SettingsService(),
+            new SteamOwnershipCatalog(path));
+
+        var restored = Assert.Single(await offline.GetLibraryAsync(force: true));
+        Assert.Equal("steam:838383", restored.Id);
+        Assert.True(restored.Owned);
+        Assert.True(restored.CanInstall);
+        Assert.Equal(EntitlementState.Owned, restored.EntitlementState);
+        Assert.Contains("last verified", restored.LaunchNote, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task AccountSwitch_DoesNotRestorePreviousAccountsVerifiedOwnership()
+    {
+        var path = NewCatalogPath();
+        var adapter = new MutableSteamAdapter(InstalledSteamGame("848484", "First Account Game"))
+        {
+            AccountScope = "scope-a",
+            LastAuthoritativeOwnedAppIds = Owned("848484"),
+        };
+        var first = new LibraryService(
+            new IStoreAdapter[] { adapter },
+            new SettingsService(),
+            new SteamOwnershipCatalog(path));
+        await first.GetLibraryAsync(force: true);
+
+        adapter.AccountScope = "scope-b";
+        adapter.Games = Array.Empty<GameEntry>();
+        adapter.LastAuthoritativeOwnedAppIds = null;
+        var switched = new LibraryService(
+            new IStoreAdapter[] { adapter },
+            new SettingsService(),
+            new SteamOwnershipCatalog(path));
+
+        Assert.Empty(await switched.GetLibraryAsync(force: true));
+    }
+
+    [Fact]
     public void CorruptPrimary_RecoversLastKnownGoodCatalogBackup()
     {
         var path = NewCatalogPath();
         var catalog = new SteamOwnershipCatalog(path);
-        catalog.RememberInstalled(new[] { InstalledSteamGame("626262", "Backup Proof") });
+        catalog.RememberVerifiedInstalled(
+            "legacy-unscoped",
+            new[] { InstalledSteamGame("626262", "Backup Proof") },
+            Owned("626262"));
         File.WriteAllText(path, "{ this is not valid json");
 
         var recovered = new SteamOwnershipCatalog(path);
@@ -87,59 +236,107 @@ public sealed class SteamOwnershipCatalogTests
     }
 
     [Fact]
-    public void RememberInstalled_KeepsManifestProofWhenSteamTicketIsMissing()
+    public void LegacyManifestOnlyCatalog_IsRejectedAndItsBackupIsReplacedAfterVerifiedWrite()
     {
         var path = NewCatalogPath();
-        var catalog = new SteamOwnershipCatalog(path);
-        catalog.RememberInstalled(new[]
-        {
-            new GameEntry
-            {
-                Id = "steam:424242",
-                Title = "Installed Without Ticket",
-                Store = StoreKind.Steam,
-                Installed = true,
-                Owned = false,
-                CanInstall = true,
-                LaunchTarget = "424242",
-            },
-        });
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        const string legacy = """
+            {"version":2,"games":[{"accountScope":"scope-a","appId":"636363","title":"Legacy Manifest Claim","sizeBytes":1}]}
+            """;
+        File.WriteAllText(path, legacy);
+        File.WriteAllText(path + ".bak", legacy);
 
-        var recovered = Assert.Single(catalog.RestoreMissing(Array.Empty<GameEntry>()));
-        Assert.Equal("steam:424242", recovered.Id);
-        Assert.True(recovered.Owned);
-        Assert.True(recovered.CanInstall);
-        Assert.False(recovered.Installed);
+        var catalog = new SteamOwnershipCatalog(path);
+        Assert.Empty(catalog.RestoreMissing("scope-a", Array.Empty<GameEntry>()));
+
+        catalog.RememberVerifiedInstalled(
+            "scope-a",
+            new[] { InstalledSteamGame("646464", "Verified Replacement") },
+            Owned("646464"));
+        File.WriteAllText(path, "{ corrupt primary");
+
+        var recovered = new SteamOwnershipCatalog(path);
+        var replacement = Assert.Single(
+            recovered.RestoreMissing("scope-a", Array.Empty<GameEntry>()));
+        Assert.Equal("steam:646464", replacement.Id);
     }
 
     [Fact]
-    public void RememberInstalled_DoesNotTrustUninstalledOrNonSteamEntries()
+    public void PruneToAuthoritative_RevocationAlsoUpdatesRecoveryBackup()
     {
         var path = NewCatalogPath();
         var catalog = new SteamOwnershipCatalog(path);
-        catalog.RememberInstalled(new[]
-        {
-            new GameEntry
+        catalog.RememberVerifiedInstalled(
+            "scope-a",
+            new[] { InstalledSteamGame("656565", "Refunded Before Corruption") },
+            Owned("656565"));
+        catalog.PruneToAuthoritative(
+            "scope-a",
+            new HashSet<string>(StringComparer.Ordinal));
+        File.WriteAllText(path, "{ corrupt primary");
+
+        var recovered = new SteamOwnershipCatalog(path);
+
+        Assert.Empty(recovered.RestoreMissing("scope-a", Array.Empty<GameEntry>()));
+    }
+
+    [Fact]
+    public void RememberVerifiedInstalled_DoesNotPromoteManifestHistoryExcludedBySnapshot()
+    {
+        var path = NewCatalogPath();
+        var catalog = new SteamOwnershipCatalog(path);
+        catalog.RememberVerifiedInstalled(
+            "legacy-unscoped",
+            new[]
             {
-                Id = "steam:737373",
-                Title = "Unproven Search Result",
-                Store = StoreKind.Steam,
-                Installed = false,
-                Owned = true,
-                CanInstall = true,
-                LaunchTarget = "737373",
+                new GameEntry
+                {
+                    Id = "steam:424242",
+                    Title = "Installed Without Current License",
+                    Store = StoreKind.Steam,
+                    Installed = true,
+                    Owned = true,
+                    CanInstall = true,
+                    LaunchTarget = "424242",
+                },
             },
-            new GameEntry
+            new HashSet<string>(StringComparer.Ordinal));
+
+        Assert.Empty(catalog.RestoreMissing(Array.Empty<GameEntry>()));
+        Assert.False(File.Exists(path));
+    }
+
+    [Fact]
+    public void RememberVerifiedInstalled_DoesNotTrustUninstalledOrNonSteamEntries()
+    {
+        var path = NewCatalogPath();
+        var catalog = new SteamOwnershipCatalog(path);
+        catalog.RememberVerifiedInstalled(
+            "legacy-unscoped",
+            new[]
             {
-                Id = "epic:not-steam",
-                Title = "Different Store",
-                Store = StoreKind.Epic,
-                Installed = true,
-                Owned = true,
-                CanInstall = true,
-                LaunchTarget = "not-steam",
+                new GameEntry
+                {
+                    Id = "steam:737373",
+                    Title = "Unproven Search Result",
+                    Store = StoreKind.Steam,
+                    Installed = false,
+                    Owned = true,
+                    CanInstall = true,
+                    LaunchTarget = "737373",
+                },
+                new GameEntry
+                {
+                    Id = "epic:not-steam",
+                    Title = "Different Store",
+                    Store = StoreKind.Epic,
+                    Installed = true,
+                    Owned = true,
+                    CanInstall = true,
+                    LaunchTarget = "not-steam",
+                },
             },
-        });
+            Owned("737373"));
 
         Assert.Empty(catalog.RestoreMissing(Array.Empty<GameEntry>()));
         Assert.False(File.Exists(path));
@@ -152,7 +349,10 @@ public sealed class SteamOwnershipCatalogTests
         Directory.CreateDirectory(Path.GetDirectoryName(blocker)!);
         File.WriteAllText(blocker, "this file deliberately blocks a child directory");
         var unwritableCatalogPath = Path.Combine(blocker, "steam-owned.json");
-        var adapter = new MutableSteamAdapter(InstalledSteamGame("848484", "Still Visible"));
+        var adapter = new MutableSteamAdapter(InstalledSteamGame("848484", "Still Visible"))
+        {
+            LastAuthoritativeOwnedAppIds = Owned("848484"),
+        };
         var library = new LibraryService(
             new IStoreAdapter[] { adapter },
             new SettingsService(),
@@ -168,7 +368,7 @@ public sealed class SteamOwnershipCatalogTests
 
         var restarted = new SteamOwnershipCatalog(unwritableCatalogPath);
         Assert.Contains(
-            restarted.RestoreMissing(Array.Empty<GameEntry>()),
+            restarted.RestoreMissing(adapter.AccountScope!, Array.Empty<GameEntry>()),
             game => game.Id == "steam:848484");
     }
 
@@ -215,9 +415,15 @@ public sealed class SteamOwnershipCatalogTests
         return Path.Combine(dir, "steam-owned.json");
     }
 
-    private sealed class MutableSteamAdapter(params GameEntry[] games) : IStoreAdapter, IInstalledSteamManifestSource
+    private static IReadOnlySet<string> Owned(params string[] appIds) =>
+        appIds.ToHashSet(StringComparer.Ordinal);
+
+    private sealed class MutableSteamAdapter(params GameEntry[] games) : IStoreAdapter, IInstalledSteamManifestSource, IAuthoritativeOwnershipSource, IStoreAccountScope
     {
         public IReadOnlyList<GameEntry> Games { get; set; } = games;
+        public IReadOnlySet<string>? LastAuthoritativeOwnedAppIds { get; set; }
+        public string? AccountScope { get; set; } = "scope-a";
+        public string? GetActiveAccountScope() => AccountScope;
         public StoreKind Store => StoreKind.Steam;
         public string Id => "steam";
         public string DisplayName => "Steam";

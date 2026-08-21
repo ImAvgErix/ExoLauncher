@@ -19,6 +19,7 @@
     <WindowsPackageType>None</WindowsPackageType>
     <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
     <PublishSelfContained>true</PublishSelfContained>
+    <PublishReadyToRun Condition="'$(Configuration)' == 'Release'">true</PublishReadyToRun>
     <ApplicationIcon Condition="Exists('Assets\ExoLauncher.ico')">Assets\ExoLauncher.ico</ApplicationIcon>
     <AssemblyName>ExoLauncher</AssemblyName>
     <Product>Exo Launcher</Product>
@@ -43,6 +44,10 @@
            predates a previous publish. -->
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
       <CopyToPublishDirectory>Always</CopyToPublishDirectory>
+    </Content>
+    <Content Include="..\ui\src\lib\trophyBannerDesign.json" Link="trophyBannerDesign.json" Condition="Exists('..\ui\src\lib\trophyBannerDesign.json')">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </Content>
     <Content Include="..\CHANGELOG.md" Link="CHANGELOG.md" Condition="Exists('..\CHANGELOG.md')">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
@@ -80,19 +85,12 @@
       <_SteamIpcPub>$(MSBuildThisFileDirectory)..\ExoLauncher.SteamIpc\bin\x64\$(Configuration)\net10.0-windows10.0.26100.0\win-x64\publish\</_SteamIpcPub>
       <_SteamIpcOut>$(OutDir)steam-ipc\</_SteamIpcOut>
     </PropertyGroup>
-    <MSBuild
-      Projects="$(MSBuildThisFileDirectory)..\ExoLauncher.SteamIpc\ExoLauncher.SteamIpc.csproj"
-      Targets="Publish"
-      Properties="Configuration=$(Configuration);Platform=x64;RuntimeIdentifier=win-x64;SelfContained=true;PublishDir=$(_SteamIpcPub)" />
+    <MSBuild Projects="$(MSBuildThisFileDirectory)..\ExoLauncher.SteamIpc\ExoLauncher.SteamIpc.csproj" Targets="Publish" Properties="Configuration=$(Configuration);Platform=x64;RuntimeIdentifier=win-x64;SelfContained=true;PublishDir=$(_SteamIpcPub)" />
     <MakeDir Directories="$(_SteamIpcOut)" />
     <ItemGroup>
       <_SteamIpcPubFiles Include="$(_SteamIpcPub)**\*.*" />
     </ItemGroup>
-    <Copy
-      SourceFiles="@(_SteamIpcPubFiles)"
-      DestinationFolder="$(_SteamIpcOut)%(RecursiveDir)"
-      SkipUnchangedFiles="true"
-      Condition="'@(_SteamIpcPubFiles)' != ''" />
+    <Copy SourceFiles="@(_SteamIpcPubFiles)" DestinationFolder="$(_SteamIpcOut)%(RecursiveDir)" SkipUnchangedFiles="true" Condition="'@(_SteamIpcPubFiles)' != ''" />
   </Target>
 
   <Target Name="PublishSteamIpc" AfterTargets="Publish" Condition="'$(DesignTimeBuild)' != 'true'">
@@ -100,18 +98,11 @@
       <_SteamIpcPub>$(MSBuildThisFileDirectory)..\ExoLauncher.SteamIpc\bin\x64\$(Configuration)\net10.0-windows10.0.26100.0\win-x64\publish\</_SteamIpcPub>
       <_ExoPubSteam>$([System.IO.Path]::GetFullPath('$(PublishDir)'))steam-ipc\</_ExoPubSteam>
     </PropertyGroup>
-    <MSBuild
-      Projects="$(MSBuildThisFileDirectory)..\ExoLauncher.SteamIpc\ExoLauncher.SteamIpc.csproj"
-      Targets="Publish"
-      Properties="Configuration=$(Configuration);Platform=x64;RuntimeIdentifier=win-x64;SelfContained=true;PublishDir=$(_SteamIpcPub)" />
+    <MSBuild Projects="$(MSBuildThisFileDirectory)..\ExoLauncher.SteamIpc\ExoLauncher.SteamIpc.csproj" Targets="Publish" Properties="Configuration=$(Configuration);Platform=x64;RuntimeIdentifier=win-x64;SelfContained=true;PublishDir=$(_SteamIpcPub)" />
     <MakeDir Directories="$(_ExoPubSteam)" />
     <ItemGroup>
       <_SteamIpcPubFiles Include="$(_SteamIpcPub)**\*.*" />
     </ItemGroup>
-    <Copy
-      SourceFiles="@(_SteamIpcPubFiles)"
-      DestinationFolder="$(_ExoPubSteam)%(RecursiveDir)"
-      SkipUnchangedFiles="true"
-      Condition="'@(_SteamIpcPubFiles)' != ''" />
+    <Copy SourceFiles="@(_SteamIpcPubFiles)" DestinationFolder="$(_ExoPubSteam)%(RecursiveDir)" SkipUnchangedFiles="true" Condition="'@(_SteamIpcPubFiles)' != ''" />
   </Target>
 </Project>

@@ -7,8 +7,7 @@ the mark stays optically balanced instead of leaning out of its box.
 
     python tools/make-logo.py
 
-Writes ui/public/{logo.png,favicon.png,favicon.svg} and
-ExoLauncher/Assets/ExoLauncher.ico. Vite copies ui/public into wwwroot.
+Writes ExoLauncher/Assets/ExoLauncher.ico.
 """
 from __future__ import annotations
 
@@ -68,27 +67,7 @@ def render(size: int) -> Image.Image:
     return img.resize((size, size), Image.LANCZOS)
 
 
-def svg() -> str:
-    paths = []
-    for bar in _bars():
-        pts = " ".join(f"{x:.2f},{y:.2f}" for x, y in bar)
-        paths.append(f'<polygon points="{pts}" fill="#F2F2F2"/>')
-    body = "".join(paths)
-    return (
-        f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {BOX:.0f} {BOX:.0f}">'
-        f'<rect width="{BOX:.0f}" height="{BOX:.0f}" rx="{CORNER:.0f}" fill="#050505"/>'
-        f"{body}</svg>\n"
-    )
-
-
 def main() -> None:
-    public = REPO / "ui" / "public"
-    public.mkdir(parents=True, exist_ok=True)
-
-    render(256).save(public / "logo.png")
-    render(32).save(public / "favicon.png")
-    (public / "favicon.svg").write_text(svg(), encoding="utf-8")
-
     ico_sizes = [16, 24, 32, 48, 64, 128, 256]
     frames = [render(s) for s in ico_sizes]
     assets = REPO / "ExoLauncher" / "Assets"
@@ -99,9 +78,6 @@ def main() -> None:
         sizes=[(s, s) for s in ico_sizes],
     )
 
-    print(f"logo.png     {public / 'logo.png'}")
-    print(f"favicon.png  {public / 'favicon.png'}")
-    print(f"favicon.svg  {public / 'favicon.svg'}")
     print(f"icon         {assets / 'ExoLauncher.ico'} ({ico_sizes})")
 
 

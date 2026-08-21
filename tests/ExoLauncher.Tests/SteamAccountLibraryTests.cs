@@ -22,7 +22,7 @@ public sealed class SteamAccountLibraryTests
     }
 
     [Fact]
-    public void UninstalledOwnedGames_AddsPlayableCacheTitlesWithoutManifests()
+    public void UninstalledOwnedGames_DoesNotPromoteLibraryCacheWithoutCurrentOwnership()
     {
         var names = new Dictionary<string, SteamAppInfoNames.Entry>(StringComparer.Ordinal)
         {
@@ -34,6 +34,28 @@ public sealed class SteamAccountLibraryTests
         var cache = new[] { "1085660", "123", "730", "999" };
 
         var games = SteamAccountLibrary.UninstalledOwnedGames(cache, present, names);
+
+        Assert.Empty(games);
+    }
+
+    [Fact]
+    public void UninstalledOwnedGames_AddsOnlyTitlesInAuthoritativeSnapshot()
+    {
+        var names = new Dictionary<string, SteamAppInfoNames.Entry>(StringComparer.Ordinal)
+        {
+            ["1085660"] = new("Destiny 2", "game"),
+            ["123"] = new("Cosmetic Pack", "dlc"),
+            ["730"] = new("Counter-Strike 2", "game"),
+        };
+        var present = new HashSet<string>(StringComparer.Ordinal) { "730" };
+        var cache = new[] { "1085660", "123", "730", "999" };
+        var authoritative = new HashSet<string>(StringComparer.Ordinal) { "1085660" };
+
+        var games = SteamAccountLibrary.UninstalledOwnedGames(
+            cache,
+            present,
+            names,
+            authoritative);
 
         var destiny = Assert.Single(games);
         Assert.Equal("steam:1085660", destiny.Id);

@@ -13,7 +13,12 @@ public static partial class SteamProtocol
         ulong.TryParse(appId, out var parsed) &&
         parsed > 0;
 
-    public static string RunGameUri(string appId) => $"steam://rungameid/{appId}";
+    public static string RunGameUri(string appId, string? extraArgs = null)
+    {
+        if (string.IsNullOrWhiteSpace(extraArgs))
+            return $"steam://rungameid/{appId}";
+        return $"steam://rungameid/{appId}//{Uri.EscapeDataString(extraArgs.Trim())}";
+    }
 
     public static string InstallUri(string appId) => $"steam://install/{appId}";
 
@@ -29,6 +34,15 @@ public static partial class SteamProtocol
 
     /// <summary>Asks a running (including -silent) Steam instance to show its main window.</summary>
     public static string OpenMainUri() => "steam://open/main";
+
+    public static string NewsUri(string appId) =>
+        $"steam://openurl/https://store.steampowered.com/news/app/{appId}";
+
+    public static string WorkshopUri(string appId) => $"steam://url/SteamWorkshopPage/{appId}";
+
+    public static string ScreenshotsUri() => "steam://open/screenshots";
+
+    public static string StorageSettingsUri() => "steam://settings/storage";
 
     public static string? MatchAcfField(string acf, string field)
     {

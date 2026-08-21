@@ -127,17 +127,14 @@ public sealed class OrchestratorCancelTests
         Assert.True(GetOk(orchestrator.Cancel()));
         Assert.True(orchestrator.IsBusy);
 
-        var blocked = await orchestrator.InstallAsync(secondGame).WaitAsync(TimeSpan.FromSeconds(2));
-        Assert.False(blocked.Ok);
-        Assert.Contains("another", blocked.Message, StringComparison.OrdinalIgnoreCase);
+        var queued = await orchestrator.InstallAsync(secondGame).WaitAsync(TimeSpan.FromSeconds(2));
+        Assert.True(queued.Ok);
+        Assert.True(queued.Queued);
         Assert.False(adapter.SecondStarted.Task.IsCompleted);
 
         adapter.ReleaseFirst.TrySetResult();
         var firstResult = await first.WaitAsync(TimeSpan.FromSeconds(2));
         Assert.False(firstResult.Ok);
-        Assert.False(orchestrator.IsBusy);
-
-        var second = orchestrator.InstallAsync(secondGame);
         await adapter.SecondStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
 
         try
@@ -151,8 +148,9 @@ public sealed class OrchestratorCancelTests
             adapter.ReleaseSecond.TrySetResult();
         }
 
-        var secondResult = await second.WaitAsync(TimeSpan.FromSeconds(2));
-        Assert.False(secondResult.Ok);
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(2);
+        while (orchestrator.CurrentProgress.Phase != InstallPhase.Cancelled && DateTime.UtcNow < deadline)
+            await Task.Delay(25);
         Assert.Equal(InstallPhase.Cancelled, orchestrator.CurrentProgress.Phase);
         Assert.Equal(secondGame.Id, orchestrator.CurrentProgress.GameId);
     }
@@ -206,6 +204,34 @@ public sealed class OrchestratorCancelTests
         adapter.ReleaseUpdate.TrySetResult();
         var updateResult = await update.WaitAsync(TimeSpan.FromSeconds(2));
         Assert.True(updateResult.Ok);
+    }
+
+    [Fact]
+    public async Task UninstallOfAnotherTitleWaitsUntilTheActiveJobFinishes()
+    {
+        var adapter = new ReplacementRaceAdapter();
+        var settings = SettingsWithoutAutomaticDependencies();
+        var orchestrator = new LaunchOrchestrator(
+            new IStoreAdapter[] { adapter },
+            settings,
+            new DependencyService());
+        var firstGame = CreateInstallableGame("local:first-uninstall-wait");
+        var secondGame = CreateInstallableGame("local:second-uninstall-wait");
+
+        var install = orchestrator.InstallAsync(firstGame);
+        await adapter.FirstStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        var uninstallTask = orchestrator.UninstallAsync(secondGame);
+        await Task.Delay(150);
+        Assert.False(uninstallTask.IsCompleted);
+
+        adapter.ReleaseFirst.TrySetResult();
+        var uninstall = await uninstallTask.WaitAsync(TimeSpan.FromSeconds(3));
+        var installed = await install.WaitAsync(TimeSpan.FromSeconds(3));
+
+        Assert.True(installed.Ok);
+        Assert.True(uninstall.Ok);
+        Assert.False(uninstall.Queued);
+        Assert.Equal("Removed.", uninstall.Message);
     }
 
     [Fact]
@@ -586,7 +612,7 @@ public sealed class OrchestratorCancelTests
             Task.FromResult(new LaunchResult { Ok = false, Message = "not used" });
 
         public Task<InstallResult> UninstallAsync(GameEntry game, CancellationToken ct = default) =>
-            Task.FromResult(new InstallResult { Ok = false, Message = "not used" });
+            Task.FromResult(new InstallResult { Ok = true, Message = "Removed." });
 
         public InstallProgress GetDownloadProgress(string gameId) =>
             new() { GameId = gameId, Phase = InstallPhase.Idle };

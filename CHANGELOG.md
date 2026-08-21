@@ -1,5 +1,218 @@
 # Changelog
 
+## 2.0.0 - 2026-08-21
+
+**Online identity, truthful libraries, and a launcher that stays out of the way.**
+
+- Added production Exo accounts with remote email/password authentication, DPAPI-protected desktop sessions, reserved handles, expressive profiles, avatar/banner/gallery media, privacy controls, direct friends, blocking, and presence that becomes unknown when providers are unavailable
+- Added server-authoritative profile badges and owner-only badge management while keeping roles and management capability out of public profile responses
+- Made store identity and entitlement state explicit so linked Steam, Epic, and GOG accounts cannot be reused by another Exo profile, refunds become **Buy again**, and unknown ownership never becomes a false Play action
+- Rebuilt artwork discovery and caching across library, profile, friends, and game detail surfaces with validated local overrides, refetch/report controls, high-resolution friend art, collision-safe cache keys, and resilient fallbacks
+- Expanded achievements with account-scoped Steam/Epic providers, retries, honest unavailable states, secure icon origins, expressive Exo notification themes, and a compact profile trophy cabinet
+- Hardened optional DLSS, FSR, and XeSS updates with signed-vendor validation, correct x64 PE export parsing, official-source preference, semantic version truth, persistent caches, safe restore, and neutral states for unusable destinations
+- Added a compact active Now dock, responsive virtualized libraries, smoother preloading, faster cached startup, cleaner search, game-detail title actions, controller navigation, and extensive accessibility/reduced-motion contracts
+- Deployed the Cloudflare exo-id Worker with D1, R2, per-user Durable Object presence, strict privacy/rate limits, and offline fail-open behavior for the local launcher
+
+Google sign-in and email magic links remain unavailable until real provider credentials are configured. Email/password accounts are live.
+
+## 1.0.103 - 2026-08-21
+
+**A useful Now dock instead of a decorative hero.**
+
+- Replaced the oversized landscape banner with a compact 112px active-state dock using a cached cover thumbnail
+- Added store, total playtime, transfer phase and speed where available while keeping one clear state action
+- Hid recent-only Now state so Pinned moves up whenever nothing is playing, transferring, or awaiting an update
+
+## 1.0.102 - 2026-08-21
+
+**Title-owned favorite and visible close control.**
+
+- Moved the game-detail favorite action beside the game title and removed its floating artwork overlay position
+- Increased close affordance size and icon contrast with a solid surface, stronger border/shadow, and clear hover/focus feedback
+
+## 1.0.101 - 2026-08-21
+
+**Full-bleed heroes without boxed-in details.**
+
+- Restored full-bleed Steam library heroes with a top-biased focal crop instead of visible side pillars
+- Removed the heavy stats card and outer utility container while retaining readable text shadows and compact individual button surfaces
+
+## 1.0.100 - 2026-08-21
+
+**Uncropped heroes and readable controls.**
+
+- Contained standard Steam library heroes over a blurred edge-fill in the ultra-wide home banner so faces and focal artwork stay visible
+- Reduced search to 96px resting and 184px focused, with its caret delayed until the 200ms expansion completes
+- Made detected but ineligible or unsupported upscalers neutral grey while preserving red only for usable outdated files
+- Added stable contrast plates to game stats and utility controls so bright banner artwork cannot wash out labels or buttons
+
+## 1.0.99 - 2026-08-21
+
+**Favorite controls belong in details.**
+
+- Removed the favorite star, hit target, hover behavior, keyboard focus path, and related styling from every library and pinned card
+- Kept the single favorite action in the game detail overlay
+
+## 1.0.98 - 2026-08-21
+
+**Unboxed favorites and visible hero art.**
+
+- Replaced the persistent black favorite badge with one floating, shadowed star and a transparent accessible hit target
+- Restored full-strength home hero artwork and brightened game, profile, and showcase banners while retaining localized text contrast
+
+## 1.0.97 - 2026-08-20
+
+**Trusted upscaler recovery and final visual fit.**
+
+- Fixed x64 PE export validation so genuine signed NVIDIA, AMD, and Intel upscaler DLLs pass provenance checks, with official-source preference and bounded persistent catalog and per-game status caches
+- Fixed real Legendary ownership caches containing null install sizes so Rocket League and other Epic entitlements remain playable, and made successful same-account background refreshes republish the library immediately
+- Refined the pinned shelf, card corners, single-layer favorite control, and title spacing; restored a visibly oval search capsule with a smooth reduced-motion-aware expansion
+- Removed the Profile Studio divider, tightened its spacing, and kept failed upscaler downloads retryable with readable error wrapping
+
+## 1.0.96 - 2026-08-20
+
+**Online authority, repaired artwork, and entitlement truth.**
+
+- Deployed server-authoritative owner/developer roles and fixed profile badges; Erix now has the exclusive Founder plus CEO and Developer badges, with a bounded owner-only community badge manager
+- Repaired the retained pinned-shelf offset, broken Friends preloader layout, cover-corner wedges, profile density, and the oval titlebar search with a smooth reduced-motion-aware reveal
+- Hardened profile/library art with exact origins, streamed byte limits, full decode validation, atomic promotion, collision-safe native keys, legacy-cache compatibility, and post-write pressure control
+- Made upscaler status compact and honest while requiring signed vendor identity, expected PE exports, embedded version agreement, byte equality, stale-restore protection, and fail-closed anti-cheat checks
+- Scoped achievements to the active provider account, required a complete matching Steam schema, redacted locked hidden data, and removed arbitrary remote icon loading
+- Added typed entitlement propagation across variants and disk cache so refunded/revoked games show **Buy again**, unknown ownership stays unavailable, and native launch/install/update paths fail closed
+- Deferred background store observers and trophy-WebView warming until the shell is visible, and restricted WebView local/image access to the minimum required origins
+
+## 1.0.95 - 2026-08-20
+
+**Readiness-driven startup and a complete profile viewport.**
+
+- Made the opening Exo mark represent real library readiness by decoding first-screen covers and prewarming installed-game upscaler status before revealing the shell
+- Cached DLSS, FSR, and XeSS status so game details open with their tool rows already populated
+- Added restrained search expansion without the white focus box, with an instant reduced-motion state
+- Moved the trophy cabinet beside the showcase and compacted game rows so profile achievements remain visible without scrolling at the standard window size
+
+## 1.0.94 - 2026-08-20
+
+**Reliable profile art and cleaner identity.**
+
+- Fixed lazy covers in hidden profile rooms exhausting their fallbacks before the browser requested them; all library art now waits until its tile approaches the viewport
+- Removed the redundant public handle line and its obsolete visibility control from the profile surface
+- Let profile-picker titles wrap fully and simplified the nested Activity statistics surface
+
+## 1.0.93 - 2026-08-20
+
+**A cleaner favorite and quieter game details.**
+
+- Removed catalog descriptions from the opened game surface while retaining store, genre, and year
+- Replaced the oversized layered favorite control with one compact 30 px surface and a clearer 15 px state glyph
+
+## 1.0.92 - 2026-08-20
+
+**Complete titles, expressive profiles, and stricter provider truth.**
+
+- Enlarged library cards and made the home surface cover-and-title only, with complete wrapped names and detail-owned store, genre, year, and description
+- Rebuilt the profile showcase around featured artwork, real achievement progress, a provider-backed trophy cabinet, and safer account-scoped achievement reads
+- Added Epic/Riot/Deadlock metadata fallbacks, corrected Riot's 2XKO mapping, and stopped install history or another account's cache from becoming ownership
+- Hardened upscaler downloads with vendor signature checks, improved WebView memory behavior, and removed forced termination of pre-existing store clients
+
+## 1.0.91 - 2026-08-20
+
+**Reachable shelves and warmer navigation.**
+
+- Fixed the pinned shelf starting offset that clipped the first game; added explicit previous/next controls so every pinned title is reachable
+- Kept card metadata on the cards, removed snap-induced horizontal clipping, and preserved consistent single-line title geometry
+- Preloaded Settings, Friends, Profile, and likely-next artwork behind the first shell paint so navigation does not start cold network work
+
+## 1.0.90 - 2026-08-20
+
+**Entitlement-safe installs and a bounded edge-case sweep.**
+
+- Steam owned-game snapshots now distinguish an authoritative empty library from a private/unavailable response, so refunded titles return to Buy instead of inheriting stale Download state
+- Cached manifest proof is pruned only after an authoritative account snapshot, and direct install bridge requests reject unowned titles
+- Hardened Steam JSON reads with bounded response bodies and tightened store-search ownership semantics so install capability never masquerades as entitlement
+- Friend activity cards now use warmed wide art with a portrait fallback, so Steam/Epic/Riot games do not collapse into blank banner slots
+
+## 1.0.89 - 2026-08-20
+
+**A skeptical social refresh and provider-ready identity.**
+
+- Kept the pinned shelf in one horizontal row, shared catalog metadata across shelves, and exposed full card metadata to assistive technology
+- Made social refreshes capability-isolated, removed the initial false outage flash, and added Steam portrait fallback for friend activity
+- Added honest Google/email-link readiness messaging and operator setup documentation without fabricating credentials
+- Added bounded, idempotent Resend delivery when email credentials are configured
+
+## 1.0.88 - 2026-08-20
+
+**Sharper cards, expressive profiles, and honest upscaler status.**
+
+- Cards now keep a single-line title and compact `Store · Genre · Year` metadata when official catalog data is available
+- Removed the redundant achievement progress bar and added Exo-specific flare/eclipse and nova/black-hole unlock effects
+- Moved dependency checks into About, reset search when leaving the library, and improved favorites and profile editor controls
+- Added drag reordering, eye visibility toggles, handle display privacy, richer showcase presentation, and corrected FSR 3.1 semantic version selection
+
+## 1.0.87 - 2026-08-20
+
+**Production Exo identity, reliable artwork, and a cleaner social surface.**
+
+- Deployed the production Exo ID Worker with D1 migrations for bounded profile GIF/gallery media and provider-scoped account uniqueness
+- Fixed wide cached hero/banner art being rejected on wide surfaces while keeping portrait cards poster-safe; stale lower-revision covers no longer overwrite refreshed art
+- Made profile identity changes debounce-save to the signed-in Exo account, with resilient avatar/banner fallbacks and high-quality friend/Steam artwork
+- Kept Steam `personastate=0` as authoritative Offline and unknown/private responses unavailable rather than falsely online
+- Widened and symmetrically padded title-bar search so the full placeholder remains visible
+
+## 1.0.86 - 2026-08-19
+
+**Faster large libraries, repairable artwork, and one calmer interaction system.**
+
+- Added native per-game Replace cover, Reset cover, Refetch artwork, and Report wrong art controls with strict PNG/JPEG validation, local content-addressed storage, grouped-card ownership, authoritative reset, and cache-version busting
+- Replaced paint-only containment with zero-dependency row virtualization: the main grid preserves exact height and keyed focus while mounting at most 99 cards at 1920×1080, even for 5,000-game libraries
+- Added honest local-only store diagnostics and retry: Amazon/Nile sessions are recognized, Steam ownership requires a readable account, and Epic/GOG download capability requires the actual helper instead of optimistic labels
+- Fixed stale global keyboard activation, added column-preserving grid navigation and F2 Pin/Unpin, and added conservative gamepad navigation that can open only explicitly safe views—never Play, Install, Update, Stop, Remove, dependency, purchase, account, or artwork actions
+- Scaled the native minimum window for display DPI, added Windows High Contrast and stronger focus rings, repaired radio/step focus behavior, announced real trophy overlays, moved progressbar semantics outside buttons, and added proper main landmarks
+- Made the Exo account form a real single-column flow with a quiet Sign in/Create account switch and one primary submit action; shared shell chrome now owns the final titlebar/button cascade
+- Reused parsed Steam playtime, kept the synchronous cover handler only as a virtual-host failure fallback, and added privacy-safe process-to-window startup timing plus a non-capturing restore callback
+- Kept Friends game art portrait-shaped, Steam `personastate=0` authoritative Offline, unknown/private Steam states Unknown, and avatar status textual rather than a presence circle
+
+## 1.0.85 - 2026-08-19
+
+**Optional email/password accounts, profiles, and friends—without putting the library behind an account.**
+
+- Deployed the optional exo-id stack with Better Auth, D1, R2 profile media, per-user hibernating Durable Object presence, hourly metadata cleanup, and a pinned HTTPS origin; disposable production smoke accounts were removed afterward
+- Added email/password account creation and sign-in: strict 12–128-character passwords, salted Scrypt hashes in D1, native-only DPAPI bearer sessions, exact 2 KiB auth bodies, and no password/hash/token returned to React
+- Added privacy-aware public profiles and sharing, reserved handles, direct requests, accepted friendships, removal suppression, blocking, verified Steam/Epic/GOG link contracts, and Steam/Epic mutual discovery
+- Kept bearer sessions native in DPAPI-protected storage; added viewer-scoped offline caches, bounded sanitized avatar/banner media, session-revalidated presence, provider capability detection, export, and fresh-auth account deletion
+- Wired online diagnostics, privacy, sessions, store links, requests, profiles, media, and presence into the existing React/WebView shell while preserving signed-out local/store fallbacks and never putting identity on Play, install, launch, or library scan paths
+- Restored portrait Friends art, preserved selected avatar/banner art through edits, made the profile rail/showcase responsive with an opaque editor header and readable activity stats, and fixed compact-titlebar search clipping
+- Removed avatar presence-dot overlays while retaining textual status; used Steam `lastlogoff` as evidence for Offline while keeping indeterminate/private rows unknown, session-revalidated, friend-only, and bounded
+- Made keyboard actions immediate, gated hover to fine pointers, honored reduced motion on continuous spinners, and removed redundant anti-cheat warning copy without weakening native refusal
+- Kept Google and email magic-link sign-in visibly unavailable without real provider credentials. Password-account emails are currently unverified, and password recovery is unavailable until real mail delivery exists
+
+## 1.0.82 - 2026-08-17
+
+**Native WinUI 3 shell. No React, no WebView2 UI.**
+
+- Home, Now, tiles, the 400px plate, settings, and first-run are XAML + C#. `ShellController` replaces JSON-RPC `WebHostBridge`.
+- `dotnet build` is the UI build. WebView2 remains for GOG login only.
+
+## 1.0.81 - 2026-08-15
+
+**One chrome house. Play and Apply actually click.**
+
+- First-run is for a stranger. Steam-only names Steam. Nothing names the next move (add a folder). Missing stores are not listed. Empty library does not send them to search.
+- Titlebar is the mark. No Exo / Launcher wordmark. Play lives on the game (hero, card, detail), not the chrome.
+- Settings is one column, not a catalog. Stores on this PC only. Achievement toast is 360x80, waits to be on screen before it animates, and Preview no longer lies when nothing showed.
+- tokens.css no longer forks winbtn size or hover. Cover virtualization matches the CSS grid. Empty-library and banner CTAs keep chrome height.
+- Settings and first-run wait for the real store list. They do not paint four fake Not installed rows.
+- Official-store Update/Install/Play that only opens the vendor client is a handoff, not Update complete.
+- Library grid no longer skip-jumps from content-visibility or a measure loop.
+- Search is not a store shelf. Unowned catalog hits stay off the live screen. Owned-not-installed sit under On your account, not Install. Public Steam catalog is not queried when Steam is missing. Settings says so when no store apps are on the PC.
+
+## 1.0.80 - 2026-08-15
+
+**Apply swaps what the title already ships. Play just launches.**
+
+- One Apply on the armed game fetches and swaps only DLSS / FSR / XeSS files that title already has. A DLSS-only install is not told to download the rest.
+- Play does not wait on the upscaler pack. Apply can fetch. XeSS and other latest labels only claim a real version.
+
 ## 1.0.79 - 2026-08-13
 
 **Closing a game no longer flashes Home.**
@@ -451,7 +664,7 @@
 
 **Exact game updates · honest achievements · Launcher-only focus.**
 
-- Removed Exo account, profile, profile-sync, and cloud playtime code from Launcher; Exo Link remains the owner of Exo social identity while Steam, Epic, GOG, and Riot authentication stays available
+- Removed the then-experimental Exo account, profile-sync, and cloud playtime code from that Launcher release while Steam, Epic, GOG, and Riot authentication stayed available
 - Replaced Steam's global Downloads action with an exact-app request plus a hidden, fail-closed scheduled-row promotion that requires the selected app ID, manifest title, unique OCR title row, and final queued-state check to agree before it can click
 - Stopped treating Steam's empty local `0 / 0` cache as proof that a game has no achievements; stale placeholders now refresh through Steam's own Community catalog while positive local progress remains preferred
 - Made the Update badge a high-contrast amber marker that remains readable over light or busy cover art
@@ -641,4 +854,3 @@ Phase 1 public release + polish pass.
 - Test fixture pollution filtered from Local library
 - Version pipeline aligned to 1.0.0
 - Phase-2 stubs no longer report false install/launch success
-

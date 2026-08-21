@@ -75,6 +75,16 @@ public interface IStoreAccountScope
 }
 
 /// <summary>
+/// Optional store capability: a current, authoritative entitlement snapshot.
+/// Null means the store could not verify ownership and historical local proof
+/// must remain an offline-safe fallback.
+/// </summary>
+public interface IAuthoritativeOwnershipSource
+{
+    IReadOnlySet<string>? LastAuthoritativeOwnedAppIds { get; }
+}
+
+/// <summary>
 /// An official desktop client that Exo can safely reveal on request. This is a
 /// presence/open contract only; it does not imply that Exo can read its library
 /// or drive installs, updates, achievements, or title launches.
@@ -83,6 +93,19 @@ public interface IOfficialStoreClient : IStoreClientPresence
 {
     IReadOnlyList<string> ClientProcessNames { get; }
     StoreClientLaunchCommand? GetClientLaunchCommand();
+}
+
+/// <summary>
+/// Optional file verify/repair for backends that already own that job
+/// (Steam validate, Legendary --repair, gogdl repair). Never used for Riot.
+/// </summary>
+public interface IStoreRepair
+{
+    bool CanRepair(GameEntry game);
+    Task<InstallResult> RepairAsync(
+        GameEntry game,
+        IProgress<InstallProgress>? progress,
+        CancellationToken ct = default);
 }
 
 /// <summary>Legacy alias used during discovery scans.</summary>
@@ -97,6 +120,9 @@ public sealed class LaunchOptions
     public bool CloseStoreUiAfterExit { get; init; } = true;
     public bool MinimizeStoreUi { get; init; } = true;
     public bool AntiCheatSafeMode { get; init; } = true;
+    public string? ExtraArgs { get; init; }
+    public string? WorkingDirectory { get; init; }
+    public bool RunAsAdmin { get; init; }
 }
 
 public sealed class AuthResult

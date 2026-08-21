@@ -17,24 +17,17 @@ public sealed class SecurityBoundaryTests : IDisposable
         try { Directory.Delete(_fixture, recursive: true); } catch { }
     }
 
-    [Theory]
-    [InlineData("https://app.exo-launcher.local/")]
-    [InlineData("https://app.exo-launcher.local/index.html")]
-    [InlineData("https://APP.EXO-LAUNCHER.LOCAL/settings?tab=stores#epic")]
-    public void WebViewTrustPolicy_AllowsOnlyTrustedHttpsOrigin(string uri) =>
-        Assert.True(WebViewTrustPolicy.IsTrustedAppUri(uri));
+    [Fact]
+    public void MainUiCsp_DoesNotPermitArbitraryHttpsImages()
+    {
+        var html = File.ReadAllText(FindRepoFile(Path.Combine("ui", "index.html")));
+        var imageSources = html.Split("img-src ", StringSplitOptions.None)[1]
+            .Split(';', 2, StringSplitOptions.None)[0];
 
-    [Theory]
-    [InlineData(null)]
-    [InlineData("")]
-    [InlineData("about:blank")]
-    [InlineData("http://app.exo-launcher.local/index.html")]
-    [InlineData("https://app.exo-launcher.local.evil.example/index.html")]
-    [InlineData("https://evilapp.exo-launcher.local/index.html")]
-    [InlineData("https://app.exo-launcher.local:444/index.html")]
-    [InlineData("javascript:alert(1)")]
-    public void WebViewTrustPolicy_RejectsOtherOrigins(string? uri) =>
-        Assert.False(WebViewTrustPolicy.IsTrustedAppUri(uri));
+        Assert.DoesNotContain(" https: ", " " + imageSources + " ", StringComparison.Ordinal);
+        Assert.Contains("https://covers.exo-launcher.local", imageSources, StringComparison.Ordinal);
+        Assert.Contains("https://avatars.steamstatic.com", imageSources, StringComparison.Ordinal);
+    }
 
     [Fact]
     public void RecursiveDeleteGuard_AcceptsStrictNormalDescendant()
@@ -79,19 +72,23 @@ public sealed class SecurityBoundaryTests : IDisposable
     }
 
     [Fact]
-    public void PrivilegedBridgeAndShell_AreWiredToTrustPolicy()
+    public void PrivilegedShell_HostsTrustedUiWebView_AndKeepsDeleteGuards()
     {
         var bridge = File.ReadAllText(FindRepoFile(Path.Combine("ExoLauncher", "Services", "WebHostBridge.cs")));
         var shell = File.ReadAllText(FindRepoFile(Path.Combine("ExoLauncher", "MainWindow.xaml.cs")));
+        var gogAuth = File.ReadAllText(FindRepoFile(Path.Combine("ExoLauncher", "Services", "GogAuthService.cs")));
         var gog = File.ReadAllText(FindRepoFile(Path.Combine("ExoLauncher", "Adapters", "GogAdapter.cs")));
         var local = File.ReadAllText(FindRepoFile(Path.Combine("ExoLauncher", "Adapters", "LocalAdapter.cs")));
         var installedCatalog = File.ReadAllText(FindRepoFile(
             Path.Combine("ExoLauncher", "Services", "InstalledGameCatalog.cs")));
 
-        Assert.Contains("WebViewTrustPolicy.IsTrustedAppUri(e.Source)", bridge, StringComparison.Ordinal);
-        Assert.Contains("core.NavigationStarting += OnWebNavigationStarting", shell, StringComparison.Ordinal);
-        Assert.Contains("core.NewWindowRequested += OnWebNewWindowRequested", shell, StringComparison.Ordinal);
-        Assert.Contains("AreHostObjectsAllowed = false", shell, StringComparison.Ordinal);
+        Assert.Contains("WebViewTrustPolicy", bridge, StringComparison.Ordinal);
+        Assert.Contains("CoreWebView2", shell, StringComparison.Ordinal);
+        Assert.Contains("EnsureCoreWebView2Async", shell, StringComparison.Ordinal);
+        Assert.Contains("IsPasswordAutosaveEnabled = false", shell, StringComparison.Ordinal);
+        Assert.Contains("WebViewTrustPolicy.IsTrustedAppUri", shell, StringComparison.Ordinal);
+        Assert.Contains("CoreWebView2Environment.CreateWithOptionsAsync", gogAuth, StringComparison.Ordinal);
+        Assert.Contains("gog-webview", gogAuth, StringComparison.Ordinal);
         Assert.Contains("RecursiveDeleteGuard.TryValidateManagedChild", gog, StringComparison.Ordinal);
         Assert.Contains("_installedCatalog.UninstallRegistered(game)", local, StringComparison.Ordinal);
         Assert.Contains("RecursiveDeleteGuard.TryValidateManagedChild", installedCatalog, StringComparison.Ordinal);

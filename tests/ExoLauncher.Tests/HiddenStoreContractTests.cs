@@ -52,6 +52,9 @@ public sealed class HiddenStoreContractTests
         Assert.DoesNotContain("BeginOffscreenAutomationWindow", steam + hider, StringComparison.Ordinal);
         Assert.DoesNotContain("s_offscreenAutomationWindows", hider, StringComparison.Ordinal);
         Assert.Contains("ShowWindow(hWnd, SwHide)", hider, StringComparison.Ordinal);
+        Assert.Contains("IsAgreementTitle", hider, StringComparison.Ordinal);
+        Assert.DoesNotContain("SteamEulaAcceptance", steam, StringComparison.Ordinal);
+        Assert.DoesNotContain("StoreAgreementPromptAutomator", steam, StringComparison.Ordinal);
         Assert.DoesNotContain("CaptureHost", csproj + sln, StringComparison.Ordinal);
         Assert.DoesNotContain("Vortice.Direct3D11", csproj, StringComparison.Ordinal);
         Assert.False(File.Exists(Path.Combine(root, "ExoLauncher", "Adapters", "SteamGpuCapture.cs")));
@@ -59,6 +62,8 @@ public sealed class HiddenStoreContractTests
         Assert.False(File.Exists(Path.Combine(root, "ExoLauncher", "Adapters", "SteamInstallDialogAutomator.cs")));
         Assert.False(File.Exists(Path.Combine(root, "ExoLauncher", "Adapters", "SteamTargetedQueuePromotionAutomator.cs")));
         Assert.False(File.Exists(Path.Combine(root, "ExoLauncher", "Adapters", "SteamUninstallPromptAutomator.cs")));
+        Assert.False(File.Exists(Path.Combine(root, "ExoLauncher", "Adapters", "SteamEulaAcceptance.cs")));
+        Assert.False(File.Exists(Path.Combine(root, "ExoLauncher", "Adapters", "StoreAgreementPromptAutomator.cs")));
         Assert.False(File.Exists(Path.Combine(root, "ExoLauncher.CaptureHost", "ExoLauncher.CaptureHost.csproj")));
     }
 
@@ -89,9 +94,11 @@ public sealed class HiddenStoreContractTests
         Assert.True(sessionRegistration >= 0 && sessionRegistration < unusedCleanup,
             "The active provider must be registered before sibling cleanup starts.");
         Assert.True(
-            orchestrator.Split("CloseUnusedStoreClientsAsync(game.Store)", StringSplitOptions.None).Length - 1 >= 2,
+            orchestrator.Split("CloseUnusedStoreClientsAsync(", StringSplitOptions.None).Length - 1 >= 2,
             "Install/update must also close unused store clients, not only Play.");
+        Assert.Contains("CloseUnusedStoreClientsAsync(currentGame.Store)", orchestrator, StringComparison.Ordinal);
         Assert.Contains("QuietKeptBackend", cleanup, StringComparison.Ordinal);
+        Assert.Contains("StoreClientActivity.ShouldKeepRunning", cleanup, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -187,6 +194,8 @@ public sealed class HiddenStoreContractTests
         Assert.Contains("HiddenStoreRuntime.IsStoreSurfaceSuppressed", hider, StringComparison.Ordinal);
         Assert.Contains("IsSuspended(StoreKind.Steam)", hider, StringComparison.Ordinal);
         Assert.Contains("ForSteam() =>", hider, StringComparison.Ordinal);
+        Assert.Contains("ForEa() =>", hider, StringComparison.Ordinal);
+        Assert.Contains("ForXbox() =>", hider, StringComparison.Ordinal);
         Assert.Contains("!IsTrackedProcess(pid)", hider, StringComparison.Ordinal);
         Assert.Contains("StoreWindowHider.ForAllStoreChrome", runtime, StringComparison.Ordinal);
         Assert.Contains("_windowGuard.StartUntilStopped", runtime, StringComparison.Ordinal);
@@ -198,13 +207,18 @@ public sealed class HiddenStoreContractTests
         Assert.Contains("StoreWindowHider.BattleNetClientProcessNames", runtime, StringComparison.Ordinal);
         Assert.Contains("StoreWindowHider.AmazonClientProcessNames", runtime, StringComparison.Ordinal);
         Assert.Contains("StoreWindowHider.RockstarClientProcessNames", runtime, StringComparison.Ordinal);
+        Assert.Contains("StoreWindowHider.ItchClientProcessNames", runtime, StringComparison.Ordinal);
+        Assert.Contains("StoreWindowHider.MinecraftClientProcessNames", runtime, StringComparison.Ordinal);
+        Assert.Contains("StoreWindowHider.RobloxClientProcessNames", runtime, StringComparison.Ordinal);
+        Assert.Contains("StoreWindowHider.ParadoxClientProcessNames", runtime, StringComparison.Ordinal);
+        Assert.Contains("StoreWindowHider.WargamingClientProcessNames", runtime, StringComparison.Ordinal);
     }
 
     [Fact]
     public void ExplicitOfficialClientOpenNeverRestoresRockstarSupportProcesses()
     {
         var bridge = File.ReadAllText(FindRepoFile(
-            Path.Combine("ExoLauncher", "Services", "WebHostBridge.cs")));
+            Path.Combine("ExoLauncher", "Services", "ShellController.cs")));
         var openStart = bridge.IndexOf("private object OpenOfficialClient", StringComparison.Ordinal);
         var openEnd = bridge.IndexOf("private static string[] OfficialClientUiProcessNames", StringComparison.Ordinal);
         var officialOpen = bridge[openStart..openEnd];
@@ -217,6 +231,30 @@ public sealed class HiddenStoreContractTests
             StringComparison.Ordinal);
         Assert.DoesNotContain("RockstarService", processMap, StringComparison.Ordinal);
         Assert.DoesNotContain("SocialClubHelper", processMap, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Adding a <see cref="StoreKind"/> without extending both Settings switches
+    /// leaves the store visible in the library but "Unknown store." on Open.
+    /// </summary>
+    [Fact]
+    public void EveryOfficialClientStoreIsReachableFromSettingsOpen()
+    {
+        // Local has no vendor client; Steam/Epic/GOG/Riot resolve their own executables.
+        StoreKind[] dedicated = [StoreKind.Local, StoreKind.Steam, StoreKind.Epic, StoreKind.Gog, StoreKind.Riot];
+        var bridge = File.ReadAllText(FindRepoFile(Path.Combine("ExoLauncher", "Services", "WebHostBridge.cs")));
+        var shell = File.ReadAllText(FindRepoFile(Path.Combine("ExoLauncher", "Services", "ShellController.cs")));
+
+        foreach (var kind in Enum.GetValues<StoreKind>().Except(dedicated))
+        {
+            var open = $"OpenOfficialClient(\"{kind.ToString().ToLowerInvariant()}\", StoreKind.{kind},";
+            var names = $"StoreKind.{kind} => StoreWindowHider.{kind}ClientProcessNames";
+            foreach (var source in new[] { bridge, shell })
+            {
+                Assert.Contains(open, source, StringComparison.Ordinal);
+                Assert.Contains(names, source, StringComparison.Ordinal);
+            }
+        }
     }
 
     private static string FindRepoFile(string relative)

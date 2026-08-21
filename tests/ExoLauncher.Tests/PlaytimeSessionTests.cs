@@ -147,6 +147,58 @@ public sealed class PlaytimeSessionTests
     }
 
     [Fact]
+    public void RiotLastPlayed_ReadsQuotedAndUnquotedSessionTimestamps()
+    {
+        var map = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase);
+        RiotLastPlayed.ReadLastSessionBlock(
+            """
+            install:
+                last-session-timestamp:
+                    league_of_legends.live: 1700000000
+                    valorant.live: "1700003600"
+                patch-notes:
+                    valorant.live:
+                        ignored: 1
+            """,
+            map);
+
+        Assert.Equal(DateTimeOffset.FromUnixTimeSeconds(1700000000), map["league_of_legends"]);
+        Assert.False(map.ContainsKey("lion"));
+        Assert.Equal(DateTimeOffset.FromUnixTimeSeconds(1700003600), map["valorant"]);
+    }
+
+    [Fact]
+    public void RiotLastPlayed_ReadsNestedProductBlocksAndMillisecondTimestamps()
+    {
+        var map = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase);
+        RiotLastPlayed.ReadLastSessionBlock(
+            """
+            install:
+                last-session-timestamp:
+                    valorant:
+                        live: 1700003600000
+                    bacon:
+                        live: '1700000000'
+                launcher_server.enabled: true
+            """,
+            map);
+
+        Assert.Equal(DateTimeOffset.FromUnixTimeMilliseconds(1700003600000), map["valorant"]);
+        Assert.Equal(DateTimeOffset.FromUnixTimeSeconds(1700000000), map["bacon"]);
+    }
+
+    [Fact]
+    public void EpicEglLastPlayed_ParsesLauncherLastPlayedGameLine()
+    {
+        Assert.True(EpicEglLastPlayed.TryParseLastPlayedGame(
+            "9773aa1aa54f4f7b80e44bef04986cea:530145df28a24424923f5828cc9031a1:Sugar,2026-08-12T20:12:55.789Z",
+            out var app,
+            out var when));
+        Assert.Equal("Sugar", app);
+        Assert.Equal(DateTimeOffset.Parse("2026-08-12T20:12:55.789Z"), when);
+    }
+
+    [Fact]
     public void PlaytimeService_EndSession_PersistsMinutes()
     {
         var id = "riot:playtime-fixture-" + Guid.NewGuid().ToString("N")[..8];
@@ -177,40 +229,83 @@ public sealed class PlaytimeSessionTests
     }
 
     [Fact]
-    public void RocketLeague_CombinesDistinctEpicAndSteamStoreHistories()
+    public void PlaytimeService_BeginSession_StampsLastPlayedBeforeAnyMinutesExist()
     {
-        var games = new List<Models.GameEntry>
+        var suffix = Guid.NewGuid().ToString("N")[..8];
+        var id = "epic:launch-stamp-fixture-" + suffix;
+        var beforeLaunch = DateTimeOffset.UtcNow.AddSeconds(-1);
+
+        PlaytimeService.BeginSession(id);
+        try
         {
-            new()
+            var enriched = PlaytimeService.Enrich(
+            [
+                new Models.GameEntry
+                {
+                    Id = id,
+                    Title = "Launch stamp fixture " + suffix,
+                    Store = Models.StoreKind.Epic,
+                    Installed = true,
+                    LaunchTarget = id["epic:".Length..],
+                    PlaytimeMinutes = 120,
+                    // The reading the store had before this launch. Exo used to
+                    // publish it right after Play and claim "5h ago".
+                    LastPlayedUtc = DateTimeOffset.UtcNow.AddHours(-5),
+                },
+            ]);
+
+            Assert.True(enriched[0].LastPlayedUtc >= beforeLaunch);
+            // A started session is not credited time. The vendor counter stands.
+            Assert.Equal(120, enriched[0].PlaytimeMinutes);
+        }
+        finally
+        {
+            PlaytimeService.CancelSession(id);
+        }
+    }
+
+    [Fact]
+    public void PlaytimeService_IgnoresAStoreTimestampAheadOfTheClock()
+    {
+        var suffix = Guid.NewGuid().ToString("N")[..8];
+        var enriched = PlaytimeService.Enrich(
+        [
+            new Models.GameEntry
             {
-                Id = "epic:Sugar",
-                Title = "Rocket League",
-                Store = Models.StoreKind.Epic,
-                Installed = true,
-                LaunchTarget = "Sugar",
-                PlaytimeMinutes = 11_307,
-            },
-            new()
-            {
-                Id = "steam:252950",
-                Title = "Rocket League",
+                Id = "steam:4000010",
+                Title = "Future stamp fixture " + suffix,
                 Store = Models.StoreKind.Steam,
-                Installed = false,
-                LaunchTarget = "252950",
-                // Must not be counted twice when Steam's VDF has the same value.
-                PlaytimeMinutes = 2_500,
+                Installed = true,
+                LaunchTarget = "4000010",
+                // Epic's launcher stamps local wall-clock with a Z suffix, so
+                // east of UTC its last-played lands ahead of the clock.
+                LastPlayedUtc = DateTimeOffset.UtcNow.AddHours(3),
             },
-        };
-        var steam = new Dictionary<string, SteamPlaytime.Entry>(StringComparer.Ordinal)
-        {
-            ["252950"] = new(2_500, null),
-        };
+        ]);
 
-        var total = PlaytimeService.CombineRocketLeagueStoreMinutes(games, steam);
+        Assert.Null(enriched[0].LastPlayedUtc);
+    }
 
-        Assert.Equal(13_807, total);
-        Assert.True(PlaytimeService.IsRocketLeague(games[0]));
-        Assert.True(PlaytimeService.IsRocketLeague(games[1]));
+    [Fact]
+    public void PlaytimeService_LeavesAStoreItCannotReadWithoutHours()
+    {
+        var suffix = Guid.NewGuid().ToString("N")[..8];
+        var enriched = PlaytimeService.Enrich(
+        [
+            new Models.GameEntry
+            {
+                Id = "steam:4000009",
+                Title = "Unreadable store fixture " + suffix,
+                Store = Models.StoreKind.Steam,
+                Installed = true,
+                LaunchTarget = "4000009",
+            },
+        ]);
+
+        // No localconfig entry, no Exo session: nothing is known, so nothing is
+        // claimed. A zero here would read as "never played".
+        Assert.Null(enriched[0].PlaytimeMinutes);
+        Assert.Null(enriched[0].LastPlayedUtc);
     }
 
     [Fact]
@@ -378,5 +473,85 @@ public sealed class PlaytimeSessionTests
                          "exo-imported-lifetime.json.*.tmp"))
                 File.Delete(temporary);
         }
+    }
+
+    [Fact]
+    public void PlaytimeService_EnrichTwice_ReturnsTheSameMinutes()
+    {
+        var suffix = Guid.NewGuid().ToString("N")[..8];
+        Models.GameEntry[] games =
+        [
+            new Models.GameEntry
+            {
+                Id = "epic:enrich-twice-" + suffix,
+                Title = "Enrich twice " + suffix,
+                Store = Models.StoreKind.Epic,
+                Installed = true,
+                LaunchTarget = "enrich-twice-" + suffix,
+                PlaytimeMinutes = 11_837,
+            },
+        ];
+
+        var first = PlaytimeService.Enrich(games);
+        var second = PlaytimeService.Enrich(games);
+
+        Assert.Equal(11_837, first[0].PlaytimeMinutes);
+        Assert.Equal(first[0].PlaytimeMinutes, second[0].PlaytimeMinutes);
+    }
+
+    [Fact]
+    public void PlaytimeService_LocalVersusUtcLastPlayed_DoesNotChangeMinutes()
+    {
+        var suffix = Guid.NewGuid().ToString("N")[..8];
+        var local = new DateTimeOffset(2026, 8, 18, 19, 20, 33, TimeSpan.FromHours(-5));
+        var utc = local.ToUniversalTime();
+        Assert.Equal(local.UtcTicks, utc.UtcTicks);
+
+        Models.GameEntry Game(DateTimeOffset lastPlayed) => new()
+        {
+            Id = "epic:offset-minutes-" + suffix,
+            Title = "Offset minutes " + suffix,
+            Store = Models.StoreKind.Epic,
+            Installed = true,
+            LaunchTarget = "offset-minutes-" + suffix,
+            PlaytimeMinutes = 11_837,
+            LastPlayedUtc = lastPlayed,
+        };
+
+        var fromLocal = PlaytimeService.Enrich([Game(local)]);
+        var fromUtc = PlaytimeService.Enrich([Game(utc)]);
+
+        Assert.Equal(11_837, fromLocal[0].PlaytimeMinutes);
+        Assert.Equal(11_837, fromUtc[0].PlaytimeMinutes);
+        Assert.Equal(fromLocal[0].PlaytimeMinutes, fromUtc[0].PlaytimeMinutes);
+    }
+
+    [Fact]
+    public void PlaytimeService_SessionLength_UsesTheInstantNotTheWallClockOffset()
+    {
+        var id = "epic:offset-session-" + Guid.NewGuid().ToString("N")[..8];
+        PlaytimeService.BeginSession(id);
+        var active = (System.Collections.Concurrent.ConcurrentDictionary<string, DateTimeOffset>)
+            typeof(PlaytimeService)
+                .GetField("ActiveSessions", System.Reflection.BindingFlags.NonPublic |
+                    System.Reflection.BindingFlags.Static)!
+                .GetValue(null)!;
+        var endedAt = DateTimeOffset.UtcNow;
+        active[id] = endedAt.AddMinutes(-90).ToOffset(TimeSpan.FromHours(-5));
+        PlaytimeService.EndSession(id);
+
+        var enriched = PlaytimeService.Enrich(
+        [
+            new Models.GameEntry
+            {
+                Id = id,
+                Title = "Offset session",
+                Store = Models.StoreKind.Epic,
+                Installed = true,
+                LaunchTarget = id["epic:".Length..],
+            },
+        ]);
+
+        Assert.Equal(90, enriched[0].PlaytimeMinutes);
     }
 }

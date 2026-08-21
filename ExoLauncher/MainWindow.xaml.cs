@@ -27,9 +27,13 @@ public sealed partial class MainWindow : Window
     private const int MinWindowWidth = 1100;
     private const int MinWindowHeight = 700;
     private const int TitleBarDragDip = 52;
-    private const int TitleBarLogoPassthroughDip = 56;
-    private const int TitleBarActionsPassthroughDip = 184;
-    private const int TitleBarSearchPassthroughDip = 248;
+    private const int TitleBarLogoPassthroughDip = 280;
+    private const int TitleBarActionsPassthroughDip = 176;
+    // The search pill is centered in the titlebar, so it needs its own
+    // passthrough band. Without it the caption sink eats clicks on the field.
+    // Covers the focused/query width; the resting web pill is intentionally narrower.
+    private const int TitleBarSearchPassthroughDip = 184;
+    private const int TitleBarSearchHeightDip = 32;
 
     private readonly CancellationTokenSource _lifetimeCts = new();
     private readonly Stopwatch _startupStopwatch = Stopwatch.StartNew();
@@ -87,7 +91,7 @@ public sealed partial class MainWindow : Window
         }
         catch { }
 
-        try { SetTitleBar(AppTitleBar); } catch { }
+        try { AppTitleBar.IsHitTestVisible = false; } catch { }
         try { UpdateCaptionDragRegions(); } catch { }
 
         try { AppWindow.Changed += OnAppWindowChanged; } catch { }
@@ -99,6 +103,7 @@ public sealed partial class MainWindow : Window
         {
             _trophyPresenter = new TrophyNotificationPresenter(DispatcherQueue);
             App.Services.TrophyNotifications.Requested += OnTrophyNotificationRequested;
+            TryCaptureTrophyBanners();
             // The native presenter is ready. Pending deliveries will refresh
             // and replay only for the currently verified provider account.
             _ = Task.Run(App.Services.ReplayPendingAchievementNotificationsAsync);
@@ -128,6 +133,21 @@ public sealed partial class MainWindow : Window
             App.Services.Settings.Flush();
             App.MainAppWindow = null;
         };
+    }
+
+    private void TryCaptureTrophyBanners()
+    {
+        var request = Environment.GetEnvironmentVariable("EXO_TROPHY_CAPTURE");
+        if (string.IsNullOrWhiteSpace(request)) return;
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            foreach (var part in request.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                var rarity = TrophyBannerDesign.ParseRarity(part);
+                if (rarity == TrophyRarity.Unknown) continue;
+                App.Services.TrophyNotifications.Preview(null, null, null, rarity, null);
+            }
+        });
     }
 
     private void OnTrophyNotificationRequested(TrophyNotificationRequest request)
@@ -216,37 +236,13 @@ public sealed partial class MainWindow : Window
         {
             try
             {
-                // Opt-in DOM eyes for Aether: EXO_CDP=1 → WebView2 --remote-debugging-port=9229
-                var cdp = Environment.GetEnvironmentVariable("EXO_CDP")
-                    ?? Environment.GetEnvironmentVariable("EXOOS_CDP")
-                    ?? Environment.GetEnvironmentVariable("AETHER_CDP");
-                if (string.Equals(cdp, "1", StringComparison.OrdinalIgnoreCase)
-                    || string.Equals(cdp, "true", StringComparison.OrdinalIgnoreCase))
-                {
-                    var args = Environment.GetEnvironmentVariable("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS") ?? "";
-                    if (!args.Contains("remote-debugging-port", StringComparison.OrdinalIgnoreCase))
-                    {
-                        var port = Environment.GetEnvironmentVariable("EXO_CDP_PORT") ?? "9229";
-                        var add = $"--remote-debugging-port={port}";
-                        Environment.SetEnvironmentVariable(
-                            "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS",
-                            string.IsNullOrWhiteSpace(args) ? add : $"{args} {add}");
-                    }
-                }
-
-                // Keep WebView state outside the replaceable application tree.
-                // Otherwise a short-lived Edge child can hold the previous
-                // version's app folder open during an atomic installer swap.
-                var webViewUserData = Path.Combine(PathHelper.AppDataDir, "webview");
-                var webViewEnvironment = await CoreWebView2Environment.CreateWithOptionsAsync(
-                    browserExecutableFolder: null,
-                    userDataFolder: webViewUserData,
-                    options: new CoreWebView2EnvironmentOptions());
+                var webViewEnvironment = await WebViewEnvironmentFactory.GetAsync();
                 await WebHost.EnsureCoreWebView2Async(webViewEnvironment);
                 LogStartupMilestone("webview-core-ready");
             }
-            catch
+            catch (Exception ex)
             {
+                AppLog.Warn($"webview-init-failed: {ex.Message}");
                 ShowWebFallback();
                 _ensureWebTask = null;
                 return;
@@ -283,9 +279,10 @@ public sealed partial class MainWindow : Window
             core.Settings.IsStatusBarEnabled = false;
             core.Settings.AreDefaultContextMenusEnabled = false;
             core.Settings.IsZoomControlEnabled = false;
+            try { core.Settings.IsPasswordAutosaveEnabled = false; } catch { }
             try { core.Settings.IsWebMessageEnabled = true; } catch { }
             try { core.Settings.AreHostObjectsAllowed = false; } catch { }
-            try { core.MemoryUsageTargetLevel = CoreWebView2MemoryUsageTargetLevel.Low; } catch { }
+            try { core.MemoryUsageTargetLevel = CoreWebView2MemoryUsageTargetLevel.Normal; } catch { }
 #if DEBUG
             try { core.Settings.AreDevToolsEnabled = true; } catch { }
 #else
@@ -295,30 +292,37 @@ public sealed partial class MainWindow : Window
             core.SetVirtualHostNameToFolderMapping(
                 WebViewTrustPolicy.TrustedAppHost,
                 www,
-                CoreWebView2HostResourceAccessKind.Allow);
+                CoreWebView2HostResourceAccessKind.DenyCors);
 
             core.NavigationStarting += OnWebNavigationStarting;
             core.NewWindowRequested += OnWebNewWindowRequested;
 
-            // Local covers via virtual host + explicit resource handler (belt and suspenders).
+            // Virtual-folder mapping is the fast path. The explicit handler is
+            // retained only as a startup fallback; intercepting every mapped
+            // image would synchronously read cover bytes on the UI thread.
+            var coverVirtualHostMapped = false;
             try
             {
                 Directory.CreateDirectory(Services.CoverArtService.CacheRoot);
                 core.SetVirtualHostNameToFolderMapping(
                     Services.CoverArtService.VirtualHost,
                     Services.CoverArtService.CacheRoot,
-                    CoreWebView2HostResourceAccessKind.Allow);
+                    CoreWebView2HostResourceAccessKind.DenyCors);
+                coverVirtualHostMapped = true;
             }
             catch { /* handler below still serves covers */ }
 
-            try
+            if (!coverVirtualHostMapped)
             {
-                core.AddWebResourceRequestedFilter(
-                    $"https://{Services.CoverArtService.VirtualHost}/*",
-                    CoreWebView2WebResourceContext.All);
-                core.WebResourceRequested += CoverResourceRequested;
+                try
+                {
+                    core.AddWebResourceRequestedFilter(
+                        $"https://{Services.CoverArtService.VirtualHost}/*",
+                        CoreWebView2WebResourceContext.All);
+                    core.WebResourceRequested += CoverResourceRequested;
+                }
+                catch { /* virtual host alone may still work */ }
             }
-            catch { /* virtual host alone may still work */ }
 
             try { _bridge?.Detach(); } catch { }
             _bridge = new WebHostBridge(App.Services, DispatcherQueue);
@@ -370,7 +374,10 @@ public sealed partial class MainWindow : Window
         WebBootPanel.Visibility = Visibility.Collapsed;
         WebViewFallback.Visibility = Visibility.Collapsed;
         WebHost.Visibility = Visibility.Visible;
+        UpdateCaptionDragRegions();
         LogStartupMilestone("webview-visible");
+        App.Services.StartDeferredServices();
+        _trophyPresenter?.Warm();
     }
 
     private void LogStartupMilestone(string milestone) =>
@@ -381,6 +388,8 @@ public sealed partial class MainWindow : Window
         WebBootPanel.Visibility = Visibility.Collapsed;
         WebHost.Visibility = Visibility.Collapsed;
         WebViewFallback.Visibility = Visibility.Visible;
+        App.Services.StartDeferredServices();
+        WebViewRestartButton.Focus(FocusState.Programmatic);
     }
 
     private void WebViewRestartButton_Click(object sender, RoutedEventArgs e)
@@ -432,11 +441,11 @@ public sealed partial class MainWindow : Window
         try
         {
             var uri = e.Request.Uri;
-            if (string.IsNullOrWhiteSpace(uri) ||
-                !uri.Contains(Services.CoverArtService.VirtualHost, StringComparison.OrdinalIgnoreCase))
+            if (!Uri.TryCreate(uri, UriKind.Absolute, out var u) ||
+                !string.Equals(u.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase) ||
+                !string.Equals(u.IdnHost, Services.CoverArtService.VirtualHost, StringComparison.OrdinalIgnoreCase) ||
+                u.Port != 443 || !string.IsNullOrEmpty(u.UserInfo) || !string.IsNullOrEmpty(u.Fragment))
                 return;
-
-            if (!Uri.TryCreate(uri, UriKind.Absolute, out var u)) return;
             var name = Uri.UnescapeDataString(u.AbsolutePath.TrimStart('/'));
             if (string.IsNullOrWhiteSpace(name) || name.Contains("..", StringComparison.Ordinal) ||
                 name.Contains('/') || name.Contains('\\'))
@@ -455,13 +464,14 @@ public sealed partial class MainWindow : Window
             var ms = new MemoryStream(bytes, writable: false);
             var contentType = path.EndsWith(".png", StringComparison.OrdinalIgnoreCase) ? "image/png"
                 : path.EndsWith(".webp", StringComparison.OrdinalIgnoreCase) ? "image/webp"
+                : path.EndsWith(".gif", StringComparison.OrdinalIgnoreCase) ? "image/gif"
                 : "image/jpeg";
 
             e.Response = sender.Environment.CreateWebResourceResponse(
                 ms.AsRandomAccessStream(),
                 200,
                 "OK",
-                $"Content-Type: {contentType}\r\nContent-Length: {bytes.Length}\r\nAccess-Control-Allow-Origin: *\r\nCache-Control: public, max-age=86400\r\n");
+                $"Content-Type: {contentType}\r\nContent-Length: {bytes.Length}\r\nX-Content-Type-Options: nosniff\r\nCache-Control: public, max-age=86400\r\n");
         }
         catch
         {
@@ -487,9 +497,15 @@ public sealed partial class MainWindow : Window
 
     private void OnAppWindowChanged(AppWindow sender, AppWindowChangedEventArgs args)
     {
-        if (!args.DidPresenterChange && !args.DidSizeChange) return;
-        _bridge?.NotifyWindowState(IsMaximized);
-        if (args.DidSizeChange) UpdateCaptionDragRegions();
+        if (!args.DidPresenterChange && !args.DidPositionChange && !args.DidSizeChange) return;
+
+        // AppWindow minimums are physical pixels. Moving between monitors can
+        // change DPI without changing the logical 1100×700 product floor.
+        ApplyWindowMinimumSize();
+        if (args.DidPresenterChange || args.DidSizeChange)
+            _bridge?.NotifyWindowState(IsMaximized);
+        if (args.DidPositionChange || args.DidSizeChange)
+            UpdateCaptionDragRegions();
     }
 
     private void ApplyWindowChrome()
@@ -499,8 +515,7 @@ public sealed partial class MainWindow : Window
             presenter.IsMaximizable = true;
             presenter.IsResizable = true;
             presenter.IsMinimizable = true;
-            presenter.PreferredMinimumWidth = MinWindowWidth;
-            presenter.PreferredMinimumHeight = MinWindowHeight;
+            ApplyWindowMinimumSize();
             try { presenter.SetBorderAndTitleBar(hasBorder: true, hasTitleBar: false); }
             catch { }
             try
@@ -510,6 +525,14 @@ public sealed partial class MainWindow : Window
             catch { }
         }
         UpdateCaptionDragRegions();
+    }
+
+    private void ApplyWindowMinimumSize()
+    {
+        if (AppWindow.Presenter is not OverlappedPresenter presenter) return;
+        var scale = GetWindowScale();
+        presenter.PreferredMinimumWidth = Math.Max(1, (int)Math.Round(MinWindowWidth * scale));
+        presenter.PreferredMinimumHeight = Math.Max(1, (int)Math.Round(MinWindowHeight * scale));
     }
 
     private void ApplyInitialWindowBounds()
@@ -572,6 +595,7 @@ public sealed partial class MainWindow : Window
             ContentHost.HorizontalAlignment = HorizontalAlignment.Stretch;
         }
         catch { }
+        ApplyWindowMinimumSize();
         UpdateCaptionDragRegions();
     }
 
@@ -587,7 +611,16 @@ public sealed partial class MainWindow : Window
             var widthDip = RootGrid.ActualWidth;
             if (widthDip <= 0) return;
             var scale = GetWindowScale();
-            var width = Math.Max(1, (int)Math.Round(widthDip * scale));
+            // Region rects are physical pixels. AppWindow.ClientSize is the only
+            // authority for that width: RootGrid.ActualWidth x scale drifts from
+            // it under some DPI states, and the right-anchored band then lands
+            // left of the real button cluster, so the settings, profile, and
+            // window buttons stop taking mouse clicks entirely.
+            var clientWidth = 0;
+            try { clientWidth = AppWindow.ClientSize.Width; } catch { }
+            var width = clientWidth > 0
+                ? clientWidth
+                : Math.Max(1, (int)Math.Round(widthDip * scale));
             var titleH = Math.Max(1, (int)Math.Round(TitleBarDragDip * scale));
             var logoW = Math.Max(1, (int)Math.Round(TitleBarLogoPassthroughDip * scale));
             var actionsW = Math.Max(1, (int)Math.Round(TitleBarActionsPassthroughDip * scale));
@@ -597,8 +630,9 @@ public sealed partial class MainWindow : Window
             var searchX = Math.Max(logoW, (width - searchW) / 2);
             var searchRight = Math.Min(width - actionsW, searchX + searchW);
             searchW = Math.Max(1, searchRight - searchX);
-            var pillTop = Math.Max(1, (int)Math.Round(12 * scale));
-            var pillBottom = Math.Max(pillTop + 1, titleH - pillTop);
+            var searchPillH = Math.Min(titleH, Math.Max(1, (int)Math.Round(TitleBarSearchHeightDip * scale)));
+            var pillTop = Math.Max(0, (titleH - searchPillH) / 2);
+            var pillBottom = pillTop + searchPillH;
 
             var rects = new List<RectInt32>();
             var leftW = searchX - logoW;
@@ -615,9 +649,16 @@ public sealed partial class MainWindow : Window
                 rects.Add(new RectInt32(searchX, pillBottom, searchW, belowH));
 
             if (rects.Count == 0) return;
-            InputNonClientPointerSource
-                .GetForWindowId(AppWindow.Id)
-                .SetRegionRects(NonClientRegionKind.Caption, rects.ToArray());
+            var source = InputNonClientPointerSource.GetForWindowId(AppWindow.Id);
+            source.SetRegionRects(NonClientRegionKind.Caption, rects.ToArray());
+            // Caption exclusion is not enough: ExtendsContentIntoTitleBar still
+            // sinks clicks in the top strip. Passthrough hands logo, search,
+            // and the settings/window cluster back to WebView2.
+            source.SetRegionRects(NonClientRegionKind.Passthrough, [
+                new RectInt32(0, 0, logoW, titleH),
+                new RectInt32(searchX, pillTop, searchW, searchPillH),
+                new RectInt32(width - actionsW, 0, actionsW, titleH),
+            ]);
         }
         catch
         {

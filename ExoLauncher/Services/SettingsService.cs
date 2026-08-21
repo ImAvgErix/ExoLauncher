@@ -103,6 +103,16 @@ public sealed class SettingsService
         loaded.CopyPortableIntoLibrary = false;
         loaded.Favorites ??= new List<string>();
         loaded.Recent ??= new List<string>();
+        loaded.ProfileShowcase ??= new List<string>();
+        loaded.ProfileGalleryImages = (loaded.ProfileGalleryImages ?? new Dictionary<string, string>())
+            .Where(pair => pair.Key.StartsWith("gallery", StringComparison.OrdinalIgnoreCase))
+            .Select(pair => (Slot: ProfileImageStore.NormalizeSlot(pair.Key), File: ProfileImageStore.FileName(pair.Value)))
+            .Where(pair => pair.Slot is not null && pair.File is not null)
+            .Take(6)
+            .ToDictionary(pair => pair.Slot!, pair => pair.File!, StringComparer.OrdinalIgnoreCase);
+        loaded.ProfileRoster ??= new List<ProfilePerson>();
+        loaded.LaunchOverrides ??= new Dictionary<string, GameLaunchOverride>(StringComparer.OrdinalIgnoreCase);
+        loaded.CustomCoverImages = NormalizeCustomCoverImages(loaded.CustomCoverImages);
         loaded.LastPlayed = loaded.LastPlayed is null
             ? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
             : new Dictionary<string, string>(loaded.LastPlayed, StringComparer.OrdinalIgnoreCase);
@@ -153,19 +163,35 @@ public sealed class SettingsService
         catch { /* marker is advisory */ }
     }
 
-    /// <summary>Record first-run completion outside settings.json so it holds even
-    /// if that file is later lost or replaced.</summary>
-    private static void WriteOnboardingMarker()
+    /// <summary>
+    /// Keep the advisory marker aligned with the persisted setting. Setting
+    /// onboarding to false is the non-destructive "run setup again" path, so it
+    /// clears only this marker; completing setup recreates it.
+    /// </summary>
+    private static bool TryReconcileOnboardingMarker(bool complete, out string? error)
     {
+        error = null;
         try
         {
-            if (File.Exists(PathHelper.OnboardedMarkerPath)) return;
-            File.WriteAllText(PathHelper.OnboardedMarkerPath,
-                DateTimeOffset.UtcNow.ToString("O"));
+            if (complete)
+            {
+                if (!File.Exists(PathHelper.OnboardedMarkerPath))
+                {
+                    File.WriteAllText(PathHelper.OnboardedMarkerPath,
+                        DateTimeOffset.UtcNow.ToString("O"));
+                }
+            }
+            else
+            {
+                File.Delete(PathHelper.OnboardedMarkerPath);
+            }
+            return true;
         }
         catch (Exception ex)
         {
-            AppLog.Warn("Onboarding marker write failed: " + ex.Message);
+            error = "Onboarding state could not be saved: " + ex.Message;
+            AppLog.Warn(error);
+            return false;
         }
     }
 
@@ -236,12 +262,21 @@ public sealed class SettingsService
                 bool stable;
                 lock (_stateGate)
                 {
+                    stable = snapshotRevision == _revision;
+                    if (!stable)
+                        _persistedRevision = Math.Max(_persistedRevision, snapshotRevision);
+                }
+                if (!stable) continue;
+
+                if (!TryReconcileOnboardingMarker(snapshot.OnboardingComplete, out error))
+                    return false;
+
+                lock (_stateGate)
+                {
                     _persistedRevision = Math.Max(_persistedRevision, snapshotRevision);
                     stable = snapshotRevision == _revision;
                 }
-                if (!stable) continue;
-                if (snapshot.OnboardingComplete) WriteOnboardingMarker();
-                return true;
+                if (stable) return true;
             }
         }
     }
@@ -317,13 +352,12 @@ public sealed class SettingsService
     {
         lock (_stateGate)
         {
-            // Hard-locked product defaults (ignore UI patches that try to flip them).
-            _ = closeStore;
-            _ = autoRedist;
-            _ = minimizeWhilePlaying;
+            if (closeStore is not null) _current.CloseStoreClientsAfterLaunch = closeStore.Value;
+            if (autoRedist is not null) _current.AutoInstallRedistributables = autoRedist.Value;
+            if (minimizeWhilePlaying is not null) _current.MinimizeWhilePlaying = minimizeWhilePlaying.Value;
             _ = copyPortable;
             _ = allowResize;
-            _ = checkUpdates;
+            if (checkUpdates is not null) _current.CheckForUpdates = checkUpdates.Value;
             if (!string.IsNullOrWhiteSpace(sortMode)) _current.SortMode = sortMode!;
             if (defaultInstallRoot is not null)
                 _current.DefaultInstallRoot = string.IsNullOrWhiteSpace(defaultInstallRoot) ? null : defaultInstallRoot;
@@ -370,6 +404,23 @@ public sealed class SettingsService
         }
         if (!TryPersistLatest(out var err))
             throw new InvalidOperationException(err ?? "Could not save settings.");
+    }
+
+    /// <summary>
+    /// Edits the stored Exo profile in place. <see cref="Current"/> hands out a
+    /// detached snapshot, so a profile write has to go through here to reach
+    /// disk. Throws when the file could not be written.
+    /// </summary>
+    public void UpdateProfile(Action<AppSettings> apply)
+    {
+        ArgumentNullException.ThrowIfNull(apply);
+        lock (_stateGate)
+        {
+            apply(_current);
+            _revision++;
+        }
+        if (!TryPersistLatest(out var err))
+            throw new InvalidOperationException(err ?? "Could not save the profile.");
     }
 
     public void ToggleFavorite(string gameId)
@@ -433,6 +484,129 @@ public sealed class SettingsService
             return _current.Favorites.Any(x => string.Equals(x, gameId, StringComparison.OrdinalIgnoreCase));
     }
 
+    public GameLaunchOverride? GetLaunchOverride(string gameId)
+    {
+        if (string.IsNullOrWhiteSpace(gameId)) return null;
+        lock (_stateGate)
+        {
+            return _current.LaunchOverrides.TryGetValue(gameId, out var value)
+                ? new GameLaunchOverride
+                {
+                    ExtraArgs = value.ExtraArgs,
+                    WorkingDirectory = value.WorkingDirectory,
+                    RunAsAdmin = value.RunAsAdmin,
+                }
+                : null;
+        }
+    }
+
+    public void SetLaunchOverride(string gameId, GameLaunchOverride? value)
+    {
+        if (string.IsNullOrWhiteSpace(gameId)) return;
+        lock (_stateGate)
+        {
+            if (value is null || value.IsEmpty)
+                _current.LaunchOverrides.Remove(gameId);
+            else
+            {
+                _current.LaunchOverrides[gameId] = new GameLaunchOverride
+                {
+                    ExtraArgs = string.IsNullOrWhiteSpace(value.ExtraArgs) ? null : value.ExtraArgs.Trim(),
+                    WorkingDirectory = string.IsNullOrWhiteSpace(value.WorkingDirectory) ? null : value.WorkingDirectory.Trim(),
+                    RunAsAdmin = value.RunAsAdmin,
+                };
+            }
+            _revision++;
+        }
+        if (!TryPersistLatest(out var err))
+            throw new InvalidOperationException(err ?? "Could not save launch options.");
+    }
+
+    /// <summary>
+    /// Returns the first valid Exo-owned cover attached to any exact source id.
+    /// A grouped card supplies all of its variants so one override paints them all.
+    /// </summary>
+    public string? GetCustomCoverImage(IEnumerable<string> gameIds)
+    {
+        ArgumentNullException.ThrowIfNull(gameIds);
+        lock (_stateGate)
+        {
+            foreach (var gameId in gameIds)
+            {
+                if (string.IsNullOrWhiteSpace(gameId) ||
+                    !_current.CustomCoverImages.TryGetValue(gameId, out var value))
+                    continue;
+                var fileName = GameCoverImageStore.FileName(value);
+                if (fileName is not null) return fileName;
+            }
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Atomically sets or clears a visual card's exact source ids. Invalid file
+    /// names are rejected before state changes, and a failed disk write restores
+    /// the prior in-memory dictionary instead of leaving a half-applied group.
+    /// </summary>
+    public void SetCustomCoverImages(IEnumerable<string> gameIds, string? fileName)
+    {
+        ArgumentNullException.ThrowIfNull(gameIds);
+        var ids = gameIds
+            .Select(id => id?.Trim() ?? string.Empty)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        if (ids.Length == 0 || ids.Any(id => !IsSafeCustomCoverGameId(id)))
+            throw new InvalidDataException("Invalid game id.");
+        if (ids.Length > 32) throw new InvalidDataException("Too many game sources.");
+
+        var normalizedFile = fileName is null ? null : GameCoverImageStore.FileName(fileName);
+        if (fileName is not null && normalizedFile is null)
+            throw new InvalidDataException("Invalid custom cover file name.");
+
+        lock (_persistenceGate)
+        {
+            Dictionary<string, string> before;
+            lock (_stateGate)
+            {
+                if (_loadFailed)
+                    throw new InvalidOperationException(
+                        "Custom cover was not saved because settings.json could not be read.");
+                before = new Dictionary<string, string>(_current.CustomCoverImages, StringComparer.OrdinalIgnoreCase);
+                foreach (var id in ids)
+                {
+                    if (normalizedFile is null) _current.CustomCoverImages.Remove(id);
+                    else _current.CustomCoverImages[id] = normalizedFile;
+                }
+                if (_current.CustomCoverImages.Count > 1_000)
+                {
+                    _current.CustomCoverImages = before;
+                    throw new InvalidDataException("Too many custom covers are saved.");
+                }
+                _revision++;
+            }
+
+            if (TryPersistLatest(out var error)) return;
+            lock (_stateGate)
+            {
+                _current.CustomCoverImages = before;
+                _revision++;
+            }
+            throw new InvalidOperationException(error ?? "Could not save the custom cover.");
+        }
+    }
+
+    public IReadOnlySet<string> CustomCoverImageFiles()
+    {
+        lock (_stateGate)
+        {
+            return _current.CustomCoverImages.Values
+                .Select(GameCoverImageStore.FileName)
+                .Where(name => name is not null)
+                .Select(name => name!)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        }
+    }
+
     public DateTimeOffset? GetLastPlayed(string gameId)
     {
         lock (_stateGate)
@@ -469,6 +643,35 @@ public sealed class SettingsService
         SortMode = source.SortMode,
         Favorites = source.Favorites.ToList(),
         Recent = source.Recent.ToList(),
+        ProfileShowcase = (source.ProfileShowcase ?? new List<string>()).ToList(),
+        ProfileName = source.ProfileName,
+        ProfileHandle = source.ProfileHandle,
+        ProfilePronouns = source.ProfilePronouns,
+        ProfileStatusText = source.ProfileStatusText,
+        ProfileBio = source.ProfileBio,
+        ProfileAvatarGameId = source.ProfileAvatarGameId,
+        ProfileBannerGameId = source.ProfileBannerGameId,
+        ProfileAvatarImage = source.ProfileAvatarImage,
+        ProfileBannerImage = source.ProfileBannerImage,
+        ProfileGalleryImages = new Dictionary<string, string>(
+            source.ProfileGalleryImages ?? new Dictionary<string, string>(),
+            StringComparer.OrdinalIgnoreCase),
+        ProfileAccent = source.ProfileAccent,
+        ProfileLayout = source.ProfileLayout,
+        ProfileBannerHeight = source.ProfileBannerHeight,
+        ProfileShowcaseStyle = source.ProfileShowcaseStyle,
+        ProfileShowHandle = source.ProfileShowHandle,
+        ProfileSections = (source.ProfileSections ?? new List<string>()).ToList(),
+        ProfileHiddenSections = (source.ProfileHiddenSections ?? new List<string>()).ToList(),
+        ProfileRoster = (source.ProfileRoster ?? new List<ProfilePerson>())
+            .Select(person => new ProfilePerson
+            {
+                Handle = person.Handle,
+                Name = person.Name,
+                Note = person.Note,
+                AddedUtc = person.AddedUtc,
+            })
+            .ToList(),
         LastPlayed = new Dictionary<string, string>(
             source.LastPlayed,
             StringComparer.OrdinalIgnoreCase),
@@ -481,7 +684,36 @@ public sealed class SettingsService
         TrophyNotificationDurationSeconds = source.TrophyNotificationDurationSeconds,
         TrophyNotificationSound = source.TrophyNotificationSound,
         TrophyNotificationSoundCue = source.TrophyNotificationSoundCue,
+        LaunchOverrides = (source.LaunchOverrides ?? new Dictionary<string, GameLaunchOverride>(StringComparer.OrdinalIgnoreCase)).ToDictionary(
+            pair => pair.Key,
+            pair => new GameLaunchOverride
+            {
+                ExtraArgs = pair.Value.ExtraArgs,
+                WorkingDirectory = pair.Value.WorkingDirectory,
+                RunAsAdmin = pair.Value.RunAsAdmin,
+            },
+            StringComparer.OrdinalIgnoreCase),
+        CustomCoverImages = NormalizeCustomCoverImages(source.CustomCoverImages),
     };
+
+    private static Dictionary<string, string> NormalizeCustomCoverImages(
+        IDictionary<string, string>? source)
+    {
+        var normalized = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (source is null) return normalized;
+        foreach (var pair in source)
+        {
+            var id = pair.Key?.Trim() ?? string.Empty;
+            var fileName = GameCoverImageStore.FileName(pair.Value);
+            if (!IsSafeCustomCoverGameId(id) || fileName is null) continue;
+            normalized[id] = fileName;
+            if (normalized.Count >= 1_000) break;
+        }
+        return normalized;
+    }
+
+    private static bool IsSafeCustomCoverGameId(string id) =>
+        id.Length is > 0 and <= 512 && !id.Any(char.IsControl);
 
     private static string NormalizeTrophyPreset(string? value)
     {
@@ -499,7 +731,8 @@ public sealed class SettingsService
         "center-right" or "middle-right" => "center-right",
         "bottom-left" => "bottom-left",
         "bottom-center" => "bottom-center",
-        _ => "bottom-right",
+        "bottom-right" => "bottom-right",
+        _ => "top-right",
     };
 
     private static (double X, double Y) ResolveTrophyAnchor(string position) => position switch
@@ -512,7 +745,8 @@ public sealed class SettingsService
         "center-right" => (1d, 0.5d),
         "bottom-left" => (0d, 1d),
         "bottom-center" => (0.5d, 1d),
-        _ => (1d, 1d),
+        "bottom-right" => (1d, 1d),
+        _ => (1d, 0d),
     };
 
     private static double NormalizeTrophyCoordinate(double value, double fallback) =>

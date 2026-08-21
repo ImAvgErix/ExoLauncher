@@ -103,10 +103,18 @@ internal static class ProcessHelper
     internal static bool MatchesOptionalPath(Process process, string? pathMustContain)
     {
         if (string.IsNullOrWhiteSpace(pathMustContain)) return true;
-        var path = TryGetExecutablePath(process);
-        return !string.IsNullOrWhiteSpace(path) &&
-               path.IndexOf(pathMustContain, StringComparison.OrdinalIgnoreCase) >= 0;
+        return ContainsFragment(TryGetExecutablePath(process), pathMustContain);
     }
+
+    internal static bool MatchesOptionalPath(int processId, string? pathMustContain)
+    {
+        if (string.IsNullOrWhiteSpace(pathMustContain)) return true;
+        return ContainsFragment(TryGetExecutablePath(processId), pathMustContain);
+    }
+
+    private static bool ContainsFragment(string? path, string fragment) =>
+        !string.IsNullOrWhiteSpace(path) &&
+        path.IndexOf(fragment, StringComparison.OrdinalIgnoreCase) >= 0;
 
     private static string? QueryFullProcessImageName(int processId)
     {
@@ -146,7 +154,8 @@ internal static class ProcessHelper
     {
         "steam", "steamwebhelper", "steamservice", "gameoverlayui", "gameoverlayui64", "steamerrorreporter",
         "epicgameslauncher", "epicwebhelper", "epiconlineservices", "eosoverlayrenderer-win64-shipping",
-        "galaxyclient", "galaxyclientservice", "goggalaxynotifications", "gogdl",
+        "galaxyclient", "galaxyclientservice", "goggalaxynotifications", "gogdl", "nile",
+        "itch", "minecraftlauncher", "robloxplayerlauncher", "paradox launcher", "paradoxlauncher", "wgc",
         "riotclientservices", "riotclientux", "riotclientuxrender", "riotclientcrashhandler", "riot client",
         "leagueclient", "leagueclientux", "leagueclientuxrender",
         "vgc", "vgk", "easyanticheat", "easyanticheat_eos", "easyanticheat_eos_setup",
@@ -375,11 +384,14 @@ internal static class ProcessHelper
         // styles made Steam unopenable from the taskbar.
     }
 
-    private static readonly HashSet<string> NeverTerminateNames = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "vgk", "vgc", "vgm", "EasyAntiCheat", "EasyAntiCheat_EOS",
-        "EpicOnlineServices", "steamservice", "GameOverlayUI", "gameoverlayui64",
-    };
+    private static readonly HashSet<string> NeverTerminateNames = new(
+        StoreClientActivity.AntiCheatProcessNames.Concat(
+        [
+            "EpicOnlineServices", "steamservice", "GameOverlayUI", "gameoverlayui64",
+        ]),
+        StringComparer.OrdinalIgnoreCase);
+
+    internal static IReadOnlyCollection<string> NeverTerminateProcessNames => NeverTerminateNames;
 
     /// <summary>
     /// Last resort for an unused launcher shell after graceful close failed.
@@ -389,7 +401,9 @@ internal static class ProcessHelper
     {
         foreach (var name in processNames)
         {
-            if (string.IsNullOrWhiteSpace(name) || NeverTerminateNames.Contains(name))
+            if (string.IsNullOrWhiteSpace(name) ||
+                NeverTerminateNames.Contains(name) ||
+                StoreClientActivity.IsAntiCheatProcess(name))
                 continue;
             try
             {

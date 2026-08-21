@@ -4,9 +4,9 @@ using ExoLauncher.Models;
 namespace ExoLauncher.Adapters;
 
 /// <summary>
-/// Steam's per-account librarycache filenames plus appinfo names. This is how
-/// Exo lists owned titles that have no appmanifest yet (never installed, or
-/// uninstalled). It is not a store catalog scrape.
+/// Steam's per-account librarycache filenames plus appinfo names. Cache files
+/// are name/history hints only; callers must supply a current authoritative
+/// ownership snapshot before this helper emits an installable title.
 /// </summary>
 internal static class SteamAccountLibrary
 {
@@ -34,16 +34,25 @@ internal static class SteamAccountLibrary
     public static IReadOnlyList<GameEntry> UninstalledOwnedGames(
         IEnumerable<string> cacheAppIds,
         IReadOnlySet<string> presentAppIds,
-        IReadOnlyDictionary<string, SteamAppInfoNames.Entry> names)
+        IReadOnlyDictionary<string, SteamAppInfoNames.Entry> names,
+        IReadOnlySet<string>? authoritativeOwnedAppIds = null)
     {
         ArgumentNullException.ThrowIfNull(cacheAppIds);
         ArgumentNullException.ThrowIfNull(presentAppIds);
         ArgumentNullException.ThrowIfNull(names);
 
+        // librarycache filenames are account-local UI history, not a current
+        // license list. Without an authoritative snapshot the entitlement is
+        // unknown, so an uninstalled row must not become Install/Download.
+        if (authoritativeOwnedAppIds is null)
+            return Array.Empty<GameEntry>();
+
         var games = new List<GameEntry>();
-        foreach (var appId in cacheAppIds)
+        foreach (var appId in cacheAppIds.Distinct(StringComparer.Ordinal))
         {
             if (!SteamProtocol.IsValidAppId(appId) || presentAppIds.Contains(appId))
+                continue;
+            if (!authoritativeOwnedAppIds.Contains(appId))
                 continue;
             if (!names.TryGetValue(appId, out var info) ||
                 string.IsNullOrWhiteSpace(info.Name) ||
@@ -63,7 +72,7 @@ internal static class SteamAccountLibrary
                 CoverSource = "steam",
                 Status = "Not installed",
                 Deps = new[] { "Steam client" },
-                LaunchNote = "Installs through Steam quietly — Steam stays a backend, not a window you use.",
+                LaunchNote = "Installs through Steam.",
             });
         }
 

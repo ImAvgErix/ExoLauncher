@@ -303,7 +303,7 @@ public sealed class LocalAdapter : IStoreAdapter
         Task.FromResult(new InstallResult
         {
             Ok = false,
-            Message = "Local/DRM-free titles update by replacing files in the install folder — no store updater.",
+            Message = "Local and DRM-free titles update by replacing files in the install folder. No store updater.",
         });
 
     public async Task<LaunchResult> LaunchAsync(GameEntry game, LaunchOptions options, CancellationToken ct = default)
@@ -322,12 +322,19 @@ public sealed class LocalAdapter : IStoreAdapter
             var pidsBeforeLaunch = ProcessHelper.SnapshotLiveProcessIdsUnderPath(
                 installRoot,
                 ["crashhandler", "unins000", "setup"]);
+            var working = !string.IsNullOrWhiteSpace(options.WorkingDirectory) &&
+                          Directory.Exists(options.WorkingDirectory)
+                ? options.WorkingDirectory
+                : Path.GetDirectoryName(target) ?? string.Empty;
             var psi = new ProcessStartInfo
             {
                 FileName = target,
-                WorkingDirectory = Path.GetDirectoryName(target) ?? string.Empty,
+                Arguments = options.ExtraArgs ?? string.Empty,
+                WorkingDirectory = working,
                 UseShellExecute = true,
             };
+            if (options.RunAsAdmin)
+                psi.Verb = "runas";
             using var proc = Process.Start(psi);
             var confirmedPid = await ProcessHelper.ConfirmDirectLaunchAsync(
                     proc,

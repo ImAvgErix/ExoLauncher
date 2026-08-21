@@ -62,6 +62,10 @@ public static class PlaytimeService
             var now = DateTimeOffset.UtcNow;
             ActiveSessions[gameId] = now;
             SessionCheckpoints[gameId] = now;
+            // Last played is the instant play starts. Waiting for EndSession left
+            // a just-launched card showing an older reading — its own store's
+            // previous session, or a sibling store's, whichever was newer.
+            _exoLastPlayed![gameId] = now.ToString("O", CultureInfo.InvariantCulture);
             _checkpointTimer ??= new Timer(
                 _ => CheckpointActiveSessions(),
                 null,
@@ -139,7 +143,6 @@ public static class PlaytimeService
     {
         if (games.Count == 0) return games;
 
-        SteamPlaytime.Invalidate(); // pick up Steam’s VDF after play
         var steamRoot = ResolveSteamRoot();
         var steamSnapshot = steamRoot is null ? null : SteamPlaytime.LoadActiveAccount(steamRoot);
         IReadOnlyDictionary<string, SteamPlaytime.Entry> steam =
@@ -147,7 +150,21 @@ public static class PlaytimeService
                 ? new Dictionary<string, SteamPlaytime.Entry>()
                 : steamSnapshot.Entries;
         var gog = GogPlaytime.LoadAll();
+        var gogLast = new Dictionary<string, DateTimeOffset>(StringComparer.Ordinal);
+        // One Galaxy database read for both readings. GameTimes carries the last
+        // session too, and dropping it used to hide a GOG copy that was the most
+        // recent one played on a card shared with another store.
+        foreach (var row in GogGalaxySqlite.LoadAll())
+        {
+            if (row.Minutes > 0 &&
+                (!gog.TryGetValue(row.ProductId, out var currentMinutes) || row.Minutes > currentMinutes))
+                gog[row.ProductId] = row.Minutes;
+            if (row.LastPlayedUtc is { } last &&
+                (!gogLast.TryGetValue(row.ProductId, out var currentLast) || last > currentLast))
+                gogLast[row.ProductId] = last;
+        }
         var riotLast = RiotLastPlayed.LoadAll();
+        var epicLast = EpicEglLastPlayed.LoadAll();
         var importedLifetime = LoadImportedLifetime();
         Dictionary<string, int> exo;
         Dictionary<string, string> exoLast;
@@ -158,6 +175,7 @@ public static class PlaytimeService
             exoLast = new Dictionary<string, string>(_exoLastPlayed!, StringComparer.OrdinalIgnoreCase);
         }
 
+        var now = DateTimeOffset.UtcNow;
         var rows = games.Select(g =>
         {
             int? storeMins = g.PlaytimeMinutes;
@@ -175,6 +193,9 @@ public static class PlaytimeService
                 var gogId = ExtractGogId(g);
                 if (gogId is not null && gog.TryGetValue(gogId, out var gm) && gm > 0)
                     storeMins = gm;
+                if (gogId is not null && gogLast.TryGetValue(gogId, out var gl) &&
+                    (storeLast is null || gl > storeLast))
+                    storeLast = gl;
             }
             else if (g.Store == StoreKind.Riot)
             {
@@ -182,6 +203,19 @@ public static class PlaytimeService
                 if (product is not null && riotLast.TryGetValue(product, out var rl))
                     storeLast = rl;
             }
+            else if (g.Store == StoreKind.Epic)
+            {
+                var app = ExtractEpicApp(g);
+                if (app is not null && epicLast.TryGetValue(app, out var el) &&
+                    (storeLast is null || el > storeLast))
+                    storeLast = el;
+            }
+
+            // A store timestamp ahead of the clock is not a reading. Epic's
+            // launcher writes local wall-clock with a Z suffix, so east of UTC
+            // its last-played arrives in the future and would outrank every
+            // honest session, including the one Exo just started.
+            if (storeLast > now.AddMinutes(5)) storeLast = null;
 
             exo.TryGetValue(g.Id, out var exoMins);
             DateTimeOffset? exoPlayed = null;
@@ -194,10 +228,10 @@ public static class PlaytimeService
 
         return rows.Select(row =>
         {
-            // Library rows are source variants, not a cross-store identity.
-            // Never show Epic hours on a Steam variant (or vice versa), even
-            // when the titles normalize to the same canonical card. No generic
-            // cross-store/account sum is valid for the UI.
+            // Every row stays store-local: one store's counter is never copied
+            // onto another store's entry. Combining the same game across stores
+            // is the grouped card's job (LibraryService.GroupVariants), which
+            // reads these store-local values and never feeds its total back in.
             var nativeMinutes = row.StoreMinutes.GetValueOrDefault();
             var importedMinutes = row.Game.Store == StoreKind.Riot && importedLifetime is not null
                 ? importedLifetime.MinutesByGameId.GetValueOrDefault(row.Game.Id)
@@ -462,40 +496,6 @@ public static class PlaytimeService
     private static bool IsNativeLifetimeStore(StoreKind store) =>
         store is StoreKind.Steam or StoreKind.Epic or StoreKind.Gog;
 
-    internal static int? CombineRocketLeagueStoreMinutes(
-        IReadOnlyList<GameEntry> games,
-        IReadOnlyDictionary<string, SteamPlaytime.Entry> steam)
-    {
-        var epic = games
-            .Where(game => game.Store == StoreKind.Epic && IsRocketLeague(game))
-            .Select(game => game.PlaytimeMinutes.GetValueOrDefault())
-            .DefaultIfEmpty()
-            .Max();
-
-        var steamMinutes = steam.TryGetValue("252950", out var entry)
-            ? entry.Minutes
-            : games
-                .Where(game => game.Store == StoreKind.Steam && IsRocketLeague(game))
-                .Select(game => game.PlaytimeMinutes.GetValueOrDefault())
-                .DefaultIfEmpty()
-                .Max();
-
-        var total = (long)Math.Max(0, epic) + Math.Max(0, steamMinutes);
-        return total > 0 ? (int)Math.Min(total, int.MaxValue) : null;
-    }
-
-    internal static bool IsRocketLeague(GameEntry game)
-    {
-        if (string.Equals(game.LaunchTarget, "Sugar", StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(game.LaunchTarget, "252950", StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(game.Id, "epic:Sugar", StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(game.Id, "steam:252950", StringComparison.OrdinalIgnoreCase))
-            return true;
-
-        return string.Equals(game.Title.Trim(), "Rocket League", StringComparison.OrdinalIgnoreCase) ||
-               string.Equals(game.Title.Trim(), "Rocket League®", StringComparison.OrdinalIgnoreCase);
-    }
-
     private static string? ExtractGogId(GameEntry g)
     {
         if (g.Id.StartsWith("gog:", StringComparison.OrdinalIgnoreCase))
@@ -509,6 +509,18 @@ public static class PlaytimeService
             return g.LaunchTarget.Trim().ToLowerInvariant();
         if (g.Id.StartsWith("riot:", StringComparison.OrdinalIgnoreCase))
             return g.Id["riot:".Length..].Trim().ToLowerInvariant();
+        return null;
+    }
+
+    private static string? ExtractEpicApp(GameEntry g)
+    {
+        if (!string.IsNullOrWhiteSpace(g.LaunchTarget))
+            return g.LaunchTarget.Trim();
+        if (g.Id.StartsWith("epic:", StringComparison.OrdinalIgnoreCase))
+        {
+            var suffix = g.Id["epic:".Length..].Trim();
+            return suffix.Length > 0 ? suffix : null;
+        }
         return null;
     }
 
@@ -641,6 +653,7 @@ public static class PlaytimeService
         Store = g.Store,
         Installed = g.Installed,
         Owned = g.Owned,
+        EntitlementState = g.EntitlementState,
         UpdateAvailable = g.UpdateAvailable,
         CanInstall = g.CanInstall,
         Path = g.Path,
@@ -675,36 +688,7 @@ internal static class RiotLastPlayed
                 if (!File.Exists(path)) continue;
                 var text = File.ReadAllText(path);
                 // Only the last-session-timestamp block (not patch-notes / affinity).
-                var blockIdx = text.IndexOf("last-session-timestamp:", StringComparison.OrdinalIgnoreCase);
-                if (blockIdx < 0) continue;
-                var block = text[blockIdx..];
-                // Drop the header line, then cut at the next sibling key (~4-space indent).
-                var nl = block.IndexOf('\n');
-                if (nl > 0) block = block[(nl + 1)..];
-                var cut = System.Text.RegularExpressions.Regex.Match(
-                    block, @"(?m)^ {0,4}[a-zA-Z0-9_.-]+:");
-                if (cut.Success) block = block[..cut.Index];
-
-                //     valorant.live: 1785745323
-                foreach (System.Text.RegularExpressions.Match m in
-                         System.Text.RegularExpressions.Regex.Matches(
-                             block,
-                             @"(?im)^\s*([a-z0-9_]+)\.(?:live|pbe)\s*:\s*(\d{9,})"))
-                {
-                    var product = m.Groups[1].Value.Trim().ToLowerInvariant();
-                    if (!long.TryParse(m.Groups[2].Value, out var unix) || unix <= 0) continue;
-                    DateTimeOffset when;
-                    try { when = DateTimeOffset.FromUnixTimeSeconds(unix); }
-                    catch { continue; }
-                    if (!map.TryGetValue(product, out var cur) || when > cur)
-                        map[product] = when;
-                    // lion is TFT / League alias used by some installs
-                    if (product is "league_of_legends")
-                    {
-                        if (!map.TryGetValue("lion", out var lion) || when > lion)
-                            map["lion"] = when;
-                    }
-                }
+                ReadLastSessionBlock(text, map);
             }
             catch (Exception ex)
             {
@@ -720,6 +704,142 @@ internal static class RiotLastPlayed
         yield return Path.Combine(local, "Riot Games", "Riot Client", "Config", "RiotClientSettings.yaml");
         yield return Path.Combine(local, "Riot Games", "VALORANT", "Config", "RiotClientSettings.yaml");
         yield return Path.Combine(local, "Riot Games", "League of Legends", "Config", "RiotClientSettings.yaml");
+        yield return Path.Combine(local, "Riot Games", "League of Legends", "Config", "LeagueClientSettings.yaml");
+    }
+
+    /// <summary>Public for tests — any friend's Riot YAML shape, quoted or not.</summary>
+    internal static void ReadLastSessionBlock(string text, IDictionary<string, DateTimeOffset> map)
+    {
+        var blockIdx = text.IndexOf("last-session-timestamp:", StringComparison.OrdinalIgnoreCase);
+        if (blockIdx < 0) return;
+
+        var lineStart = blockIdx;
+        while (lineStart > 0 && text[lineStart - 1] is not '\n' and not '\r')
+            lineStart--;
+        var keyIndent = LeadingIndent(text.AsSpan(lineStart, blockIdx - lineStart));
+
+        var afterKey = text.IndexOf('\n', blockIdx);
+        if (afterKey < 0) return;
+        var cursor = afterKey + 1;
+        var body = new System.Text.StringBuilder();
+        while (cursor < text.Length)
+        {
+            var end = text.IndexOf('\n', cursor);
+            if (end < 0) end = text.Length;
+            var line = text[cursor..end];
+            var trimmed = line.TrimEnd('\r');
+            if (!string.IsNullOrWhiteSpace(trimmed) && LeadingIndent(trimmed) <= keyIndent)
+                break;
+            body.Append(trimmed);
+            body.Append('\n');
+            cursor = end + 1;
+        }
+
+        var block = body.ToString();
+        foreach (System.Text.RegularExpressions.Match m in
+                 System.Text.RegularExpressions.Regex.Matches(
+                     block,
+                     @"(?im)^\s*([a-z0-9_]+)\.(?:live|pbe)\s*:\s*[""']?(\d{9,})[""']?"))
+            AddLastSession(map, m.Groups[1].Value, m.Groups[2].Value);
+
+        foreach (System.Text.RegularExpressions.Match m in
+                 System.Text.RegularExpressions.Regex.Matches(
+                     block,
+                     @"(?im)^\s*([a-z0-9_]+)\s*:\s*(?:#.*)?\r?\n[ \t]+(?:live|pbe)\s*:\s*[""']?(\d{9,})[""']?"))
+            AddLastSession(map, m.Groups[1].Value, m.Groups[2].Value);
+    }
+
+    private static void AddLastSession(
+        IDictionary<string, DateTimeOffset> map, string productRaw, string digits)
+    {
+        var product = productRaw.Trim().ToLowerInvariant();
+        if (!TryUnixTimestamp(digits, out var when)) return;
+        if (!map.TryGetValue(product, out var cur) || when > cur)
+            map[product] = when;
+    }
+
+    private static bool TryUnixTimestamp(string digits, out DateTimeOffset when)
+    {
+        when = default;
+        if (!long.TryParse(digits, out var unix) || unix <= 0) return false;
+        try
+        {
+            when = unix > 9_999_999_999L
+                ? DateTimeOffset.FromUnixTimeMilliseconds(unix)
+                : DateTimeOffset.FromUnixTimeSeconds(unix);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static int LeadingIndent(ReadOnlySpan<char> line)
+    {
+        var n = 0;
+        foreach (var c in line)
+        {
+            if (c == ' ') n++;
+            else if (c == '\t') n += 2;
+            else break;
+        }
+        return n;
+    }
+}
+
+/// <summary>
+/// Last-launched stamp from Epic Games Launcher's GameUserSettings.ini.
+/// Lifetime hours still come from Epic's playtime API once a session exists.
+/// </summary>
+internal static class EpicEglLastPlayed
+{
+    public static Dictionary<string, DateTimeOffset> LoadAll()
+    {
+        var map = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase);
+        // testhost must not inherit this machine's EGL last-played into fixtures.
+        var entry = System.Reflection.Assembly.GetEntryAssembly()?.GetName().Name;
+        if (entry is not null &&
+            entry.Contains("testhost", StringComparison.OrdinalIgnoreCase))
+            return map;
+        foreach (var path in EpicPlaytime.EglRememberMeIniCandidates())
+        {
+            try
+            {
+                if (!File.Exists(path)) continue;
+                foreach (var line in File.ReadLines(path))
+                {
+                    var trimmed = line.Trim();
+                    if (!trimmed.StartsWith("LastPlayedGame=", StringComparison.OrdinalIgnoreCase))
+                        continue;
+                    var value = trimmed["LastPlayedGame=".Length..].Trim().Trim('"');
+                    if (!TryParseLastPlayedGame(value, out var app, out var when)) continue;
+                    if (!map.TryGetValue(app, out var cur) || when > cur)
+                        map[app] = when;
+                }
+            }
+            catch (Exception ex)
+            {
+                AppLog.Debug("Epic EGL last-played parse failed: " + ex.Message);
+            }
+        }
+        return map;
+    }
+
+    internal static bool TryParseLastPlayedGame(string? value, out string app, out DateTimeOffset when)
+    {
+        app = "";
+        when = default;
+        if (string.IsNullOrWhiteSpace(value)) return false;
+        var comma = value.LastIndexOf(',');
+        if (comma <= 0 || comma >= value.Length - 1) return false;
+        var left = value[..comma].Trim();
+        var stamp = value[(comma + 1)..].Trim();
+        var colon = left.LastIndexOf(':');
+        app = (colon >= 0 ? left[(colon + 1)..] : left).Trim();
+        if (string.IsNullOrWhiteSpace(app) || app.Length > 128) return false;
+        return DateTimeOffset.TryParse(
+            stamp, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out when);
     }
 }
 

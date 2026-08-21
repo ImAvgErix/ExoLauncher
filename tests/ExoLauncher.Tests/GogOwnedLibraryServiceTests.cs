@@ -138,7 +138,7 @@ public sealed class GogOwnedLibraryServiceTests : IDisposable
         Assert.Equal(9, service.LoadCachedOwnedGames(credentials.UserId).Count);
         Assert.Equal("Title 101", cachedGames.Single(game => game.Id == "101").Title);
         Assert.Equal(
-            "https://images.gog-statics.com/101.jpg",
+            "https://images.gog-statics.com/101_glx_vertical_cover.jpg",
             cachedGames.Single(game => game.Id == "101").CoverUrl);
 
         var second = await service.RefreshAsync(credentials, force: true);

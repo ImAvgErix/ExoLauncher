@@ -37,6 +37,11 @@ public sealed class GameProcessRegistryTests
     [InlineData(StoreKind.BattleNet)]
     [InlineData(StoreKind.Amazon)]
     [InlineData(StoreKind.Rockstar)]
+    [InlineData(StoreKind.Itch)]
+    [InlineData(StoreKind.Minecraft)]
+    [InlineData(StoreKind.Roblox)]
+    [InlineData(StoreKind.Paradox)]
+    [InlineData(StoreKind.Wargaming)]
     public void GameOperationBackendsSupportExactProcessControl(StoreKind store) =>
         Assert.True(GameProcessRegistry.SupportsGameProcessControl(store));
 
@@ -47,7 +52,12 @@ public sealed class GameProcessRegistryTests
         Directory.CreateDirectory(root);
         try
         {
-            foreach (var store in new[] { StoreKind.BattleNet, StoreKind.Amazon, StoreKind.Rockstar })
+            foreach (var store in new[]
+                     {
+                         StoreKind.BattleNet, StoreKind.Amazon, StoreKind.Rockstar,
+                         StoreKind.Itch, StoreKind.Minecraft, StoreKind.Roblox,
+                         StoreKind.Paradox, StoreKind.Wargaming,
+                     })
             {
                 var game = Game(root, store, "catalog-id");
                 Assert.True(GameProcessRegistry.SupportsGameProcessControl(store));

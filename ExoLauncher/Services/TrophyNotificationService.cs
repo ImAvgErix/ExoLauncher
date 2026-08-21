@@ -32,26 +32,57 @@ public sealed class TrophyNotificationService
         Publish(payload, onPresented);
     }
 
-    public void Preview() => Publish(new TrophyNotificationPayload(
-        GameTitle: "Exo Launcher",
-        AchievementName: "First light",
-        Detail: "Achievement notification preview",
-        IsRare: true,
-        Rarity: TrophyRarity.Gold,
-        RarityPercent: 4.8d,
-        IsPreview: true));
+    private int _previewRarity;
 
-    private void Publish(TrophyNotificationPayload payload, Action? onPresented = null)
+    public bool Preview(Action? onPainted = null) => Preview(null, null, null, onPainted);
+
+    public bool Preview(string? gameTitle, string? unlockName, string? coverUrl, Action? onPainted = null) =>
+        Preview(gameTitle, unlockName, coverUrl, rarity: null, onPainted);
+
+    public bool Preview(
+        string? gameTitle,
+        string? unlockName,
+        string? coverUrl,
+        TrophyRarity? rarity,
+        Action? onPainted = null)
     {
-        if (string.IsNullOrWhiteSpace(payload.AchievementName)) return;
+        if (!_settings.Current.TrophyNotificationsEnabled) return false;
+        var sample = TrophyBannerDesign.Current.Preview;
+        var cycle = TrophyBannerDesign.Current.Cycle();
+        var resolved = rarity ?? cycle[Math.Abs(_previewRarity++) % Math.Max(1, cycle.Length)];
+        var name = string.IsNullOrWhiteSpace(unlockName) ? sample.AchievementName : unlockName.Trim();
+        var game = string.IsNullOrWhiteSpace(gameTitle) ? sample.GameTitle : gameTitle.Trim();
+        return Publish(new TrophyNotificationPayload(
+            GameTitle: game,
+            AchievementName: name,
+            Detail: sample.Detail,
+            IsRare: resolved is TrophyRarity.Gold or TrophyRarity.Platinum,
+            IsPerfect: resolved == TrophyRarity.Platinum,
+            CoverUrl: string.IsNullOrWhiteSpace(coverUrl) ? null : coverUrl.Trim(),
+            Rarity: resolved,
+            IsPreview: true),
+            onPainted);
+    }
+
+    private bool Publish(TrophyNotificationPayload payload, Action? onPresented = null)
+    {
+        if (string.IsNullOrWhiteSpace(payload.AchievementName)) return false;
         var requested = Requested;
         if (requested is null)
         {
             Helpers.AppLog.Warn("Trophy notification has no active presenter.");
-            return;
+            return false;
         }
-        try { requested.Invoke(new TrophyNotificationRequest(payload, onPresented)); }
-        catch (Exception ex) { Helpers.AppLog.Debug("Trophy notification observer failed: " + ex.Message); }
+        try
+        {
+            requested.Invoke(new TrophyNotificationRequest(payload, onPresented));
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Helpers.AppLog.Debug("Trophy notification observer failed: " + ex.Message);
+            return false;
+        }
     }
 }
 
@@ -62,6 +93,7 @@ public sealed record TrophyNotificationPayload(
     bool IsRare = false,
     bool IsPerfect = false,
     string? IconUrl = null,
+    string? CoverUrl = null,
     TrophyRarity Rarity = TrophyRarity.Unknown,
     double? RarityPercent = null,
     bool IsPreview = false);

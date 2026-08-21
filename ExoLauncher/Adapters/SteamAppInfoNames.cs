@@ -12,8 +12,10 @@ internal static class SteamAppInfoNames
 {
     private const uint MagicV41 = 0x07564429;
     private static readonly object Gate = new();
+    private static readonly TimeSpan ReloadTtl = TimeSpan.FromMinutes(10);
     private static string? _path;
     private static DateTime _writeUtc;
+    private static DateTime _loadedAtUtc;
     private static IReadOnlyDictionary<string, Entry> _loaded =
         new Dictionary<string, Entry>(StringComparer.Ordinal);
 
@@ -37,7 +39,13 @@ internal static class SteamAppInfoNames
         var write = File.GetLastWriteTimeUtc(path);
         lock (Gate)
         {
-            if (string.Equals(_path, path, StringComparison.OrdinalIgnoreCase) && _writeUtc == write)
+            var samePath = string.Equals(_path, path, StringComparison.OrdinalIgnoreCase);
+            if (samePath && _writeUtc == write)
+                return _loaded;
+            // Steam rewrites appinfo.vdf while running. Re-parsing a multi-MB
+            // file on every 30s library scan is what made Steam miss the 25s
+            // adapter timeout. Keep a short TTL even when mtime moved.
+            if (samePath && _loaded.Count > 0 && DateTime.UtcNow - _loadedAtUtc < ReloadTtl)
                 return _loaded;
             try
             {
@@ -49,7 +57,19 @@ internal static class SteamAppInfoNames
             }
             _path = path;
             _writeUtc = write;
+            _loadedAtUtc = DateTime.UtcNow;
             return _loaded;
+        }
+    }
+
+    internal static void ResetCacheForTests()
+    {
+        lock (Gate)
+        {
+            _path = null;
+            _writeUtc = default;
+            _loadedAtUtc = default;
+            _loaded = new Dictionary<string, Entry>(StringComparer.Ordinal);
         }
     }
 

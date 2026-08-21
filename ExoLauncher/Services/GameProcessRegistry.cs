@@ -46,7 +46,9 @@ internal sealed class GameProcessRegistry
     internal static bool SupportsGameProcessControl(StoreKind store) => store is
         StoreKind.Steam or StoreKind.Epic or StoreKind.Gog or StoreKind.Riot or StoreKind.Local
         or StoreKind.Ea or StoreKind.Ubisoft or StoreKind.Xbox
-        or StoreKind.BattleNet or StoreKind.Amazon or StoreKind.Rockstar;
+        or StoreKind.BattleNet or StoreKind.Amazon or StoreKind.Rockstar
+        or StoreKind.Itch or StoreKind.Minecraft or StoreKind.Roblox
+        or StoreKind.Paradox or StoreKind.Wargaming;
 
     internal static bool IsEligibleExecutableForStop(
         GameEntry game,
@@ -90,8 +92,29 @@ internal sealed class GameProcessRegistry
     {
         if (!discoverExternal && !_launched.ContainsKey(game.Id))
             return default;
+
+        // The UI asks for run state on every projection. When the identity Exo
+        // launched still matches, that is already a running verified process —
+        // enumerating every process on the machine cannot change the answer.
+        if (MatchesLaunchedIdentity(game))
+            return new GameRunState(true, true);
+
         var candidates = FindCandidates(game);
         return new GameRunState(candidates.Count > 0, candidates.Count > 0);
+    }
+
+    private bool MatchesLaunchedIdentity(GameEntry game)
+    {
+        if (!_launched.TryGetValue(game.Id, out var launched)) return false;
+        try
+        {
+            using var process = Process.GetProcessById(launched.ProcessId);
+            if (MatchesIdentity(game, process, launched)) return true;
+        }
+        catch { /* pid reuse, exit, or denied inspection falls through to a scan */ }
+
+        _launched.TryRemove(game.Id, out _);
+        return false;
     }
 
     public void ObserveLaunch(GameEntry game, int? processId)

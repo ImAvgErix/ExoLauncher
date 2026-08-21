@@ -1,0 +1,169 @@
+<?xml version="1.0" encoding="utf-8"?>
+<UserControl
+    x:Class="ExoLauncher.Controls.NowPlate"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    PointerEntered="OnEntered"
+    PointerExited="OnExited"
+    PointerMoved="OnMoved">
+
+    <Border x:Name="Shell"
+            Height="288"
+            CornerRadius="{StaticResource ExoCardRadius}"
+            BorderBrush="{StaticResource ExoDividerBrush}"
+            BorderThickness="1"
+            Background="{StaticResource ExoCardFillBrush}">
+        <Grid x:Name="Root">
+            <Border x:Name="WashHost"
+                    CornerRadius="{StaticResource ExoCardRadius}"
+                    IsHitTestVisible="False">
+                <Border.Background>
+                    <ImageBrush x:Name="WashBrush"
+                                Stretch="UniformToFill"
+                                AlignmentY="Center" />
+                </Border.Background>
+            </Border>
+
+            <Rectangle x:Name="Spot"
+                       IsHitTestVisible="False"
+                       Opacity="0">
+                <Rectangle.Fill>
+                    <RadialGradientBrush x:Name="SpotBrush"
+                                         MappingMode="Absolute"
+                                         RadiusX="280"
+                                         RadiusY="280">
+                        <GradientStop Color="#80FFFFFF" Offset="0" />
+                        <GradientStop Color="#1AFFFFFF" Offset="0.4" />
+                        <GradientStop Color="#00FFFFFF" Offset="1" />
+                    </RadialGradientBrush>
+                </Rectangle.Fill>
+            </Rectangle>
+
+            <Rectangle IsHitTestVisible="False">
+                <Rectangle.Fill>
+                    <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
+                        <GradientStop Color="#F2000000" Offset="0" />
+                        <GradientStop Color="#B3000000" Offset="0.36" />
+                        <GradientStop Color="#33000000" Offset="0.72" />
+                        <GradientStop Color="#00000000" Offset="1" />
+                    </LinearGradientBrush>
+                </Rectangle.Fill>
+            </Rectangle>
+            <Rectangle IsHitTestVisible="False" VerticalAlignment="Bottom" Height="120">
+                <Rectangle.Fill>
+                    <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                        <GradientStop Color="#00000000" Offset="0" />
+                        <GradientStop Color="#E6000000" Offset="1" />
+                    </LinearGradientBrush>
+                </Rectangle.Fill>
+            </Rectangle>
+            <Rectangle VerticalAlignment="Top"
+                       Height="1"
+                       IsHitTestVisible="False"
+                       Fill="{StaticResource ExoEdgeBrush}" />
+
+            <Grid Padding="24,22" ColumnSpacing="22" Tapped="Root_Tapped">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="120" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <Button x:Name="PosterButton"
+                        Grid.Column="0"
+                        Padding="0"
+                        Width="120"
+                        Height="180"
+                        VerticalAlignment="Center"
+                        CornerRadius="14"
+                        Click="Poster_Click"
+                        AutomationProperties.Name="Now cover"
+                        Background="Transparent"
+                        BorderBrush="{StaticResource ExoDividerBrush}"
+                        BorderThickness="1">
+                    <Grid x:Name="PosterTilt">
+                        <Border x:Name="PosterHost"
+                                CornerRadius="13"
+                                Background="{StaticResource ExoRaisedFillBrush}">
+                            <Grid>
+                                <Image x:Name="PosterImage"
+                                       Stretch="UniformToFill" />
+                                <Rectangle x:Name="PosterShine"
+                                           IsHitTestVisible="False"
+                                           Opacity="0">
+                                    <Rectangle.Fill>
+                                        <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                                            <GradientStop Color="#00FFFFFF" Offset="0" />
+                                            <GradientStop Color="#55FFFFFF" Offset="0.5" />
+                                            <GradientStop Color="#00FFFFFF" Offset="1" />
+                                        </LinearGradientBrush>
+                                    </Rectangle.Fill>
+                                </Rectangle>
+                            </Grid>
+                        </Border>
+                        <TextBlock x:Name="PosterMono"
+                                   HorizontalAlignment="Center"
+                                   VerticalAlignment="Center"
+                                   FontSize="26"
+                                   FontWeight="SemiBold"
+                                   Foreground="{StaticResource ExoMutedTextBrush}" />
+                    </Grid>
+                </Button>
+
+                <Button Grid.Column="1"
+                        HorizontalAlignment="Stretch"
+                        HorizontalContentAlignment="Left"
+                        VerticalAlignment="Stretch"
+                        Background="Transparent"
+                        BorderThickness="0"
+                        Padding="0"
+                        AutomationProperties.Name="Open now"
+                        Click="Open_Click">
+                    <StackPanel VerticalAlignment="Center" Spacing="10">
+                        <TextBlock x:Name="Kicker"
+                                   Style="{StaticResource ExoEyebrowStyle}" />
+                        <TextBlock x:Name="TitleText"
+                                   FontSize="{StaticResource ExoTypeDisplaySize}"
+                                   FontWeight="SemiBold"
+                                   Foreground="{StaticResource ExoPrimaryTextBrush}"
+                                   TextTrimming="CharacterEllipsis"
+                                   FontFamily="{StaticResource ExoDisplayFont}"
+                                   CharacterSpacing="-40" />
+                        <TextBlock x:Name="MetaText"
+                                   FontSize="{StaticResource ExoTypeCaptionSize}"
+                                   Foreground="{StaticResource ExoSecondaryTextBrush}"
+                                   TextTrimming="CharacterEllipsis" />
+                    </StackPanel>
+                </Button>
+
+                <Button x:Name="PrimaryButton"
+                        Grid.Column="2"
+                        VerticalAlignment="Center"
+                        Style="{StaticResource ExoPrimaryButtonStyle}"
+                        AutomationProperties.Name="Play"
+                        Click="Primary_Click"
+                        Tapped="Primary_Tapped"
+                        PointerPressed="Primary_Pressed"
+                        PointerReleased="Primary_Released"
+                        PointerCaptureLost="Primary_Released">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <FontIcon x:Name="PrimaryIcon"
+                                  Glyph="&#xE768;"
+                                  FontSize="14"
+                                  Foreground="{StaticResource ExoInverseTextBrush}" />
+                        <TextBlock x:Name="PrimaryLabel"
+                                   Text="Play"
+                                   Foreground="{StaticResource ExoInverseTextBrush}" />
+                    </StackPanel>
+                </Button>
+            </Grid>
+
+            <ProgressBar x:Name="Meter"
+                         VerticalAlignment="Bottom"
+                         Height="2"
+                         ShowPaused="False"
+                         ShowError="False"
+                         Visibility="Collapsed" />
+        </Grid>
+    </Border>
+</UserControl>

@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using ExoLauncher.Helpers;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.Windows.AppLifecycle;
@@ -21,6 +22,7 @@ public static class Program
     [STAThread]
     public static void Main(string[] args)
     {
+        StartupTiming.Begin();
         try
         {
             Helpers.NativeProcessSecurity.HardenDllSearch();
@@ -49,6 +51,7 @@ public static class Program
                 TryDeliverRestore();
             };
 
+            StartupTiming.MarkWinUiStart();
             XamlCheckProcessRequirements();
             Application.Start(p =>
             {
@@ -73,16 +76,21 @@ public static class Program
         }
     }
 
-    internal static void NotifyWindowReady() => TryDeliverRestore();
+    internal static void NotifyWindowReady()
+    {
+        StartupTiming.LogWindowReady();
+        TryDeliverRestore();
+    }
 
     private static void TryDeliverRestore()
     {
         var window = App.MainAppWindow;
         if (window is null || Volatile.Read(ref _restoreRequested) == 0) return;
-        _ = window.DispatcherQueue.TryEnqueue(() =>
+        _ = window.DispatcherQueue.TryEnqueue(static () =>
         {
-            if (Interlocked.Exchange(ref _restoreRequested, 0) == 1)
-                window.RestoreAndActivate();
+            var current = App.MainAppWindow;
+            if (current is not null && Interlocked.Exchange(ref _restoreRequested, 0) == 1)
+                current.RestoreAndActivate();
         });
     }
 }

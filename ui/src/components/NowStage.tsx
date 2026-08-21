@@ -1,4 +1,4 @@
-import { useState, type CSSProperties } from 'react'
+import type { CSSProperties } from 'react'
 import { Download, Loader2, Play, Stop } from '../brand/icons'
 import {
   primaryCtaLabel,
@@ -7,36 +7,8 @@ import {
   type InstallProgress,
 } from '../lib/host'
 import { nowKicker, type NowKind } from '../lib/now'
-import { formatPlaytime, formatRelativeLastPlayed, formatSpeed, storeLabel, visibleInstallPercent } from '../lib/utils'
-import { CoverArt, steamHeroUrls } from './CoverArt'
-
-function NowWash({ game }: { game: Game }) {
-  const urls = steamHeroUrls(game)
-  const [idx, setIdx] = useState(0)
-  const [ok, setOk] = useState(false)
-  const url = urls[idx]
-  if (!url) return null
-  return (
-    <img
-      src={url}
-      alt=""
-      className={`exo-now-wash-img${ok ? ' is-on' : ''}`}
-      draggable={false}
-      decoding="async"
-      onLoad={(e) => {
-        const img = e.currentTarget
-        if (img.naturalWidth < 400 || img.naturalWidth / img.naturalHeight < 1.2) {
-          if (idx + 1 < urls.length) setIdx((i) => i + 1)
-          return
-        }
-        setOk(true)
-      }}
-      onError={() => {
-        if (idx + 1 < urls.length) setIdx((i) => i + 1)
-      }}
-    />
-  )
-}
+import { formatPlaytime, formatSpeed, storeLabel, visibleInstallPercent } from '../lib/utils'
+import { CoverArt } from './CoverArt'
 
 export function NowStage({
   game,
@@ -64,55 +36,42 @@ export function NowStage({
     : transferring
       ? percent == null ? 'Downloading' : `${Math.round(percent)}%`
       : primaryCtaLabel(game, action)
-  const meta = [
+  const transferMeta = transferring
+    ? [progress?.status || progress?.phase, progress?.bytesPerSecond == null ? null : formatSpeed(progress.bytesPerSecond)]
+        .filter(Boolean)
+        .join(' · ')
+    : null
+  const contextMeta = [
     storeLabel(game.store),
-    transferring && progress?.status ? progress.status : null,
-    transferring && progress?.bytesPerSecond ? formatSpeed(progress.bytesPerSecond) : null,
-    !transferring && formatPlaytime(game.playtimeMinutes),
-    !transferring && game.lastPlayedUtc ? formatRelativeLastPlayed(game.lastPlayedUtc) : null,
-  ].filter((part) => part && part !== '—')
-
+    (game.playtimeMinutes ?? 0) > 0 ? `${formatPlaytime(game.playtimeMinutes)} played` : null,
+    transferMeta,
+    kind === 'update' ? 'Update ready' : null,
+  ].filter(Boolean).join(' · ')
   return (
     <section className="exo-now-wrap">
-      <article
-        className="exo-now"
-        onClick={() => {
-          if (!disabled) onOpen()
-        }}
-      >
-        <div className="exo-now-wash" aria-hidden>
-          <NowWash game={game} />
-          <span className="exo-now-veil" />
-        </div>
+      <article className={`exo-now is-${kind}`}>
         <div className="exo-now-body">
           <button
             type="button"
             className="exo-now-open"
             disabled={disabled}
-            onMouseDown={(event) => {
-              if (event.button === 0) event.preventDefault()
-            }}
-            onClick={(event) => {
-              event.stopPropagation()
-              onOpen()
-            }}
+            onClick={onOpen}
             aria-label={`${game.title} details`}
           >
-            <div className="exo-now-poster">
-              <CoverArt game={game} className="absolute inset-0 h-full w-full" large />
-            </div>
-            <div className="exo-now-copy">
+            <span className="exo-now-poster" aria-hidden="true">
+              <CoverArt game={game} preload className="h-full w-full" />
+            </span>
+            <span className="exo-now-copy">
               <p className="exo-now-kicker">{nowKicker(kind)}</p>
               <h2 className="exo-now-title">{game.title}</h2>
-              {meta.length > 0 && <p className="exo-now-meta">{meta.join(' · ')}</p>}
-            </div>
+              {contextMeta ? <p className="exo-now-meta">{contextMeta}</p> : null}
+            </span>
           </button>
           <button
             type="button"
-            className={`exo-cta exo-now-cta min-w-[148px]${transferring || playing ? ' is-active' : ''}`}
+            className="exo-play exo-now-cta"
             disabled={disabled}
-            onClick={(event) => {
-              event.stopPropagation()
+            onClick={() => {
               if (playing) onStop()
               else if (transferring) onOpen()
               else onPrimary()
@@ -127,7 +86,7 @@ export function NowStage({
             )}
             <span className="relative z-[1] inline-flex items-center gap-2">
               {transferring ? (
-                <Loader2 size={16} className="animate-spin" />
+                <Loader2 size={16} className="animate-spin motion-reduce:animate-none" />
               ) : playing ? (
                 <Stop size={16} />
               ) : action === 'install' || action === 'update' ? (
@@ -135,17 +94,10 @@ export function NowStage({
               ) : (
                 <Play size={16} />
               )}
-              <strong>{cta}</strong>
+              <span>{cta}</span>
             </span>
           </button>
         </div>
-        {transferring && (
-          <span
-            className={`exo-now-meter${percent == null ? ' is-unknown' : ''}`}
-            style={percent == null ? undefined : { '--progress': percent / 100 } as CSSProperties}
-            aria-hidden
-          />
-        )}
       </article>
     </section>
   )

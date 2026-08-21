@@ -158,6 +158,23 @@ public sealed class SteamPlaytimeTests
         }
     }
 
+    [Fact]
+    public void MergeFile_MinutesDoNotMoveWithLastPlayedTimezone()
+    {
+        var map = new Dictionary<string, SteamPlaytime.Entry>(StringComparer.Ordinal);
+        SteamPlaytime.MergeFile(map, """
+            "apps" { "4000099" { "Playtime" "43" "LastPlayed" "1748128615" } }
+            """);
+        SteamPlaytime.MergeFile(map, """
+            "apps" { "4000099" { "Playtime" "43" "LastPlayed" "1719792000" } }
+            """);
+
+        Assert.Equal(43, map["4000099"].Minutes);
+        Assert.Equal(
+            DateTimeOffset.FromUnixTimeSeconds(1748128615),
+            map["4000099"].LastPlayedUtc);
+    }
+
     private static string CreateSteamRoot(params (string Account, string App, int Minutes)[] rows)
     {
         var root = Path.Combine(Path.GetTempPath(), "exo-steam-playtime-" + Guid.NewGuid().ToString("N"));

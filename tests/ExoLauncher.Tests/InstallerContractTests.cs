@@ -55,6 +55,9 @@ public sealed class InstallerContractTests
         Assert.Contains("silent_install_fail:", script, StringComparison.Ordinal);
         Assert.Contains("update-error.log", script, StringComparison.Ordinal);
         Assert.Contains("Delete \"$R8\\update-error.log\"", script, StringComparison.Ordinal);
+        var shortcutWorkingDirectory = script.IndexOf("SetOutPath \"$INSTDIR\"", StringComparison.Ordinal);
+        var shortcut = script.IndexOf("CreateShortCut \"$SMPROGRAMS\\Exo Launcher.lnk\"", StringComparison.Ordinal);
+        Assert.InRange(shortcutWorkingDirectory, 0, shortcut - 1);
         Assert.Contains("SetErrorLevel 1", script, StringComparison.Ordinal);
         Assert.Contains("Get-AuthenticodeSignature", script, StringComparison.Ordinal);
         Assert.Contains("O=Microsoft Corporation", script, StringComparison.Ordinal);

@@ -50,18 +50,26 @@ public sealed class RiotAdapter : IStoreAdapter
                 Title = title,
                 Store = StoreKind.Riot,
                 Installed = installed,
-                Owned = true, // fixed catalog tiles — install path is official client
+                // A Riot Client installation proves only that the launcher is
+                // present. Each free-to-play title remains unowned until its
+                // own product files are observed.
+                Owned = installed,
                 // Only offer Install when not already present and a client/bootstrap exists.
                 CanInstall = !installed && (rcs is not null || ResolveBootstrapInstaller() is not null),
                 Path = installedPath,
                 LaunchTarget = productId,
                 Status = installed ? "Ready" : (rcs is not null ? "Not installed" : "Client missing"),
-                SizeBytes = installedPath is not null ? TryDirSize(installedPath) : null,
+                // Uninstall EstimatedSize is instant and excludes Vanguard. A
+                // directory walk is deferred and only used when that key is missing.
+                SizeBytes = installed
+                    ? RiotInstallProbe.TryReadInstallSizeBytes(productId)
+                      ?? InstalledSizeCache.Get(installedPath)
+                    : null,
                 Deps = productId == "valorant"
                     ? new[] { "Riot Client", "Vanguard" }
                     : new[] { "Riot Client" },
                 LaunchNote = productId == "valorant"
-                    ? "Official RiotClientServices launch. Vanguard must stay installed for online play — Exo does not bypass it."
+                    ? "Official RiotClientServices launch. Vanguard must stay installed for online play. Exo does not bypass it."
                     : "RiotClientServices --launch-product. Optional force-close of Riot UI after exit.",
             });
         }
@@ -169,6 +177,7 @@ public sealed class RiotAdapter : IStoreAdapter
                     SoftCloseRiotUi(includeServices: false);
                     var path = RiotInstallProbe.FindInstalledProduct(productId)
                                ?? FindProductPath(ResolveRiotRoot(), productId, game.Title);
+                    InstalledSizeCache.Invalidate(path);
                     Report(game.Id, progress, InstallPhase.Completed, 100, "Install finished.");
                     return new InstallResult
                     {
@@ -188,7 +197,7 @@ public sealed class RiotAdapter : IStoreAdapter
                 var bps = state.SpeedMbps > 0 ? state.SpeedMbps * 1024.0 * 1024.0 / 8.0 : (double?)null;
                 var status = string.IsNullOrWhiteSpace(state.Phase)
                     ? $"Installing {game.Title}…"
-                    : $"{state.Phase} — {game.Title}";
+                    : $"{state.Phase} · {game.Title}";
                 Report(game.Id, progress, InstallPhase.Installing, pct, status, bps);
             }
             else
@@ -304,6 +313,7 @@ public sealed class RiotAdapter : IStoreAdapter
         SoftCloseRiotUi(includeServices: false);
 
         var finalPath = FindProductPath(ResolveRiotRoot(), productId, game.Title);
+        InstalledSizeCache.Invalidate(finalPath);
         var ok = finalPath is not null;
         Report(game.Id, progress,
             ok ? InstallPhase.Completed : InstallPhase.Failed,
@@ -609,8 +619,10 @@ public sealed class RiotAdapter : IStoreAdapter
     internal static string[] GameProcessNames(string productId) =>
         productId.Trim().ToLowerInvariant() switch
         {
-            "league_of_legends" or "lion" =>
+            "league_of_legends" =>
                 ["League of Legends"],
+            "lion" =>
+                ["2XKO", "Lion"],
             "valorant" =>
                 ["VALORANT-Win64-Shipping", "VALORANT"],
             "bacon" =>
@@ -622,8 +634,10 @@ public sealed class RiotAdapter : IStoreAdapter
     internal static string[] LaunchReadyProcessNames(string productId) =>
         productId.Trim().ToLowerInvariant() switch
         {
-            "league_of_legends" or "lion" =>
+            "league_of_legends" =>
                 ["LeagueClient", "LeagueClientUx", "League of Legends"],
+            "lion" =>
+                ["2XKO", "Lion"],
             _ => GameProcessNames(productId),
         };
 
@@ -666,6 +680,7 @@ public sealed class RiotAdapter : IStoreAdapter
                 ct.ThrowIfCancellationRequested();
                 if (!RiotInstallProbe.LooksInstalled(productId, installedPath))
                 {
+                    InstalledSizeCache.Invalidate(installedPath);
                     SoftCloseRiotUi();
                     return new InstallResult { Ok = true, Message = "Removed from Riot." };
                 }
@@ -803,22 +818,6 @@ public sealed class RiotAdapter : IStoreAdapter
 
     private static string? ResolveRiotClientServices() =>
         RiotInstallProbe.FindRiotClientServices();
-
-    private static long? TryDirSize(string dir)
-    {
-        try
-        {
-            long total = 0;
-            var n = 0;
-            foreach (var f in Directory.EnumerateFiles(dir, "*", SearchOption.AllDirectories))
-            {
-                try { total += new FileInfo(f).Length; } catch { }
-                if (++n > 8000) break;
-            }
-            return total > 0 ? total : null;
-        }
-        catch { return null; }
-    }
 
     private static string? ResolveBootstrapInstaller()
     {

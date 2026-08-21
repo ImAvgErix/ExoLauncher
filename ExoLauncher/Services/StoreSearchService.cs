@@ -30,8 +30,29 @@ public sealed class StoreSearchService
     private readonly Func<string, IReadOnlyList<GameEntry>, CancellationToken, Task<IReadOnlyList<StoreSearchHit>>> _steamSearch;
 
     public StoreSearchService()
-        : this(LoadLegendaryOwnedAsync, SearchSteamAsync)
+        : this(LoadLegendaryOwnedAsync, SearchSteamIfClientPresent)
     {
+    }
+
+    /// <summary>
+    /// Public Steam catalog search needs the official client. Without it, Exo
+    /// would paint a store shelf on a PC that cannot command Steam.
+    /// </summary>
+    internal static bool CanSearchPublicSteamCatalog(string? steamExe) =>
+        !string.IsNullOrWhiteSpace(steamExe);
+
+    /// <summary>
+    /// Live search is library + account. Unowned catalog hits stay off the wire.
+    /// </summary>
+    internal static bool IsLiveSearchHit(StoreSearchHit hit) =>
+        hit.Owned || hit.Installed;
+
+    private static Task<IReadOnlyList<StoreSearchHit>> SearchSteamIfClientPresent(
+        string q, IReadOnlyList<GameEntry> ownedLibrary, CancellationToken ct)
+    {
+        if (!CanSearchPublicSteamCatalog(SteamAdapter.TryResolveSteamExePublic()))
+            return Task.FromResult<IReadOnlyList<StoreSearchHit>>(Array.Empty<StoreSearchHit>());
+        return SearchSteamAsync(q, ownedLibrary, ct);
     }
 
     internal StoreSearchService(
@@ -219,7 +240,7 @@ public sealed class StoreSearchService
                             CoverUrl = g.CoverUrl,
                             Owned = true,
                             Installed = g.Installed,
-                            CanInstall = g.CanInstall || (!g.Installed && g.Owned),
+                            CanInstall = !g.Installed && g.Owned && g.CanInstall,
                             Source = "gog",
                         })
                         .ToList();
@@ -253,7 +274,7 @@ public sealed class StoreSearchService
                 CoverUrl = g.CoverUrl ?? SteamCover(g.LaunchTarget),
                 Owned = g.Owned,
                 Installed = g.Installed,
-                CanInstall = g.CanInstall || (!g.Installed && g.Owned),
+                CanInstall = !g.Installed && g.Owned && g.CanInstall,
                 Source = "library",
             })
             .ToList();
@@ -448,11 +469,11 @@ public sealed class StoreSearchService
 
     private static bool SteamSourceIsOwned(GameEntry game, string appId)
     {
-        if (IsSteamAppRef(game.Id, game.Store, game.LaunchTarget, appId) && (game.Owned || game.Installed))
+        if (IsSteamAppRef(game.Id, game.Store, game.LaunchTarget, appId) && game.Owned)
             return true;
         return game.Variants.Any(variant =>
             IsSteamAppRef(variant.Id, variant.Store, variant.LaunchTarget, appId) &&
-            (variant.Owned || variant.Installed));
+            variant.Owned);
     }
 
     private static bool SteamSourceIsInstalled(GameEntry game, string appId)
@@ -473,11 +494,6 @@ public sealed class StoreSearchService
         IReadOnlyList<GameEntry> ownedLibrary)
     {
         var owned = ownedLibrary.Any(g => SteamSourceIsOwned(g, id));
-        // A ticket is positive evidence for the active Steam userdata account,
-        // including a newly bought title that has no appmanifest yet. Missing
-        // tickets remain unknown and never become a negative ownership claim.
-        var root = TryResolveSteamRootForTicketEvidence();
-        owned |= root is not null && SteamPlaytime.HasActiveLibraryEvidence(root, id);
         var installed = ownedLibrary.Any(g => SteamSourceIsInstalled(g, id));
         return new StoreSearchHit
         {
@@ -491,17 +507,6 @@ public sealed class StoreSearchService
             CanInstall = owned,
             Source = "steam",
         };
-    }
-
-    private static string? TryResolveSteamRootForTicketEvidence()
-    {
-        try
-        {
-            var executable = SteamAdapter.TryResolveSteamExePublic();
-            var root = string.IsNullOrWhiteSpace(executable) ? null : Path.GetDirectoryName(executable);
-            return !string.IsNullOrWhiteSpace(root) && Directory.Exists(root) ? root : null;
-        }
-        catch { return null; }
     }
 
     private static string? TryParseSteamAppId(string q)
@@ -641,6 +646,7 @@ public sealed class StoreSearchService
             (titleToken.StartsWith(queryToken, StringComparison.Ordinal) ||
              queryToken.StartsWith(titleToken, StringComparison.Ordinal))) return 2;
         if (queryToken.Length < 4 || titleToken.Length < 4) return 0;
+        if (titleToken[0] != queryToken[0]) return 0;
         var max = AllowedEditDistance(Math.Max(titleToken.Length, queryToken.Length));
         return BoundedDamerauLevenshtein(titleToken, queryToken, max) <= max ? 1 : 0;
     }

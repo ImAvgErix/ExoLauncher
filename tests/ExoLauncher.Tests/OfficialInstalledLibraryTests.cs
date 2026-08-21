@@ -148,4 +148,155 @@ public sealed class OfficialInstalledLibraryTests
             try { Directory.Delete(root, recursive: true); } catch { }
         }
     }
+
+    [Fact]
+    public void InstallAndUninstallProtocols_MatchTheOfficialClients()
+    {
+        Assert.Equal(
+            "origin2://game/launch/?offerIds=Origin.OFR.50.0000001",
+            OfficialInstalledLibraries.InstallProtocol(StoreKind.Ea, "Origin.OFR.50.0000001"));
+        Assert.Equal(
+            "uplay://install/1234",
+            OfficialInstalledLibraries.InstallProtocol(StoreKind.Ubisoft, "1234"));
+        Assert.Equal(
+            "uplay://uninstall/1234",
+            OfficialInstalledLibraries.UninstallProtocol(StoreKind.Ubisoft, "1234"));
+        Assert.Equal(
+            "battlenet://wow/",
+            OfficialInstalledLibraries.InstallProtocol(StoreKind.BattleNet, "wow"));
+        Assert.Null(OfficialInstalledLibraries.InstallProtocol(StoreKind.Xbox, "anything"));
+        Assert.Equal(
+            "ms-windows-store://pdp/?ProductId=9NBLGGH4R2R6",
+            OfficialInstalledLibraries.InstallProtocol(StoreKind.Xbox, "9NBLGGH4R2R6"));
+        Assert.Equal(
+            "wgc://open/game/wot.eu.production",
+            OfficialInstalledLibraries.InstallProtocol(StoreKind.Wargaming, "wot.eu.production"));
+        Assert.Equal(
+            "minecraft://",
+            OfficialInstalledLibraries.InstallProtocol(StoreKind.Minecraft, "minecraft:java"));
+        Assert.StartsWith(
+            "ms-windows-store://pdp/?PFN=",
+            OfficialInstalledLibraries.InstallProtocol(StoreKind.Minecraft, "minecraft:bedrock"));
+        Assert.Null(OfficialInstalledLibraries.InstallProtocol(StoreKind.Xbox, @"D:\XboxGames\Forza\Content\Forza.exe"));
+        Assert.Null(OfficialInstalledLibraries.InstallProtocol(StoreKind.Itch, @"C:\Games\Celeste\Celeste.exe"));
+    }
+
+    [Fact]
+    public void PathsRelated_AcceptsContentFolderUnderTheInstallRoot()
+    {
+        Assert.True(OfficialInstalledLibraries.PathsRelated(@"D:\XboxGames\Starfield", @"D:\XboxGames\Starfield\Content"));
+        Assert.True(OfficialInstalledLibraries.PathsRelated(@"C:\Games\Apex", @"C:\Games\Apex"));
+        Assert.False(OfficialInstalledLibraries.PathsRelated(@"C:\Games\Apex", @"C:\Games\FIFA"));
+    }
+
+    [Fact]
+    public void SplitCommand_KeepsQuotedExeAndTrailingArgs()
+    {
+        var split = OfficialInstalledLibraries.SplitCommand(
+            @"""C:\Program Files (x86)\Battle.net\Battle.net Uninstaller.exe"" --lang=enUS --uid=wow");
+        Assert.Equal(@"C:\Program Files (x86)\Battle.net\Battle.net Uninstaller.exe", split.FileName);
+        Assert.Equal("--lang=enUS --uid=wow", split.Arguments);
+    }
+
+    [Fact]
+    public void EaInstallDat_SetsUpdateAvailableFromProvenLocalFlag()
+    {
+        var json = """
+            {"installInfos":[
+              {"baseInstallPath":"C:\\Games\\Apex","contentId":"Origin.OFR.50.0000001","displayName":"Apex Legends","updateAvailable":true},
+              {"baseInstallPath":"C:\\Games\\FIFA","contentId":"Origin.OFR.50.0000003","displayName":"EA Sports FC","updateAvailable":false}
+            ]}
+            """;
+
+        var games = OfficialInstalledLibraries.ParseEaInstallDat(
+            json, path => path.Contains("Apex", StringComparison.OrdinalIgnoreCase)
+                          || path.Contains("FIFA", StringComparison.OrdinalIgnoreCase));
+
+        var apex = Assert.Single(games, g => g.Title == "Apex Legends");
+        Assert.True(apex.UpdateAvailable);
+        Assert.Equal("Update", apex.Status);
+        var fifa = Assert.Single(games, g => g.Title == "EA Sports FC");
+        Assert.False(fifa.UpdateAvailable);
+        Assert.Equal("Ready", fifa.Status);
+    }
+
+    [Fact]
+    public void UbisoftInstalls_CarryRegistryUpdateFlag()
+    {
+        var records = new OfficialInstalledLibraries.UbisoftInstallRecord[]
+        {
+            new("1234", @"D:\Ubisoft\Assassins", "Assassin's Creed", UpdateAvailable: true),
+        };
+
+        var game = Assert.Single(OfficialInstalledLibraries.ParseUbisoftInstalls(
+            records, path => path.Contains("Assassins", StringComparison.OrdinalIgnoreCase)));
+        Assert.True(game.UpdateAvailable);
+        Assert.Equal("Update", game.Status);
+    }
+
+    [Fact]
+    public void PlanUpdate_DoesNotNoOpWhenTheTitleIsAlreadyInstalled()
+    {
+        var game = new GameEntry
+        {
+            Id = "ea:apex",
+            Title = "Apex Legends",
+            Store = StoreKind.Ea,
+            Installed = true,
+            LaunchTarget = "Origin.OFR.50.0000001",
+            Path = @"C:\Games\Apex",
+        };
+
+        var installed = OfficialInstalledLibraries.PlanUpdate(game, "EA app", stillInstalled: true);
+        Assert.False(installed.UseInstallPath);
+        Assert.StartsWith("origin2://", installed.Protocol);
+        Assert.Contains("update", installed.Message, StringComparison.OrdinalIgnoreCase);
+
+        var missing = OfficialInstalledLibraries.PlanUpdate(game, "EA app", stillInstalled: false);
+        Assert.True(missing.UseInstallPath);
+    }
+
+    [Fact]
+    public void UpdateProtocol_HandsOffKnownOfficialClientsAndLeavesXboxToTheApp()
+    {
+        Assert.Equal(
+            "origin2://game/launch/?offerIds=Origin.OFR.50.0000001",
+            OfficialInstalledLibraries.UpdateProtocol(StoreKind.Ea, "Origin.OFR.50.0000001"));
+        Assert.Equal(
+            "uplay://install/1234",
+            OfficialInstalledLibraries.UpdateProtocol(StoreKind.Ubisoft, "1234"));
+        Assert.Equal(
+            "battlenet://wow/",
+            OfficialInstalledLibraries.UpdateProtocol(StoreKind.BattleNet, "wow"));
+        Assert.Null(OfficialInstalledLibraries.UpdateProtocol(StoreKind.Xbox, @"D:\XboxGames\Forza\Content\Forza.exe"));
+        Assert.Null(OfficialInstalledLibraries.UpdateProtocol(StoreKind.Amazon, @"D:\Amazon\Hades\Game.exe"));
+        Assert.Null(OfficialInstalledLibraries.UpdateProtocol(StoreKind.Rockstar, @"D:\Rockstar\GTA5\GTA5.exe"));
+    }
+
+    [Fact]
+    public void OfficialAdapterUpdate_IsNotInstallAsyncNoOp()
+    {
+        var src = File.ReadAllText(FindOfficialAdapterSource());
+        Assert.Contains(
+            "OfficialInstalledLibraries.UpdateAsync(game, DisplayName, ct)",
+            src,
+            StringComparison.Ordinal);
+        var updateIdx = src.IndexOf("public Task<InstallResult> UpdateAsync", StringComparison.Ordinal);
+        Assert.True(updateIdx >= 0);
+        var snippet = src.Substring(updateIdx, Math.Min(280, src.Length - updateIdx));
+        Assert.Contains("OfficialInstalledLibraries.UpdateAsync", snippet, StringComparison.Ordinal);
+        Assert.DoesNotContain("OfficialInstalledLibraries.InstallAsync", snippet, StringComparison.Ordinal);
+    }
+
+    private static string FindOfficialAdapterSource()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null)
+        {
+            var candidate = Path.Combine(dir.FullName, "ExoLauncher", "Adapters", "AgentPresentAdapters.cs");
+            if (File.Exists(candidate)) return candidate;
+            dir = dir.Parent;
+        }
+        throw new FileNotFoundException("AgentPresentAdapters.cs");
+    }
 }

@@ -18,7 +18,7 @@ internal delegate Task<(int ExitCode, string StdOut, string StdErr)> GogdlComman
 /// GOG via heroic-gogdl when present; offline registry titles launch as local exes.
 /// https://github.com/Heroic-Games-Launcher/heroic-gogdl
 /// </summary>
-public sealed class GogAdapter : IStoreAdapter, IStoreClientPresence, IStoreAccountScope
+public sealed class GogAdapter : IStoreAdapter, IStoreClientPresence, IStoreAccountScope, IStoreRepair
 {
     internal const string ManagedInstallStagingPrefix = ".exo-gog-partial-";
 
@@ -61,6 +61,17 @@ public sealed class GogAdapter : IStoreAdapter, IStoreClientPresence, IStoreAcco
     // make Settings claim that the separately installed Galaxy client exists.
     public bool IsAgentPresent() => ResolveGogdl() is not null || ResolveGalaxy() is not null;
     public bool IsClientPresent() => ResolveGalaxy() is not null;
+
+    internal static readonly OfficialClientDefinition GalaxyClientDefinition = new(
+        ExecutableNames: ["GalaxyClient.exe"],
+        DefaultPaths:
+        [
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+                "GOG Galaxy", "GalaxyClient.exe"),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
+                "GOG Galaxy", "GalaxyClient.exe"),
+        ],
+        UninstallDisplayNames: ["GOG Galaxy", "GOG GALAXY"]);
 
     /// <summary>
     /// Keeps the shared library cache on the currently authenticated GOG user.
@@ -219,37 +230,15 @@ public sealed class GogAdapter : IStoreAdapter, IStoreClientPresence, IStoreAcco
         var owned = new List<GogdlCli.OwnedGame>();
         var exeById = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
-        // Installed titles from GOG registry.
-        try
+        // Installed titles from GOG registry. Both hives: a present
+        // WOW6432Node key used to hide 64-bit SOFTWARE\GOG.com\Games rows.
+        foreach (var row in CollectRegistryInstalled(ReadGogRegistryRecords(), Directory.Exists, File.Exists))
         {
-            using var key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\WOW6432Node\GOG.com\Games")
-                ?? Registry.LocalMachine.OpenSubKey(@"SOFTWARE\GOG.com\Games");
-            if (key is not null)
-            {
-                foreach (var subName in key.GetSubKeyNames())
-                {
-                    ct.ThrowIfCancellationRequested();
-                    using var sub = key.OpenSubKey(subName);
-                    if (sub is null) continue;
-                    var name = sub.GetValue("gameName") as string ?? sub.GetValue("GAMENAME") as string;
-                    var path = sub.GetValue("path") as string ?? sub.GetValue("PATH") as string;
-                    var exe = sub.GetValue("exe") as string ?? sub.GetValue("EXE") as string;
-                    if (string.IsNullOrWhiteSpace(name)) continue;
-
-                    if (string.IsNullOrWhiteSpace(path) || !Directory.Exists(path))
-                        continue;
-
-                    installed.Add(new GogdlCli.OwnedGame(subName, name, path, true));
-
-                    if (!string.IsNullOrWhiteSpace(exe))
-                    {
-                        var launchExe = Path.Combine(path, exe);
-                        if (File.Exists(launchExe)) exeById[subName] = launchExe;
-                    }
-                }
-            }
+            ct.ThrowIfCancellationRequested();
+            installed.Add(row.Game);
+            if (!string.IsNullOrWhiteSpace(row.LaunchExe))
+                exeById[row.Game.Id] = row.LaunchExe!;
         }
-        catch { }
 
         // gogdl does not reliably write the Galaxy registry. Exo's own
         // successful-install catalog is therefore a second, durable installed
@@ -451,6 +440,72 @@ public sealed class GogAdapter : IStoreAdapter, IStoreClientPresence, IStoreAcco
         return string.IsNullOrWhiteSpace(userId) || userId.Length > 256 || userId.Any(char.IsControl)
             ? null
             : GogOwnedLibraryService.AccountKeyForUser(userId);
+    }
+
+    internal readonly record struct GogRegistryRecord(string Id, string? Name, string? Path, string? Exe);
+    internal readonly record struct GogRegistryInstall(GogdlCli.OwnedGame Game, string? LaunchExe);
+
+    internal static IReadOnlyList<GogRegistryInstall> CollectRegistryInstalled(
+        IEnumerable<GogRegistryRecord> records,
+        Func<string, bool> directoryExists,
+        Func<string, bool> fileExists)
+    {
+        var installed = new List<GogRegistryInstall>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var record in records)
+        {
+            if (string.IsNullOrWhiteSpace(record.Id) || string.IsNullOrWhiteSpace(record.Name))
+                continue;
+            if (string.IsNullOrWhiteSpace(record.Path) || !directoryExists(record.Path))
+                continue;
+            if (!seen.Add(record.Id)) continue;
+            string? launchExe = null;
+            if (!string.IsNullOrWhiteSpace(record.Exe))
+            {
+                var candidate = Path.IsPathRooted(record.Exe)
+                    ? record.Exe
+                    : Path.Combine(record.Path, record.Exe);
+                if (fileExists(candidate)) launchExe = candidate;
+            }
+            installed.Add(new GogRegistryInstall(
+                new GogdlCli.OwnedGame(record.Id, record.Name, record.Path, true),
+                launchExe));
+        }
+        return installed;
+    }
+
+    private static IReadOnlyList<GogRegistryRecord> ReadGogRegistryRecords()
+    {
+        var records = new List<GogRegistryRecord>();
+        foreach (var hive in new[] { Registry.LocalMachine, Registry.CurrentUser })
+        foreach (var path in new[]
+                 {
+                     @"SOFTWARE\WOW6432Node\GOG.com\Games",
+                     @"SOFTWARE\GOG.com\Games",
+                 })
+        {
+            try
+            {
+                using var key = hive.OpenSubKey(path);
+                if (key is null) continue;
+                foreach (var subName in key.GetSubKeyNames())
+                {
+                    try
+                    {
+                        using var sub = key.OpenSubKey(subName);
+                        if (sub is null) continue;
+                        var name = sub.GetValue("gameName") as string ?? sub.GetValue("GAMENAME") as string;
+                        var install = sub.GetValue("path") as string ?? sub.GetValue("PATH") as string;
+                        var exe = sub.GetValue("exe") as string ?? sub.GetValue("EXE") as string
+                                  ?? sub.GetValue("launchCommand") as string;
+                        records.Add(new GogRegistryRecord(subName, name, install, exe));
+                    }
+                    catch { /* skip one */ }
+                }
+            }
+            catch { /* hive unavailable */ }
+        }
+        return records;
     }
 
     private static async Task<GogdlCli.AuthCredentials?> RefreshCredentialsWithGogdlAsync(
@@ -775,6 +830,17 @@ public sealed class GogAdapter : IStoreAdapter, IStoreClientPresence, IStoreAcco
         }
     }
 
+    public bool CanRepair(GameEntry game) =>
+        game.Installed &&
+        !string.IsNullOrWhiteSpace(ExtractGogId(game)) &&
+        (_gogdlPathOverride is not null || ResolveGogdl() is not null);
+
+    public Task<InstallResult> RepairAsync(
+        GameEntry game,
+        IProgress<InstallProgress>? progress,
+        CancellationToken ct = default) =>
+        UpdateAsync(game, progress, ct);
+
     public async Task<LaunchResult> LaunchAsync(GameEntry game, LaunchOptions options, CancellationToken ct = default)
     {
         ct.ThrowIfCancellationRequested();
@@ -860,7 +926,7 @@ public sealed class GogAdapter : IStoreAdapter, IStoreClientPresence, IStoreAcco
                     gogdl,
                     GogdlCli.WithAuthConfig(
                         GogAuthService.EffectiveAuthConfigPath,
-                        GogdlCli.LaunchArgs(gameId, game.Path)))
+                        GogdlCli.LaunchArgs(gameId, game.Path, extraArgs: options.ExtraArgs)))
                     ?? throw new InvalidOperationException("gogdl did not start.");
                 var gamePid = await ProcessHelper.WaitForProcessUnderPathAsync(
                         game.Path,
@@ -911,10 +977,96 @@ public sealed class GogAdapter : IStoreAdapter, IStoreClientPresence, IStoreAcco
 
     internal static TimeSpan GogdlHandoffConfirmationDelay => TimeSpan.FromMilliseconds(700);
 
-    public Task<InstallResult> UninstallAsync(GameEntry game, CancellationToken ct = default)
+    public async Task<InstallResult> UninstallAsync(GameEntry game, CancellationToken ct = default)
     {
         ct.ThrowIfCancellationRequested();
-        return Task.FromResult(_installedCatalog.UninstallRegistered(game));
+        var registered = _installedCatalog.UninstallRegistered(game);
+        if (registered.Ok)
+            return registered;
+
+        var id = ExtractGogId(game);
+        var galaxy = ResolveGalaxy();
+        if (string.IsNullOrWhiteSpace(id) || galaxy is null)
+            return registered;
+
+        if (SelectUninstallRoute(
+                registeredRemovalSucceeded: false,
+                hasProductId: true,
+                galaxyPresent: true,
+                galaxyRegistryInstalled: GogRegistryStillInstalled(id)) != GogUninstallRoute.GalaxyCommand)
+        {
+            return new InstallResult
+            {
+                Ok = false,
+                Message = "GOG Galaxy has no install record for this game and it is not an " +
+                          "Exo-managed install, so removal cannot be confirmed. No files were deleted.",
+            };
+        }
+
+        using var hider = StoreWindowHider.ForGalaxy();
+        hider.Start(TimeSpan.FromMinutes(15), restoreOnStop: false);
+        StoreUninstallPromptAutomator.Arm(
+            game.Title,
+            TimeSpan.FromMinutes(2),
+            StoreWindowHider.GalaxyProcessNames);
+        ProcessHelper.StartHidden(galaxy, ["/command=uninstall", "/gameId=" + id]);
+
+        var deadline = DateTimeOffset.UtcNow + TimeSpan.FromMinutes(15);
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            ct.ThrowIfCancellationRequested();
+            if (!GogRegistryStillInstalled(id))
+                return new InstallResult { Ok = true, Message = "Removed through GOG Galaxy." };
+            await Task.Delay(800, ct).ConfigureAwait(false);
+        }
+
+        return new InstallResult
+        {
+            Ok = false,
+            Message = "GOG Galaxy did not finish removing this game.",
+        };
+    }
+
+    internal enum GogUninstallRoute
+    {
+        Registered,
+        GalaxyCommand,
+        NotRemovable,
+    }
+
+    /// <summary>
+    /// Galaxy removal is confirmed by the product disappearing from GOG's
+    /// registry. A product that was never in that registry would satisfy the
+    /// wait on its first poll and report a removal that never happened, so the
+    /// handoff is only offered when Galaxy actually owns this install.
+    /// </summary>
+    internal static GogUninstallRoute SelectUninstallRoute(
+        bool registeredRemovalSucceeded,
+        bool hasProductId,
+        bool galaxyPresent,
+        bool galaxyRegistryInstalled)
+    {
+        if (registeredRemovalSucceeded) return GogUninstallRoute.Registered;
+        return hasProductId && galaxyPresent && galaxyRegistryInstalled
+            ? GogUninstallRoute.GalaxyCommand
+            : GogUninstallRoute.NotRemovable;
+    }
+
+    internal static bool GogRegistryStillInstalled(string productId)
+    {
+        if (string.IsNullOrWhiteSpace(productId)) return false;
+        try
+        {
+            using var key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\WOW6432Node\GOG.com\Games\" + productId)
+                ?? Registry.LocalMachine.OpenSubKey(@"SOFTWARE\GOG.com\Games\" + productId);
+            if (key is null) return false;
+            var path = key.GetValue("path") as string ?? key.GetValue("PATH") as string;
+            return !string.IsNullOrWhiteSpace(path) && Directory.Exists(path);
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     public InstallProgress GetDownloadProgress(string gameId) =>
@@ -962,7 +1114,7 @@ public sealed class GogAdapter : IStoreAdapter, IStoreClientPresence, IStoreAcco
             if (string.IsNullOrWhiteSpace(candidate)) continue;
             if (IsSamePath(candidate, managedCache) || IsSamePath(candidate, packagedTool))
             {
-                if (VerifiedGitHubReleaseDownloader.IsPinnedAssetFile(
+                if (PinnedToolCache.IsPinnedAsset(
                         GogdlReleaseAsset,
                         candidate,
                         IsValidAmd64Pe))
@@ -973,7 +1125,7 @@ public sealed class GogAdapter : IStoreAdapter, IStoreClientPresence, IStoreAcco
         }
 
         foreach (var managed in new[] { managedCache, packagedTool })
-            if (VerifiedGitHubReleaseDownloader.IsPinnedAssetFile(
+            if (PinnedToolCache.IsPinnedAsset(
                     GogdlReleaseAsset,
                     managed,
                     IsValidAmd64Pe))
@@ -993,10 +1145,6 @@ public sealed class GogAdapter : IStoreAdapter, IStoreClientPresence, IStoreAcco
         }
     }
 
-    private static string? ResolveGalaxy() =>
-        CliRunner.FirstExisting(
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
-                "GOG Galaxy", "GalaxyClient.exe"),
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
-                "GOG Galaxy", "GalaxyClient.exe"));
+    internal static string? ResolveGalaxy() =>
+        OfficialClientLocator.Resolve(GalaxyClientDefinition)?.FileName;
 }

@@ -94,6 +94,8 @@ public class EpicEglMergeTests
                 Title = "Rocket League",
                 Store = StoreKind.Epic,
                 Installed = true,
+                Owned = false,
+                CanInstall = false,
                 Path = @"C:\Games\RL",
                 LaunchTarget = "Sugar",
             },
@@ -102,7 +104,46 @@ public class EpicEglMergeTests
         var merged = EpicEglMerge.ApplyInstalledOverlays(owned, egl);
         var rl = Assert.Single(merged);
         Assert.True(rl.Installed);
+        Assert.False(rl.Owned);
+        Assert.False(rl.CanInstall);
         Assert.Equal("Sugar", rl.LaunchTarget);
+    }
+
+    [Fact]
+    public void Overlay_DoesNotTurnMatchingMachineHistoryIntoOwnership()
+    {
+        var history = new[]
+        {
+            new GameEntry
+            {
+                Id = "epic:Sugar",
+                Title = "Rocket League",
+                Store = StoreKind.Epic,
+                Installed = false,
+                Owned = false,
+                CanInstall = false,
+                LaunchTarget = "Sugar",
+            },
+        };
+        var installed = new[]
+        {
+            new GameEntry
+            {
+                Id = "epic:Sugar",
+                Title = "Rocket League",
+                Store = StoreKind.Epic,
+                Installed = true,
+                Owned = false,
+                Path = @"C:\Games\RL",
+                LaunchTarget = "Sugar",
+            },
+        };
+
+        var game = Assert.Single(EpicEglMerge.ApplyInstalledOverlays(history, installed));
+
+        Assert.True(game.Installed);
+        Assert.False(game.Owned);
+        Assert.False(game.CanInstall);
     }
 
     [Fact]
@@ -136,6 +177,43 @@ public class EpicEglMergeTests
         var merged = EpicEglMerge.ApplyInstalledOverlays(owned, egl);
         var hades = Assert.Single(merged);
         Assert.Equal(@"D:\Legendary\Hades", hades.Path);
+    }
+
+    [Fact]
+    public void Overlay_KeepsLegendaryPath_ButORsEglUpdateFlag()
+    {
+        var owned = new List<GameEntry>
+        {
+            new()
+            {
+                Id = "epic:Hades",
+                Title = "Hades",
+                Store = StoreKind.Epic,
+                Installed = true,
+                Path = @"D:\Legendary\Hades",
+                LaunchTarget = "Hades",
+            },
+        };
+        var egl = new List<GameEntry>
+        {
+            new()
+            {
+                Id = "epic:Hades",
+                Title = "Hades",
+                Store = StoreKind.Epic,
+                Installed = true,
+                UpdateAvailable = true,
+                Path = @"C:\Epic\Hades",
+                LaunchTarget = "Hades",
+                Status = "Update",
+            },
+        };
+
+        var merged = EpicEglMerge.ApplyInstalledOverlays(owned, egl);
+        var hades = Assert.Single(merged);
+        Assert.Equal(@"D:\Legendary\Hades", hades.Path);
+        Assert.True(hades.UpdateAvailable);
+        Assert.Equal("Update", hades.Status);
     }
 
     [Theory]

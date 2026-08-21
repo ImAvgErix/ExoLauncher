@@ -8,6 +8,49 @@ namespace ExoLauncher.Tests;
 
 public class StoreSearchServiceTests
 {
+    [Theory]
+    [InlineData(null, false)]
+    [InlineData("", false)]
+    [InlineData("   ", false)]
+    [InlineData(@"C:\Program Files (x86)\Steam\steam.exe", true)]
+    public void CanSearchPublicSteamCatalog_RequiresASteamClientPath(string? steamExe, bool expected)
+    {
+        Assert.Equal(expected, StoreSearchService.CanSearchPublicSteamCatalog(steamExe));
+    }
+
+    [Fact]
+    public void IsLiveSearchHit_KeepsAccountAndLibraryRowsOnly()
+    {
+        Assert.False(StoreSearchService.IsLiveSearchHit(new StoreSearchHit
+        {
+            Id = "steam:1",
+            Title = "Shelf",
+            Store = StoreKind.Steam,
+        }));
+        Assert.True(StoreSearchService.IsLiveSearchHit(new StoreSearchHit
+        {
+            Id = "steam:2",
+            Title = "Owned",
+            Store = StoreKind.Steam,
+            Owned = true,
+            CanInstall = true,
+        }));
+        Assert.False(StoreSearchService.IsLiveSearchHit(new StoreSearchHit
+        {
+            Id = "steam:2-refunded",
+            Title = "Refunded",
+            Store = StoreKind.Steam,
+            CanInstall = true,
+        }));
+        Assert.True(StoreSearchService.IsLiveSearchHit(new StoreSearchHit
+        {
+            Id = "steam:3",
+            Title = "Installed",
+            Store = StoreKind.Steam,
+            Installed = true,
+        }));
+    }
+
     [Fact]
     public void BuildSteamCatalogHit_UnknownOwnershipRemainsAPurchaseAction()
     {
@@ -21,6 +64,30 @@ public class StoreSearchServiceTests
         Assert.Equal(appId, hit.LaunchTarget);
         Assert.False(hit.Owned);
         Assert.False(hit.Installed);
+        Assert.False(hit.CanInstall);
+    }
+
+    [Fact]
+    public void BuildSteamCatalogHit_InstalledWithoutOwnershipStaysPlayableButNotInstallable()
+    {
+        var hit = StoreSearchService.BuildSteamCatalogHit(
+            "730",
+            "Counter-Strike 2",
+            new[]
+            {
+                new GameEntry
+                {
+                    Id = "steam:730",
+                    Title = "Counter-Strike 2",
+                    Store = StoreKind.Steam,
+                    Installed = true,
+                    Owned = false,
+                    LaunchTarget = "730",
+                },
+            });
+
+        Assert.True(hit.Installed);
+        Assert.False(hit.Owned);
         Assert.False(hit.CanInstall);
     }
 
@@ -153,6 +220,7 @@ public class StoreSearchServiceTests
 
     [Theory]
     [InlineData("Mortal Shell", "mortal kombat")]
+    [InlineData("Mortal Shell", "portal")]
     [InlineData("Mortal Shell", "mortal shell 22")]
     [InlineData("Far Cry 6", "war")]
     [InlineData("Control", "contour")]

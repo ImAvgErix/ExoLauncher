@@ -27,9 +27,12 @@ internal sealed class StoreAudioSilencer : IDisposable
             [StoreKind.Ubisoft] = ["UbisoftConnect", "upc", "UplayWebCore"],
             [StoreKind.BattleNet] = ["Battle.net"],
             [StoreKind.Amazon] = ["Amazon Games", "AmazonGames", "AmazonGamesUI"],
-            // Do not mute RockstarService or SocialClubHelper: unlike the
-            // launcher's named frame they can participate in a game session.
             [StoreKind.Rockstar] = ["Launcher", "LauncherPatcher"],
+            [StoreKind.Itch] = ["itch"],
+            [StoreKind.Minecraft] = ["MinecraftLauncher"],
+            [StoreKind.Roblox] = ["RobloxPlayerLauncher"],
+            [StoreKind.Paradox] = ["Paradox Launcher", "ParadoxLauncher"],
+            [StoreKind.Wargaming] = ["wgc"],
         };
 
     private readonly Func<StoreKind, bool> _shouldMute;

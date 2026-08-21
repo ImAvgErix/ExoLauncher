@@ -43,6 +43,19 @@ function searchTokens(value: string): string[] {
   return normalizeSearchText(value).split(' ').filter(Boolean)
 }
 
+// Compound names are commonly typed without their visual separator
+// ("spiderman" for "Spider-Man"). Add only adjacent joins so fuzzy matching
+// remains bounded and cannot degrade into broad substring matching.
+function expandAdjacentTokens(tokens: string[]): string[] {
+  if (tokens.length < 2) return tokens
+  const expanded: string[] = []
+  for (let index = 0; index < tokens.length; index += 1) {
+    expanded.push(tokens[index])
+    if (index + 1 < tokens.length) expanded.push(tokens[index] + tokens[index + 1])
+  }
+  return expanded
+}
+
 function allowedSearchEditDistance(length: number): number {
   if (length <= 4) return 1
   if (length <= 7) return 1
@@ -84,6 +97,7 @@ function tokenMatchQuality(titleToken: string, queryToken: string): number {
     return 2
   }
   if (titleToken.length < 4 || queryToken.length < 4) return 0
+  if (titleToken[0] !== queryToken[0]) return 0
   const max = allowedSearchEditDistance(Math.max(titleToken.length, queryToken.length))
   return boundedDamerauLevenshtein(titleToken, queryToken, max) <= max ? 1 : 0
 }
@@ -107,7 +121,7 @@ export function smartSearchScore(title: string, query: string): number {
     return 900
   }
 
-  const titleTokens = searchTokens(normalizedTitle)
+  const titleTokens = expandAdjacentTokens(searchTokens(normalizedTitle))
   const queryTokens = searchTokens(normalizedQuery)
   const usedTitleTokens = new Array<boolean>(titleTokens.length).fill(false)
   let matched = 0
@@ -184,6 +198,7 @@ export function formatRelativeLastPlayed(iso?: string | null): string {
   return new Date(t).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
 }
 
+/** Lifetime minutes only. Last-played is ignored so a timezone cannot change the total. Hours are floored, never rounded. */
 export function formatPlaytime(
   minutes: number | null | undefined,
   _lastPlayedUtc?: string | null,
@@ -226,6 +241,11 @@ export function storeLabel(store: string): string {
     battlenet: 'Battle.net',
     amazon: 'Amazon',
     rockstar: 'Rockstar',
+    itch: 'itch.io',
+    minecraft: 'Minecraft',
+    roblox: 'Roblox',
+    paradox: 'Paradox',
+    wargaming: 'Wargaming',
   }
   return map[store.toLowerCase()] ?? store
 }
@@ -242,6 +262,12 @@ export function storeDotColor(store: string): string {
     ubisoft: 'var(--store-ubisoft)',
     battlenet: 'var(--store-battlenet)',
     amazon: 'var(--store-amazon)',
+    rockstar: 'var(--store-rockstar)',
+    itch: 'var(--store-itch)',
+    minecraft: 'var(--store-minecraft)',
+    roblox: 'var(--store-roblox)',
+    paradox: 'var(--store-paradox)',
+    wargaming: 'var(--store-wargaming)',
   }
   return map[store.toLowerCase()] ?? 'var(--store-local)'
 }

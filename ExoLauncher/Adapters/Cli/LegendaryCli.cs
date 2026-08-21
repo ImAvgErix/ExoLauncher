@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using ExoLauncher.Models;
+using ExoLauncher.Services;
 
 namespace ExoLauncher.Adapters.Cli;
 
@@ -76,10 +77,59 @@ public static partial class LegendaryCli
     public static string[] UpdateArgs(string appName) =>
         ["install", appName, "-y", "--update-only"];
 
-    public static string[] LaunchArgs(string appName) =>
-        ["launch", appName, "--skip-version-check"];
+    public static string[] LaunchArgs(string appName, string? extraArgs = null)
+    {
+        var args = new List<string> { "launch", appName, "--skip-version-check" };
+        foreach (var extra in SplitExtraArgs(extraArgs))
+        {
+            if (args.Count == 3) args.Add("--");
+            args.Add(extra);
+        }
+
+        return args.ToArray();
+    }
 
     public static string[] UninstallArgs(string appName) => ["uninstall", appName, "-y"];
+
+    public static string[] VerifyArgs(string appName) => ["verify", appName];
+
+    public static string[] RepairArgs(string appName) => ["install", appName, "-y", "--repair"];
+
+    public static string[] ImportArgs(string appName, string path) => ["import", appName, path];
+
+    public static string[] EglImportOnlyArgs() => ["egl-sync", "--one-shot", "--import-only"];
+
+    internal static IReadOnlyList<string> SplitExtraArgs(string? extraArgs)
+    {
+        if (string.IsNullOrWhiteSpace(extraArgs)) return Array.Empty<string>();
+        var result = new List<string>();
+        var current = new System.Text.StringBuilder();
+        var quoted = false;
+        foreach (var ch in extraArgs)
+        {
+            if (ch == '"')
+            {
+                quoted = !quoted;
+                continue;
+            }
+
+            if (char.IsWhiteSpace(ch) && !quoted)
+            {
+                if (current.Length > 0)
+                {
+                    result.Add(current.ToString());
+                    current.Clear();
+                }
+
+                continue;
+            }
+
+            current.Append(ch);
+        }
+
+        if (current.Length > 0) result.Add(current.ToString());
+        return result;
+    }
 
     /// <summary>
     /// Parse a single Legendary DLManager progress line.
@@ -124,12 +174,15 @@ public static partial class LegendaryCli
     public static InstallProgress ToProgress(string gameId, string line, InstallPhase phase = InstallPhase.Downloading)
     {
         TryParseProgressLine(line, out var pct, out var bps, out var status);
+        TryParseBytePair(line, out var downloaded, out var toDownload);
         return new InstallProgress
         {
             GameId = gameId,
             Phase = phase,
             Percent = pct,
             BytesPerSecond = bps,
+            BytesDownloaded = downloaded,
+            BytesToDownload = toDownload,
             Status = string.IsNullOrWhiteSpace(status) ? phase.ToString() : status,
             CanCancel = true,
         };
@@ -221,8 +274,15 @@ public static partial class LegendaryCli
             else if (el.TryGetProperty("installPath", out var p2)) installPath = p2.GetString();
 
             long? size = null;
-            if (el.TryGetProperty("install_size", out var s) && s.TryGetInt64(out var sv)) size = sv;
-            else if (el.TryGetProperty("installSize", out var s2) && s2.TryGetInt64(out var sv2)) size = sv2;
+            // Owned-library rows legitimately carry a JSON null here. Calling
+            // TryGetInt64 on a non-number throws; MapRow then swallowed that and
+            // dropped the entire entitlement (including Rocket League / Sugar).
+            if (el.TryGetProperty("install_size", out var s) &&
+                s.ValueKind == JsonValueKind.Number && s.TryGetInt64(out var sv))
+                size = sv;
+            else if (el.TryGetProperty("installSize", out var s2) &&
+                     s2.ValueKind == JsonValueKind.Number && s2.TryGetInt64(out var sv2))
+                size = sv2;
 
             var installed = forceInstalled
                 || (!string.IsNullOrWhiteSpace(installPath) && Directory.Exists(installPath));
@@ -275,10 +335,7 @@ public static partial class LegendaryCli
             if (string.IsNullOrWhiteSpace(type) || string.IsNullOrWhiteSpace(url) ||
                 !type.Contains("Tall", StringComparison.OrdinalIgnoreCase))
                 continue;
-            if (Uri.TryCreate(url, UriKind.Absolute, out var uri) &&
-                uri.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase) &&
-                (uri.Host.Equals("cdn1.epicgames.com", StringComparison.OrdinalIgnoreCase) ||
-                 uri.Host.Equals("cdn2.unrealengine.com", StringComparison.OrdinalIgnoreCase)))
+            if (CoverArtService.IsOfficialEpicPortraitCdn(url))
                 return url;
         }
         return null;
@@ -289,4 +346,34 @@ public static partial class LegendaryCli
 
     [GeneratedRegex(@"([0-9]+(?:\.[0-9]+)?)\s*(KiB|MiB|GiB|KB|MB|GB|B)/s", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex SpeedRegex();
+
+    [GeneratedRegex(@"([0-9]+(?:\.[0-9]+)?)\s*/\s*([0-9]+(?:\.[0-9]+)?)\s*(KiB|MiB|GiB|KB|MB|GB)\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex BytePairRegex();
+
+    private static bool TryParseBytePair(string line, out long? downloaded, out long? toDownload)
+    {
+        downloaded = null;
+        toDownload = null;
+        var match = BytePairRegex().Match(line);
+        if (!match.Success) return false;
+        if (!double.TryParse(match.Groups[1].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out var done))
+            return false;
+        if (!double.TryParse(match.Groups[2].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out var total))
+            return false;
+        var scale = ByteUnitScale(match.Groups[3].Value);
+        var down = (long)Math.Round(done * scale);
+        var to = (long)Math.Round(total * scale);
+        if (down <= 0 || to <= 0) return false;
+        downloaded = down;
+        toDownload = to;
+        return true;
+    }
+
+    private static double ByteUnitScale(string unit) => unit.ToLowerInvariant() switch
+    {
+        "kib" or "kb" => 1024,
+        "mib" or "mb" => 1024 * 1024,
+        "gib" or "gb" => 1024d * 1024 * 1024,
+        _ => 1,
+    };
 }

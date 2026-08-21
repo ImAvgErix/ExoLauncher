@@ -17,13 +17,14 @@ export function WindowChrome() {
 
   return (
     <>
-      <button type="button" className="exo-winbtn" title="Minimize" onClick={() => void host.minimize()}>
+      {/* No `title`: the user does not want native Windows tooltips anywhere. */}
+      <button type="button" className="exo-winbtn exo-titlebar-button" aria-label="Minimize" onClick={() => void host.minimize()}>
         <Minus />
       </button>
       <button
         type="button"
-        className="exo-winbtn"
-        title={maximized ? 'Restore' : 'Maximize'}
+        className="exo-winbtn exo-titlebar-button"
+        aria-label={maximized ? 'Restore' : 'Maximize'}
         onClick={() => {
           void host.maximize().then((result) => {
             if (typeof result?.maximized === 'boolean') setMaximized(result.maximized)
@@ -32,7 +33,7 @@ export function WindowChrome() {
       >
         {maximized ? <Restore /> : <Maximize />}
       </button>
-      <button type="button" className="exo-winbtn is-close" title="Close" onClick={() => void host.close()}>
+      <button type="button" className="exo-winbtn exo-titlebar-button is-close" aria-label="Close" onClick={() => void host.close()}>
         <Close />
       </button>
     </>

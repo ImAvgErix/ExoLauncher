@@ -16,8 +16,6 @@ param(
 $ErrorActionPreference = 'Stop'
 $Root = $PSScriptRoot
 $Project = Join-Path $Root 'ExoLauncher\ExoLauncher.csproj'
-$UiDir = Join-Path $Root 'ui'
-$WwwIndex = Join-Path $Root 'ExoLauncher\wwwroot\index.html'
 
 function Get-ExoLauncherExe {
     $tfms = @(
@@ -45,22 +43,6 @@ Write-Host "  Exo Launcher  -  PowerShell $($PSVersionTable.PSVersion)" -Foregro
 Write-Host ''
 
 if (-not $NoBuild) {
-    if (-not (Test-Path -LiteralPath $WwwIndex) -or (Test-Path (Join-Path $UiDir 'package.json'))) {
-        if (Test-Path (Join-Path $UiDir 'package.json')) {
-            Write-Host '[*] Building UI...' -ForegroundColor DarkGray
-            Push-Location $UiDir
-            try {
-                if (-not (Test-Path 'node_modules')) {
-                    npm ci
-                    if ($LASTEXITCODE -ne 0) { npm install }
-                }
-                npm run build
-                if ($LASTEXITCODE -ne 0) { throw "UI build failed (exit $LASTEXITCODE)" }
-            }
-            finally { Pop-Location }
-        }
-    }
-
     Write-Host '[*] Building ExoLauncher (x64 / win-x64)...' -ForegroundColor DarkGray
     & dotnet build $Project -c $Configuration -p:Platform=x64
     if ($LASTEXITCODE -ne 0) { throw "Build failed (exit $LASTEXITCODE)" }

@@ -90,7 +90,7 @@ internal sealed class NotificationAreaIcon : IDisposable
         uFlags = NifMessage | NifIcon | NifTip | NifShowTip,
         uCallbackMessage = CallbackMessage,
         hIcon = _icon,
-        szTip = "Exo Launcher — click to restore",
+        szTip = "Exo Launcher. Click to restore",
     };
 
     private nint WindowSubclass(

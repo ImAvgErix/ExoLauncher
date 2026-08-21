@@ -160,7 +160,7 @@ public sealed class GogAuthService : IDisposable
                 var web = new WebView2();
                 var window = new Window
                 {
-                    Title = "GOG sign in — Exo",
+                    Title = "GOG sign in",
                     Content = new Grid { Children = { web } },
                 };
                 try { window.AppWindow.Resize(new SizeInt32(980, 760)); }

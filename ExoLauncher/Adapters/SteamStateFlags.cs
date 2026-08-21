@@ -103,6 +103,15 @@ internal static class SteamStateFlags
         !IsUpdateAvailable(raw, installed: true);
 
     /// <summary>
+    /// Cancelling an install may only roll back what Exo's request created. An
+    /// appmanifest that already existed when the request was sent belongs to the
+    /// user's library — a paused or partially downloaded game still has one —
+    /// and uninstalling it on cancel would delete files nobody asked to remove.
+    /// </summary>
+    public static bool CanRollBackCancelledInstall(bool appManifestExistedBeforeRequest) =>
+        !appManifestExistedBeforeRequest;
+
+    /// <summary>
     /// Queued patch with no bytes moved. Steam's Downloads row still needs a
     /// start click. <see cref="IsBusy"/> after <c>steam://install</c> is not
     /// enough — that URI often sets UpdateStarted before any bytes flow.

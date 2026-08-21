@@ -37,7 +37,7 @@ public sealed class AchievementService : IDisposable
 
     public AchievementService()
         : this(
-            [new EpicLegendaryAchievementProvider(), new SteamLibraryCacheAchievementProvider()],
+            CreateDefaultProviders(),
             Path.Combine(PathHelper.AppDataDir, "achievements.json"),
             TimeSpan.FromSeconds(12))
     {
@@ -119,8 +119,21 @@ public sealed class AchievementService : IDisposable
             };
         }
 
+        if (!provider.CanObserveUnlocks)
+        {
+            return new AchievementCoverageInfo
+            {
+                ProviderId = provider.Id,
+                Status = AchievementCoverageStatus.Unsupported,
+                Capabilities = provider.Capabilities,
+                Message = string.IsNullOrWhiteSpace(provider.CoverageMessage)
+                    ? "Achievement sync is not available for this source."
+                    : provider.CoverageMessage,
+            };
+        }
+
         // Surface last known good coverage immediately so the detail rail is not blank.
-        var latest = GetLatestSnapshot(game.Id);
+        var latest = GetLatestSnapshot(game);
         if (latest is not null &&
             latest.Coverage is AchievementCoverageStatus.Partial or AchievementCoverageStatus.Complete)
         {
@@ -129,7 +142,7 @@ public sealed class AchievementService : IDisposable
                 ProviderId = latest.ProviderId,
                 Status = latest.Coverage,
                 Capabilities = latest.Capabilities,
-                Message = latest.Message,
+                Message = latest.Message ?? string.Empty,
             };
         }
 
@@ -142,7 +155,7 @@ public sealed class AchievementService : IDisposable
         };
     }
 
-    /// <summary>Latest persisted snapshot for one Exo library id, including hashed coverage provenance.</summary>
+    /// <summary>Latest persisted snapshot for the unambiguously active account and one Exo library id.</summary>
     public AchievementSnapshot? GetLatestSnapshot(string gameId)
     {
         if (string.IsNullOrWhiteSpace(gameId)) return null;
@@ -150,6 +163,7 @@ public sealed class AchievementService : IDisposable
         {
             var state = _state.Games.Values
                 .Where(row => string.Equals(row.GameId, gameId, StringComparison.OrdinalIgnoreCase))
+                .Where(IsCurrentCoverage)
                 .Where(row => !IsStaleSteamZeroPlaceholder(row))
                 .Where(row => !IsUnverifiedSteamCommunitySnapshot(row))
                 .OrderByDescending(row => row.LastObservedAtUtc)
@@ -162,7 +176,32 @@ public sealed class AchievementService : IDisposable
         }
     }
 
-    /// <summary>Bridge-safe summary without account coverage provenance.</summary>
+    /// <summary>
+    /// Latest persisted snapshot only for the account that is unambiguously
+    /// active now. If account provenance cannot be resolved, fail closed.
+    /// </summary>
+    public AchievementSnapshot? GetLatestSnapshot(GameEntry game)
+    {
+        var provider = FindProvider(game);
+        string? coverageKey;
+        try { coverageKey = provider?.GetCurrentCoverageKey(game); }
+        catch { return null; }
+        if (provider is null || string.IsNullOrWhiteSpace(coverageKey)) return null;
+        lock (_stateGate)
+        {
+            var state = _state.Games.Values
+                .Where(row => string.Equals(row.GameId, game.Id, StringComparison.OrdinalIgnoreCase))
+                .Where(row => string.Equals(row.ProviderId, provider.Id, StringComparison.OrdinalIgnoreCase))
+                .Where(row => string.Equals(row.CoverageKey, coverageKey, StringComparison.Ordinal))
+                .Where(row => !IsStaleSteamZeroPlaceholder(row))
+                .Where(row => !IsUnverifiedSteamCommunitySnapshot(row))
+                .OrderByDescending(row => row.LastObservedAtUtc)
+                .FirstOrDefault();
+            return state is null ? null : ToSnapshot(state);
+        }
+    }
+
+    /// <summary>Bridge-safe summary for the unambiguously active provider account.</summary>
     public GameAchievementSummary? GetSummary(string gameId)
     {
         if (string.IsNullOrWhiteSpace(gameId)) return null;
@@ -170,6 +209,7 @@ public sealed class AchievementService : IDisposable
         {
             var state = _state.Games.Values
                 .Where(row => string.Equals(row.GameId, gameId, StringComparison.OrdinalIgnoreCase))
+                .Where(IsCurrentCoverage)
                 .Where(row => !IsStaleSteamZeroPlaceholder(row))
                 .Where(row => !IsUnverifiedSteamCommunitySnapshot(row))
                 .OrderByDescending(row => row.LastObservedAtUtc)
@@ -186,6 +226,7 @@ public sealed class AchievementService : IDisposable
         lock (_stateGate)
         {
             return _state.Games.Values
+                .Where(IsCurrentCoverage)
                 .Where(state => !IsStaleSteamZeroPlaceholder(state))
                 .Where(state => !IsUnverifiedSteamCommunitySnapshot(state))
                 .OrderByDescending(row => row.LastObservedAtUtc)
@@ -240,7 +281,7 @@ public sealed class AchievementService : IDisposable
                 snapshot = Unavailable(provider, game, "Achievement data is temporarily unavailable.");
             }
 
-            snapshot = snapshot with { GameId = game.Id };
+            snapshot = SanitizeSnapshot(snapshot with { GameId = game.Id });
 
             if ((snapshot.Coverage is AchievementCoverageStatus.Partial or AchievementCoverageStatus.Complete) &&
                 !IsStaleSteamZeroPlaceholder(snapshot))
@@ -376,7 +417,7 @@ public sealed class AchievementService : IDisposable
 
     private async Task PollSessionAsync(SessionState session)
     {
-        var delay = _pollInterval;
+        var delay = PollIntervalFor(session.Game);
         try
         {
             while (true)
@@ -385,7 +426,7 @@ public sealed class AchievementService : IDisposable
                 var snapshot = await RefreshAsync(session.Game, session.Cts.Token).ConfigureAwait(false);
                 delay = snapshot.Coverage == AchievementCoverageStatus.Unavailable
                     ? DoubleUpTo(delay, TimeSpan.FromMinutes(2))
-                    : _pollInterval;
+                    : PollIntervalFor(session.Game);
             }
         }
         catch (OperationCanceledException) when (session.Cts.IsCancellationRequested)
@@ -616,6 +657,7 @@ public sealed class AchievementService : IDisposable
         ReportedUnlocked = state.ReportedUnlocked,
         ObservedAtUtc = state.LastObservedAtUtc,
         Entries = VisibleEntries(state)
+            .Select(SanitizeEntry)
             .OrderBy(row => row.Definition.ExternalId, StringComparer.OrdinalIgnoreCase)
             .ToArray(),
         Message = state.Message,
@@ -641,6 +683,58 @@ public sealed class AchievementService : IDisposable
     private static bool IsUnverifiedSteamCommunitySnapshot(PersistedGameState state) =>
         string.Equals(state.ProviderId, "steam", StringComparison.OrdinalIgnoreCase) &&
         string.Equals(state.Message, "Steam Community achievement data.", StringComparison.Ordinal);
+
+    private bool IsCurrentCoverage(PersistedGameState state)
+    {
+        try
+        {
+            var provider = _providers.FirstOrDefault(candidate =>
+                string.Equals(candidate.Id, state.ProviderId, StringComparison.OrdinalIgnoreCase));
+            if (provider is null) return false;
+            var game = new GameEntry
+            {
+                Id = state.GameId,
+                Title = state.GameId,
+                Store = provider.Store,
+                LaunchTarget = state.SourceGameId,
+            };
+            var currentCoverageKey = provider.GetCurrentCoverageKey(game);
+            return !string.IsNullOrWhiteSpace(currentCoverageKey) &&
+                   string.Equals(currentCoverageKey, state.CoverageKey, StringComparison.Ordinal);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static AchievementSnapshot SanitizeSnapshot(AchievementSnapshot snapshot) =>
+        snapshot with
+        {
+            Entries = snapshot.Entries.Select(SanitizeEntry).ToArray(),
+        };
+
+    private static AchievementEntry SanitizeEntry(AchievementEntry entry)
+    {
+        var definition = entry.Definition with
+        {
+            IconUnlockedUrl = AchievementIconCache.SanitizeProviderImageUrl(
+                entry.Definition.IconUnlockedUrl),
+            IconLockedUrl = AchievementIconCache.SanitizeProviderImageUrl(
+                entry.Definition.IconLockedUrl),
+        };
+        if (entry.Definition.Hidden && !entry.State.Unlocked)
+        {
+            definition = definition with
+            {
+                Name = "Hidden achievement",
+                Description = string.Empty,
+                IconUnlockedUrl = null,
+                IconLockedUrl = null,
+            };
+        }
+        return entry with { Definition = definition };
+    }
 
     private static GameAchievementSummary ToSummary(PersistedGameState state)
     {
@@ -793,6 +887,30 @@ public sealed class AchievementService : IDisposable
             snapshot.ProviderId.ToLowerInvariant() + "\0" +
             snapshot.CoverageKey + "\0" + snapshot.SourceGameId);
         return Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
+    }
+
+    internal static IAchievementProvider[] CreateDefaultProviders() =>
+    [
+        new EpicLegendaryAchievementProvider(),
+        new SteamLibraryCacheAchievementProvider(),
+        new GogGameplayAchievementProvider(),
+        .. UnsupportedStoreAchievementProvider.All(),
+    ];
+
+    /// <summary>
+    /// Production uses a 12s default. Providers may go faster (Steam Web API
+    /// at 8s, floored at 5s) or slower (Epic CLI at 20s, capped at 2 minutes).
+    /// Tests inject a non-12s ctor interval and must keep it.
+    /// </summary>
+    internal TimeSpan PollIntervalFor(GameEntry game)
+    {
+        if (_pollInterval != TimeSpan.FromSeconds(12))
+            return _pollInterval <= TimeSpan.Zero ? TimeSpan.FromSeconds(12) : _pollInterval;
+
+        var hinted = FindProvider(game)?.SuggestedPollInterval ?? _pollInterval;
+        if (hinted < TimeSpan.FromSeconds(5)) return TimeSpan.FromSeconds(5);
+        if (hinted > TimeSpan.FromMinutes(2)) return TimeSpan.FromMinutes(2);
+        return hinted;
     }
 
     private IAchievementProvider? FindProvider(GameEntry game) =>

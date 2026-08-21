@@ -1,4 +1,6 @@
+using System.Diagnostics;
 using ExoLauncher.Adapters;
+using ExoLauncher.Helpers;
 using ExoLauncher.Models;
 using ExoLauncher.Services;
 using Xunit;
@@ -41,6 +43,28 @@ public sealed class LibraryServiceReliabilityTests
     }
 
     [Fact]
+    public async Task ForgetInstalled_DropsLastGoodSoAFailedScanCannotResurrectIt()
+    {
+        var epic = new FlakyAdapter(StoreKind.Epic, "epic", "Epic", new GameEntry
+        {
+            Id = "epic:known",
+            Title = "Known Epic Game",
+            Store = StoreKind.Epic,
+            Installed = true,
+            LaunchTarget = "known",
+            Path = Path.GetTempPath(),
+        });
+        var library = new LibraryService(new IStoreAdapter[] { epic }, new SettingsService());
+
+        Assert.Contains(await library.GetLibraryAsync(force: true), g => g.Id == "epic:known");
+        library.ForgetInstalled("epic:known");
+        epic.FailScans = true;
+
+        var after = await library.GetLibraryAsync(force: true);
+        Assert.DoesNotContain(after, g => g.Id == "epic:known");
+    }
+
+    [Fact]
     public async Task GetLibraryAsync_SerializesConcurrentScans()
     {
         var adapter = new FlakyAdapter(StoreKind.Steam, "steam", "Steam", new GameEntry
@@ -54,7 +78,7 @@ public sealed class LibraryServiceReliabilityTests
         });
         var library = new LibraryService(new IStoreAdapter[] { adapter }, new SettingsService());
 
-        await Task.WhenAll(library.GetLibraryAsync(), library.GetLibraryAsync());
+        await Task.WhenAll(library.GetLibraryAsync(force: true), library.GetLibraryAsync(force: true));
 
         Assert.Equal(1, adapter.ScanCount);
     }
@@ -73,6 +97,34 @@ public sealed class LibraryServiceReliabilityTests
         await Task.WhenAll(first, second);
 
         Assert.Equal(1, adapter.ScanCount);
+    }
+
+    [Fact]
+    public async Task GetLibraryAsync_ReturnsCacheWhileAScanIsStillRunning()
+    {
+        var adapter = new BlockingAdapter();
+        var library = new LibraryService(new IStoreAdapter[] { adapter }, new SettingsService());
+
+        var first = library.GetLibraryAsync(force: true);
+        await adapter.Started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        adapter.Release.TrySetResult();
+        var seeded = await first;
+        Assert.Contains(seeded, game => game.Id == "steam:coalesced");
+
+        library.Invalidate();
+        adapter.Started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        adapter.Release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var background = library.GetLibraryAsync(force: true);
+        await adapter.Started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        var watch = Stopwatch.StartNew();
+        var peek = await library.GetLibraryAsync();
+        watch.Stop();
+
+        Assert.Contains(peek, game => game.Id == "steam:coalesced");
+        Assert.True(watch.ElapsedMilliseconds < 50, $"stale library.get waited {watch.ElapsedMilliseconds} ms");
+        adapter.Release.TrySetResult();
+        await background;
     }
 
     [Fact]
@@ -113,6 +165,40 @@ public sealed class LibraryServiceReliabilityTests
     }
 
     [Fact]
+    public async Task GetLibraryAsync_UsesDiskLastGoodWhenFirstScanTimesOut()
+    {
+        var previous = Environment.GetEnvironmentVariable(PathHelper.DataDirOverrideVariable);
+        var root = Path.Combine(Path.GetTempPath(), "exo-lib-lastgood-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        Environment.SetEnvironmentVariable(PathHelper.DataDirOverrideVariable, root);
+        try
+        {
+            var epic = new FlakyAdapter(StoreKind.Epic, "epic", "Epic", new GameEntry
+            {
+                Id = "epic:known",
+                Title = "Known Epic Game",
+                Store = StoreKind.Epic,
+                Installed = true,
+                LaunchTarget = "known",
+                Path = Path.GetTempPath(),
+            });
+            var first = new LibraryService(new IStoreAdapter[] { epic }, new SettingsService());
+            Assert.Contains(await first.GetLibraryAsync(force: true), g => g.Id == "epic:known");
+
+            epic.FailScans = true;
+            var second = new LibraryService(new IStoreAdapter[] { epic }, new SettingsService());
+            var afterTimeout = await second.GetLibraryAsync(force: true);
+
+            Assert.Contains(afterTimeout, g => g.Id == "epic:known");
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(PathHelper.DataDirOverrideVariable, previous);
+            try { Directory.Delete(root, recursive: true); } catch { }
+        }
+    }
+
+    [Fact]
     public void StoreMatrix_SeparatesHeadlessEpicBackendFromVisibleClient()
     {
         var epic = new BackendOnlyEpicAdapter();
@@ -123,6 +209,26 @@ public sealed class LibraryServiceReliabilityTests
         Assert.True(status.agentPresent);
         Assert.False(status.clientPresent);
         Assert.Equal("Not installed", status.detail);
+    }
+
+    [Fact]
+    public void InvalidateStoreMatrix_ForcesTheNextCallerToReprobe()
+    {
+        var adapter = new FlakyAdapter(
+            StoreKind.Local,
+            "local",
+            "Matrix Fixture",
+            new GameEntry { Id = "local:matrix-fixture", Title = "Matrix Fixture", Store = StoreKind.Local });
+        adapter.AgentPresent = false;
+        var library = new LibraryService(new IStoreAdapter[] { adapter }, new SettingsService());
+
+        Assert.False(Assert.Single(library.StoreMatrix()).agentPresent);
+        adapter.AgentPresent = true;
+        Assert.False(Assert.Single(library.StoreMatrix()).agentPresent);
+
+        library.InvalidateStoreMatrix();
+
+        Assert.True(Assert.Single(library.StoreMatrix()).agentPresent);
     }
 
     private sealed class FlakyAdapter : IStoreAdapter
@@ -141,8 +247,9 @@ public sealed class LibraryServiceReliabilityTests
         public string Id { get; }
         public string DisplayName { get; }
         public bool FailScans { get; set; }
+        public bool AgentPresent { get; set; } = true;
         public int ScanCount { get; private set; }
-        public bool IsAgentPresent() => true;
+        public bool IsAgentPresent() => AgentPresent;
         public Task<AuthResult> AuthenticateAsync(CancellationToken ct = default) =>
             Task.FromResult(new AuthResult { Ok = true });
         public Task<IReadOnlyList<GameEntry>> GetLibraryAsync(CancellationToken ct = default)
@@ -188,8 +295,8 @@ public sealed class LibraryServiceReliabilityTests
     {
         private int _scanCount;
 
-        public TaskCompletionSource Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Started { get; set; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Release { get; set; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public int ScanCount => Volatile.Read(ref _scanCount);
         public StoreKind Store => StoreKind.Steam;
         public string Id => "steam";

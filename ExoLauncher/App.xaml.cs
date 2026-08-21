@@ -21,7 +21,7 @@ public partial class App : Application
                     $"[{DateTime.UtcNow:O}] {e.Exception}{Environment.NewLine}");
             }
             catch { /* best-effort */ }
-            // An unhandled UI exception may leave native/WebView state inconsistent.
+            // An unhandled UI exception may leave native window state inconsistent.
             // Record it, then let WinUI terminate cleanly instead of claiming every
             // unknown failure was recovered.
         };

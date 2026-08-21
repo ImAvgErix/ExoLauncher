@@ -55,6 +55,14 @@ public class RiotLaunchProcessTests
     }
 
     [Fact]
+    public void ProtocolLaunchStores_IgnoreVendorClientProcesses()
+    {
+        Assert.Contains("EADesktop", LaunchOrchestrator.BootstrapProcessNames(StoreKind.Ea));
+        Assert.Contains("upc", LaunchOrchestrator.BootstrapProcessNames(StoreKind.Ubisoft));
+        Assert.Contains("Battle.net", LaunchOrchestrator.BootstrapProcessNames(StoreKind.BattleNet));
+    }
+
+    [Fact]
     public void RiotUiProcessNames_NeverIncludeLeagueGame()
     {
         Assert.DoesNotContain("LeagueClient", StoreWindowHider.RiotUiProcessNames);

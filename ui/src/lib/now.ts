@@ -30,8 +30,9 @@ function hasUpdate(game: Game): boolean {
 }
 
 /**
- * One game that currently matters. Not a rotator, not four fake buckets.
- * Download / playing / update / last launched — otherwise nothing.
+ * One game that currently matters. Not a rotator.
+ * Download / playing override a stale last-launched. Otherwise update, else
+ * last launched. Nothing installed and nothing played → nothing.
  */
 export function pickNow(
   games: Game[],
@@ -63,6 +64,24 @@ export function pickNow(
   return null
 }
 
+/**
+ * Tile click / library churn must not steal the banner. Download and Play still can.
+ */
+export function retainNow(
+  games: Game[],
+  picked: NowPick | null,
+  holdId: string | null | undefined,
+): NowPick | null {
+  if (picked == null) return null
+  if (!holdId) return picked
+  if (matches(picked.game, holdId)) return picked
+  if (picked.kind === 'download' || picked.kind === 'playing') return picked
+  const held = games.find((game) => matches(game, holdId))
+  if (!held || held.isAddPortable || held.id === 'local:add' || !held.installed) return picked
+  if (hasUpdate(held)) return { game: held, kind: 'update' }
+  return { game: held, kind: 'recent' }
+}
+
 export function nowKicker(kind: NowKind): string {
   switch (kind) {
     case 'download':
@@ -73,5 +92,9 @@ export function nowKicker(kind: NowKind): string {
       return 'Update'
     case 'recent':
       return 'Last launched'
+    default: {
+      const exhaustive: never = kind
+      return exhaustive
+    }
   }
 }

@@ -30,9 +30,38 @@ public static class EpicEglMerge
                 continue;
 
             var cur = games[idx];
+            var updateAvailable = cur.UpdateAvailable || g.UpdateAvailable;
             // Prefer EGL path when Legendary claims not installed, or has no path.
+            // Still OR the EGL update flag onto an already-installed Legendary row.
             if (cur.Installed && !string.IsNullOrWhiteSpace(cur.Path))
+            {
+                if (updateAvailable != cur.UpdateAvailable)
+                {
+                    games[idx] = new GameEntry
+                    {
+                        Id = cur.Id,
+                        Title = cur.Title,
+                        Store = StoreKind.Epic,
+                        Installed = cur.Installed,
+                        Owned = cur.Owned,
+                        EntitlementState = cur.EntitlementState,
+                        UpdateAvailable = updateAvailable,
+                        CanInstall = cur.CanInstall,
+                        Path = cur.Path,
+                        CoverUrl = cur.CoverUrl,
+                        CoverSource = cur.CoverSource,
+                        PlaytimeMinutes = cur.PlaytimeMinutes,
+                        SizeBytes = cur.SizeBytes,
+                        Status = updateAvailable ? "Update" : cur.Status,
+                        Deps = cur.Deps,
+                        LaunchNote = cur.LaunchNote,
+                        LaunchTarget = cur.LaunchTarget,
+                        LastPlayedUtc = cur.LastPlayedUtc,
+                        IsFavorite = cur.IsFavorite,
+                    };
+                }
                 continue;
+            }
 
             games[idx] = new GameEntry
             {
@@ -40,15 +69,18 @@ public static class EpicEglMerge
                 Title = PreferTitle(cur.Title, g.Title),
                 Store = StoreKind.Epic,
                 Installed = true,
-                Owned = true,
-                UpdateAvailable = cur.UpdateAvailable,
+                // The EGL path proves installation only. Preserve the ownership
+                // state established by the account-scoped Legendary snapshot.
+                Owned = cur.Owned,
+                EntitlementState = cur.EntitlementState,
+                UpdateAvailable = updateAvailable,
                 CanInstall = false,
                 Path = g.Path ?? cur.Path,
                 CoverUrl = cur.CoverUrl ?? g.CoverUrl,
                 CoverSource = cur.CoverSource ?? g.CoverSource,
                 PlaytimeMinutes = cur.PlaytimeMinutes ?? g.PlaytimeMinutes,
                 SizeBytes = g.SizeBytes ?? cur.SizeBytes,
-                Status = "Ready",
+                Status = updateAvailable ? "Update" : "Ready",
                 Deps = cur.Deps.Count > 0 ? cur.Deps : g.Deps,
                 LaunchNote = "Installed via Epic Games Launcher. Launches via Legendary when available.",
                 LaunchTarget = cur.LaunchTarget ?? g.LaunchTarget,

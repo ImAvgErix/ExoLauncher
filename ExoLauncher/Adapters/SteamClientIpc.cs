@@ -8,6 +8,12 @@ internal enum SteamIpcStatus
     Ok,
     CommandFailed,
     Unavailable,
+
+    /// <summary>
+    /// The helper is not deployed next to Exo. Retrying cannot change that, so
+    /// callers must fall straight through to the protocol request.
+    /// </summary>
+    HostMissing,
 }
 
 /// <summary>
@@ -18,16 +24,18 @@ internal static class SteamClientIpc
 {
     internal const string HostExeName = "ExoLauncher.SteamIpc.exe";
 
-    public static bool TryCommand(string action, string appId, string? installDir = null) =>
-        Command(action, appId, installDir) == SteamIpcStatus.Ok;
-
-    public static SteamIpcStatus Command(string action, string appId, string? installDir = null)
+    /// <summary>
+    /// The helper takes the verb and the app id only. Steam owns its library
+    /// folders — IClientAppManager::InstallApp selects one by index, never by
+    /// path — so an install directory is not part of this contract.
+    /// </summary>
+    public static SteamIpcStatus Command(string action, string appId)
     {
         var exe = ResolveHost();
         if (exe is null)
         {
             AppLog.Info("Steam IPC host is not installed next to Exo.");
-            return SteamIpcStatus.Unavailable;
+            return SteamIpcStatus.HostMissing;
         }
 
         try
@@ -41,8 +49,6 @@ internal static class SteamClientIpc
             };
             start.ArgumentList.Add(action);
             start.ArgumentList.Add(appId);
-            if (!string.IsNullOrWhiteSpace(installDir))
-                start.ArgumentList.Add(installDir);
 
             using var process = Process.Start(start);
             if (process is null)

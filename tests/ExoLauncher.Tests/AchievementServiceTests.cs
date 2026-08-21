@@ -8,6 +8,103 @@ namespace ExoLauncher.Tests;
 public sealed class AchievementServiceTests
 {
     [Fact]
+    public async Task Service_DropsUnapprovedProviderArtBeforePersistence()
+    {
+        var path = TempStatePath();
+        var observed = DateTimeOffset.Parse("2026-08-20T00:00:00Z");
+        var entry = Entry("ACH_VISIBLE", unlocked: true) with
+        {
+            Definition = Entry("ACH_VISIBLE", unlocked: true).Definition with
+            {
+                IconUnlockedUrl = "https://attacker.test/unlocked.png",
+                IconLockedUrl = "https://attacker.test/locked.png",
+            },
+            State = Entry("ACH_VISIBLE", unlocked: true).State with { ObservedAtUtc = observed },
+        };
+        var snapshot = PartialSnapshot(observed, total: 1, unlocked: 1, entry) with
+        {
+            Coverage = AchievementCoverageStatus.Complete,
+            Capabilities = AchievementProviderCapabilities.Snapshot |
+                           AchievementProviderCapabilities.CompleteCatalog,
+        };
+
+        try
+        {
+            using var service = new AchievementService(
+                [new SequenceProvider(snapshot)], path, TimeSpan.FromHours(1));
+            var exposed = await service.RefreshAsync(Game());
+            var row = Assert.Single(exposed.Entries);
+
+            Assert.Null(row.Definition.IconUnlockedUrl);
+            Assert.Null(row.Definition.IconLockedUrl);
+            Assert.DoesNotContain("attacker.test", await File.ReadAllTextAsync(path),
+                StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            DeleteStateDirectory(path);
+        }
+    }
+
+    [Fact]
+    public async Task Service_RedactsLockedHiddenMetadataAndArtBeforeExposure()
+    {
+        var path = TempStatePath();
+        var observed = DateTimeOffset.Parse("2026-08-20T00:00:00Z");
+        var hidden = new AchievementEntry
+        {
+            Definition = new AchievementDefinition
+            {
+                ProviderId = "epic",
+                SourceGameId = "Sugar",
+                ExternalId = "ACH_SECRET",
+                Name = "Spoiler name",
+                Description = "Spoiler description",
+                Hidden = true,
+                IconUnlockedUrl = "https://cdn.example.test/secret.png",
+                IconLockedUrl = "https://cdn.example.test/secret-locked.png",
+                GlobalUnlockPercent = 0.1,
+                Points = 50,
+                Tier = "mythic",
+            },
+            State = new AchievementState
+            {
+                ExternalId = "ACH_SECRET",
+                ProgressCurrent = 3,
+                ProgressTarget = 4,
+                ObservedAtUtc = observed,
+            },
+        };
+        var snapshot = PartialSnapshot(observed, total: 1, unlocked: 0, hidden) with
+        {
+            Coverage = AchievementCoverageStatus.Complete,
+            Capabilities = AchievementProviderCapabilities.Snapshot |
+                           AchievementProviderCapabilities.CompleteCatalog,
+        };
+
+        try
+        {
+            using var service = new AchievementService(
+                [new SequenceProvider(snapshot)], path, TimeSpan.FromHours(1));
+            var exposed = await service.RefreshAsync(Game());
+            var row = Assert.Single(exposed.Entries);
+
+            Assert.Equal("Hidden achievement", row.Definition.Name);
+            Assert.Empty(row.Definition.Description);
+            Assert.Null(row.Definition.IconUnlockedUrl);
+            Assert.Null(row.Definition.IconLockedUrl);
+
+            var persisted = await File.ReadAllTextAsync(path);
+            Assert.DoesNotContain("Spoiler", persisted, StringComparison.Ordinal);
+            Assert.DoesNotContain("secret.png", persisted, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteStateDirectory(path);
+        }
+    }
+
+    [Fact]
     public async Task FirstSnapshotEstablishesBaselineWithoutHistoricalNotifications()
     {
         var path = TempStatePath();
@@ -255,6 +352,35 @@ public sealed class AchievementServiceTests
     }
 
     [Fact]
+    public void PollInterval_HonorsTestCtorAndProductionProviderHints()
+    {
+        var path = TempStatePath();
+        try
+        {
+            var hinted = new SequenceProvider(Snapshot(unlocked: false))
+            {
+                SuggestedPollInterval = TimeSpan.FromSeconds(8),
+            };
+            using (var tests = new AchievementService([hinted], path, TimeSpan.FromHours(1)))
+                Assert.Equal(TimeSpan.FromHours(1), tests.PollIntervalFor(Game()));
+
+            using var production = new AchievementService([hinted], path, TimeSpan.FromSeconds(12));
+            Assert.Equal(TimeSpan.FromSeconds(8), production.PollIntervalFor(Game()));
+
+            var epicPace = new SequenceProvider(Snapshot(unlocked: false))
+            {
+                SuggestedPollInterval = TimeSpan.FromSeconds(20),
+            };
+            using var epic = new AchievementService([epicPace], path, TimeSpan.FromSeconds(12));
+            Assert.Equal(TimeSpan.FromSeconds(20), epic.PollIntervalFor(Game()));
+        }
+        finally
+        {
+            DeleteStateDirectory(path);
+        }
+    }
+
+    [Fact]
     public async Task ReadApisExposeLatestSnapshotAndBridgeSafeSummary()
     {
         var path = TempStatePath();
@@ -484,7 +610,7 @@ public sealed class AchievementServiceTests
             await service.RefreshAsync(Game());
 
             Assert.Empty(notifications);
-            Assert.Equal(2, service.GetCurrentSnapshots().Count);
+            Assert.Single(service.GetCurrentSnapshots());
         }
         finally
         {
@@ -874,6 +1000,40 @@ public sealed class AchievementServiceTests
         return Path.Combine(directory, "achievements.json");
     }
 
+    [Fact]
+    public async Task AccountScopedRead_NeverReturnsAnotherAccountsPersistedSnapshot()
+    {
+        var path = TempStatePath();
+        try
+        {
+            var provider = new SwitchingAccountProvider();
+            using var service = new AchievementService([provider], path, TimeSpan.FromMinutes(1));
+            var game = Game();
+
+            await service.RefreshAsync(game);
+            Assert.Equal(provider.CoverageKey, service.GetLatestSnapshot(game)?.CoverageKey);
+            Assert.Equal(provider.CoverageKey, service.GetLatestSnapshot(game.Id)?.CoverageKey);
+            Assert.NotNull(service.GetSummary(game.Id));
+            Assert.Single(service.GetCurrentSnapshots());
+
+            provider.CoverageKey = "epic:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+            Assert.Null(service.GetLatestSnapshot(game));
+            Assert.Null(service.GetLatestSnapshot(game.Id));
+            Assert.Null(service.GetSummary(game.Id));
+            Assert.Empty(service.GetCurrentSnapshots());
+
+            await service.RefreshAsync(game);
+            Assert.Equal(provider.CoverageKey, service.GetLatestSnapshot(game)?.CoverageKey);
+            Assert.Equal(provider.CoverageKey, service.GetLatestSnapshot(game.Id)?.CoverageKey);
+            Assert.NotNull(service.GetSummary(game.Id));
+            Assert.Single(service.GetCurrentSnapshots());
+        }
+        finally
+        {
+            DeleteStateDirectory(path);
+        }
+    }
+
     private static void DeleteStateDirectory(string path)
     {
         try
@@ -892,6 +1052,7 @@ public sealed class AchievementServiceTests
     {
         private readonly AchievementSnapshot[] _snapshots = snapshots;
         private int _calls;
+        private string _coverageKey = snapshots.FirstOrDefault()?.CoverageKey ?? string.Empty;
 
         public string Id => "epic";
         public StoreKind Store => StoreKind.Epic;
@@ -900,9 +1061,12 @@ public sealed class AchievementServiceTests
             AchievementProviderCapabilities.Progress |
             AchievementProviderCapabilities.Rarity |
             AchievementProviderCapabilities.CompleteCatalog;
+        public TimeSpan SuggestedPollInterval { get; init; } = TimeSpan.FromSeconds(12);
         public int CallCount => Volatile.Read(ref _calls);
 
         public bool Supports(GameEntry game) => game.Store == StoreKind.Epic;
+        public string? GetCurrentCoverageKey(GameEntry game) =>
+            Supports(game) && !string.IsNullOrWhiteSpace(_coverageKey) ? _coverageKey : null;
 
         public Task<AchievementSnapshot> GetSnapshotAsync(
             GameEntry game, CancellationToken cancellationToken = default)
@@ -910,6 +1074,7 @@ public sealed class AchievementServiceTests
             cancellationToken.ThrowIfCancellationRequested();
             var call = Interlocked.Increment(ref _calls);
             var index = Math.Min(call - 1, _snapshots.Length - 1);
+            _coverageKey = _snapshots[index].CoverageKey;
             return Task.FromResult(_snapshots[index]);
         }
 
@@ -919,6 +1084,29 @@ public sealed class AchievementServiceTests
             while (CallCount < expected)
                 await Task.Delay(5, cts.Token);
         }
+    }
+
+    private sealed class SwitchingAccountProvider : IAchievementProvider
+    {
+        public string CoverageKey { get; set; } = "epic:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        public string Id => "epic";
+        public StoreKind Store => StoreKind.Epic;
+        public AchievementProviderCapabilities Capabilities => AchievementProviderCapabilities.Snapshot;
+        public bool Supports(GameEntry game) => game.Store == StoreKind.Epic;
+        public string? GetCurrentCoverageKey(GameEntry game) => Supports(game) ? CoverageKey : null;
+        public Task<AchievementSnapshot> GetSnapshotAsync(GameEntry game, CancellationToken cancellationToken = default) =>
+            Task.FromResult(new AchievementSnapshot
+            {
+                ProviderId = Id,
+                SourceGameId = game.LaunchTarget ?? game.Id,
+                CoverageKey = CoverageKey,
+                Coverage = AchievementCoverageStatus.Partial,
+                Capabilities = Capabilities,
+                ReportedTotal = 1,
+                ReportedUnlocked = 0,
+                ObservedAtUtc = DateTimeOffset.UtcNow,
+                Entries = [Entry("ACCOUNT_SAFE", false)],
+            });
     }
 
     private sealed class EchoProvider : IAchievementProvider
@@ -932,6 +1120,9 @@ public sealed class AchievementServiceTests
             AchievementProviderCapabilities.CompleteCatalog;
 
         public bool Supports(GameEntry game) => game.Store == StoreKind.Epic;
+        public string? GetCurrentCoverageKey(GameEntry game) => Supports(game)
+            ? "epic:0123456789abcdef0123456789abcdef"
+            : null;
 
         public Task<AchievementSnapshot> GetSnapshotAsync(
             GameEntry game, CancellationToken cancellationToken = default)
@@ -977,6 +1168,9 @@ public sealed class AchievementServiceTests
         public StoreKind Store => StoreKind.Steam;
         public AchievementProviderCapabilities Capabilities => AchievementProviderCapabilities.Snapshot;
         public bool Supports(GameEntry game) => game.Store == StoreKind.Steam;
+        public string? GetCurrentCoverageKey(GameEntry game) => Supports(game)
+            ? "steam:0123456789abcdef0123456789abcdef"
+            : null;
 
         public Task<AchievementSnapshot> GetSnapshotAsync(
             GameEntry game, CancellationToken cancellationToken = default) =>
@@ -999,6 +1193,9 @@ public sealed class AchievementServiceTests
         public StoreKind Store => StoreKind.Steam;
         public AchievementProviderCapabilities Capabilities => AchievementProviderCapabilities.Snapshot;
         public bool Supports(GameEntry game) => game.Store == StoreKind.Steam;
+        public string? GetCurrentCoverageKey(GameEntry game) => Supports(game)
+            ? "steam:0123456789abcdef0123456789abcdef"
+            : null;
 
         public Task<AchievementSnapshot> GetSnapshotAsync(
             GameEntry game, CancellationToken cancellationToken = default) =>
