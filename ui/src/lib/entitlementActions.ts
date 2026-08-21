@@ -17,7 +17,7 @@ export function resolveEntitlementPrimaryAction(game: EntitlementActionGame): En
   if (game.installed && game.updateAvailable) return 'update'
   if (game.installed && game.variants?.some((variant) => variant.updateAvailable)) return 'update'
   if (game.installed) return 'play'
-  if (game.canInstall && game.owned === true) return 'install'
+  if (game.canInstall && (game.owned === true || game.primaryAction === 'install')) return 'install'
   if (game.primaryAction === 'play' || game.primaryAction === 'update' || game.primaryAction === 'none') {
     return game.primaryAction
   }

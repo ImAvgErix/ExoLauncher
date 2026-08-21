@@ -266,6 +266,26 @@ public sealed class ExoOnlineCacheTests
     }
 
     [Fact]
+    public async Task ProfileMedia_AcceptsGifWhenBytesMatchMime()
+    {
+        using var directory = new TemporaryDirectory();
+        var cache = new ExoProfileMediaCache(directory.Path);
+        var gif = new byte[]
+        {
+            0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 0x01, 0x00, 0x01, 0x00,
+            0x00, 0x00, 0x00, 0x21, 0xF9, 0x04, 0x01, 0x00, 0x00, 0x00,
+            0x00, 0x2C, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00,
+            0x00, 0x02, 0x02, 0x4C, 0x01, 0x00, 0x3B,
+        };
+        var stored = await cache.TryStoreAsync(
+            "user", "banner", "gif-v1", new MemoryStream(gif),
+            Media("banner", "gif-v1", "image/gif", gif));
+        Assert.NotNull(stored);
+        Assert.EndsWith(".gif", stored!.FileName, StringComparison.Ordinal);
+        Assert.Equal("image/gif", stored.ContentType);
+    }
+
+    [Fact]
     public async Task ProfileMedia_AcceptsPngJpegAndWebPOnlyWhenBytesMatchMime()
     {
         using var directory = new TemporaryDirectory();

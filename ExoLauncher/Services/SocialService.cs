@@ -495,9 +495,8 @@ internal sealed class SocialService
     {
         var handle = HandleFromId(id);
         if (handle.Length == 0) return new RosterResult(false, "Missing person.", Roster());
-        if (!(_settings.Current.ProfileRoster ?? new List<ProfilePerson>())
-                .Any(person => string.Equals(NormalizeHandle(person.Handle), handle, StringComparison.Ordinal)))
-            return new RosterResult(false, "That person is not on your list.", Roster());
+        if (!EnsureRosterPerson(handle, out var rosterFailure))
+            return new RosterResult(false, rosterFailure ?? "That person is not on your list.", Roster());
 
         var row = LinkedRows().FirstOrDefault(friend =>
             string.Equals(friend.Id, friendId, StringComparison.Ordinal));
@@ -506,6 +505,97 @@ internal sealed class SocialService
 
         var failure = FriendLinks.Add(handle, row.Id, row.Source);
         return new RosterResult(failure is null, failure, Roster());
+    }
+
+    /// <summary>
+    /// Online Exo friends are not on the local roster until the user claims a
+    /// store account against them. Linking is still a user act; this only makes
+    /// the handle persist on this PC so the claim has somewhere to live.
+    /// </summary>
+    private bool EnsureRosterPerson(string handle, out string? failure)
+    {
+        string? rosterFailure = null;
+        _settings.UpdateProfile(settings =>
+        {
+            settings.ProfileRoster ??= new List<ProfilePerson>();
+            if (settings.ProfileRoster.Any(person =>
+                    string.Equals(NormalizeHandle(person.Handle), handle, StringComparison.Ordinal)))
+                return;
+            if (settings.ProfileRoster.Count >= RosterMax)
+            {
+                rosterFailure = $"The roster holds {RosterMax} people.";
+                return;
+            }
+
+            settings.ProfileRoster.Add(new ProfilePerson
+            {
+                Handle = handle,
+                AddedUtc = DateTimeOffset.UtcNow.ToString("O"),
+            });
+        });
+        failure = rosterFailure;
+        return rosterFailure is null;
+    }
+
+    public sealed record SteamOwnedGame(string Id, string Title, string AppId, int? PlaytimeMinutes);
+
+    public sealed record SteamLibrarySnapshot(bool Ok, string? Note, IReadOnlyList<SteamOwnedGame> Games);
+
+    /// <summary>
+    /// Games a linked Steam friend has made public. The SteamID never leaves
+    /// this process. A private profile is an empty shelf with a reason, not a
+    /// guessed library.
+    /// </summary>
+    public async Task<SteamLibrarySnapshot> LinkedSteamLibraryAsync(
+        string? id, CancellationToken ct = default)
+    {
+        var handle = HandleFromId(id);
+        if (handle.Length == 0)
+            return new SteamLibrarySnapshot(false, "Missing person.", Array.Empty<SteamOwnedGame>());
+
+        var steamLink = FriendLinks.For(handle)
+            .FirstOrDefault(link => string.Equals(link.Store, "steam", StringComparison.Ordinal));
+        if (steamLink is null)
+            return new SteamLibrarySnapshot(true, "No Steam account is linked to this person.", Array.Empty<SteamOwnedGame>());
+
+        var key = SteamWebApiKeyStore.TryRead();
+        if (key is null)
+            return new SteamLibrarySnapshot(
+                true,
+                "A Steam Web API key in Settings is needed to read a friend's public Steam library.",
+                Array.Empty<SteamOwnedGame>());
+
+        var cached = ReadSteam().Cached.FirstOrDefault(friend =>
+            string.Equals(friend.AccountKey, steamLink.Id, StringComparison.Ordinal));
+        if (cached is null || string.IsNullOrWhiteSpace(cached.SteamId64))
+            return new SteamLibrarySnapshot(
+                false,
+                "Exo cannot see that Steam account right now.",
+                Array.Empty<SteamOwnedGame>());
+
+        var result = await SteamWebApi.LoadFriendOwnedGamesAsync(key, cached.SteamId64, ct)
+            .ConfigureAwait(false);
+        if (!result.Authoritative)
+            return new SteamLibrarySnapshot(
+                true,
+                "That Steam library is private, or Steam did not answer just now.",
+                Array.Empty<SteamOwnedGame>());
+
+        var games = result.Games
+            .OrderByDescending(game => game.PlaytimeMinutes)
+            .ThenBy(game => game.Name, StringComparer.OrdinalIgnoreCase)
+            .Take(40)
+            .Select(game => new SteamOwnedGame(
+                "steam:" + game.AppId,
+                string.IsNullOrWhiteSpace(game.Name) ? "Steam app " + game.AppId : game.Name,
+                game.AppId,
+                game.PlaytimeMinutes > 0 ? game.PlaytimeMinutes : null))
+            .ToList();
+
+        return new SteamLibrarySnapshot(
+            true,
+            games.Count == 0 ? "No public Steam games on that account." : null,
+            games);
     }
 
     public RosterResult UnlinkPerson(string? id, string? friendId)
@@ -839,6 +929,9 @@ internal sealed class SocialService
     private static string HandleFromId(string? id)
     {
         var raw = (id ?? string.Empty).Trim();
+        // online:{userId} is not a handle. The UI must pass exo:{handle}.
+        if (raw.StartsWith("online:", StringComparison.OrdinalIgnoreCase))
+            return string.Empty;
         if (raw.StartsWith("exo:", StringComparison.OrdinalIgnoreCase)) raw = raw[4..];
         return NormalizeHandle(raw);
     }

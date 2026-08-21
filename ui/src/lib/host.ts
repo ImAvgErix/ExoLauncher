@@ -19,6 +19,12 @@ export type StoreId =
   | 'battlenet'
   | 'amazon'
   | 'rockstar'
+  | 'itch'
+  | 'minecraft'
+  | 'roblox'
+  | 'paradox'
+  | 'wargaming'
+  | 'local'
 
 export type PrimaryAction = EntitlementPrimaryAction
 export type EntitlementState = GameEntitlementState
@@ -457,7 +463,6 @@ export type AccountProvider = 'google' | 'email' | 'password'
 export type OnlineStaffRole = 'owner' | 'admin' | 'developer'
 export type OnlineBadgeKey =
   | 'founder'
-  | 'ceo'
   | 'developer'
   | 'moderator'
   | 'contributor'
@@ -1272,6 +1277,8 @@ async function mockCall<T>(method: string, params?: Record<string, unknown>): Pr
         note: MOCK_ROSTER_NOTE,
         people: [...mockRoster],
       } as T
+    case 'friends.steamLibrary':
+      return { ok: true, note: 'Browser mock — Steam libraries need the Exo host.', games: [] } as T
     case 'account.get':
       return { ...mockAccount, providers: [...mockAccount.providers] } as T
     case 'account.signIn':
@@ -1601,6 +1608,12 @@ export const host = {
     rawCall<RosterResponse>('friends.link', { id, friendId }),
   friendsUnlink: (id: string, friendId: string) =>
     rawCall<RosterResponse>('friends.unlink', { id, friendId }),
+  friendsSteamLibrary: (id: string) =>
+    rawCall<{
+      ok: boolean
+      note?: string | null
+      games?: Array<{ id: string; title: string; appId: string; playtimeMinutes?: number | null }>
+    }>('friends.steamLibrary', { id }),
   accountGet: () => rawCall<AccountState>('account.get'),
   accountSignIn: (provider: Exclude<AccountProvider, 'password'>, email?: string) =>
     rawCall<AccountOperationResponse>('account.signIn', {

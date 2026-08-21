@@ -437,6 +437,9 @@ public sealed class ShellController
             };
         }
 
+        var officialClient = StoreSearchService.TrySynthesizeOfficialClientInstall(gameId, title);
+        if (officialClient is not null) return officialClient;
+
         if (gameId.StartsWith("steam:", StringComparison.OrdinalIgnoreCase))
         {
             var appId = gameId["steam:".Length..];

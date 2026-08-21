@@ -24,7 +24,7 @@ import {
   type StoreStatus,
 } from '../lib/host'
 import { addPortableFolder } from '../lib/portable'
-import { canConnectStore, canOpenStoreClient, settingsStoreRows, storePresenceLabel } from '../lib/stores'
+import { canConnectStore, canOpenStoreClient, settingsStoreRows, storeClientDownloadUrl, storePresenceLabel } from '../lib/stores'
 import { TrophyNotificationSettings } from './TrophyNotificationSettings'
 import { AccountPanel } from './AccountPanel'
 
@@ -882,6 +882,31 @@ export function SettingsPanel({
                                 {action === 'open' ? 'Opening' : 'Open'}
                               </button>
                             )}
+                            {!canOpenStoreClient(store) && storeClientDownloadUrl(store.store) ? (
+                              <button
+                                type="button"
+                                className="exo-set-btn"
+                                disabled={rowBusy}
+                                onClick={() =>
+                                  void host.openUrl(storeClientDownloadUrl(store.store)!).then(
+                                    (result) =>
+                                      setStatus(
+                                        result.ok
+                                          ? `Opened the ${store.displayName} download page.`
+                                          : `Could not open the ${store.displayName} download page.`,
+                                      ),
+                                    (error: unknown) =>
+                                      setStatus(
+                                        error instanceof Error
+                                          ? error.message
+                                          : `Could not open the ${store.displayName} download page.`,
+                                      ),
+                                  )
+                                }
+                              >
+                                Get
+                              </button>
+                            ) : null}
                           </div>
                         </div>
                         <LayerList layers={layers} />

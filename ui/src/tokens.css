@@ -2113,6 +2113,7 @@
   height: 100%;
   object-fit: cover;
   object-position: center 38%;
+  image-rendering: auto;
 }
 .exo-profile-hero-game-art {
   z-index: 1;
@@ -4456,6 +4457,20 @@
   color: var(--color-faint);
   overflow-wrap: anywhere;
 }
+.exo-friend-shelf {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
+  gap: 8px;
+}
+.exo-friend-shelf-item {
+  aspect-ratio: 2 / 3;
+  overflow: hidden;
+  border-radius: 10px;
+}
+.exo-friend-shelf-item .exo-cover {
+  height: 100%;
+  width: 100%;
+}
 .exo-friend-links {
   display: flex;
   flex-direction: column;
@@ -4630,50 +4645,33 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.exo-friend-page.is-online {
-  width: min(100%, 960px);
-}
-.exo-online-profile-hero {
-  position: relative;
-  min-height: 132px;
+.exo-friends-detail:has(.exo-profile.is-peer) {
   overflow: hidden;
-  border: 1px solid var(--color-line-soft);
-  border-radius: 16px;
-  clip-path: inset(0 round 16px);
-  background: radial-gradient(circle at 18% 10%, rgba(255, 255, 255, 0.08), transparent 52%), #050505;
-  @media (max-height: 760px) {
-    min-height: 112px;
-  }
 }
-.exo-online-profile-hero > img {
-  position: absolute;
-  inset: 0;
-  width: 100%;
+.exo-friend-page.is-online {
   height: 100%;
-  object-fit: cover;
+  min-height: 0;
+  width: 100%;
+  max-width: none;
+  padding: 0;
+  gap: 0;
 }
-.exo-online-profile-veil {
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(90deg, rgba(0, 0, 0, 0.92), rgba(0, 0, 0, 0.44));
-  pointer-events: none;
+.exo-friend-page.is-online > .exo-profile {
+  height: 100%;
+  overflow: hidden;
 }
-.exo-online-profile-hero .exo-friend-identity {
-  position: relative;
-  z-index: 1;
-  min-height: 132px;
-  padding: 18px;
-  border: 0;
-  @media (max-height: 760px) {
-    min-height: 112px;
-    padding: 12px 14px;
-  }
+.exo-profile.is-peer .exo-profile-hero-content {
+  padding-right: 168px;
 }
-@media (max-width: 1156px) {
-  .exo-online-profile-hero .exo-friend-actions {
-    max-width: 240px;
-    flex-wrap: wrap;
-  }
+.exo-profile.is-peer .exo-profile-hero-content.is-left {
+  padding-right: 168px;
+}
+.exo-profile.is-peer .exo-profile-actions .exo-ghost-btn {
+  min-height: 32px;
+  padding: 0 10px;
+  border-color: rgba(255, 255, 255, 0.18);
+  background: rgba(0, 0, 0, 0.44);
+  color: rgba(255, 255, 255, 0.86);
 }
 
 .exo-avatar {
@@ -4685,7 +4683,8 @@
   position: relative;
   overflow: hidden;
 }
-.exo-avatar img {
+.exo-avatar img,
+.exo-avatar .exo-cover {
   display: block;
   object-fit: cover;
   width: 100%;

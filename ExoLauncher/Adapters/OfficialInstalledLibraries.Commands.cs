@@ -122,6 +122,7 @@ internal static partial class OfficialInstalledLibraries
                 : null,
             StoreKind.Wargaming => "wgc://open/game/" + Uri.EscapeDataString(launchTarget),
             StoreKind.Minecraft => MinecraftInstallProtocol(launchTarget),
+            StoreKind.Roblox => RobloxInstallProtocol(launchTarget),
             _ => null,
         };
     }
@@ -131,10 +132,18 @@ internal static partial class OfficialInstalledLibraries
         if (launchTarget.Contains("MinecraftUWP", StringComparison.OrdinalIgnoreCase) ||
             string.Equals(launchTarget, "minecraft:bedrock", StringComparison.OrdinalIgnoreCase))
             return "ms-windows-store://pdp/?PFN=Microsoft.MinecraftUWP_8wekyb3d8bbwe";
-        if (string.Equals(launchTarget, "minecraft:java", StringComparison.OrdinalIgnoreCase) ||
-            launchTarget.StartsWith("minecraft:", StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(launchTarget, "minecraft:java", StringComparison.OrdinalIgnoreCase))
+            return "https://www.minecraft.net/get-minecraft";
+        if (launchTarget.StartsWith("minecraft:", StringComparison.OrdinalIgnoreCase))
             return "minecraft://";
         return null;
+    }
+
+    internal static string? RobloxInstallProtocol(string launchTarget)
+    {
+        if (Storefront.LooksLikeMicrosoftStoreId(launchTarget))
+            return "ms-windows-store://pdp/?ProductId=" + Uri.EscapeDataString(launchTarget);
+        return "ms-windows-store://pdp/?ProductId=9PMF91N3LZ3M";
     }
 
     internal static bool LooksLikeFilesystemTarget(string value) =>
@@ -193,6 +202,27 @@ internal static partial class OfficialInstalledLibraries
                     : InstallProtocol(game.Store, game.LaunchTarget);
                 if (uri is null)
                     return ClientHandoff(displayName, TryOpenOfficialClient(game.Store), "install");
+                if (IsExternalStorefront(uri))
+                {
+                    try
+                    {
+                        ProcessHelper.StartProtocol(uri);
+                        return new InstallResult
+                        {
+                            Ok = true,
+                            HandoffOnly = true,
+                            Message = $"Opened the official {displayName} download.",
+                        };
+                    }
+                    catch
+                    {
+                        return new InstallResult
+                        {
+                            Ok = false,
+                            Message = $"Exo could not open the official {displayName} download.",
+                        };
+                    }
+                }
             }
 
             using var hider = HiderFor(game.Store);
@@ -262,6 +292,11 @@ internal static partial class OfficialInstalledLibraries
 
         TryOpenOfficialClient(game.Store);
     }
+
+    private static bool IsExternalStorefront(string uri) =>
+        uri.StartsWith("https://", StringComparison.OrdinalIgnoreCase) ||
+        uri.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+        uri.StartsWith("ms-windows-store:", StringComparison.OrdinalIgnoreCase);
 
     internal static InstallResult ClientHandoff(string displayName, bool opened, string action)
     {

@@ -6,7 +6,6 @@ export type StaffRole = (typeof STAFF_ROLES)[number];
 
 export const PROFILE_BADGE_KEYS = [
   "founder",
-  "ceo",
   "developer",
   "moderator",
   "contributor",
@@ -14,7 +13,7 @@ export const PROFILE_BADGE_KEYS = [
 ] as const;
 export type ProfileBadgeKey = (typeof PROFILE_BADGE_KEYS)[number];
 
-export type ProfileBadgeTone = "founder" | "leadership" | "staff" | "community" | "supporter";
+export type ProfileBadgeTone = "founder" | "staff" | "community" | "supporter";
 
 export type PublicProfileBadge = {
   key: ProfileBadgeKey;
@@ -36,13 +35,6 @@ const BADGE_DEFINITIONS: Readonly<Record<ProfileBadgeKey, BadgeDefinition>> = {
     description: "Founder of Exo",
     tone: "founder",
     priority: 0,
-  },
-  ceo: {
-    key: "ceo",
-    label: "CEO",
-    description: "Exo leadership",
-    tone: "leadership",
-    priority: 1,
   },
   developer: {
     key: "developer",

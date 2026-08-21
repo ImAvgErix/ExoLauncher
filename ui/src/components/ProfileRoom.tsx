@@ -29,6 +29,7 @@ import {
   type ProfilePatch,
   type ProfileResponse,
   type ProfileShowcaseEntry,
+  type OnlinePublicProfile,
 } from '../lib/host'
 import { CACHE_KEYS, peekCache, writeCache } from '../lib/cache'
 import { isUsefulAchievement } from '../lib/achievements'
@@ -37,6 +38,7 @@ import {
   DEFAULT_ACCENT,
   PROFILE_LIMITS,
   accentHex,
+  steamPlayingCoverUrl,
 } from '../lib/social'
 import { cn, formatPlaytime, formatRelativeLastPlayed, monogram, storeLabel } from '../lib/utils'
 import { Check } from '../brand/icons'
@@ -86,6 +88,7 @@ function normalizeServerBadges(value: unknown): ServerBadge[] {
     const key = typeof item.key === 'string' ? item.key.trim().slice(0, 48) : ''
     const label = typeof item.label === 'string' ? item.label.trim().slice(0, 48) : ''
     if (!key || !label) continue
+    if (key.toLocaleLowerCase() === 'ceo') continue
     badges.push({
       key,
       label,
@@ -849,18 +852,303 @@ export function ProfileRoom({
   )
 }
 
+function peerText(values: Record<string, unknown>, key: string): string {
+  const value = values[key]
+  return typeof value === 'string' ? value.trim() : ''
+}
+
+function peerList(values: Record<string, unknown>, key: string): string[] {
+  const value = values[key]
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+    : []
+}
+
+function peerShowcaseGame(id: string, games: Game[]): Game {
+  const catalog = peerCatalogGame(id)
+  const local = games.find((game) => game.id.toLowerCase() === id.toLowerCase())
+  if (!local) return catalog
+  return {
+    ...catalog,
+    title: local.title || catalog.title,
+    coverUrl: catalog.coverUrl || local.coverUrl,
+    coverSource: catalog.coverSource || local.coverSource,
+  }
+}
+
+function peerCatalogGame(id: string, title?: string): Game {
+  const trimmed = id.trim()
+  const steam = /^steam:(\d+)$/i.exec(trimmed)
+  if (steam) {
+    return {
+      id: trimmed,
+      title: title?.trim() || 'Steam game',
+      store: 'steam',
+      installed: false,
+      owned: false,
+      primaryAction: 'none',
+      coverUrl: steamPlayingCoverUrl(steam[1]),
+      coverSource: 'steam-friend-cdn',
+      status: 'Steam',
+      deps: [],
+      launchNote: '',
+    }
+  }
+  const colon = trimmed.indexOf(':')
+  const store = colon > 0 ? trimmed.slice(0, colon) : 'local'
+  return {
+    id: trimmed,
+    title: title?.trim() || (colon > 0 ? trimmed.slice(colon + 1) : trimmed),
+    store,
+    installed: false,
+    owned: false,
+    primaryAction: 'none',
+    status: 'Showcase',
+    deps: [],
+    launchNote: '',
+  }
+}
+
+/**
+ * A friend's public Exo profile, painted with the same chrome they see on
+ * their own page. Edit, local activity, and this PC's trophy cabinet stay off.
+ */
+export function PeerProfileView({
+  name,
+  handle,
+  profile,
+  games,
+  avatarUrl,
+  bannerUrl,
+  presencePlaying,
+  presenceLabel,
+  actions,
+}: {
+  name: string
+  handle?: string | null
+  profile: OnlinePublicProfile | null
+  games: Game[]
+  avatarUrl: string | null
+  bannerUrl: string | null
+  presencePlaying?: string | null
+  presenceLabel?: string | null
+  actions?: ReactNode
+}) {
+  const [avatarFailed, setAvatarFailed] = useState(false)
+  const [bannerFailed, setBannerFailed] = useState(false)
+  const [enlarged, setEnlarged] = useState(false)
+  const [lightboxInstant, setLightboxInstant] = useState(false)
+  useEffect(() => setAvatarFailed(false), [avatarUrl])
+  useEffect(() => setBannerFailed(false), [bannerUrl])
+
+  const values = (profile?.profile ?? {}) as Record<string, unknown>
+  const accent = accentHex(peerText(values, 'accent') || DEFAULT_ACCENT)
+  const layout: ProfileLayout = peerText(values, 'layout') === 'left' ? 'left' : 'center'
+  const bannerHeight: ProfileBannerHeight =
+    peerText(values, 'bannerHeight') === 'short' || peerText(values, 'bannerHeight') === 'tall'
+      ? (peerText(values, 'bannerHeight') as ProfileBannerHeight)
+      : 'standard'
+  const showcaseStyle = peerText(values, 'showcaseStyle') === 'rows' ? 'rows' : 'grid'
+  const pronouns = peerText(values, 'pronouns') || null
+  const statusText = peerText(values, 'statusText') || null
+  const bio = peerText(values, 'bio')
+  const hidden = new Set(peerList(values, 'hiddenSections'))
+  const known = SECTIONS.map((section) => section.key).filter((key) => key !== 'facts')
+  const saved = peerList(values, 'sections').filter((key) => known.includes(key))
+  const visible = [...saved, ...known.filter((key) => !saved.includes(key))].filter((key) => !hidden.has(key))
+  const railSections = visible.filter((key) => key === 'about' && bio)
+  const showShowcase = visible.includes('showcase')
+  const effectiveAvatar = avatarUrl && !avatarFailed ? avatarUrl : null
+  const effectiveBanner = bannerUrl && !bannerFailed ? bannerUrl : null
+  const bannerGameId = peerText(values, 'bannerGameId')
+  const bannerGame = bannerGameId ? peerShowcaseGame(bannerGameId, games) : null
+  const showcaseGames = (() => {
+    const ids = peerList(values, 'showcase')
+    const seen = new Set<string>()
+    const out: Game[] = []
+    for (const id of ids) {
+      const key = id.toLowerCase()
+      if (seen.has(key)) continue
+      seen.add(key)
+      out.push(peerShowcaseGame(id, games))
+    }
+    return out
+  })()
+  const gallery = GALLERY_SLOTS.flatMap((slot) => {
+    const media = profile?.media[slot]
+    return media?.available && media.url ? [{ slot, url: media.url }] : []
+  })
+  const canEnlarge = !!effectiveAvatar
+  const avatarInner = effectiveAvatar ? (
+    <img src={effectiveAvatar} alt="" onError={() => setAvatarFailed(true)} />
+  ) : (
+    <span className="exo-avatar-mono" aria-hidden>
+      {monogram(name || handle || 'Exo')}
+    </span>
+  )
+
+  return (
+    <main
+      className={cn('exo-profile min-h-0 flex-1 is-view is-peer', `is-${layout}`)}
+      style={{ '--profile-accent': accent } as CSSProperties}
+    >
+      <header
+        className={cn(
+          'exo-profile-hero',
+          effectiveBanner || bannerGame ? 'has-banner' : 'is-empty',
+          `is-${bannerHeight}`,
+        )}
+      >
+        <div className="exo-profile-hero-fallback" aria-hidden="true" />
+        {effectiveBanner ? (
+          <img
+            className="exo-profile-hero-image"
+            src={bannerUrl ?? undefined}
+            alt=""
+            decoding="async"
+            onError={() => setBannerFailed(true)}
+          />
+        ) : bannerGame ? (
+          <div className="exo-profile-hero-game-art" aria-hidden="true">
+            <HeroWash game={bannerGame} />
+          </div>
+        ) : null}
+        <div className="exo-profile-hero-veil" aria-hidden="true" />
+        <div className={cn('exo-profile-head exo-profile-hero-content', `is-${layout}`)}>
+          {canEnlarge ? (
+            <button
+              type="button"
+              className="exo-avatar is-lg"
+              style={{ boxShadow: `0 0 0 3px #000, 0 0 0 4px ${accent}` }}
+              aria-label="Enlarge profile picture"
+              onClick={(event) => {
+                setLightboxInstant(event.detail === 0)
+                setEnlarged(true)
+              }}
+            >
+              {avatarInner}
+            </button>
+          ) : (
+            <span
+              className="exo-avatar is-lg"
+              style={{ boxShadow: `0 0 0 3px #000, 0 0 0 4px ${accent}` }}
+            >
+              {avatarInner}
+            </span>
+          )}
+          <div className="exo-profile-id min-w-0">
+            <ServerBadgeRow badges={profile?.badges} className="exo-profile-badges" />
+            <h2 className={cn('exo-profile-name', !name && 'is-unset')}>{name || 'Exo profile'}</h2>
+            {pronouns ? <p className="exo-profile-pronouns">{pronouns}</p> : null}
+            {statusText || presenceLabel || presencePlaying ? (
+              <div className="exo-profile-presence">
+                {statusText ? <p className="exo-profile-status">{statusText}</p> : presenceLabel ? (
+                  <p className="exo-profile-status">{presenceLabel}</p>
+                ) : null}
+                {presencePlaying ? <p className="exo-profile-playing">Playing {presencePlaying}</p> : null}
+              </div>
+            ) : null}
+          </div>
+        </div>
+        {actions ? <div className="exo-profile-actions">{actions}</div> : null}
+      </header>
+
+      <div className="exo-profile-body">
+        <div
+          className={cn(
+            'exo-profile-view',
+            !showShowcase && 'is-rail-only',
+            railSections.length === 0 && 'is-showcase-only',
+          )}
+        >
+          {railSections.length > 0 ? (
+            <aside className="exo-profile-rail" aria-label="Profile details">
+              {railSections.map((key) =>
+                key === 'about' && bio ? (
+                  <section key={key} className="exo-profile-block is-about" data-profile-section="about">
+                    <div className="exo-home-head">
+                      <h3 className="exo-section-label">About</h3>
+                    </div>
+                    <p className="exo-profile-bio">{bio}</p>
+                  </section>
+                ) : null,
+              )}
+            </aside>
+          ) : null}
+          <div className="exo-profile-stage">
+            {showShowcase ? (
+              <section className="exo-profile-block is-showcase" data-profile-section="showcase">
+                <div className="exo-home-head">
+                  <h3 className="exo-section-label">Showcase</h3>
+                  {showcaseGames.length > 0 ? (
+                    <span className="exo-profile-count">
+                      {showcaseGames.length} of {PROFILE_LIMITS.showcase}
+                    </span>
+                  ) : null}
+                </div>
+                {showcaseGames.length > 0 ? (
+                  <div className={cn('exo-showcase', showcaseStyle === 'rows' && 'is-rows')}>
+                    <ShowcaseFeature game={showcaseGames[0]} entry={undefined} peer />
+                    <div className="exo-showcase-grid">
+                      {showcaseGames.slice(1).map((game) => (
+                        <ShowcaseEntry key={game.id} game={game} entry={undefined} style={showcaseStyle} peer />
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <p className="exo-profile-note">Nothing pinned on this profile.</p>
+                )}
+              </section>
+            ) : null}
+            {gallery.length > 0 ? (
+              <section className="exo-profile-block is-gallery" aria-labelledby="exo-peer-gallery">
+                <div className="exo-home-head">
+                  <h3 className="exo-section-label" id="exo-peer-gallery">Gallery</h3>
+                  <span className="exo-profile-count">{gallery.length} of {GALLERY_SLOTS.length}</span>
+                </div>
+                <div className="exo-profile-gallery">
+                  {gallery.map((image) => (
+                    <figure key={image.slot}>
+                      <img src={image.url} alt="" loading="lazy" decoding="async" />
+                    </figure>
+                  ))}
+                </div>
+              </section>
+            ) : null}
+          </div>
+        </div>
+      </div>
+
+      <AvatarLightbox
+        open={enlarged && canEnlarge}
+        instant={lightboxInstant}
+        photo={!!effectiveAvatar}
+        onClose={(instant) => {
+          setLightboxInstant(instant)
+          setEnlarged(false)
+        }}
+      >
+        {effectiveAvatar ? <img src={effectiveAvatar} alt="" /> : null}
+      </AvatarLightbox>
+    </main>
+  )
+}
+
 function ShowcaseFeature({
   game,
   entry,
+  peer = false,
 }: {
   game: Game
   entry: ProfileShowcaseEntry | undefined
+  peer?: boolean
 }) {
-  const unlocked = entry?.achievementsUnlocked ?? null
-  const total = entry?.achievementsTotal ?? null
+  const unlocked = peer ? null : entry?.achievementsUnlocked ?? null
+  const total = peer ? null : entry?.achievementsTotal ?? null
   const completion = unlocked != null && total != null && total > 0
     ? Math.round((unlocked / total) * 100)
     : null
+  const minutes = peer ? null : (entry?.playtimeMinutes ?? game.playtimeMinutes)
 
   return (
     <article className="exo-showcase-feature">
@@ -874,14 +1162,17 @@ function ShowcaseFeature({
       <div className="exo-showcase-feature-copy">
         <span className="exo-showcase-eyebrow">Featured game</span>
         <h4>{game.title}</h4>
-        <p>{storeLabel(entry?.store ?? game.store)} · {formatPlaytime(entry?.playtimeMinutes ?? game.playtimeMinutes)}</p>
+        <p>
+          {storeLabel(entry?.store ?? game.store)}
+          {peer ? null : <> · {formatPlaytime(minutes)}</>}
+        </p>
         {completion != null ? (
           <div className="exo-showcase-progress" aria-label={`${unlocked} of ${total} achievements unlocked`}>
             <span><b>{unlocked}/{total}</b> achievements</span>
             <span>{completion}%</span>
             <i style={{ '--showcase-progress': `${completion}%` } as CSSProperties} aria-hidden />
           </div>
-        ) : (
+        ) : peer ? null : (
           <span className="exo-showcase-unknown">Achievement progress unavailable</span>
         )}
       </div>
@@ -950,12 +1241,14 @@ function ShowcaseEntry({
   game,
   entry,
   style,
+  peer = false,
 }: {
   game: Game
   entry: ProfileShowcaseEntry | undefined
   style: 'grid' | 'rows'
+  peer?: boolean
 }) {
-  const minutes = entry?.playtimeMinutes ?? game.playtimeMinutes ?? null
+  const minutes = peer ? null : (entry?.playtimeMinutes ?? game.playtimeMinutes ?? null)
   const store = storeLabel(entry?.store ?? game.store)
 
   return (
@@ -968,10 +1261,14 @@ function ShowcaseEntry({
         <h4 className="exo-showcase-title">{game.title}</h4>
         <p className="exo-showcase-meta">
           <span>{store}</span>
-          <span aria-hidden>·</span>
-          <span>{formatPlaytime(minutes)}</span>
+          {peer ? null : (
+            <>
+              <span aria-hidden>·</span>
+              <span>{formatPlaytime(minutes)}</span>
+            </>
+          )}
         </p>
-        {entry?.achievementsTotal != null ? (
+        {!peer && entry?.achievementsTotal != null ? (
           <p className="exo-showcase-achievements">
             {entry.achievementsUnlocked ?? 0}/{entry.achievementsTotal} achievements
           </p>

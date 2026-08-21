@@ -74,7 +74,7 @@ internal static class ExoBadgeCatalog
 
     public static readonly HashSet<string> Keys = new(StringComparer.Ordinal)
     {
-        "founder", "ceo", "developer", "moderator", "contributor", "early_supporter",
+        "founder", "developer", "moderator", "contributor", "early_supporter",
     };
 
     public static readonly HashSet<string> ManageableKeys = new(StringComparer.Ordinal)
@@ -100,7 +100,6 @@ internal static class ExoBadgeCatalog
         return badge.Key switch
         {
             "founder" => Exact(badge, "Founder", "Founder of Exo", "founder"),
-            "ceo" => Exact(badge, "CEO", "Exo leadership", "leadership"),
             "developer" => Exact(badge, "Developer", "Builds Exo", "staff"),
             "moderator" => Exact(badge, "Moderator", "Helps keep Exo welcoming", "staff"),
             "contributor" => Exact(badge, "Contributor", "Contributed to Exo", "community"),

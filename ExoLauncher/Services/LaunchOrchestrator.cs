@@ -680,7 +680,7 @@ public sealed class LaunchOrchestrator
         // Install is an entitlement-bearing operation. Keep the check in the
         // orchestrator as well as the bridge so future native callers cannot
         // turn a stale capability hint into a store install.
-        if (!game.Owned)
+        if (!game.Owned && !StoreSearchService.IsOfficialClientCatalogInstall(game))
         {
             return new InstallResult
             {

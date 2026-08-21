@@ -26,6 +26,7 @@ public sealed class SecurityBoundaryTests : IDisposable
 
         Assert.DoesNotContain(" https: ", " " + imageSources + " ", StringComparison.Ordinal);
         Assert.Contains("https://covers.exo-launcher.local", imageSources, StringComparison.Ordinal);
+        Assert.Contains("https://profile-media.exo-launcher.local", imageSources, StringComparison.Ordinal);
         Assert.Contains("https://avatars.steamstatic.com", imageSources, StringComparison.Ordinal);
     }
 

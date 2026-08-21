@@ -586,11 +586,11 @@ function validateDimensions(kind: ProfileMediaKind, width: number, height: numbe
     }
     return;
   }
-  if (width < 320 || width > 8192 || height < 120 || height > 4096 || aspect < 1.5 || aspect > 8) {
+  if (width < 64 || width > 8192 || height < 64 || height > 4096) {
     throw new ProfileMediaError(
       400,
       "MEDIA_DIMENSIONS_INVALID",
-      "Banner dimensions must be landscape, 320-8192 pixels wide, and 120-4096 pixels tall.",
+      "Banner dimensions must be 64-8192 pixels wide and 64-4096 pixels tall.",
     );
   }
 }

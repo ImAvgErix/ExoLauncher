@@ -250,6 +250,19 @@ public sealed class StartupCostContractTests
     }
 
     [Fact]
+    public void ProfileMediaVirtualHost_IsMappedAndServedLikeCoverArt()
+    {
+        var window = ReadRepoFile("ExoLauncher", "MainWindow.xaml.cs");
+        var bridge = ReadRepoFile("ExoLauncher", "Services", "WebHostBridge.cs");
+
+        Assert.Contains("ExoProfileMediaCache.DirectoryName", window, StringComparison.Ordinal);
+        Assert.Contains("core.WebResourceRequested += ProfileMediaResourceRequested", window, StringComparison.Ordinal);
+        Assert.Contains("ExoProfileMediaCache.VirtualHost", window, StringComparison.Ordinal);
+        Assert.Contains("CoreWebView2HostResourceAccessKind.Allow", window, StringComparison.Ordinal);
+        Assert.DoesNotContain("SetVirtualHostNameToFolderMapping", bridge, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void StoreObservers_StartAfterTheMainShellPaints()
     {
         var services = ReadRepoFile("ExoLauncher", "Services", "AppServices.cs");

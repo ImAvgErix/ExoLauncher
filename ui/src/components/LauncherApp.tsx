@@ -67,13 +67,21 @@ function mergedCoverUrl(incoming: Game, previous?: Game): string | null {
   return null
 }
 
+function isOfficialClientCatalogHit(hit: Pick<CatalogHit, 'id' | 'canInstall'>): boolean {
+  return !!hit.canInstall &&
+    (hit.id === 'minecraft:java' || hit.id === 'minecraft:bedrock' || hit.id === 'roblox:player')
+}
+
 function hitToGame(hit: CatalogHit, library: Game[] = []): Game {
   const existing = findLibraryGame(library, hit.id)
   const entitlementState = existing?.entitlementState ?? (hit.owned ? 'owned' : 'unknown')
   const entitlementBlocked = entitlementState === 'notOwned' || entitlementState === 'unverified'
   const owned = !entitlementBlocked && !!(hit.owned || existing?.owned)
   const installed = !!(hit.installed || existing?.installed)
-  const canInstall = !installed && owned && !!(hit.canInstall || existing?.canInstall)
+  const catalogInstall = isOfficialClientCatalogHit(hit)
+  const canInstall = !installed && !entitlementBlocked &&
+    !!(hit.canInstall || existing?.canInstall) &&
+    (owned || catalogInstall)
   return {
     id: hit.id,
     title: hit.title,

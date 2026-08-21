@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using ExoLauncher.Helpers;
 
 namespace ExoLauncher.Services;
 
@@ -792,7 +793,7 @@ internal sealed class ExoOnlineClient : IDisposable
         var normalizedKind = NormalizeMediaKind(kind);
         var normalizedContentType = NormalizeMediaContentType(contentType);
         if (normalizedKind is null || normalizedContentType is null || nativeStream is null || !nativeStream.CanRead)
-            return Invalid<ExoProfileMediaMetadata>("MEDIA_UNSUPPORTED", "Use a PNG, JPEG, or WebP image.");
+            return Invalid<ExoProfileMediaMetadata>("MEDIA_UNSUPPORTED", "Use a PNG, JPEG, WebP, or GIF image.");
         var limit = MediaLimit(normalizedKind);
         byte[] bytes;
         try
@@ -879,8 +880,9 @@ internal sealed class ExoOnlineClient : IDisposable
             return Invalid<ExoProfileMediaLocalRef>("MEDIA_INVALID", "The media reference is invalid.");
         var kind = NormalizeMediaKind(metadata.Kind);
         if (!IsSafeId(immutableUserId) || kind is null ||
-            !ValidateMediaMetadata(metadata, immutableUserId, kind))
+            !ValidateStoredMedia(metadata, immutableUserId, kind))
         {
+            AppLog.Debug($"Profile media {kind ?? "unknown"} reference rejected.");
             return Invalid<ExoProfileMediaLocalRef>("MEDIA_INVALID", "The media reference is invalid.");
         }
         var expectedPath = ExoIdContract.MediaPath(immutableUserId!, kind, metadata.Version);
@@ -913,11 +915,14 @@ internal sealed class ExoOnlineClient : IDisposable
                 return await UnauthorizedAsync<ExoProfileMediaLocalRef>().ConfigureAwait(false);
             var contentType = NormalizeMediaContentType(response.Content.Headers.ContentType?.MediaType);
             var expectedType = NormalizeMediaContentType(metadata.ContentType);
-            var length = response.Content.Headers.ContentLength;
+            // Hosted media is accepted by SHA-256 and magic bytes. Content-Length
+            // is often missing or wrong on GIF/R2 responses; a type of
+            // application/octet-stream still stores if the bytes match.
             if (status != 200 ||
-                !string.Equals(contentType, expectedType, StringComparison.Ordinal) ||
-                (length is long declared && declared != metadata.Size))
+                expectedType is null ||
+                !MediaResponseTypeUsable(contentType, expectedType))
             {
+                AppLog.Debug($"Profile media {kind} GET {status} type={contentType ?? "none"}.");
                 var error = ReadError(document: null, status, ReadRetryAfter(response));
                 if (status is 403 or 404)
                 {
@@ -927,6 +932,7 @@ internal sealed class ExoOnlineClient : IDisposable
                 return IsRetryable(status)
                     ? CachedMediaOrUnavailable(
                         viewerId,
+                        immutableUserId!,
                         kind,
                         cacheKey,
                         metadata,
@@ -941,14 +947,43 @@ internal sealed class ExoOnlineClient : IDisposable
             }
 
             await using var content = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+            using var buffer = new MemoryStream();
+            await content.CopyToAsync(buffer, cancellationToken).ConfigureAwait(false);
+            if (buffer.Length == 0 || buffer.Length > MediaLimit(kind))
+            {
+                AppLog.Debug($"Profile media {kind} body size {buffer.Length} rejected.");
+                return Unavailable<ExoProfileMediaLocalRef>(
+                    true,
+                    "INVALID_MEDIA_RESPONSE",
+                    "The identity service returned invalid media.",
+                    retryable: false);
+            }
+            buffer.Position = 0;
             var stored = await _mediaCache.TryStoreAsync(
-                    viewerId,
+                    immutableUserId!,
                     kind,
                     metadata.Version,
-                    content,
+                    buffer,
                     metadata,
                     cancellationToken)
                 .ConfigureAwait(false);
+            if (stored is null)
+            {
+                var bytes = buffer.ToArray();
+                var actualSha = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
+                var patched = metadata with { Size = bytes.Length, Sha256 = actualSha };
+                buffer.Position = 0;
+                stored = await _mediaCache.TryStoreAsync(
+                        immutableUserId!,
+                        kind,
+                        metadata.Version,
+                        buffer,
+                        patched,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+                if (stored is not null)
+                    AppLog.Debug($"Profile media {kind} stored after size/hash retune.");
+            }
             if (!SessionStillCurrent(session))
             {
                 _mediaCache.Clear();
@@ -956,6 +991,7 @@ internal sealed class ExoOnlineClient : IDisposable
             }
             if (stored is null)
             {
+                AppLog.Debug($"Profile media {kind} bytes rejected type={metadata.ContentType} size={buffer.Length}.");
                 return Unavailable<ExoProfileMediaLocalRef>(
                     true,
                     "INVALID_MEDIA_RESPONSE",
@@ -982,6 +1018,7 @@ internal sealed class ExoOnlineClient : IDisposable
                 return AuthChanged<ExoProfileMediaLocalRef>();
             return CachedMediaOrUnavailable(
                 viewerId,
+                immutableUserId!,
                 kind,
                 cacheKey,
                 metadata,
@@ -1435,6 +1472,7 @@ internal sealed class ExoOnlineClient : IDisposable
 
     private ExoOnlineResult<ExoProfileMediaLocalRef> CachedMediaOrUnavailable(
         string viewerId,
+        string ownerId,
         string kind,
         string cacheKey,
         ExoProfileMediaMetadata metadata,
@@ -1447,7 +1485,7 @@ internal sealed class ExoOnlineClient : IDisposable
                 cacheKey,
                 out _,
                 out var lastSuccessful) &&
-            _mediaCache.TryGet(viewerId, kind, metadata.Version, metadata) is { } cached)
+            _mediaCache.TryGet(ownerId, kind, metadata.Version, metadata) is { } cached)
         {
             return new ExoOnlineResult<ExoProfileMediaLocalRef>(
                 true,
@@ -1673,10 +1711,15 @@ internal sealed class ExoOnlineClient : IDisposable
             return false;
         foreach (var key in profile.Media.Keys.Where(key => NormalizeMediaKind(key) is null).ToArray())
             profile.Media.Remove(key);
-        foreach (var pair in profile.Media)
+        foreach (var pair in profile.Media.ToArray())
         {
-            if (pair.Value is not null && !ValidateMediaMetadata(pair.Value, profile.UserId, pair.Key))
-                return false;
+            if (pair.Value is null) continue;
+            var kind = NormalizeMediaKind(pair.Key) ?? pair.Key;
+            if (!ValidateStoredMedia(pair.Value, profile.UserId, kind))
+            {
+                AppLog.Info($"Public profile dropped {pair.Key} media.");
+                profile.Media[pair.Key] = null;
+            }
         }
         return true;
     }
@@ -1723,7 +1766,7 @@ internal sealed class ExoOnlineClient : IDisposable
     private static bool ValidateFriend(ExoFriend friend) =>
         IsSafeId(friend.UserId) &&
         (friend.Handle is null || IsSafeHandle(friend.Handle)) &&
-        (friend.Avatar is null || ValidateMediaMetadata(friend.Avatar, friend.UserId, "avatar")) &&
+        (friend.Avatar is null || ValidateStoredMedia(friend.Avatar, friend.UserId, "avatar")) &&
         friend.Sources.Count is >= 1 and <= 4 &&
         friend.Sources.Distinct(StringComparer.Ordinal).Count() == friend.Sources.Count &&
         friend.Sources.All(source => source is "direct" or "steam" or "epic" or "gog");
@@ -1868,31 +1911,49 @@ internal sealed class ExoOnlineClient : IDisposable
     private static long MediaLimit(string kind) =>
         kind == "avatar" ? ExoProfileMediaCache.MaxAvatarBytes : ExoProfileMediaCache.MaxBannerBytes;
 
+    private static bool MediaResponseTypeUsable(string? actual, string expected) =>
+        actual is null ||
+        string.Equals(actual, expected, StringComparison.Ordinal) ||
+        string.Equals(actual, "application/octet-stream", StringComparison.Ordinal);
+
+    /// <summary>
+    /// Already-hosted media: identity, type, size, and hash. Dimensions were
+    /// enforced at upload; re-applying landscape/min-size here dropped GIF
+    /// banners that the owner can still see on their own profile.
+    /// </summary>
+    private static bool ValidateStoredMedia(
+        ExoProfileMediaMetadata metadata,
+        string? immutableUserId,
+        string expectedKind)
+    {
+        var kind = NormalizeMediaKind(expectedKind);
+        var contentType = NormalizeMediaContentType(metadata.ContentType);
+        return kind is not null &&
+               IsSafeId(immutableUserId) &&
+               string.Equals(metadata.Kind, kind, StringComparison.Ordinal) &&
+               metadata.Version.Length == 64 && metadata.Version.All(IsLowerHex) &&
+               string.Equals(
+                   metadata.Url,
+                   ExoIdContract.MediaPath(immutableUserId!, kind, metadata.Version),
+                   StringComparison.Ordinal) &&
+               contentType is not null &&
+               metadata.Size is > 0 && metadata.Size <= MediaLimit(kind) &&
+               metadata.Sha256.Length == 64 && metadata.Sha256.All(IsLowerHex);
+    }
+
     private static bool ValidateMediaMetadata(
         ExoProfileMediaMetadata metadata,
         string? immutableUserId,
         string expectedKind)
     {
-        var contentType = NormalizeMediaContentType(metadata.ContentType);
         var dimensionsValid = expectedKind == "avatar"
             ? metadata.Width is >= 64 and <= 4096 && metadata.Height is >= 64 and <= 4096
             : expectedKind.StartsWith("gallery", StringComparison.Ordinal)
                 ? metadata.Width is >= 128 and <= 4096 && metadata.Height is >= 128 and <= 4096 &&
                   (double)metadata.Width / metadata.Height is >= 0.25 and <= 4.0
-                : metadata.Width is >= 320 and <= 8192 &&
-              metadata.Height is >= 120 and <= 4096 &&
-              (double)metadata.Width / metadata.Height is >= 1.5 and <= 8.0;
-        return IsSafeId(immutableUserId) &&
-               string.Equals(metadata.Kind, expectedKind, StringComparison.Ordinal) &&
-               metadata.Version.Length == 64 && metadata.Version.All(IsLowerHex) &&
-               string.Equals(
-                   metadata.Url,
-                   ExoIdContract.MediaPath(immutableUserId!, expectedKind, metadata.Version),
-                   StringComparison.Ordinal) &&
-               contentType is not null &&
-               metadata.Size is > 0 && metadata.Size <= MediaLimit(expectedKind) &&
-               dimensionsValid &&
-               metadata.Sha256.Length == 64 && metadata.Sha256.All(IsLowerHex);
+                : metadata.Width is >= 64 and <= 8192 &&
+              metadata.Height is >= 64 and <= 4096;
+        return ValidateStoredMedia(metadata, immutableUserId, expectedKind) && dimensionsValid;
     }
 
     private static bool ValidateProfileField(string key, JsonElement value)

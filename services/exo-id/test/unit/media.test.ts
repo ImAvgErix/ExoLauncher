@@ -232,19 +232,23 @@ describe("profile media inspection", () => {
     );
   });
 
-  it("enforces slot dimensions and a sane landscape banner aspect", async () => {
+  it("enforces slot dimensions without requiring a landscape banner", async () => {
     await expectMediaError(inspectAndSanitizeProfileMedia("avatar", "image/png", png(255, 256)), "MEDIA_DIMENSIONS_INVALID");
     await expectMediaError(
-      inspectAndSanitizeProfileMedia("banner", "image/png", png(900, 1600)),
+      inspectAndSanitizeProfileMedia("banner", "image/png", png(63, 64)),
       "MEDIA_DIMENSIONS_INVALID",
     );
     await expectMediaError(
-      inspectAndSanitizeProfileMedia("banner", "image/png", png(8192, 120)),
+      inspectAndSanitizeProfileMedia("banner", "image/png", png(1280, 4097)),
       "MEDIA_DIMENSIONS_INVALID",
     );
     await expect(inspectAndSanitizeProfileMedia("banner", "image/png", png(1280, 720))).resolves.toMatchObject({
       width: 1280,
       height: 720,
+    });
+    await expect(inspectAndSanitizeProfileMedia("banner", "image/png", png(900, 1600))).resolves.toMatchObject({
+      width: 900,
+      height: 1600,
     });
   });
 

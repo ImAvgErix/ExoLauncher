@@ -142,12 +142,12 @@ public sealed class UxRegressionContractTests
         Assert.Contains("smartSearchScore(game.title, q)", app, StringComparison.Ordinal);
         Assert.DoesNotContain("smartSearchScore(game.store", app, StringComparison.Ordinal);
         Assert.Contains("return resolveEntitlementPrimaryAction(game)", host, StringComparison.Ordinal);
-        Assert.Contains("if (game.canInstall && game.owned === true) return 'install'", entitlement, StringComparison.Ordinal);
+        Assert.Contains("if (game.canInstall && (game.owned === true || game.primaryAction === 'install')) return 'install'", entitlement, StringComparison.Ordinal);
         Assert.Contains("if (game.entitlementState === 'notOwned') return 'none'", entitlement, StringComparison.Ordinal);
         Assert.Contains("if (game.entitlementState === 'unverified' && !game.installed) return 'none'", entitlement, StringComparison.Ordinal);
         Assert.DoesNotContain("if (game.canInstall || game.owned) return 'install'", entitlement, StringComparison.Ordinal);
         Assert.Contains("if (!proven.Owned) return null", bridge, StringComparison.Ordinal);
-        Assert.Contains("if (!game.Owned)", bridge, StringComparison.Ordinal);
+        Assert.Contains("if (!game.Owned && !StoreSearchService.IsOfficialClientCatalogInstall(game))", bridge, StringComparison.Ordinal);
         Assert.DoesNotContain("game.Owned || game.CanInstall || game.Installed", bridge, StringComparison.Ordinal);
         Assert.Contains("TitleIdentity", ReadRepoFile("ExoLauncher", "Services", "StoreSearchService.cs"), StringComparison.Ordinal);
     }
@@ -369,7 +369,7 @@ public sealed class UxRegressionContractTests
         Assert.Contains("const next = await host.storesMatrix()", settings, StringComparison.Ordinal);
         Assert.Contains("setCheckedStores(next)", settings, StringComparison.Ordinal);
         Assert.Contains("await onStores?.(next)", settings, StringComparison.Ordinal);
-        Assert.Equal(2, CountOccurrences(storePanel, "disabled={rowBusy}"));
+        Assert.Equal(3, CountOccurrences(storePanel, "disabled={rowBusy}"));
     }
 
     [Fact]

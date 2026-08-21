@@ -282,6 +282,13 @@ public sealed class SocialContractTests
         Assert.Contains("\"friends.unlink\" => FriendsUnlink", bridge, StringComparison.Ordinal);
         Assert.Contains("Exo cannot work this out", links, StringComparison.Ordinal);
         Assert.Contains("Link to someone on Exo", friends, StringComparison.Ordinal);
+        Assert.Contains("Link a store account", friends, StringComparison.Ordinal);
+        Assert.Contains("exoLinkId", friends, StringComparison.Ordinal);
+        Assert.Contains("people={mergedPeople}", friends, StringComparison.Ordinal);
+        Assert.Contains("EnsureRosterPerson", social, StringComparison.Ordinal);
+        Assert.Contains("LinkedSteamLibraryAsync", social, StringComparison.Ordinal);
+        Assert.Contains("\"friends.steamLibrary\"", bridge, StringComparison.Ordinal);
+        Assert.Contains("online:", social, StringComparison.Ordinal);
 
         // A claimed row leaves the store list instead of being shown twice.
         Assert.Contains("!linked.Contains(friend.Id)", social, StringComparison.Ordinal);

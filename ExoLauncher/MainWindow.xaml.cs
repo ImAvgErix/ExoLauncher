@@ -324,6 +324,27 @@ public sealed partial class MainWindow : Window
                 catch { /* virtual host alone may still work */ }
             }
 
+            // Friend avatars are downloaded from exo-id, then served here.
+            // DenyCors folder mapping on this second virtual host answers empty
+            // 200s to <img> from app.exo-launcher.local. Allow + an explicit
+            // handler is what actually paints another user's picture.
+            try
+            {
+                var profileMediaRoot = Path.Combine(
+                    Helpers.PathHelper.AppDataDir,
+                    Services.ExoProfileMediaCache.DirectoryName);
+                Directory.CreateDirectory(profileMediaRoot);
+                core.SetVirtualHostNameToFolderMapping(
+                    Services.ExoProfileMediaCache.VirtualHost,
+                    profileMediaRoot,
+                    CoreWebView2HostResourceAccessKind.Allow);
+                core.AddWebResourceRequestedFilter(
+                    $"https://{Services.ExoProfileMediaCache.VirtualHost}/*",
+                    CoreWebView2WebResourceContext.All);
+                core.WebResourceRequested += ProfileMediaResourceRequested;
+            }
+            catch { /* friend avatars stay empty rather than blocking startup */ }
+
             try { _bridge?.Detach(); } catch { }
             _bridge = new WebHostBridge(App.Services, DispatcherQueue);
             _bridge.Attach(core);
@@ -476,6 +497,44 @@ public sealed partial class MainWindow : Window
         catch
         {
             /* monogram fallback in UI */
+        }
+    }
+
+    /// <summary>
+    /// Serve friend avatars/banners from disk for https://profile-media.exo-launcher.local/*.
+    /// Same complete in-memory body as cover tiles so WebView2 cannot hang on a mapped host miss.
+    /// </summary>
+    private void ProfileMediaResourceRequested(CoreWebView2 sender, CoreWebView2WebResourceRequestedEventArgs e)
+    {
+        try
+        {
+            var uri = e.Request.Uri;
+            if (!Uri.TryCreate(uri, UriKind.Absolute, out var u) ||
+                !string.Equals(u.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase) ||
+                !string.Equals(u.IdnHost, Services.ExoProfileMediaCache.VirtualHost, StringComparison.OrdinalIgnoreCase) ||
+                u.Port != 443 || !string.IsNullOrEmpty(u.UserInfo) || !string.IsNullOrEmpty(u.Fragment))
+                return;
+
+            var path = new Services.ExoProfileMediaCache().ResolvePath(u.AbsolutePath);
+            if (path is null) return;
+
+            var bytes = File.ReadAllBytes(path);
+            if (bytes.Length == 0) return;
+            var ms = new MemoryStream(bytes, writable: false);
+            var contentType = path.EndsWith(".png", StringComparison.OrdinalIgnoreCase) ? "image/png"
+                : path.EndsWith(".webp", StringComparison.OrdinalIgnoreCase) ? "image/webp"
+                : path.EndsWith(".gif", StringComparison.OrdinalIgnoreCase) ? "image/gif"
+                : "image/jpeg";
+
+            e.Response = sender.Environment.CreateWebResourceResponse(
+                ms.AsRandomAccessStream(),
+                200,
+                "OK",
+                $"Content-Type: {contentType}\r\nContent-Length: {bytes.Length}\r\nX-Content-Type-Options: nosniff\r\nCache-Control: public, max-age=86400\r\n");
+        }
+        catch
+        {
+            /* avatar/banner stay empty rather than crashing the WebView */
         }
     }
 

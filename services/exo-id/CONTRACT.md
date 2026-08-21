@@ -291,7 +291,7 @@ Bearer is optional. Returns:
 
 Present gallery media appears under its stable `gallery0`..`gallery5` key; empty gallery slots are omitted.
 
-Profile badges are independent from staff authority. The only stored value is an allowlisted key; the Worker supplies fixed plain-text `label`, `description`, and `tone`. There are no caller-provided labels, markup, icons, colors, or CSS values. Current keys are `founder`, `ceo`, `developer`, `moderator`, `contributor`, and `early_supporter`. Seeing a CEO, Developer, or Founder badge does not grant or prove API permissions; only the server-side role table authorizes an operation.
+Profile badges are independent from staff authority. The only stored value is an allowlisted key; the Worker supplies fixed plain-text `label`, `description`, and `tone`. There are no caller-provided labels, markup, icons, colors, or CSS values. Current keys are `founder`, `developer`, `moderator`, `contributor`, and `early_supporter`. Seeing a Developer or Founder badge does not grant or prove API permissions; only the server-side role table authorizes an operation.
 
 Owner always sees self. Anonymous viewers see only `public`; authenticated connected friends may see `friends`; nobody else sees `private`. Either-direction block always denies. Suppression removes the connected-friend grant, but does not hide an otherwise public profile. Invalid, missing, and inaccessible profiles all return `404 NOT_FOUND`.
 

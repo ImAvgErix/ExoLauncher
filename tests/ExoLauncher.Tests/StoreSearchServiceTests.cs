@@ -18,6 +18,40 @@ public class StoreSearchServiceTests
         Assert.Equal(expected, StoreSearchService.CanSearchPublicSteamCatalog(steamExe));
     }
 
+    [Theory]
+    [InlineData("minecraft")]
+    [InlineData("minecradt")]
+    [InlineData("Minecraft Bedrock")]
+    public async Task SearchAsync_SurfacesMinecraftForDownload(string query)
+    {
+        var service = new StoreSearchService(
+            _ => Task.FromResult(new List<StoreSearchHit>()),
+            (_, _, _) => Task.FromResult<IReadOnlyList<StoreSearchHit>>(Array.Empty<StoreSearchHit>()));
+
+        var hits = await service.SearchAsync(query, Array.Empty<GameEntry>());
+
+        Assert.Contains(hits, hit => hit.Id == "minecraft:java" && hit.CanInstall && !hit.Owned);
+        Assert.Contains(hits, hit => hit.Id == "minecraft:bedrock" && hit.CanInstall);
+        Assert.True(StoreSearchService.IsLiveSearchHit(hits.First(hit => hit.Id == "minecraft:java")));
+    }
+
+    [Theory]
+    [InlineData("roblox")]
+    [InlineData("robloc")]
+    public async Task SearchAsync_SurfacesRobloxForDownload(string query)
+    {
+        var service = new StoreSearchService(
+            _ => Task.FromResult(new List<StoreSearchHit>()),
+            (_, _, _) => Task.FromResult<IReadOnlyList<StoreSearchHit>>(Array.Empty<StoreSearchHit>()));
+
+        var hits = await service.SearchAsync(query, Array.Empty<GameEntry>());
+
+        var roblox = Assert.Single(hits, hit => hit.Id == "roblox:player");
+        Assert.True(roblox.CanInstall);
+        Assert.False(roblox.Owned);
+        Assert.True(StoreSearchService.IsLiveSearchHit(roblox));
+    }
+
     [Fact]
     public void IsLiveSearchHit_KeepsAccountAndLibraryRowsOnly()
     {

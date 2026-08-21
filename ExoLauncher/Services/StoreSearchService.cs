@@ -42,10 +42,119 @@ public sealed class StoreSearchService
         !string.IsNullOrWhiteSpace(steamExe);
 
     /// <summary>
-    /// Live search is library + account. Unowned catalog hits stay off the wire.
+    /// Live search is library + account. Unowned Steam/Epic shelf hits stay off
+    /// the wire. Minecraft and Roblox are official clients Exo can hand off to
+    /// even when they are not in the local library yet.
     /// </summary>
     internal static bool IsLiveSearchHit(StoreSearchHit hit) =>
-        hit.Owned || hit.Installed;
+        hit.Owned || hit.Installed || IsOfficialClientCatalogInstall(hit);
+
+    internal static bool IsOfficialClientCatalogInstall(StoreSearchHit hit) =>
+        IsOfficialClientCatalogInstall(hit.Store, hit.Id, hit.CanInstall);
+
+    internal static bool IsOfficialClientCatalogInstall(StoreKind store, string? id, bool canInstall) =>
+        canInstall &&
+        store is StoreKind.Minecraft or StoreKind.Roblox &&
+        id is "minecraft:java" or "minecraft:bedrock" or "roblox:player";
+
+    internal static bool IsOfficialClientCatalogInstall(GameEntry game) =>
+        IsOfficialClientCatalogInstall(game.Store, game.Id, game.CanInstall) &&
+        !game.Installed &&
+        game.EntitlementState is not (EntitlementState.NotOwned or EntitlementState.Unverified);
+
+    /// <summary>
+    /// Minecraft and Roblox are not Steam/Epic catalog rows. A typed search
+    /// still has to produce an installable card so Get/Download is possible.
+    /// </summary>
+    internal static List<StoreSearchHit> WellKnownCatalogHits(string query)
+    {
+        var hits = new List<StoreSearchHit>();
+        if (TitleMatchesQuery("Minecraft", query) || TitleMatchesQuery("Minecraft Bedrock", query))
+        {
+            hits.Add(new StoreSearchHit
+            {
+                Id = "minecraft:java",
+                Title = "Minecraft",
+                Store = StoreKind.Minecraft,
+                LaunchTarget = "minecraft:java",
+                CanInstall = true,
+                Source = "minecraft",
+            });
+            hits.Add(new StoreSearchHit
+            {
+                Id = "minecraft:bedrock",
+                Title = "Minecraft Bedrock",
+                Store = StoreKind.Minecraft,
+                LaunchTarget = "minecraft:bedrock",
+                CanInstall = true,
+                Source = "minecraft",
+            });
+        }
+        if (TitleMatchesQuery("Roblox", query))
+        {
+            hits.Add(new StoreSearchHit
+            {
+                Id = "roblox:player",
+                Title = "Roblox",
+                Store = StoreKind.Roblox,
+                LaunchTarget = "9PMF91N3LZ3M",
+                CanInstall = true,
+                Source = "roblox",
+            });
+        }
+        return hits;
+    }
+
+    internal static GameEntry? TrySynthesizeOfficialClientInstall(string gameId, string? title)
+    {
+        var id = (gameId ?? "").Trim();
+        if (id.Equals("minecraft:java", StringComparison.OrdinalIgnoreCase))
+        {
+            return new GameEntry
+            {
+                Id = "minecraft:java",
+                Title = string.IsNullOrWhiteSpace(title) || title == id ? "Minecraft" : title.Trim(),
+                Store = StoreKind.Minecraft,
+                Installed = false,
+                Owned = false,
+                CanInstall = true,
+                LaunchTarget = "minecraft:java",
+                Status = "Catalog",
+                LaunchNote = "Opens the official Minecraft download.",
+            };
+        }
+        if (id.Equals("minecraft:bedrock", StringComparison.OrdinalIgnoreCase))
+        {
+            return new GameEntry
+            {
+                Id = "minecraft:bedrock",
+                Title = string.IsNullOrWhiteSpace(title) || title == id ? "Minecraft Bedrock" : title.Trim(),
+                Store = StoreKind.Minecraft,
+                Installed = false,
+                Owned = false,
+                CanInstall = true,
+                LaunchTarget = "minecraft:bedrock",
+                Status = "Catalog",
+                LaunchNote = "Opens Minecraft Bedrock in the Microsoft Store.",
+            };
+        }
+        if (id.Equals("roblox:player", StringComparison.OrdinalIgnoreCase))
+        {
+            return new GameEntry
+            {
+                Id = "roblox:player",
+                Title = string.IsNullOrWhiteSpace(title) || title == id ? "Roblox" : title.Trim(),
+                Store = StoreKind.Roblox,
+                Installed = false,
+                Owned = false,
+                CanInstall = true,
+                LaunchTarget = "9PMF91N3LZ3M",
+                Status = "Catalog",
+                LaunchNote = "Opens Roblox in the Microsoft Store.",
+            };
+        }
+        return null;
+    }
 
     private static Task<IReadOnlyList<StoreSearchHit>> SearchSteamIfClientPresent(
         string q, IReadOnlyList<GameEntry> ownedLibrary, CancellationToken ct)
@@ -94,6 +203,7 @@ public sealed class StoreSearchService
         if (q.Length < 2) return Array.Empty<StoreSearchHit>();
 
         var local = SearchOwnedLibrary(q, ownedLibrary);
+        local.AddRange(WellKnownCatalogHits(q));
         onPartialResults?.Invoke(RankAndDedup(local, q, 40));
 
         var epicWarm = EnsureEpicCacheWarm();
@@ -717,6 +827,7 @@ public sealed class StoreSearchService
         if (score < 0) return score;
         if (h.Installed) score += 50;
         if (h.Owned) score += 25;
+        if (IsOfficialClientCatalogInstall(h)) score += 40;
         if (string.Equals(h.Source, "steam", StringComparison.OrdinalIgnoreCase) ||
             string.Equals(h.Source, "library", StringComparison.OrdinalIgnoreCase))
             score += 10;

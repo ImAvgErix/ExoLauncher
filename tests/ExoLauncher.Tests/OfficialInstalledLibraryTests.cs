@@ -172,11 +172,14 @@ public sealed class OfficialInstalledLibraryTests
             "wgc://open/game/wot.eu.production",
             OfficialInstalledLibraries.InstallProtocol(StoreKind.Wargaming, "wot.eu.production"));
         Assert.Equal(
-            "minecraft://",
+            "https://www.minecraft.net/get-minecraft",
             OfficialInstalledLibraries.InstallProtocol(StoreKind.Minecraft, "minecraft:java"));
         Assert.StartsWith(
             "ms-windows-store://pdp/?PFN=",
             OfficialInstalledLibraries.InstallProtocol(StoreKind.Minecraft, "minecraft:bedrock"));
+        Assert.Equal(
+            "ms-windows-store://pdp/?ProductId=9PMF91N3LZ3M",
+            OfficialInstalledLibraries.InstallProtocol(StoreKind.Roblox, "9PMF91N3LZ3M"));
         Assert.Null(OfficialInstalledLibraries.InstallProtocol(StoreKind.Xbox, @"D:\XboxGames\Forza\Content\Forza.exe"));
         Assert.Null(OfficialInstalledLibraries.InstallProtocol(StoreKind.Itch, @"C:\Games\Celeste\Celeste.exe"));
     }

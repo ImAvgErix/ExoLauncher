@@ -198,6 +198,25 @@ public sealed class SteamWebApiTests
     }
 
     [Fact]
+    public void OwnedGameCatalogParser_ReadsNamesAndPlaytime()
+    {
+        Assert.True(SteamWebApi.TryParseOwnedGameCatalog("""
+            {"response":{"games":[
+              {"appid":730,"name":"Counter-Strike 2","playtime_forever":120},
+              {"appid":570,"name":"Dota 2","playtime_forever":0}
+            ]}}
+            """, out var games, out var authoritative));
+
+        Assert.True(authoritative);
+        Assert.Equal(2, games.Count);
+        Assert.Equal("730", games[0].AppId);
+        Assert.Equal("Counter-Strike 2", games[0].Name);
+        Assert.Equal(120, games[0].PlaytimeMinutes);
+        Assert.Equal("570", games[1].AppId);
+        Assert.Equal(0, games[1].PlaytimeMinutes);
+    }
+
+    [Fact]
     public void OwnedGamesParser_MissingGamesArrayIsNotAuthoritative()
     {
         Assert.False(SteamWebApi.TryParseOwnedGames(

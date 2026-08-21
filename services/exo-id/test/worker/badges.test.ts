@@ -66,7 +66,7 @@ describe("server-authoritative roles and safe badge projections", () => {
       ).bind(staff.id, stamp),
       env.DB.prepare(
         `INSERT INTO profile_badge (user_id, badge_key, granted_by, granted_at)
-         VALUES (?, 'ceo', NULL, ?)`,
+         VALUES (?, 'developer', NULL, ?)`,
       ).bind(staff.id, stamp),
     ]);
 
@@ -101,7 +101,7 @@ describe("server-authoritative roles and safe badge projections", () => {
     expect(self.canManageBadges).toBe(true);
     expect(self.badges).toEqual([
       { key: "founder", label: "Founder", description: "Founder of Exo", tone: "founder" },
-      { key: "ceo", label: "CEO", description: "Exo leadership", tone: "leadership" },
+      { key: "developer", label: "Developer", description: "Builds Exo", tone: "staff" },
     ]);
     expect(JSON.stringify(self)).not.toContain("granted_by");
     expect(JSON.stringify(self)).not.toContain("grantedAt");
@@ -198,16 +198,14 @@ describe("badge administration boundaries", () => {
     }
   });
 
-  it("keeps Founder exclusive and CEO decorative even when an owner grants it", async () => {
+  it("keeps Founder exclusive and rejects the retired CEO badge", async () => {
     await env.DB.prepare(`DELETE FROM profile_badge WHERE badge_key = 'founder'`).run();
     const owner = await seedUser("badge-owner@example.test");
     const founder = await seedUser("badge-founder@example.test");
     const secondOwner = await seedUser("badge-second-owner@example.test");
-    const ceo = await seedUser("badge-ceo@example.test");
     await claim(owner, "badgeowner");
     await claim(founder, "badgefounder");
     await claim(secondOwner, "badgeowner2");
-    await claim(ceo, "badgeceo");
     await seedRole(owner.id, "owner");
 
     const founderGrant = await mutateBadge(owner, "POST", "badgefounder", "founder");
@@ -226,15 +224,8 @@ describe("badge administration boundaries", () => {
     expect(exclusiveError.error).toEqual({ code: "INVALID_REQUEST", message: "Badge cannot be granted." });
     expect(JSON.stringify(exclusiveError)).not.toContain("badgefounder");
 
-    const ceoGrant = await mutateBadge(owner, "POST", "badgeceo", "ceo");
-    expect(ceoGrant.status).toBe(200);
-    const ceoMe = await api("/v1/me", { headers: authHeaders(ceo.token) });
-    expect(ceoMe.status).toBe(200);
-    expect(await ceoMe.json()).toMatchObject({
-      roles: [],
-      canManageBadges: false,
-      badges: [{ key: "ceo", label: "CEO", description: "Exo leadership", tone: "leadership" }],
-    });
+    const ceoGrant = await mutateBadge(owner, "POST", "badgefounder", "ceo");
+    expect(ceoGrant.status).toBe(400);
 
     const revoked = await mutateBadge(owner, "DELETE", "badgefounder", "founder");
     expect(revoked.status).toBe(200);

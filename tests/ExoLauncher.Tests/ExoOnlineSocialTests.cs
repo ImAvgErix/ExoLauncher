@@ -1,4 +1,5 @@
 using System.Net;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using ExoLauncher.Services;
@@ -208,6 +209,54 @@ public sealed class ExoOnlineSocialTests
             var otherViewer = await client.GetPublicProfileAsync("Peer", "peer-id-1");
             Assert.False(otherViewer.Ok);
             Assert.Equal(ExoOnlineSources.Unavailable, otherViewer.Diagnostics.Source);
+        }
+        finally
+        {
+            TryDeleteDirectory(root);
+        }
+    }
+
+    [Fact]
+    public async Task PublicProfiles_KeepHostedGifBannersAndDropBrokenSlots()
+    {
+        var root = TempRoot();
+        try
+        {
+            var store = SessionStore(root);
+            store.Save(Session("profile-media-token"));
+            var version = new string('a', 64);
+            var sha = new string('b', 64);
+            var handler = new OnlineHandler
+            {
+                ProfileJson =
+                    "{\"userId\":\"peer-id-1\",\"handle\":{\"display\":\"Peer\",\"normalized\":\"peer\"}," +
+                    "\"profile\":{\"displayName\":\"Peer Name\"}," +
+                    "\"media\":{" +
+                    "\"avatar\":{\"kind\":\"avatar\",\"version\":\"" + version +
+                    "\",\"url\":\"/v1/media/peer-id-1/avatar/" + version +
+                    "\",\"contentType\":\"image/png\",\"size\":256,\"width\":256,\"height\":256,\"sha256\":\"" + sha + "\"}," +
+                    "\"banner\":{\"kind\":\"banner\",\"version\":\"" + version +
+                    "\",\"url\":\"/v1/media/peer-id-1/banner/" + version +
+                    "\",\"contentType\":\"image/gif\",\"size\":1200,\"width\":400,\"height\":400,\"sha256\":\"" + sha + "\"}," +
+                    "\"gallery0\":{\"kind\":\"gallery0\",\"version\":\"" + version +
+                    "\",\"url\":\"/evil\",\"contentType\":\"image/png\",\"size\":10,\"width\":128,\"height\":128,\"sha256\":\"" + sha + "\"}" +
+                    "}}",
+            };
+            using var client = new ExoOnlineClient(
+                store,
+                handler,
+                new ExoOnlineCache(Path.Combine(root, "online-cache")),
+                origin: "http://127.0.0.1:8787");
+
+            var profile = await client.GetPublicProfileAsync("Peer");
+
+            Assert.True(profile.Ok);
+            Assert.Equal("Peer Name", profile.Value?.Profile["displayName"].GetString());
+            Assert.Equal("image/gif", profile.Value?.Media["banner"]?.ContentType);
+            Assert.Equal(400, profile.Value?.Media["banner"]?.Height);
+            Assert.Equal("image/png", profile.Value?.Media["avatar"]?.ContentType);
+            Assert.True(
+                profile.Value?.Media.GetValueOrDefault("gallery0") is null);
         }
         finally
         {
@@ -575,6 +624,9 @@ public sealed class ExoOnlineSocialTests
             Assert.NotNull(downloaded.Value);
             Assert.StartsWith(ExoProfileMediaCache.VirtualHostOrigin + "/", downloaded.Value!.Url, StringComparison.Ordinal);
             Assert.NotNull(mediaCache.ResolvePath(downloaded.Value.FileName));
+            Assert.Equal(
+                downloaded.Value,
+                mediaCache.TryGet("self-immutable-id", "avatar", uploaded.Value!.Version, uploaded.Value!));
             Assert.Equal(ExoOnlineSources.Live, downloaded.Diagnostics.Source);
 
             handler.ThrowTransient = true;
@@ -653,6 +705,58 @@ public sealed class ExoOnlineSocialTests
         }
     }
 
+    [Fact]
+    public async Task ProfileMedia_DownloadsGifBannerWhenLengthAndTypeAreUnreliable()
+    {
+        var root = TempRoot();
+        try
+        {
+            var store = SessionStore(root);
+            store.Save(Session("gif-banner-token"));
+            var gif = Gif89();
+            var version = new string('a', 64);
+            var sha = Convert.ToHexString(SHA256.HashData(gif)).ToLowerInvariant();
+            var metadata = new ExoProfileMediaMetadata
+            {
+                Kind = "banner",
+                Version = version,
+                Url = "/v1/media/peer-id-1/banner/" + version,
+                ContentType = "image/gif",
+                Size = gif.Length,
+                Width = 400,
+                Height = 400,
+                Sha256 = sha,
+            };
+            var mediaCache = new ExoProfileMediaCache(Path.Combine(root, "media-cache"));
+            using var client = new ExoOnlineClient(
+                store,
+                new GifBannerHandler(gif, version),
+                new ExoOnlineCache(Path.Combine(root, "online-cache")),
+                origin: "http://127.0.0.1:8787",
+                mediaCache: mediaCache);
+
+            var downloaded = await client.DownloadProfileMediaAsync("peer-id-1", metadata);
+
+            Assert.True(downloaded.Ok);
+            Assert.NotNull(downloaded.Value);
+            Assert.Equal("image/gif", downloaded.Value!.ContentType);
+            Assert.EndsWith(".gif", downloaded.Value.FileName, StringComparison.Ordinal);
+            Assert.Equal(gif, File.ReadAllBytes(mediaCache.ResolvePath(downloaded.Value.FileName)!));
+        }
+        finally
+        {
+            TryDeleteDirectory(root);
+        }
+    }
+
+    private static byte[] Gif89() =>
+    [
+        0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 0x01, 0x00, 0x01, 0x00,
+        0x00, 0x00, 0x00, 0x21, 0xF9, 0x04, 0x01, 0x00, 0x00, 0x00,
+        0x00, 0x2C, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00,
+        0x00, 0x02, 0x02, 0x4C, 0x01, 0x00, 0x3B,
+    ];
+
     private static string TempRoot()
     {
         var root = Path.Combine(Path.GetTempPath(), "exo-online-" + Guid.NewGuid().ToString("N"));
@@ -723,6 +827,25 @@ public sealed class ExoOnlineSocialTests
         {
             Content = new StringContent(body, Encoding.UTF8, "application/json"),
         };
+    }
+
+    private sealed class GifBannerHandler(byte[] image, string version) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            Assert.Equal("Bearer", request.Headers.Authorization?.Scheme);
+            Assert.Equal("/v1/media/peer-id-1/banner/" + version, request.RequestUri?.AbsolutePath);
+            var response = new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new ByteArrayContent(image),
+            };
+            response.Content.Headers.ContentType =
+                new System.Net.Http.Headers.MediaTypeHeaderValue("application/octet-stream");
+            response.Content.Headers.ContentLength = image.Length + 17;
+            return Task.FromResult(response);
+        }
     }
 
     private sealed class PrivacyHandler : HttpMessageHandler

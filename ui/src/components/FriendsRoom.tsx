@@ -15,7 +15,6 @@ import {
   type OnlineFriend,
   type OnlineFriendRequestPage,
   type OnlinePresenceEntry,
-  type OnlineProfileMedia,
   type OnlinePresenceEvent,
   type OnlinePublicProfile,
 } from '../lib/host'
@@ -39,7 +38,7 @@ import { ggDealsUrl } from '../lib/stores'
 import { applyPresenceEvent, downgradePresenceRoster, projectPresenceRoster } from '../lib/presence'
 import { cn, monogram, storeLabel } from '../lib/utils'
 import { CoverArt, HeroWash } from './CoverArt'
-import { ServerBadgeRow } from './ProfileRoom'
+import { PeerProfileView } from './ProfileRoom'
 
 /** Opens Settings → Stores and scrolls to the Steam Web API key row. */
 function openSteamWebApiKeySettings() {
@@ -83,6 +82,47 @@ type MergedPerson = ExoPerson & {
 function mergedPersonLabel(person: MergedPerson): string {
   return person.name?.trim() || person.onlineHandleDisplay?.trim() ||
     (person.handle ? `@${person.handle}` : 'Exo connection')
+}
+
+/** Host LinkPerson only accepts exo:{handle}, never online:{userId}. */
+function exoLinkId(person: { handle?: string | null; id: string }): string | null {
+  const handle = (person.handle ?? '').trim()
+  if (handle.length < 2) return null
+  return `exo:${handle}`
+}
+
+function catalogArtGame(id: string, title?: string): Game | null {
+  const trimmed = id.trim()
+  if (!trimmed) return null
+  const steam = /^steam:(\d+)$/i.exec(trimmed)
+  if (steam) {
+    return {
+      id: trimmed,
+      title: title?.trim() || 'Steam game',
+      store: 'steam',
+      installed: false,
+      owned: false,
+      primaryAction: 'none',
+      coverUrl: steamPlayingCoverUrl(steam[1]),
+      coverSource: 'steam-friend-cdn',
+      status: 'Steam',
+      deps: [],
+      launchNote: '',
+    }
+  }
+  const colon = trimmed.indexOf(':')
+  const store = colon > 0 ? trimmed.slice(0, colon) : 'local'
+  return {
+    id: trimmed,
+    title: title?.trim() || (colon > 0 ? trimmed.slice(colon + 1) : trimmed),
+    store,
+    installed: false,
+    owned: false,
+    primaryAction: 'none',
+    status: 'Showcase',
+    deps: [],
+    launchNote: '',
+  }
 }
 
 function sortMergedPeople<T extends MergedPerson>(people: readonly T[]): T[] {
@@ -199,8 +239,6 @@ export function FriendsRoom({ active }: { active: boolean }) {
   const [blocks, setBlocks] = useState<OnlineBlock[]>([])
   const [presence, setPresence] = useState<Record<string, OnlinePresenceEntry>>({})
   const [publicProfile, setPublicProfile] = useState<OnlinePublicProfile | null>(null)
-  const [profileBusy, setProfileBusy] = useState(false)
-  const [profileProblem, setProfileProblem] = useState<string | null>(null)
   const [onlineBusy, setOnlineBusy] = useState<string | null>(null)
   const [rosterNote, setRosterNote] = useState<string | null>(null)
   const [friends, setFriends] = useState<HostFriend[] | null>(null)
@@ -215,6 +253,7 @@ export function FriendsRoom({ active }: { active: boolean }) {
   const [adding, setAdding] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
   const [steamKeySet, setSteamKeySet] = useState<boolean | null>(null)
+  const [peerLooks, setPeerLooks] = useState<Record<string, { avatarUrl?: string | null; displayName?: string | null; avatarGameId?: string | null }>>({})
 
   useEffect(() => {
     if (!message) return
@@ -505,29 +544,28 @@ export function FriendsRoom({ active }: { active: boolean }) {
     const handle = (selectedPerson?.handle || selectedPerson?.onlineHandleDisplay || '').trim()
     if (!userId || !handle) {
       setPublicProfile(null)
-      setProfileBusy(false)
-      setProfileProblem(null)
       return
     }
     let cancelled = false
-    setProfileBusy(true)
-    setProfileProblem(null)
     void host.onlineProfile(handle, userId).then(
       (result) => {
         if (cancelled) return
         setPublicProfile(result.value ?? null)
-        setProfileProblem(
-          result.value
-            ? result.diagnostics.error?.message ?? null
-            : result.diagnostics.error?.message ?? 'That profile is not available.',
-        )
-        setProfileBusy(false)
+        if (result.value && userId) {
+          const values = result.value.profile ?? {}
+          setPeerLooks((current) => ({
+            ...current,
+            [userId]: {
+              avatarUrl: result.value!.media.avatar?.available ? result.value!.media.avatar.url : null,
+              displayName: typeof values.displayName === 'string' ? values.displayName.trim() : null,
+              avatarGameId: typeof values.avatarGameId === 'string' ? values.avatarGameId.trim() : null,
+            },
+          }))
+        }
       },
-      (error: unknown) => {
+      () => {
         if (cancelled) return
         setPublicProfile(null)
-        setProfileProblem(error instanceof Error ? error.message : 'That profile is not available.')
-        setProfileBusy(false)
       },
     )
     return () => {
@@ -655,6 +693,8 @@ export function FriendsRoom({ active }: { active: boolean }) {
       setMessage(result.ok ? null : result.message ?? 'Could not link that account.')
       if (!result.ok) return false
       setSelectedFriendId(null)
+      setSelectedPersonId(personId)
+      setSource('exo')
       await loadFriends(true)
       return true
     } catch (error) {
@@ -830,6 +870,7 @@ export function FriendsRoom({ active }: { active: boolean }) {
                     selected={person.id === selectedPersonId}
                     onSelect={(id) => setSelectedPersonId(id)}
                     presence={person.onlineUserId ? presence[person.onlineUserId] : undefined}
+                    look={person.onlineUserId ? peerLooks[person.onlineUserId] : undefined}
                   />
                 ))}
               </div>
@@ -883,8 +924,6 @@ export function FriendsRoom({ active }: { active: boolean }) {
             <OnlinePersonPage
               person={selectedPerson}
               profile={publicProfile}
-              profileBusy={profileBusy}
-              profileProblem={profileProblem}
               presence={presence[selectedPerson.onlineUserId]}
               games={games}
               blocked={blocks.some((block) => block.userId === selectedPerson.onlineUserId)}
@@ -895,8 +934,13 @@ export function FriendsRoom({ active }: { active: boolean }) {
           ) : (
             <PersonPage
               person={selectedPerson}
+              storeFriends={friends ?? []}
               onRemove={() => void removePerson(selectedPerson)}
               onNote={(note) => void savePersonNote(selectedPerson.id, note)}
+              onLink={(friendId) => {
+                const id = exoLinkId(selectedPerson)
+                return id ? linkPerson(id, friendId) : Promise.resolve(false)
+              }}
               onUnlink={(friendId) => void unlinkPerson(selectedPerson.id, friendId)}
             />
           )
@@ -909,7 +953,7 @@ export function FriendsRoom({ active }: { active: boolean }) {
               sources.find((entry) => entry.store === selectedFriend.source)?.note ?? storeNote
             }
             games={games}
-            people={people ?? []}
+            people={mergedPeople}
             onLink={(personId) => linkPerson(personId, selectedFriend.id)}
           />
         ) : (
@@ -1166,30 +1210,45 @@ function OnlineRequests({
 function Avatar({
   name,
   avatarUrl,
+  fallbackUrl,
+  game,
   large,
 }: {
   name: string
   avatarUrl?: string | null
+  fallbackUrl?: string | null
+  game?: Game | null
   large?: boolean
 }) {
   // Cached avatar hashes go stale, so a 404 must fall back to initials rather
-  // than leaving an empty disc.
-  const [broken, setBroken] = useState(false)
-  useEffect(() => setBroken(false), [avatarUrl])
-  const src = highestQualityAvatarUrl(avatarUrl)
-  const showImage = !!src && !broken
+  // than leaving an empty disc. A broken exo-id media URL must still try the
+  // store/presence portrait before giving up.
+  const [failed, setFailed] = useState<string | null>(null)
+  useEffect(() => setFailed(null), [avatarUrl, fallbackUrl])
+  const primary = highestQualityAvatarUrl(avatarUrl)
+  const fallback = highestQualityAvatarUrl(fallbackUrl)
+  const src = primary && failed !== primary
+    ? primary
+    : fallback && fallback !== primary && failed !== fallback
+      ? fallback
+      : null
   return (
     <span className={cn('exo-avatar', large && 'is-lg')}>
-      {showImage ? (
+      {src ? (
         <img
-          src={src!}
+          src={src}
           alt=""
           draggable={false}
           decoding="async"
           loading={large ? 'eager' : 'lazy'}
           fetchPriority={large ? 'high' : 'auto'}
-          onError={() => setBroken(true)}
+          onLoad={(event) => {
+            if (event.currentTarget.naturalWidth === 0) setFailed(src)
+          }}
+          onError={() => setFailed(src)}
         />
+      ) : game ? (
+        <CoverArt game={game} className="h-full w-full" />
       ) : (
         <span className="exo-avatar-mono" aria-hidden>
           {monogram(name)}
@@ -1213,12 +1272,14 @@ function PersonRow({
   selected,
   onSelect,
   presence,
+  look,
 }: {
   person: MergedPerson
   games: Game[]
   selected: boolean
   onSelect: (id: string) => void
   presence?: OnlinePresenceEntry
+  look?: { avatarUrl?: string | null; displayName?: string | null; avatarGameId?: string | null }
 }) {
   const links = person.links ?? []
   const presenceMeta = presence?.available
@@ -1233,6 +1294,10 @@ function PersonRow({
     ? friendPlayingAction(presence.gameId, presence.gameTitle, games)
     : null
   const artGame = friendArtForAction(onlinePlaying)
+  const label = look?.displayName?.trim() || mergedPersonLabel(person)
+  const avatarGame = look?.avatarGameId
+    ? games.find((game) => game.id === look.avatarGameId) ?? catalogArtGame(look.avatarGameId)
+    : null
 
   return (
     <button
@@ -1243,9 +1308,13 @@ function PersonRow({
       aria-pressed={selected}
       onClick={() => onSelect(person.id)}
     >
-      <Avatar name={mergedPersonLabel(person)} avatarUrl={person.onlineAvatarUrl} />
+      <Avatar
+        name={label}
+        avatarUrl={look?.avatarUrl || person.onlineAvatarUrl}
+        game={avatarGame}
+      />
       <span className="min-w-0 flex-1">
-        <span className="exo-friend-name block truncate">{mergedPersonLabel(person)}</span>
+        <span className="exo-friend-name block truncate">{label}</span>
         <span className="exo-friend-meta block">{meta}</span>
       </span>
       {artGame ? (
@@ -1439,8 +1508,6 @@ function NowPanel({
 function OnlinePersonPage({
   person,
   profile,
-  profileBusy,
-  profileProblem,
   presence,
   games,
   blocked,
@@ -1450,8 +1517,6 @@ function OnlinePersonPage({
 }: {
   person: MergedPerson
   profile: OnlinePublicProfile | null
-  profileBusy: boolean
-  profileProblem: string | null
   presence?: OnlinePresenceEntry
   games: Game[]
   blocked: boolean
@@ -1464,45 +1529,30 @@ function OnlinePersonPage({
   const text = (key: string) => typeof values[key] === 'string' ? String(values[key]).trim() : ''
   const handle = profile?.handle?.display || person.onlineHandleDisplay || person.handle
   const displayName = text('displayName') || handle || 'Exo connection'
-  const badges = profile?.badges
   const avatar = profile?.media.avatar?.available
-    ? profile.media.avatar.url
+    ? profile.media.avatar.url ?? person.onlineAvatarUrl ?? null
     : person.onlineAvatarUrl ?? null
-  const banner = profile?.media.banner?.available ? profile.media.banner.url : null
-  const gallery = (['gallery0', 'gallery1', 'gallery2', 'gallery3', 'gallery4', 'gallery5'] as const)
-    .map((key) => profile?.media[key])
-    .filter((media): media is OnlineProfileMedia => media?.available === true && !!media.url)
-  const bio = text('bio')
-  const statusText = text('statusText')
-  const presenceText = !presence?.available
-    ? 'Presence unavailable'
-    : presence.status === 'ingame'
-      ? presence.gameTitle || 'In game'
-      : PRESENCE_LABEL[presence.status]
+  const banner = profile?.media.banner?.available ? profile.media.banner.url ?? null : null
   const playing = presence?.available && presence.status === 'ingame'
     ? friendPlayingAction(presence.gameId, presence.gameTitle, games)
     : null
+  const presenceLabel = !presence?.available || presence.status === 'ingame'
+    ? null
+    : PRESENCE_LABEL[presence.status]
 
   return (
     <div className={cn('exo-friend-page is-online', playing && 'has-playing')}>
-      <header className={cn('exo-online-profile-hero', banner && 'has-banner')}>
-        {banner ? <img src={banner} alt="" decoding="async" /> : null}
-        <div className="exo-online-profile-veil" aria-hidden />
-        <div className="exo-friend-identity">
-          <Avatar
-            name={displayName}
-            avatarUrl={avatar}
-            large
-          />
-          <div className="exo-friend-identity-copy">
-            <ServerBadgeRow badges={badges} className="exo-friend-badges" />
-            <h2 className="exo-friend-identity-name">{displayName}</h2>
-            <p className="exo-friend-identity-meta">
-              {handle ? `@${handle}` : 'Handle not claimed'} · {presenceText}
-            </p>
-            {statusText ? <p className="exo-friend-seen">{statusText}</p> : null}
-          </div>
-          <div className="exo-friend-actions">
+      <PeerProfileView
+        name={displayName}
+        handle={handle}
+        profile={profile}
+        games={games}
+        avatarUrl={avatar}
+        bannerUrl={banner}
+        presencePlaying={playing?.title ?? null}
+        presenceLabel={presenceLabel}
+        actions={(
+          <>
             <button type="button" className="exo-ghost-btn" disabled={busy} onClick={() => onBlock(!blocked)}>
               {blocked ? 'Unblock' : 'Block'}
             </button>
@@ -1515,58 +1565,26 @@ function OnlinePersonPage({
                 Remove
               </button>
             )}
-          </div>
-        </div>
-      </header>
-
-      {(profileBusy || profileProblem) ? (
-        <p className="exo-friend-open-problem" role="status" aria-live="polite">
-          {profileBusy ? 'Loading profile…' : profileProblem}
-        </p>
-      ) : null}
-
-      <div className="exo-friend-store-grid">
-        {playing ? <PlayingCard playing={playing} /> : (
-          <section className="exo-friends-card">
-            <h3 className="exo-section-label">About</h3>
-            <p className="exo-friends-card-copy">
-              {bio || (profile ? 'No public bio.' : 'Profile details are not available.')}
-            </p>
-          </section>
+          </>
         )}
-        <aside className="exo-friend-context">
-          {playing && bio ? <p className="exo-friend-presence-note">{bio}</p> : null}
-          <p className="exo-friend-seen">
-            {(person.onlineSources ?? []).length > 0
-              ? `Connected through ${(person.onlineSources ?? []).map(sourceLabel).join(', ')}.`
-              : 'Direct Exo friend.'}
-          </p>
-          {!presence?.available ? (
-            <p className="exo-friend-presence-note">Unavailable means Exo did not provide an authoritative state.</p>
-          ) : null}
-        </aside>
-      </div>
-      {gallery.length > 0 ? (
-        <section className="exo-friends-card exo-friend-gallery" aria-label={`${displayName} gallery`}>
-          <h3 className="exo-section-label">Gallery</h3>
-          <div>
-            {gallery.map((media) => <img key={media.url} src={media.url!} alt="" loading="lazy" decoding="async" />)}
-          </div>
-        </section>
-      ) : null}
+      />
     </div>
   )
 }
 
 function PersonPage({
   person,
+  storeFriends,
   onRemove,
   onNote,
+  onLink,
   onUnlink,
 }: {
   person: MergedPerson
+  storeFriends: HostFriend[]
   onRemove: () => void
   onNote: (note: string) => void
+  onLink: (friendId: string) => Promise<boolean>
   onUnlink: (friendId: string) => void
 }) {
   const [note, setNote] = useState(person.note ?? '')
@@ -1618,22 +1636,8 @@ function PersonPage({
             This is a local fallback entry. It has no online presence until it matches a reserved handle.
           </p>
 
-          {links.length > 0 ? (
-            <div className="exo-friend-links">
-              <p className="exo-section-label">Same person on</p>
-              {links.map((link) => (
-                <div key={link.id} className="exo-friend-link">
-                  <span className="exo-friend-store">{sourceLabel(link.store)}</span>
-                  <span className="min-w-0 flex-1 truncate text-[13px]">
-                    {link.name ?? 'Not readable right now'}
-                  </span>
-                  <button type="button" className="exo-ghost-btn" onClick={() => onUnlink(link.id)}>
-                    Unlink
-                  </button>
-                </div>
-              ))}
-            </div>
-          ) : null}
+          <LinkedAccounts links={links} onUnlink={onUnlink} />
+          <StoreLinkPicker friends={storeFriends} onLink={onLink} />
         </div>
 
         <div className="exo-friend-note-form">
@@ -1681,7 +1685,7 @@ function FriendPage({
   live: boolean
   note: string | null
   games: Game[]
-  people: ExoPerson[]
+  people: MergedPerson[]
   onLink: (personId: string) => Promise<boolean>
 }) {
   const presence = presenceOf(friend.status)
@@ -1935,18 +1939,21 @@ function LinkPicker({
   store,
   onLink,
 }: {
-  people: ExoPerson[]
+  people: MergedPerson[]
   store?: string
   onLink: (personId: string) => Promise<boolean>
 }) {
   const [open, setOpen] = useState(false)
   const [busy, setBusy] = useState(false)
-  const sorted = useMemo(() => sortMergedPeople(people), [people])
+  const linkable = useMemo(
+    () => sortMergedPeople(people).filter((person) => exoLinkId(person)),
+    [people],
+  )
 
   return (
     <div className="exo-friend-links">
       <p className="exo-section-label">Same person</p>
-      {people.length === 0 ? (
+      {linkable.length === 0 ? (
         <p className="exo-friend-seen">
           Add someone to your Exo list first, then you can say this {sourceLabel(store)} account is
           them.
@@ -1954,25 +1961,29 @@ function LinkPicker({
       ) : open ? (
         <>
           <div className="exo-friend-link-picker">
-            {sorted.map((person) => (
-              <button
-                key={person.id}
-                type="button"
-                className="exo-friend-link-pick"
-                disabled={busy}
-                onClick={async () => {
-                  setBusy(true)
-                  try {
-                    await onLink(person.id)
-                  } finally {
-                    setBusy(false)
-                  }
-                }}
-              >
-                {mergedPersonLabel(person)}
-                <span className="exo-friend-meta">@{person.handle}</span>
-              </button>
-            ))}
+            {linkable.map((person) => {
+              const id = exoLinkId(person)
+              if (!id) return null
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  className="exo-friend-link-pick"
+                  disabled={busy}
+                  onClick={async () => {
+                    setBusy(true)
+                    try {
+                      await onLink(id)
+                    } finally {
+                      setBusy(false)
+                    }
+                  }}
+                >
+                  {mergedPersonLabel(person)}
+                  <span className="exo-friend-meta">@{person.handle}</span>
+                </button>
+              )
+            })}
           </div>
           <button type="button" className="exo-ghost-btn mt-2" onClick={() => setOpen(false)}>
             Cancel
@@ -1981,10 +1992,117 @@ function LinkPicker({
       ) : (
         <>
           <p className="exo-friend-seen">
-            If someone on your Exo list is this person, say so and this row moves to them.
+            If someone on your Exo list is this store friend, say so. Their store row moves onto
+            that Exo person on this PC. It does not merge accounts or sign you in as them.
           </p>
           <button type="button" className="exo-ghost-btn mt-2" onClick={() => setOpen(true)}>
             Link to someone on Exo
+          </button>
+        </>
+      )}
+    </div>
+  )
+}
+
+function LinkedAccounts({
+  links,
+  onUnlink,
+}: {
+  links: NonNullable<MergedPerson['links']>
+  onUnlink: (friendId: string) => void
+}) {
+  if (links.length === 0) return null
+  return (
+    <div className="exo-friend-links">
+      <p className="exo-section-label">Same person on</p>
+      {links.map((link) => (
+        <div key={link.id} className="exo-friend-link">
+          <span className="exo-friend-store">{sourceLabel(link.store)}</span>
+          <span className="min-w-0 flex-1 truncate text-[13px]">
+            {link.name ?? 'Not readable right now'}
+          </span>
+          <button type="button" className="exo-ghost-btn" onClick={() => onUnlink(link.id)}>
+            Unlink
+          </button>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function StoreLinkPicker({
+  friends,
+  onLink,
+}: {
+  friends: HostFriend[]
+  onLink: (friendId: string) => Promise<boolean>
+}) {
+  const [open, setOpen] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [query, setQuery] = useState('')
+  const rows = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    return friends
+      .filter((friend) => friend.source === 'steam' || friend.source === 'epic' || friend.source === 'gog')
+      .filter((friend) => !q || friend.name.toLowerCase().includes(q))
+      .slice(0, 40)
+  }, [friends, query])
+
+  return (
+    <div className="exo-friend-links">
+      <p className="exo-section-label">Link a store account</p>
+      {friends.length === 0 ? (
+        <p className="exo-friend-seen">
+          Store friends appear under Stores. Open that tab if Exo has not read Steam yet.
+        </p>
+      ) : open ? (
+        <>
+          <input
+            className="exo-field"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search store names"
+            aria-label="Search store accounts to link"
+            spellCheck={false}
+          />
+          <div className="exo-friend-link-picker">
+            {rows.length === 0 ? (
+              <p className="exo-friend-seen">No name matches that.</p>
+            ) : (
+              rows.map((friend) => (
+                <button
+                  key={friend.id}
+                  type="button"
+                  className="exo-friend-link-pick"
+                  disabled={busy}
+                  onClick={async () => {
+                    setBusy(true)
+                    try {
+                      const ok = await onLink(friend.id)
+                      if (ok) setOpen(false)
+                    } finally {
+                      setBusy(false)
+                    }
+                  }}
+                >
+                  {friend.name}
+                  <span className="exo-friend-meta">{sourceLabel(friend.source)}</span>
+                </button>
+              ))
+            )}
+          </div>
+          <button type="button" className="exo-ghost-btn mt-2" onClick={() => setOpen(false)}>
+            Cancel
+          </button>
+        </>
+      ) : (
+        <>
+          <p className="exo-friend-seen">
+            If a Steam, Epic, or GOG friend is this person, say so. Exo never guesses. That claim
+            lives only on this PC — it is not an account merge, and it never uses their login.
+          </p>
+          <button type="button" className="exo-ghost-btn mt-2" onClick={() => setOpen(true)}>
+            Link a store account
           </button>
         </>
       )}

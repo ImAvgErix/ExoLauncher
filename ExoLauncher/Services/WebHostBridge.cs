@@ -108,10 +108,7 @@ public sealed class WebHostBridge
         _services.GogAuth.AttachDispatcher(_queue);
         try
         {
-            web.SetVirtualHostNameToFolderMapping(
-                ExoProfileMediaCache.VirtualHost,
-                Path.Combine(PathHelper.AppDataDir, ExoProfileMediaCache.DirectoryName),
-                CoreWebView2HostResourceAccessKind.DenyCors);
+            Directory.CreateDirectory(Path.Combine(PathHelper.AppDataDir, ExoProfileMediaCache.DirectoryName));
         }
         catch { /* Online media remains unavailable; the launcher still starts. */ }
         _web = web;
@@ -273,6 +270,7 @@ public sealed class WebHostBridge
                 "friends.setNote" => FriendsSetNote(paramsEl, hasParams),
                 "friends.link" => FriendsLink(paramsEl, hasParams),
                 "friends.unlink" => FriendsUnlink(paramsEl, hasParams),
+                "friends.steamLibrary" => await FriendsSteamLibraryAsync(paramsEl, hasParams).ConfigureAwait(true),
                 "profile.get" => ProfileGet(),
                 "profile.set" => ProfileSet(paramsEl, hasParams),
                 "profile.setLook" => ProfileSetLook(paramsEl, hasParams),
@@ -556,7 +554,7 @@ public sealed class WebHostBridge
                    ?? TrySynthesizeFromId(gameId!, p, hasParams);
         if (game is null)
             return new { ok = false, message = "Game not found. Refresh the library or pick a store result." };
-        if (!game.Owned)
+        if (!game.Owned && !StoreSearchService.IsOfficialClientCatalogInstall(game))
             return new { ok = false, message = "This title is not owned by the active store account. Buy it from the store first." };
 
         var result = await _services.Launcher.InstallAsync(game, path, skipDeps).ConfigureAwait(true);
@@ -601,6 +599,9 @@ public sealed class WebHostBridge
                 LaunchNote = fromLibrary.LaunchNote,
             };
         }
+
+        var officialClient = StoreSearchService.TrySynthesizeOfficialClientInstall(gameId, title);
+        if (officialClient is not null) return officialClient;
 
         if (gameId.StartsWith("steam:", StringComparison.OrdinalIgnoreCase))
         {
@@ -1186,6 +1187,25 @@ public sealed class WebHostBridge
         ReadString(p, hasParams, "id"),
         ReadString(p, hasParams, "friendId")));
 
+    private async Task<object> FriendsSteamLibraryAsync(JsonElement p, bool hasParams)
+    {
+        var snapshot = await _social.LinkedSteamLibraryAsync(
+            ReadString(p, hasParams, "id"),
+            CancellationToken.None).ConfigureAwait(false);
+        return new
+        {
+            ok = snapshot.Ok,
+            note = snapshot.Note,
+            games = snapshot.Games.Select(game => new
+            {
+                id = game.Id,
+                title = game.Title,
+                appId = game.AppId,
+                playtimeMinutes = game.PlaytimeMinutes,
+            }).ToList(),
+        };
+    }
+
     private static object MapRoster(SocialService.RosterSnapshot roster) => new
     {
         ok = true,
@@ -1389,6 +1409,17 @@ public sealed class WebHostBridge
 
         var profile = result.Value;
         var media = new Dictionary<string, object?>(StringComparer.Ordinal);
+        AppLog.Info(
+            "Public profile media: " +
+            string.Join(
+                ", ",
+                ProfileImageStore.Slots.Select(kind =>
+                {
+                    profile.Media.TryGetValue(kind, out var slot);
+                    return slot is null
+                        ? kind + "=none"
+                        : kind + "=" + slot.ContentType + " " + slot.Width + "x" + slot.Height;
+                })));
         foreach (var kind in ProfileImageStore.Slots)
         {
             profile.Media.TryGetValue(kind, out var metadata);
@@ -1402,6 +1433,11 @@ public sealed class WebHostBridge
             var downloaded = await _online.DownloadProfileMediaAsync(
                     profile.UserId, metadata, _accountCts.Token)
                 .ConfigureAwait(true);
+            if (downloaded.Value is null)
+            {
+                AppLog.Info(
+                    $"Public profile {kind} download failed: {downloaded.Diagnostics.Error?.Code ?? downloaded.Diagnostics.Source} ({metadata.ContentType}).");
+            }
             media[kind] = downloaded.Value is null
                 ? new
                 {

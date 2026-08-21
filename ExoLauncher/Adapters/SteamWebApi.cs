@@ -125,6 +125,19 @@ internal static class SteamWebApi
             new(false, new HashSet<string>(StringComparer.Ordinal));
     }
 
+    internal sealed record OwnedGameInfo(string AppId, string Name, int PlaytimeMinutes);
+
+    internal sealed record FriendOwnedGamesResult(bool Authoritative, IReadOnlyList<OwnedGameInfo> Games)
+    {
+        public static FriendOwnedGamesResult Unavailable { get; } =
+            new(false, Array.Empty<OwnedGameInfo>());
+    }
+
+    private static readonly Dictionary<string, (DateTimeOffset At, FriendOwnedGamesResult Result)> FriendOwnedCache =
+        new(StringComparer.Ordinal);
+    private static readonly TimeSpan FriendOwnedTtl = TimeSpan.FromMinutes(10);
+    private const int FriendOwnedParseCap = 400;
+
     internal static async Task<OwnedGamesResult> LoadOwnedGamesAsync(
         string key,
         string steamId64,
@@ -176,6 +189,117 @@ internal static class SteamWebApi
         {
             AppLog.Debug("Steam owned-games query unavailable: " + ex.GetType().Name);
             return OwnedGamesResult.Unavailable;
+        }
+    }
+
+    /// <summary>
+    /// Public games on another Steam account. include_appinfo is required for
+    /// names; the SteamID is the request identity and is never logged.
+    /// </summary>
+    internal static async Task<FriendOwnedGamesResult> LoadFriendOwnedGamesAsync(
+        string key,
+        string steamId64,
+        CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(key) || string.IsNullOrWhiteSpace(steamId64))
+            return FriendOwnedGamesResult.Unavailable;
+
+        var identity = RequestIdentity(key, [steamId64]);
+        lock (Gate)
+        {
+            if (FriendOwnedCache.TryGetValue(identity, out var cached) &&
+                DateTimeOffset.UtcNow - cached.At < FriendOwnedTtl)
+                return cached.Result;
+        }
+
+        try
+        {
+            var url = OwnedGamesUrl +
+                      "?key=" + Uri.EscapeDataString(key) +
+                      "&steamid=" + Uri.EscapeDataString(steamId64) +
+                      "&include_appinfo=1&include_played_free_games=1&format=json";
+            using var response = await Http.GetAsync(
+                url, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode)
+                return FriendOwnedGamesResult.Unavailable;
+            if (response.Content.Headers.ContentLength is > MaxJsonPayloadBytes)
+                return FriendOwnedGamesResult.Unavailable;
+            var json = await ReadBodyLimitedAsync(response.Content, MaxJsonPayloadBytes, ct)
+                .ConfigureAwait(false);
+            if (json is null)
+                return FriendOwnedGamesResult.Unavailable;
+            if (!TryParseOwnedGameCatalog(json, out var games, out var authoritative) || !authoritative)
+                return FriendOwnedGamesResult.Unavailable;
+            var result = new FriendOwnedGamesResult(true, games);
+            lock (Gate)
+            {
+                FriendOwnedCache[identity] = (DateTimeOffset.UtcNow, result);
+            }
+            return result;
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            AppLog.Debug("Steam friend library query unavailable: " + ex.GetType().Name);
+            return FriendOwnedGamesResult.Unavailable;
+        }
+    }
+
+    internal static bool TryParseOwnedGameCatalog(
+        string? json,
+        out IReadOnlyList<OwnedGameInfo> games,
+        out bool authoritative)
+    {
+        var parsed = new List<OwnedGameInfo>();
+        games = parsed;
+        authoritative = false;
+        if (string.IsNullOrWhiteSpace(json) || json.Length > MaxJsonPayloadBytes)
+            return false;
+
+        try
+        {
+            using var doc = JsonDocument.Parse(json, new JsonDocumentOptions { MaxDepth = 16 });
+            if (doc.RootElement.ValueKind != JsonValueKind.Object ||
+                !doc.RootElement.TryGetProperty("response", out var response) ||
+                response.ValueKind != JsonValueKind.Object ||
+                !response.TryGetProperty("games", out var list) ||
+                list.ValueKind != JsonValueKind.Array)
+                return false;
+
+            authoritative = true;
+            foreach (var game in list.EnumerateArray())
+            {
+                if (parsed.Count >= FriendOwnedParseCap) break;
+                if (game.ValueKind != JsonValueKind.Object ||
+                    !game.TryGetProperty("appid", out var appIdElement))
+                    continue;
+                var raw = appIdElement.ValueKind == JsonValueKind.Number
+                    ? appIdElement.GetRawText()
+                    : appIdElement.ValueKind == JsonValueKind.String
+                        ? appIdElement.GetString()
+                        : null;
+                if (raw is not { Length: > 0 and <= 10 } || !raw.All(char.IsDigit))
+                    continue;
+                var name = game.TryGetProperty("name", out var nameElement) &&
+                           nameElement.ValueKind == JsonValueKind.String
+                    ? (nameElement.GetString() ?? "").Trim()
+                    : "";
+                if (name.Length > 120) name = name[..120];
+                var minutes = 0;
+                if (game.TryGetProperty("playtime_forever", out var playtime) &&
+                    playtime.ValueKind == JsonValueKind.Number)
+                    minutes = Math.Max(0, playtime.TryGetInt32(out var value) ? value : 0);
+                parsed.Add(new OwnedGameInfo(raw, name, minutes));
+            }
+
+            return true;
+        }
+        catch (JsonException)
+        {
+            return false;
         }
     }
 

@@ -174,6 +174,21 @@ public sealed class StoreDiagnosticsTests
     }
 
     [Fact]
+    public void SettingsListsEveryLauncherEvenWhenTheClientIsAbsent()
+    {
+        var stores = ReadRepoFile("ui", "src", "lib", "stores.ts");
+        var settings = ReadRepoFile("ui", "src", "components", "SettingsPanel.tsx");
+
+        Assert.Contains("export const ALL_LAUNCHER_STORES", stores, StringComparison.Ordinal);
+        Assert.Contains("store: 'minecraft'", stores, StringComparison.Ordinal);
+        Assert.Contains("store: 'roblox'", stores, StringComparison.Ordinal);
+        Assert.Contains("storeClientDownloadUrl", stores, StringComparison.Ordinal);
+        Assert.Contains("ALL_LAUNCHER_STORES.map", stores, StringComparison.Ordinal);
+        Assert.Contains("storeClientDownloadUrl(store.store)", settings, StringComparison.Ordinal);
+        Assert.Contains("Opened the ${store.displayName} download page.", settings, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void SettingsSegmentedControl_UsesRovingKeyboardRadioBehavior()
     {
         var settings = ReadRepoFile("ui", "src", "components", "SettingsPanel.tsx");
