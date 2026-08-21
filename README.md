@@ -10,7 +10,7 @@
   Install, update, and play Steam, Epic, GOG, Riot, and portable Windows games from one AMOLED library. Buy in a browser if you must. The store windows are not the app.
 </p>
 
-<p align="center"><strong>Version 2.0.0</strong> · Online identity, truthful libraries, and a faster local-first shell.</p>
+<p align="center"><strong>Version 2.0.1</strong> · Online identity, truthful libraries, and a faster local-first shell.</p>
 
 <p align="center">
   <a href="https://github.com/ImAvgErix/ExoLauncher/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/ImAvgErix/ExoLauncher?style=flat-square&label=release&color=79f2c0" /></a>
