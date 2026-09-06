@@ -14,7 +14,7 @@
 - **Keep the music going.** Open your selected music service, use the mini player, and keep playback running while moving between rooms. Provider accounts and subscriptions still apply.
 - **Discord, within reach.** The Friends room brings Discord's website into Exo for your existing conversations. Discord provides the messaging and calling experience.
 - **Make it yours.** Replace game artwork, adjust text size, manage local wishlist data, and configure supported mouse settings and game-linked profiles.
-- **A stronger foundation.** Clearer transfer failures, more reliable embedded views, keyboard focus improvements, validated host messages, and safer installer staging and rollback.
+- **The familiar Exo experience.** This release packages the restored app build selected for 3.0.
 
 ![Game details with artwork and available tools](docs/media/game.jpg)
 
@@ -30,7 +30,7 @@
 
 Settings keeps store connections, appearance, account privacy, sessions, and cache tools together.
 
-![Exo settings](docs/media/settings.jpg)
+
 
 ## Built around your PC
 
