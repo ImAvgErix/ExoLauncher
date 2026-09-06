@@ -2,7 +2,7 @@
 <h1 align="center">Exo Launcher 3.0</h1>
 <p align="center"><strong>Your games. Your music. Your space.</strong></p>
 <p align="center">A home for your PC gaming life. Bring your libraries together, keep Discord close, and take your music from browsing to playing.</p>
-<p align="center"><a href="https://github.com/ImAvgErix/ExoLauncher/releases/latest/download/ExoLauncher-Setup.exe"><strong>Download for Windows 11</strong></a> · <a href="https://imavgerix.github.io/ExoLauncher/">Explore Exo</a> · <a href="https://github.com/ImAvgErix/ExoLauncher/releases/tag/v3.0.0">3.0 release notes</a></p>
+<p align="center"><a href="https://github.com/ImAvgErix/ExoLauncher/releases/latest/download/ExoLauncher-Setup.exe"><strong>Download for Windows 11</strong></a> · <a href="https://github.com/ImAvgErix/ExoLauncher/releases/tag/v3.0.0">3.0 release notes</a></p>
 
 ![Exo Launcher 3.0 library](docs/media/home.jpg)
 
@@ -54,7 +54,7 @@ Read the [privacy policy](PRIVACY.md).
 
 ## Source and usage
 
-Exo Launcher source code is private. This repository contains the official download page, public documentation, and release installers. It does not contain the application source code.
+Exo Launcher source code is private. This repository contains public documentation and official release installers. It does not contain the application source code.
 
 Exo remains free to download and use. See [usage terms](LICENSE). Previously published MIT-licensed versions retain their applicable license terms.
 

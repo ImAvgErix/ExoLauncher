@@ -23,7 +23,7 @@ Choose **ExoLauncher-Setup.exe** below. Requires **Windows 11 x64** and installs
 - Mouse controls require supported hardware. Upscaler swaps are explicit, backed up, and limited to supported files; game compatibility is not guaranteed.
 - Exo email/password accounts are optional. Hosted password recovery, email verification, email magic links, and Google sign-in are not currently enabled.
 
-[Explore Exo](https://imavgerix.github.io/ExoLauncher/) · [Supported features](https://github.com/ImAvgErix/ExoLauncher/blob/main/docs/SUPPORT_MATRIX.md) · [Report an issue](https://github.com/ImAvgErix/ExoLauncher/issues)
+[Supported features](https://github.com/ImAvgErix/ExoLauncher/blob/main/docs/SUPPORT_MATRIX.md) · [Report an issue](https://github.com/ImAvgErix/ExoLauncher/issues)
 
 ## 2.2.0 - 2026-08-26
 
