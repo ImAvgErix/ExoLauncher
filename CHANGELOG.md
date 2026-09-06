@@ -1,3 +1,19 @@
+# Changelog
+
+## 3.1.0 — 2026-09-06
+
+The familiar 3.0 layout, with reliability improvements and three focused fixes.
+
+- Rounded web-app frames follow the window size without changing provider buttons and panel shapes.
+- Store game pages use the right-hand panel for available descriptions, genres, release details, review counts, and a compact hardware summary.
+- Activate key stays inside the window, including after resizing.
+- Runtime installers download asynchronously with progress and cancellation.
+- Saved device profiles remain protected when a profile-file read fails.
+- Folder-size scans have depth, directory, and time limits and skip junctions.
+- Restored non-visual fixes for transfers, stale responses, caching, embedded recovery, logging, and host contracts.
+- Aligned CI with the app's .NET SDK and fixed the backend presence error type.
+- The installed app and installer both identify as 3.1.0.
+
 # Exo Launcher 3.0
 ## Your games. Your music. Your space.
 

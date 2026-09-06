@@ -1,20 +1,20 @@
 <p align="center"><img src="docs/media/logo.png" alt="Exo" width="88"></p>
-<h1 align="center">Exo Launcher 3.0</h1>
+<h1 align="center">Exo Launcher 3.1</h1>
 <p align="center"><strong>Your games. Your music. Your space.</strong></p>
 <p align="center">A home for your PC gaming life. Bring your libraries together, keep Discord close, and take your music from browsing to playing.</p>
-<p align="center"><a href="https://github.com/ImAvgErix/ExoLauncher/releases/latest/download/ExoLauncher-Setup.exe"><strong>Download for Windows 11</strong></a> · <a href="https://github.com/ImAvgErix/ExoLauncher/releases/tag/v3.0.0">3.0 release notes</a></p>
+<p align="center"><a href="https://github.com/ImAvgErix/ExoLauncher/releases/latest/download/ExoLauncher-Setup.exe"><strong>Download for Windows 11</strong></a> · <a href="https://github.com/ImAvgErix/ExoLauncher/releases/tag/v3.1.0">3.1 release notes</a></p>
 
-![Exo Launcher 3.0 library](docs/media/home.jpg)
+![Exo Launcher 3.1 library](docs/media/home.jpg)
 
 ## Meet your next launcher
 
-**3.0 brings the whole session together.** A focused library, a full music room, Discord, and supported mouse profiles share one desktop app. The interface stays compact; your games get the space.
+**Your whole session in one place.** A focused library, a full music room, Discord, and supported mouse profiles share one desktop app. The interface stays compact; your games get the space.
 
 - **One library, across stores.** Find installed games, pin favorites, search, and open a game for its available Play, Install, or Update action. Steam, Epic, GOG, Riot, and portable games have provider-specific support; additional stores support detected local games.
 - **Keep the music going.** Open your selected music service, use the mini player, and keep playback running while moving between rooms. Provider accounts and subscriptions still apply.
 - **Discord, within reach.** The Friends room brings Discord's website into Exo for your existing conversations. Discord provides the messaging and calling experience.
-- **Make it yours.** Replace game artwork, adjust text size, manage local wishlist data, and configure supported mouse settings and game-linked profiles.
-- **The familiar Exo experience.** This release packages the restored app build selected for 3.0.
+- **Make it yours.** Replace game artwork, save games to your wishlist, and configure supported mouse settings and game-linked profiles.
+- **The familiar Exo experience.** Version 3.1 keeps the restored layout and adds reliability fixes, corrected web-app corners, richer store details, and a key popup that stays in view.
 
 ![Game details with artwork and available tools](docs/media/game.jpg)
 
@@ -28,7 +28,7 @@
 | Devices | Inspect supported mice and manage available settings and profiles. |
 | Music | Open a music provider and control supported playback. |
 
-Settings keeps store connections, appearance, account privacy, sessions, and cache tools together.
+Settings keeps store connections, appearance, account management, and runtime installers together.
 
 
 
@@ -44,7 +44,7 @@ Exo coordinates supported store clients and helpers. Vendors still handle owners
 
 Read the [privacy policy](PRIVACY.md).
 
-## Get Exo 3.0
+## Get Exo 3.1
 
 1. Download **[ExoLauncher-Setup.exe](https://github.com/ImAvgErix/ExoLauncher/releases/latest/download/ExoLauncher-Setup.exe)**.
 2. Run the installer, then open Exo.
