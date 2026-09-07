@@ -1,5 +1,19 @@
 # Changelog
 
+## 3.2.0 — 2026-09-06
+
+Faster everyday browsing, steadier controls, and more reliable downloads, music, and device profiles.
+
+- Reduced repeated rendering and scanning across Library, Discover, Settings, and Devices.
+- Kept nearby controls stationary when save, validation, and error messages appear.
+- Improved Discover metadata request sharing, owned-game search, and return-to-browse scroll/focus retention.
+- Added detected game updates to Downloads & updates with source-specific actions and clearer per-phase progress.
+- Fixed Steam cold-start uninstall readiness and preserved Workshop download progress.
+- Improved embedded music and Discord resizing, recovery, hidden-room resource use, and playback control reads.
+- Corrected Apple Music timing and full-library shuffle behavior; hidden editorial artwork stops playing.
+- Improved game-focus device profile switching, reconnect handling, and write ordering; hidden profile panels stop polling.
+- Preserved settings and profile data through failed writes and stale asynchronous responses.
+
 ## 3.1.0 — 2026-09-06
 
 The familiar 3.0 layout, with reliability improvements and three focused fixes.
