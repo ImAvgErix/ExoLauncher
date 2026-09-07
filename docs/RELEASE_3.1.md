@@ -1,14 +1,13 @@
 # Exo Launcher 3.1
 
-The familiar Exo layout, with reliability fixes throughout the app.
+The familiar Exo layout, with fixes that make everyday use smoother.
 
-- **Web apps look right.** Rounded outer frames resize cleanly, and provider buttons and panels keep their original shapes.
-- **More useful store pages.** The right-hand panel includes available descriptions, genres, release details, review counts, and a compact hardware summary.
-- **Activate key stays in view.** The popup fits inside the window and follows resizing.
-- **Smoother runtime installs.** Installer downloads run in the background with progress and cancellation.
-- **Safer local data.** Failed profile reads cannot silently replace saved device profiles; folder scans are bounded and skip junctions.
-- **Stronger reliability.** Includes the non-visual fixes for transfers, stale responses, cache handling, embedded recovery, logging, build configuration, and host contracts.
+- **Better window resizing.** Music and Discord fit neatly inside Exo as you resize the window.
+- **More useful game pages.** See available descriptions, genres, release dates, reviews, and hardware details.
+- **An easier key popup.** Activate key stays inside the window, even after resizing.
+- **Smoother setup.** Required game components download in the background, with progress and a Cancel option.
+- **More reliable saves.** Improved handling of saved mouse profiles, downloads, and connection problems.
 
-Both the installed app and installer report **3.1.0**.
+[Download Exo Launcher 3.1](https://github.com/ImAvgErix/ExoLauncher/releases/download/v3.1.0/ExoLauncher-Setup.exe)
 
-Download **ExoLauncher-Setup.exe** below for Windows 11 x64.
+Requires Windows 11 x64.

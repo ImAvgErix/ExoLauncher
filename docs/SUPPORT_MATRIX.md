@@ -1,19 +1,22 @@
-# Supported features
+# What Exo supports
 
-The 3.0 installer packages the selected restored WinUI 3 and React/WebView2 app build. The application payload retains its original internal 2.2.0 version label.
+Here's what you can do in Exo Launcher 3.2 and what you'll need.
 
-| Area | Shipped behavior | Prerequisites and limits |
-|---|---|---|
-| Steam | Library, launch and supported install/update/remove actions | Official Steam client, ownership and native helper |
-| Epic / GOG | Library and provider-supported downloads/actions | Authenticated Legendary / gogdl; provider failures remain visible |
-| Riot | Detected games and supported patch/launch path | Official account/client and patch service |
-| Other stores | Detect and launch proven local installations | No claim of a full remote ownership catalog |
-| Local games | Add folders and launch | A valid local executable; game files remain under user control |
-| Upscalers | Detection and explicit swap/restore with backups | Existing supported DLL, stopped game, valid destination/signature; no title or anti-cheat certification |
-| Devices | Supported mouse detection, settings and profiles | Supported HID device/receiver; acknowledged writes only; this is not a general peripheral manager |
-| Friends | Embedded Discord website | Discord login and service availability; messaging and calls are provided by Discord |
-| Music | Embedded selected provider, mini controls and hidden playback | Provider login/subscription where required |
-| Exo account | Optional password sign-in and profile | Deployed Worker; hosted email recovery/verification, magic links and Google sign-in are not currently enabled |
-| Wishlist | Wishlist saved on this PC | Shared across local account switches; not cloud synchronization or live regional pricing |
+| Feature | What you can do | What you'll need to know |
+| --- | --- | --- |
+| Steam | Browse, play, install, update, and remove supported games. | Steam must be installed, and you must own the game. |
+| Epic and GOG | Browse your library and use the available download and game controls. | Sign in to the store. Exo uses helper tools for these services. |
+| Riot | Find installed games, launch them, and use supported update controls. | The official Riot client and your account. |
+| Other stores | Find and launch games already installed on your PC. | Full store libraries and download controls aren't available for every store. |
+| Local games | Add a game folder and choose its program to launch. | The game must already be on your PC. |
+| Game updates | Find available updates in Downloads & updates. | Update support depends on the game's store. |
+| Mouse controls | Adjust supported mouse settings and save game profiles. | A supported mouse or receiver that is connected and responding. |
+| Discord | Chat and call from the Friends room. | Your Discord account and an internet connection. |
+| Music | Listen through Apple Music, Spotify, or YouTube Music and use the mini player. | Your service account and any required subscription. |
+| Exo account | Use an optional email/password account and profile. | Password reset, email verification, Google sign-in, and email sign-in links are not available yet. |
+| Wishlist | Keep a wishlist on this PC. | It is shared between Exo accounts on this PC and isn't synced to the cloud. Live regional prices aren't guaranteed. |
+| Upscalers | Replace supported upscaler files and restore their backups. | Close the game first. Compatibility varies, especially with games that use anti-cheat. |
 
-Store integrations, music, Discord and mouse functionality depend on their respective services and supported hardware.
+You don't need an Exo account to browse and launch your local games. Online features depend on their services being available.
+
+[Store support](VENDORS.md) · [Back to Exo](../README.md)

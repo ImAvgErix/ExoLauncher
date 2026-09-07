@@ -1,24 +1,14 @@
 # Exo Launcher 3.0
-## Your games. Your music. Your space.
 
-Exo 3.0 brings your PC gaming session together: a focused library, music that follows you between rooms, Discord within reach, and supported mouse profiles in one app.
+Your games, music, and Discord together in one app.
 
-### A home for the whole session
-- **Your library, brought together.** Browse installed games across stores, pin favorites, and open detailed game pages with available play and install actions.
-- **Music gets its own room.** Open your selected service, keep supported playback running in the background, and stay in control with the mini player.
-- **Discord stays close.** Use the embedded Discord website from Friends.
-- **Make the setup yours.** Customize artwork, adjust text size, manage local wishlist data, and configure supported mice and game-linked profiles.
+- **Bring your games together.** Browse games across stores, pin favorites, and open a game's page to play or manage it.
+- **Keep your music close.** Open your music service and use the mini player while browsing your games.
+- **Stay in touch.** Use Discord from the Friends room.
+- **Make Exo yours.** Choose game artwork, keep a wishlist, and set up supported mouse controls and game profiles.
 
-### The selected 3.0 build
-This installer contains the restored app build selected for 3.0, before the later audit implementation changes. The app payload is preserved exactly; its internal version label remains 2.2.0, while this public release and installer are labeled 3.0.0.
+**Version note:** This older release is labeled 3.0.0, but the app inside shows 2.2.0.
 
-### Download
-Choose **ExoLauncher-Setup.exe** below. Requires **Windows 11 x64** and installs per user. The installer is unsigned; Windows may show a SmartScreen warning.
+[Download Exo Launcher 3.0](https://github.com/ImAvgErix/ExoLauncher/releases/download/v3.0.0/ExoLauncher-Setup.exe)
 
-### What to know
-- Store capabilities vary; vendor accounts, clients, and ownership still apply.
-- Music and Discord require their own accounts and any applicable subscriptions.
-- Mouse controls require supported hardware. Upscaler swaps are explicit, backed up, and limited to supported files; game compatibility is not guaranteed.
-- Exo email/password accounts are optional. Hosted password recovery, email verification, email magic links, and Google sign-in are not currently enabled.
-
-[Supported features](https://github.com/ImAvgErix/ExoLauncher/blob/main/docs/SUPPORT_MATRIX.md) · [Report an issue](https://github.com/ImAvgErix/ExoLauncher/issues)
+Requires Windows 11 x64. Store, music, and Discord accounts are still required for their services. Mouse controls depend on supported hardware.
