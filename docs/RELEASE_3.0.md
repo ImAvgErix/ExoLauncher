@@ -9,6 +9,6 @@ Your games, music, and Discord together in one app.
 
 **Version note:** This older release is labeled 3.0.0, but the app inside shows 2.2.0.
 
-[Download Exo Launcher 3.0](https://github.com/ImAvgErix/ExoLauncher/releases/download/v3.0.0/ExoLauncher-Setup.exe)
+[Download the latest Exo Launcher](https://github.com/ImAvgErix/ExoLauncher/releases/latest/download/ExoLauncher-Setup.exe)
 
 Requires Windows 11 x64. Store, music, and Discord accounts are still required for their services. Mouse controls depend on supported hardware.
