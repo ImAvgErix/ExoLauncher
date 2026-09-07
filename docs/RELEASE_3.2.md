@@ -15,3 +15,5 @@ This update makes Exo feel quicker and keeps everyday actions running more smoot
 [Download Exo Launcher for Windows 11](https://github.com/ImAvgErix/ExoLauncher/releases/download/v3.2.0/ExoLauncher-Setup.exe)
 
 Requires Windows 11 x64.
+
+[See the updated app](SCREENSHOTS.md) · [Getting started and help](HELP.md)

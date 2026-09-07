@@ -1,0 +1,56 @@
+name: Report a problem
+description: Something in Exo Launcher isn't working as expected.
+title: "[Bug] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Check the [help guide](https://github.com/ImAvgErix/ExoLauncher/blob/main/docs/HELP.md) and existing issues first. This report is public: remove passwords, tokens, email addresses, private chats, and personal file paths from anything you attach.
+  - type: input
+    id: version
+    attributes:
+      label: Exo version
+      description: Find this in Settings under About.
+      placeholder: "3.2.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Where does it happen?
+      options:
+        - Install or update Exo
+        - Library or game details
+        - Discover or wishlist
+        - Downloads or game updates
+        - Music
+        - Friends or Discord
+        - Devices or game profiles
+        - Settings or Exo account
+        - Something else
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: What happened?
+      description: Describe the problem and what you expected. Include the exact error message if there is one.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: How can we reproduce it?
+      description: List the steps, and say whether it happens every time or only sometimes.
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Service, game, or device details
+      description: Include the affected store, game, or music service. For Devices, include the mouse model and wired or wireless connection type. Add your Windows version if relevant.
+  - type: textarea
+    id: attachments
+    attributes:
+      label: Screenshots or relevant log excerpts
+      description: Optional. Remove personal information first. Do not upload your whole Exo data folder.

@@ -6,6 +6,8 @@
 
 ![Exo Launcher library](docs/media/home.jpg)
 
+[See Exo in pictures](docs/SCREENSHOTS.md) · [Getting started and help](docs/HELP.md) · [Store support](docs/VENDORS.md)
+
 ## Everything for your session
 
 - **Your games in one place.** Browse games from your connected stores, pin favorites, and find something to play.
@@ -49,11 +51,11 @@ Open Settings to connect stores, change the appearance, manage your account, or 
 - Mouse controls need supported hardware. Optional upscaler tools work only with supported game files and keep backups; compatibility varies by game.
 - Optional Exo accounts use email and password. Password reset, email verification, Google sign-in, and email sign-in links are not available yet.
 
-[All supported features](docs/SUPPORT_MATRIX.md) · [Privacy](PRIVACY.md)
+[All supported features](docs/SUPPORT_MATRIX.md) · [Screenshots](docs/SCREENSHOTS.md) · [Privacy](PRIVACY.md)
 
 ## Help and support
 
-[Report a problem](https://github.com/ImAvgErix/ExoLauncher/issues) · [Support development](https://www.buymeacoffee.com/UhhErix) · [Patch notes](CHANGELOG.md)
+[Get help](docs/HELP.md) · [Report a problem or suggest a feature](https://github.com/ImAvgErix/ExoLauncher/issues/new/choose) · [Support development](https://www.buymeacoffee.com/UhhErix) · [Patch notes](CHANGELOG.md)
 
 Exo is free to download and use. This repository contains the public guides and downloads; the app's source code is private. See the [usage terms](LICENSE). Previously published MIT-licensed versions retain their applicable terms.
 

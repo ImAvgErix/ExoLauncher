@@ -18,6 +18,8 @@ This update makes Exo feel quicker and keeps everyday actions running more smoot
 
 Requires Windows 11 x64.
 
+[Screenshots](docs/SCREENSHOTS.md) · [Getting started and help](docs/HELP.md)
+
 ## 3.1.0 — September 6, 2026
 
 The familiar Exo layout, with fixes that make everyday use smoother.

@@ -19,4 +19,4 @@ Here's what you can do in Exo Launcher 3.2 and what you'll need.
 
 You don't need an Exo account to browse and launch your local games. Online features depend on their services being available.
 
-[Store support](VENDORS.md) · [Back to Exo](../README.md)
+[Store support](VENDORS.md) · [Getting started and help](HELP.md) · [Screenshots](SCREENSHOTS.md) · [Back to Exo](../README.md)

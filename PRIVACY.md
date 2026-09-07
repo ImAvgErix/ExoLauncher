@@ -2,7 +2,22 @@
 
 **Exo Launcher is local-first. An Exo account is optional. There are no ads or behavioral analytics.**
 
-Library, install, update, launch, and local settings stay usable while signed out or offline. Online identity and social failures do not block those paths.
+You can browse and launch locally installed games without an Exo account. Downloads, updates, online catalogs, and connected services need internet access; individual games may also require their store's account or online access.
+
+## At a glance
+
+- Your local library paths, settings, artwork, and saved service sessions are stored on this PC. The services still handle online sign-in, and some optional store-linking actions send credentials once for verification, as described below.
+- If you use an Exo account, the account service stores account and profile data. Optional social features can share presence and a limited game-activity summary according to your privacy choices.
+- Discord and music providers handle their own sign-ins, content, calls, and playback under their own policies. Signing out of Exo is separate from signing out of these services.
+- Settings includes permissions for the embedded services and actions to export or delete your Exo account data. Exo account export and deletion do not export or delete your Discord or music-provider account.
+
+The sections below explain the data involved, how it is protected, and how long it is retained.
+
+## Music, Discord, and permissions
+
+Friends embeds Discord's website in a separate WebView2 profile. Apple Music, Spotify, and YouTube Music also use separate local browser profiles for their web sign-ins and playback. These services make their own network requests and handle their content under their own privacy policies.
+
+You can review microphone, camera, clipboard, and notification permissions in Settings. Screen sharing asks you to choose a screen or window each time. Windows permissions may also apply. Exo account export does not include Discord messages or music-provider data.
 
 ## What stays on this PC
 
@@ -49,7 +64,7 @@ Presence starts when the WebView host attaches for a signed-in session and runs 
 
 Only connected, non-blocked, non-suppressed friends receive presence. Activity privacy hides game id/title; it does not turn a reachable online person into offline. **Offline** means the service authoritatively has no live connection. **Unknown** means presence could not be determined because the service or a peer object was unavailable. Exo does not convert unknown to offline.
 
-There is no chat or message-content service.
+The Exo account service does not store chat or message content. Chats and calls in the Friends room are handled by Discord.
 
 ## Export, deletion, and retention
 
@@ -69,6 +84,7 @@ Exo's custom application rate-limit identifiers are scoped hashes. Better Auth's
 | Upscaler version catalog | During bounded prewarm/status checks for installed non-protected games, or when you explicitly check/update |
 | Vendor upscaler DLL assets | Only when you explicitly ask Exo to update existing DLSS / FSR / XeSS files |
 | exo-id | Public profile/search/share reads, or optional signed-in identity, social, media, and presence actions |
+| Discord and music providers | When their embedded pages are loaded or used; playback or an active session may continue while you browse another room |
 
 For upscaler status, Exo reads the beeradmoore DLSS Swapper version manifest and reuses a bounded in-memory cache; protected/anti-cheat titles are rejected before that network step. An explicit update may then retrieve an approved NVIDIA, NVIDIA-RTX/Streamline, GPUOpen-LibrariesAndSDKs/FidelityFX-SDK, or Intel XeSS asset. Extracted DLLs are accepted only after vendor signature, PE/export/version, and local SHA-256 integrity checks. Exo never downloads or swaps an upscaler merely because a game was opened or launched.
 
@@ -77,9 +93,9 @@ Network requests use bounded timeouts. Store-authenticated verification requests
 ## What Exo Launcher does not do
 
 - No advertising, behavioral analytics, telemetry SDK, or silent crash upload.
-- No Exo account requirement and no online dependency for the library or game actions.
+- No Exo account requirement for local library browsing and game launching. Store requirements and online features still apply.
 - No Sign in with Apple in the current service.
 - Friends embeds Discord's website in a separate WebView2 profile. Discord handles login, messages, calls, and its browser storage under its own privacy policy. Exo account export does not include Discord messages. Music providers likewise handle their web login and playback; their browser sessions are stored locally in separate WebView2 profiles.
 - No password recovery or verified-email claim in the current email/password flow.
-- No upload of machine paths, library/play history, or unrequested store credentials.
+- No upload of machine paths or raw local play-session history. A signed-in account may share the limited activity summary described above. Store credentials are sent only for the explicit verification actions described above.
 - No kernel driver, anti-cheat bypass, or silent approval of Windows security prompts.

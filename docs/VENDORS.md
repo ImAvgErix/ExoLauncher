@@ -26,4 +26,4 @@ Epic and GOG use separate helper tools: [Legendary](https://github.com/derrod/le
 
 The actions shown depend on the store, the game, and your account. Exo doesn't replace store ownership requirements, copy protection, or anti-cheat software.
 
-[All supported features](SUPPORT_MATRIX.md) · [Report a problem](https://github.com/ImAvgErix/ExoLauncher/issues)
+[All supported features](SUPPORT_MATRIX.md) · [Getting started and help](HELP.md) · [Report a problem](https://github.com/ImAvgErix/ExoLauncher/issues/new/choose)
