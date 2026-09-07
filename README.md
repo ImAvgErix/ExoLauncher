@@ -1,8 +1,8 @@
 <p align="center"><img src="docs/media/logo.png" alt="Exo" width="88"></p>
-<h1 align="center">Exo Launcher 3.2</h1>
+<h1 align="center">Exo Launcher 3.2.1</h1>
 <p align="center"><strong>Your games. Your music. Your space.</strong></p>
 <p align="center">Find your games, keep your music playing, and use Discord without leaving Exo.</p>
-<p align="center"><a href="https://github.com/ImAvgErix/ExoLauncher/releases/latest/download/ExoLauncher-Setup.exe"><strong>Download for Windows 11</strong></a> · <a href="https://github.com/ImAvgErix/ExoLauncher/releases/tag/v3.2.0">What's new in 3.2</a></p>
+<p align="center"><a href="https://github.com/ImAvgErix/ExoLauncher/releases/latest/download/ExoLauncher-Setup.exe"><strong>Download for Windows 11</strong></a> · <a href="https://github.com/ImAvgErix/ExoLauncher/releases/tag/v3.2.1">What's new in 3.2.1</a></p>
 
 ![Exo Launcher library](docs/media/library-3.2.jpg)
 
@@ -15,11 +15,11 @@
 - **Discord close by.** Open Friends to use Discord's chats and calls.
 - **A setup that feels like yours.** Change game artwork, save a wishlist, and manage supported mouse settings and profiles.
 
-## What's new in 3.2
+## What's new in 3.2.1
 
-Exo feels quicker when moving between rooms. Settings and buttons stay put when messages appear, game updates are easier to find, and music playback and mouse profiles work more reliably.
+Music controls respond sooner, rooms start loading earlier, and scrolling feels smoother. The profile picker now matches Exo, game pages line up more neatly, and window dragging and music volume work more reliably.
 
-[Read the patch notes](docs/RELEASE_3.2.md)
+[Read the patch notes](docs/RELEASE_3.2.1.md)
 
 ![Game details with artwork and available tools](docs/media/game-3.2.jpg)
 
