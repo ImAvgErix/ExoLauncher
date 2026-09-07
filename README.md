@@ -4,7 +4,7 @@
 <p align="center">Find your games, keep your music playing, and use Discord without leaving Exo.</p>
 <p align="center"><a href="https://github.com/ImAvgErix/ExoLauncher/releases/latest/download/ExoLauncher-Setup.exe"><strong>Download for Windows 11</strong></a> · <a href="https://github.com/ImAvgErix/ExoLauncher/releases/tag/v3.2.0">What's new in 3.2</a></p>
 
-![Exo Launcher library](docs/media/home.jpg)
+![Exo Launcher library](docs/media/library-3.2.jpg)
 
 [See Exo in pictures](docs/SCREENSHOTS.md) · [Getting started and help](docs/HELP.md) · [Store support](docs/VENDORS.md)
 
@@ -21,7 +21,7 @@ Exo feels quicker when moving between rooms. Settings and buttons stay put when 
 
 [Read the patch notes](docs/RELEASE_3.2.md)
 
-![Game details with artwork and available tools](docs/media/game.jpg)
+![Game details with artwork and available tools](docs/media/game-3.2.jpg)
 
 ## Find your way around
 
