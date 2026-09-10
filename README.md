@@ -1,8 +1,8 @@
 <p align="center"><img src="docs/media/logo.png" alt="Exo" width="88"></p>
-<h1 align="center">Exo Launcher 3.2.2</h1>
+<h1 align="center">Exo Launcher 3.2.3</h1>
 <p align="center"><strong>Your games. Your music. Your space.</strong></p>
 <p align="center">Find your games, keep your music playing, and use Discord without leaving Exo.</p>
-<p align="center"><a href="https://github.com/ImAvgErix/ExoLauncher/releases/latest/download/ExoLauncher-Setup.exe"><strong>Download for Windows 11</strong></a> · <a href="https://github.com/ImAvgErix/ExoLauncher/releases/tag/v3.2.2">What's new in 3.2.2</a></p>
+<p align="center"><a href="https://github.com/ImAvgErix/ExoLauncher/releases/latest/download/ExoLauncher-Setup.exe"><strong>Download for Windows 11</strong></a> · <a href="https://github.com/ImAvgErix/ExoLauncher/releases/tag/v3.2.3">What's new in 3.2.3</a></p>
 
 ![Exo Launcher library](docs/media/library-3.2.jpg)
 
@@ -15,11 +15,11 @@
 - **Discord close by.** Open Friends to use Discord's chats and calls.
 - **A setup that feels like yours.** Change game artwork, save a wishlist, and manage supported mouse settings and profiles.
 
-## What's new in 3.2.2
+## What's new in 3.2.3
 
-Browse itch.io in Discover, choose a quiet Discord notification counter, and restore Exo normally from the Windows taskbar. This update also adds Attack Shark X8 Pro support through its official local helper, improves mouse profiles and music controls, and adds ad-blocking settings and a Ko-fi link.
+Game actions now report their actual result, repeated background work is reduced, and more settings are easy to reach. This update also improves paused downloads, explicit music saving, supported mouse profiles, upscaler setup, and itch.io browsing.
 
-[Read the patch notes](docs/RELEASE_3.2.2.md)
+[Read the patch notes](docs/RELEASE_3.2.3.md)
 
 ![Game details with artwork and available tools](docs/media/game-3.2.jpg)
 
