@@ -1,64 +1,75 @@
 <p align="center"><img src="docs/media/logo.png" alt="Exo" width="88"></p>
-<h1 align="center">Exo Launcher 3.2.3</h1>
+<h1 align="center">Exo Launcher 3.2.4</h1>
 <p align="center"><strong>Your games. Your music. Your space.</strong></p>
-<p align="center">Find your games, keep your music playing, and use Discord without leaving Exo.</p>
-<p align="center"><a href="https://github.com/ImAvgErix/ExoLauncher/releases/latest/download/ExoLauncher-Setup.exe"><strong>Download for Windows 11</strong></a> · <a href="https://github.com/ImAvgErix/ExoLauncher/releases/tag/v3.2.3">What's new in 3.2.3</a></p>
+<p align="center">A home for your PC gaming life. Bring your libraries together, keep Discord close, and take your music from browsing to playing.</p>
+<p align="center"><a href="https://github.com/ImAvgErix/ExoLauncher/releases/latest/download/ExoLauncher-Setup.exe"><strong>Download for Windows 11</strong></a> · <a href="https://github.com/ImAvgErix/ExoLauncher/releases/tag/v3.2.4">3.2.4 release notes</a></p>
 
-![Exo Launcher library](docs/media/library-3.2.jpg)
+![Exo Launcher library](docs/media/home.jpg)
 
-[See Exo in pictures](docs/SCREENSHOTS.md) · [Getting started and help](docs/HELP.md) · [Store support](docs/VENDORS.md)
+## Meet your next launcher
 
-## Everything for your session
+**Your whole session in one place.** A focused library, a full music room, Discord, and supported mouse profiles share one desktop app. The interface stays compact; your games get the space.
 
-- **Your games in one place.** Browse games from your connected stores, pin favorites, and find something to play.
-- **Music that stays with you.** Use Apple Music, Spotify, or YouTube Music, with a mini player while you browse.
-- **Discord close by.** Open Friends to use Discord's chats and calls.
-- **A setup that feels like yours.** Change game artwork, save a wishlist, and manage supported mouse settings and profiles.
+- **One library, across stores.** Find installed games, pin favorites, search, and open a game for its available Play, Install, or Update action. Steam, Epic, GOG, Riot, and portable games have provider-specific support; additional stores support detected local games.
+- **Keep the music going.** Open your selected music service, use the mini player, and keep playback running while moving between rooms. Provider accounts and subscriptions still apply.
+- **Discord, within reach.** The Friends room hosts your installed Discord desktop app inside Exo. Voice, video, and screen sharing are Discord's own.
+- **Make it yours.** Replace game artwork, save games to your wishlist, and configure supported mouse settings and game-linked profiles.
+- **A stronger foundation.** Clearer transfer failures, more reliable embedded views, keyboard focus improvements, validated host messages, and safer installer staging and rollback.
 
-## What's new in 3.2.3
+![Game details with artwork and available tools](docs/media/game.jpg)
 
-Game actions now report their actual result, repeated background work is reduced, and more settings are easy to reach. This update also improves paused downloads, explicit music saving, supported mouse profiles, upscaler setup, and itch.io browsing.
+## Five rooms. One session.
 
-[Read the patch notes](docs/RELEASE_3.2.3.md)
-
-![Game details with artwork and available tools](docs/media/game-3.2.jpg)
-
-## Find your way around
-
-| Room | What it's for |
+| Room | What you can do |
 | --- | --- |
-| Library | Find, play, and manage your games. |
-| Discover | Browse games and offers, or search for something new. |
-| Friends | Chat and call through Discord. |
-| Devices | Adjust supported mice and choose profiles for your games. |
-| Music | Listen through your preferred music service. |
+| Library | Browse your games, pin favorites, and use supported store actions. |
+| Discover | Browse game offers and open legitimate store pages. |
+| Friends | Use the embedded Discord website. |
+| Devices | Inspect supported mice and manage available settings and profiles. |
+| Music | Open a music provider and control supported playback. |
 
-Open Settings to connect stores, change the appearance, manage your account, or install required game components.
+Settings keeps store connections, appearance, account management, and runtime installers together.
 
-## Get started
 
-1. [Download ExoLauncher-Setup.exe](https://github.com/ImAvgErix/ExoLauncher/releases/latest/download/ExoLauncher-Setup.exe).
-2. Run the installer and open Exo.
-3. Let Exo find your games, then connect the services you want to use.
 
-**Requires Windows 11 x64.** Updating keeps your settings and sign-ins. The installer is unsigned, so Windows may display a SmartScreen warning.
+## Built around your PC
 
-## A few things to know
+Your local library and launching work without an Exo account. Settings, artwork overrides, paths, and local wishlist data stay on your PC. Optional online account and provider features require their respective services.
 
-- You can use your local game library without an Exo account. Your local settings, artwork, and wishlist stay on your PC.
-- Store features vary. Some stores support downloads and updates; others let Exo find and launch games already installed. [See store support](docs/VENDORS.md).
-- Music and Discord use their own accounts. Music subscriptions may be required.
-- Mouse controls need supported hardware. Optional upscaler tools work only with supported game files and keep backups; compatibility varies by game.
-- Optional Exo accounts use email and password. Password reset, email verification, Google sign-in, and email sign-in links are not available yet.
+Exo coordinates supported store clients and helpers. Vendors still handle ownership, authentication, downloads, DRM, and anti-cheat. Support varies by store; see the [feature matrix](docs/SUPPORT_MATRIX.md) and [vendor notes](docs/VENDORS.md).
 
-[All supported features](docs/SUPPORT_MATRIX.md) · [Screenshots](docs/SCREENSHOTS.md) · [Privacy](PRIVACY.md)
+**Upscalers:** tools are optional and act only on supported files already shipped by a game. Explicit swaps use validation and backups, including `.exo-bak`; compatibility with a particular game or anti-cheat system is not guaranteed. Devices requires supported hardware.
 
-## Help and support
+**Account availability:** email/password Exo accounts are available with a 12–128-character password. Google sign-in, email magic links, password recovery, and email verification are not currently enabled on the hosted service. Account features are optional; Discord and music services use their own accounts.
 
-[Get help](docs/HELP.md) · [Report a problem or suggest a feature](https://github.com/ImAvgErix/ExoLauncher/issues/new/choose) · [Support development](https://www.buymeacoffee.com/UhhErix) · [Patch notes](CHANGELOG.md)
+Read the [privacy policy](PRIVACY.md).
 
-Exo is free to download and use. This repository contains the public guides and downloads; the app's source code is private. See the [usage terms](LICENSE). Previously published MIT-licensed versions retain their applicable terms.
+The application source is private. Public downloads and documentation are maintained in [ImAvgErix/ExoLauncher](https://github.com/ImAvgErix/ExoLauncher). Future original changes are proprietary under [LICENSE](LICENSE); previously MIT-licensed releases retain their applicable permissions.
+
+## Get Exo 3.2
+
+1. Download **[ExoLauncher-Setup.exe](https://github.com/ImAvgErix/ExoLauncher/releases/latest/download/ExoLauncher-Setup.exe)**.
+2. Run the installer, then open Exo.
+3. Let Exo find the games and clients on your PC.
+
+**Windows 11 x64.** Installs per user to `%LOCALAPPDATA%\ExoLauncher\app`. The installer is unsigned, so Windows SmartScreen may display a warning.
+
+## Build locally (private source)
+
+WinUI 3 + React/WebView2, with the .NET SDK pinned in [global.json](global.json) and Node 24. `VERSION` supplies the native app version; the private UI package mirrors it.
+
+```powershell
+cd ui
+npm ci
+cd ..
+dotnet test ExoLauncher.sln -c Debug -p:Platform=x64
+pwsh -File Run-ExoLauncher.ps1
+```
+
+See [architecture](ARCHITECTURE.md), [supported features and validation limits](docs/SUPPORT_MATRIX.md), [cache policy](docs/CACHE_POLICY.md), and the optional [account service](services/exo-id/README.md).
+
+[Report an issue](https://github.com/ImAvgErix/ExoLauncher/issues) · [Support development](https://www.buymeacoffee.com/UhhErix) · [Changelog](CHANGELOG.md)
 
 Exo Launcher, [Exo OS](https://github.com/ImAvgErix/ExoOS), and [Exo Browser](https://github.com/ImAvgErix/ExoBrowser) are separate products.
 
-© 2026 Erix ([ImAvgErix](https://github.com/ImAvgErix)). All rights reserved, subject to applicable prior and third-party licenses.
+© 2026 Erix ([ImAvgErix](https://github.com/ImAvgErix)).
