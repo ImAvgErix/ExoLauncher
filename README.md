@@ -1,8 +1,8 @@
 <p align="center"><img src="docs/media/logo.png" alt="Exo" width="88"></p>
-<h1 align="center">Exo Launcher 3.2.5</h1>
+<h1 align="center">Exo Launcher 3.2.6</h1>
 <p align="center"><strong>Your games. Your music. Your space.</strong></p>
 <p align="center">A home for your PC gaming life. Bring your libraries together, keep Discord close, and take your music from browsing to playing.</p>
-<p align="center"><a href="https://github.com/ImAvgErix/ExoLauncher/releases/latest/download/ExoLauncher-Setup.exe"><strong>Download for Windows 11</strong></a> · <a href="https://github.com/ImAvgErix/ExoLauncher/releases/tag/v3.2.5">3.2.5 release notes</a></p>
+<p align="center"><a href="https://github.com/ImAvgErix/ExoLauncher/releases/latest/download/ExoLauncher-Setup.exe"><strong>Download for Windows 11</strong></a> · <a href="https://github.com/ImAvgErix/ExoLauncher/releases/tag/v3.2.6">3.2.6 release notes</a></p>
 
 ![Exo Launcher library](docs/media/home.jpg)
 

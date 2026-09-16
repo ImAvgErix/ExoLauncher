@@ -1,5 +1,15 @@
 # Changelog
 
+## 3.2.6 — September 16, 2026
+
+This update keeps the mini player from moving the window when you use it.
+
+- **The player is not a drag handle.** While a track is showing, the mini player and the space around it stay clickable — skip, seek, volume, and the track. Other blank parts of the top bar still move the window. With no song, that empty centre drags again.
+
+[Download Exo Launcher for Windows 11](https://github.com/ImAvgErix/ExoLauncher/releases/download/v3.2.6/ExoLauncher-Setup.exe)
+
+Requires Windows 11 x64.
+
 ## 3.2.5 — September 15, 2026
 
 This update installs hosted apps during setup, checks for Exo updates on the boot mark, and stops the mini player from jumping to full volume.
