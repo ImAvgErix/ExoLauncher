@@ -1,5 +1,17 @@
 # Changelog
 
+## 3.2.5 — September 15, 2026
+
+This update installs hosted apps during setup, checks for Exo updates on the boot mark, and stops the mini player from jumping to full volume.
+
+- **Install Discord, Spotify, Apple Music and Cider during setup.** Permissions lists each app. You can install more than one even if Exo plays a different service. Extra players stay on disk until you switch to them.
+- **Updates before the library.** If a newer Exo is on GitHub, the logo screen offers it. Update downloads and installs there; the silent installer closes this build and opens the new one. Not now still opens the app. Settings can still check later.
+- **Mini player volume stays where you left it.** The control no longer reports 100% when it has not read the playing session, and it no longer writes that 100% onto a quieter song when you click it.
+
+[Download Exo Launcher for Windows 11](https://github.com/ImAvgErix/ExoLauncher/releases/download/v3.2.5/ExoLauncher-Setup.exe)
+
+Requires Windows 11 x64.
+
 ## 3.2.4 — September 15, 2026
 
 This update makes game actions more reliable, reduces repeated background work, and makes more of your existing settings easy to reach.
