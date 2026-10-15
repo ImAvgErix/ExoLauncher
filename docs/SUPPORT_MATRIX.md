@@ -1,22 +1,17 @@
-# What Exo supports
+# Supported features
 
-Here's what you can do in Exo Launcher 3.2 and what you'll need.
+The active product is WinUI 3 plus the React/WebView2 shell. Build with the exact SDK in `global.json` and Node 24; CI installs both. `VERSION` supplies the app version, and the private UI package mirrors it.
 
-| Feature | What you can do | What you'll need to know |
-| --- | --- | --- |
-| Steam | Browse, play, install, update, and remove supported games. | Steam must be installed, and you must own the game. |
-| Epic and GOG | Browse your library and use the available download and game controls. | Sign in to the store. Exo uses helper tools for these services. |
-| Riot | Find installed games, launch them, and use supported update controls. | The official Riot client and your account. |
-| Other stores | Find and launch games already installed on your PC. | Full store libraries and download controls aren't available for every store. |
-| Local games | Add a game folder and choose its program to launch. | The game must already be on your PC. |
-| Game updates | Find available updates in Downloads & updates. | Update support depends on the game's store. |
-| Mouse controls | Adjust supported mouse settings and save game profiles. | A supported mouse or receiver that is connected and responding. |
-| Discord | Chat and call from the Friends room. | Your Discord account and an internet connection. |
-| Music | Listen through Apple Music, Spotify, or YouTube Music and use the mini player. | Your service account and any required subscription. |
-| Exo account | Use an optional email/password account and profile. | Password reset, email verification, Google sign-in, and email sign-in links are not available yet. |
-| Wishlist | Keep a wishlist on this PC. | It is shared between Exo accounts on this PC and isn't synced to the cloud. Live regional prices aren't guaranteed. |
-| Upscalers | Replace supported upscaler files and restore their backups. | Close the game first. Compatibility varies, especially with games that use anti-cheat. |
+| Area | Shipped behavior | Prerequisites and limits |
+|---|---|---|
+| Steam | Library, launch and supported install/update/remove actions | Official Steam client, ownership and native helper |
+| Epic / GOG | Library and provider-supported downloads/actions | Authenticated Legendary / gogdl; provider failures remain visible |
+| Riot | Detected games and supported patch/launch path | Official account/client and patch service |
+| Other stores | Detect and launch proven local installations | No claim of a full remote ownership catalog |
+| Local games | Add folders and launch | A valid local executable; game files remain under user control |
+| Upscalers | Read-only detection; explicit swap/restore with backups | Existing supported DLL, stopped game, valid destination/signature; no title or anti-cheat certification |
+| Friends | Embedded Discord website | Discord login and service availability; messaging and calls are provided by Discord |
+| Music | Embedded selected provider, mini controls and hidden playback | Provider login/subscription where required; paused hidden views suspend after an idle delay |
+| Wishlist | Import/export and minimal metadata saved on this PC | Shared across local account switches; not cloud synchronization or live regional pricing |
 
-You don't need an Exo account to browse and launch your local games. Online features depend on their services being available.
-
-[Store support](VENDORS.md) · [Getting started and help](HELP.md) · [Screenshots](SCREENSHOTS.md) · [Back to Exo](../README.md)
+Packaged smoke runs use an owned disposable data directory and no store adapters beyond Local. CI runs native fixture tests, UI behavior tests, production UI build, Release publish and packaged navigation. Real vendor login/downloads, full accessibility certification and live self-update still require their corresponding test environments.

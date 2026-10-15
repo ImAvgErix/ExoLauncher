@@ -1,101 +1,128 @@
 # Exo Launcher privacy statement
 
-**Exo Launcher is local-first. An Exo account is optional. There are no ads or behavioral analytics.**
+**Exo Launcher is local-first. It has no Exo account, no ads, no analytics and no telemetry.**
 
-You can browse and launch locally installed games without an Exo account. Downloads, updates, online catalogs, and connected services need internet access; individual games may also require their store's account or online access.
-
-## At a glance
-
-- Your local library paths, settings, artwork, and saved service sessions are stored on this PC. The services still handle online sign-in, and some optional store-linking actions send credentials once for verification, as described below.
-- If you use an Exo account, the account service stores account and profile data. Optional social features can share presence and a limited game-activity summary according to your privacy choices.
-- Discord and music providers handle their own sign-ins, content, calls, and playback under their own policies. Signing out of Exo is separate from signing out of these services.
-- Settings includes permissions for the embedded services and actions to export or delete your Exo account data. Exo account export and deletion do not export or delete your Discord or music-provider account.
-
-The sections below explain the data involved, how it is protected, and how long it is retained.
-
-## Music, Discord, and permissions
-
-Friends embeds Discord's website in a separate WebView2 profile. Apple Music, Spotify, and YouTube Music also use separate local browser profiles for their web sign-ins and playback. These services make their own network requests and handle their content under their own privacy policies.
-
-You can review microphone, camera, clipboard, and notification permissions in Settings. Screen sharing asks you to choose a screen or window each time. Windows permissions may also apply. Exo account export does not include Discord messages or music-provider data.
+Your library, installs, updates, game launches and settings work offline. Exo has no server of its own that they depend on.
 
 ## What stays on this PC
 
-- Settings, library data, cover cache, local profile images, and fallback play sessions live under `%LocalAppData%\ExoLauncher`.
-- Custom game covers are content-addressed local copies. Their filenames stay in local settings and are excluded from portable account sync. **Report artwork** copies at most 4 KiB of sanitized, path-free diagnostics to the clipboard; Exo opens only an empty GitHub issue page when requested and never submits those details itself.
-- Library discovery reads local paths, manifests, registry keys, and store-client data. Exo does not upload library paths, install roots, or launch overrides. When signed in, it may publish a bounded activity snapshot (total minutes, game counts, and up to ten showcase cards) so friends see that person's hours instead of this PC. Activity visibility can hide those fields. A password entered for optional account creation/sign-in is sent only to the bounded HTTPS authentication endpoint described below. While signed in with Launcher open, presence connects and the current game id/title may be shared with connected friends under activity privacy.
-- Store credentials stay native. Optional Steam, itch.io, and Wargaming keys you paste stay in current-Windows-user DPAPI blobs on this PC; they are never written to `settings.json`, returned to React, or synced to Exo. A Riot ID (Name#TAG) is a public handle: Exo may send it to tracker.gg to read a public profile's match-derived hours, and the UI may show the handle. Riot tokens stay on this PC and are never sent to tracker.gg or exo-id. The one exception is an explicit Epic or GOG link: the existing Legendary or gogdl access token is sent once over HTTPS to exo-id, used for one store identity lookup, and discarded. It is not put in React, D1, R2, or application logs.
-- The Exo session is stored in a current-Windows-user DPAPI blob, not `settings.json` or WebView2 storage. Normal sign-out removes the session and clears the online DTO/media disk caches and browser mapping. Other processes running as the same Windows user remain inside that trust boundary.
+Exo keeps its data in `%LocalAppData%\ExoLauncher`. This includes:
 
-## Optional Exo account
+- settings (`settings.json`), the library cache, playtime Exo recorded, window position, cover art and thumbnail caches, achievement cache, and upscaler backups;
+- copies of custom game covers you choose. They are stored locally and never uploaded;
+- the store tools Exo downloads (Legendary, gogdl, Nile) and their data, plus the browser data from the Epic and GOG sign-in windows;
+- Nothing for SCSKiller. Library > Shaders shows SCSKiller's own app, which keeps its data in its own folder (`%LOCALAPPDATA%\SCSKiller`); Exo only reads its game list and per-game records there to show Compiled on a game's sheet. The first start of this version deletes the copy of SCSKiller an earlier Exo downloaded to `tools\scskiller`, after taking out any recorder that copy put in a game's folder;
+- the browser profile used for YouTube Music;
+- logs (see **Logs** below).
 
-Email/password account creation and sign-in are implemented through two bounded Better Auth routes. Passwords must be 12–128 characters. Better Auth stores a salted Scrypt hash in the D1 account record, not the plaintext password. React holds the user's current form input only long enough to call the native host; neither server nor native code returns the password to React, and native password requests are excluded from caches and credential-bearing logs. On success, only the Exo bearer session is saved in the current-user DPAPI blob.
+To find your games, Exo reads local folders, store manifests, registry keys and data saved by store clients on this PC. Exo does not upload your library, install folders, launch settings, playtime or achievements. Some services see a game title or store id when Exo looks up artwork or hours for it; they are listed under **Other network requests**.
 
-Password-account email addresses are currently marked unverified. Hosted password recovery and email verification are currently unavailable because mail delivery is not configured. Google and email magic-link sign-in remain separate capability-gated providers.
+**Keys and sign-ins stay local.** Optional keys you paste (Steam Web API, itch.io, SteamGridDB) and your saved Riot ID are encrypted with Windows (DPAPI) for your Windows user. They are not written to `settings.json`, not shown back in the app, and only sent to the service they belong to (see **Other network requests**). Other programs running as the same Windows user can still get at them.
 
-exo-id also stores the account id, email, provider record, session records, reserved handle, portable profile, allowlisted preferences, privacy choices, and the social data described below. A small server-managed staff-role table controls badge administration; fixed profile badges store only an allowlisted key, grant time, and optional grantor. Public profile responses may show a badge's server-defined label, description, and tone, but never expose roles, permissions, grantors, email, or arbitrary markup/colors. Better Auth may keep Google provider credentials server-side when that provider is enabled; Exo Launcher never receives them. Session APIs and account export omit password hashes, bearer/provider tokens, and IP addresses.
+Store sign-ins stay with the official tools:
 
-The portable allowlists exclude machine paths, install roots, launch overrides, library history, local image filenames, window coordinates, and unknown settings keys. Profile game references are opaque ids; another PC drops ids it cannot resolve instead of creating a library row.
+- Epic sign-in goes to Legendary.
+- GOG sign-in goes to gogdl.
+- Amazon sign-in goes to Nile.
 
-### Profile, search, share, and media
+Exo opens the store's own sign-in page, passes the result to that tool, and does not keep its own copy of the token.
 
-Privacy-safe defaults are:
+## Exo accounts (removed)
 
-- profile visible to connected friends;
-- not searchable;
-- friend requests allowed;
-- game activity visible to connected friends.
+Exo 3.4 removed the optional Exo account. The app has no sign-in, sign-up, sign-out, handle, badges, export or delete screens any more, and **it never contacts the Exo account service (exo-id)**. Recent versions synced nothing to the account, so your library, playtime, settings and keys are already on this PC and keep working as before.
 
-The owner may choose public, friends-only, or private profile visibility; enable or disable prefix search; allow or reject requests; and hide game activity. Inaccessible or blocked profiles return the same not-found result. Search returns only opted-in profiles the viewer is allowed to see. The `/p/<handle>` share page is anonymous and therefore works only for public profiles; it contains no script and is sent with no-store and restrictive browser headers.
+**On this PC.** The first time Exo 3.4 or later starts, it deletes what an earlier version saved for the account, in `%LocalAppData%\ExoLauncher` and `%AppData%\ExoLauncher`:
 
-Uploaded avatars, banners, and up to six profile-gallery pictures are stored in Cloudflare R2 under account-owned, versioned keys. exo-id accepts only bounded PNG, JPEG, WebP, or GIF images, validates their structure and dimensions, reconstructs safe bytes without identifying/unsafe metadata, bounds GIF frames and decoded pixels, and rejects animated WebP. Origin reads re-check the current D1 ownership/version record and profile visibility. Anonymous public media uses `max-age=0, must-revalidate`; authenticated media is private/no-store. Replacement or clear makes the old origin version inaccessible and attempts to delete its object; an R2 delete failure may leave an inaccessible orphan until account-prefix cleanup. Account deletion enumerates that prefix and aborts if cleanup fails.
+- `auth.bin`, the session token, encrypted with Windows (DPAPI), that kept you signed in, together with the account id, handle and email it held, plus any unfinished copy (`auth.bin.tmp`);
+- the `online-cache` folder of saved account responses;
+- `device-id`, the per-PC id very old versions sent with a library activity summary.
 
-### Friends, blocks, and verified store discovery
+This is a local cleanup only: Exo does not sign out with the service or send it anything. It runs again on every start, so a copy restored from a backup is removed too. Exo writes one line to its log when it removes a saved sign-in.
 
-Direct friend requests, accepted friendships, outgoing blocks, removals, and suppression records are stored in D1. A block in either direction hides the relationship and profile. Removing or blocking someone writes a suppression so store discovery cannot silently recreate the connection; accepting a later direct request clears that suppression.
+**On the service.** If you created an account with an earlier version, the service still holds what it held before: your account id, display name, email, a salted password hash, session records (which may include an IP address and an app or browser identifier), and anything older versions stored, such as a handle, profile fields, a library activity summary, online status, preferences, friends or store links. Exo 3.4 does not add to it or change it. That data stays on the service (Cloudflare Workers with a Cloudflare D1 database) until the service is shut down and its data deleted. Until then, Exo 3.3.x can still download a copy (Settings > Exo account > Download) or delete the account (Settings > Exo account > Delete account); deleting removes the account and everything linked to it. Sessions end after 7 days, and the service removes expired ones every hour.
 
-Steam, Epic, and GOG links are optional and must be proven. Steam uses Valve OpenID in the system browser. Epic and GOG use the one-shot verification described above. The proven store-native id is AES-GCM encrypted in D1 and also indexed by a keyed HMAC for matching. It is returned only to its owner through link state or account export.
+## Connected apps
 
-Store discovery defaults on and can be turned off. While on, Exo may send up to 200 store-friend ids per match request. exo-id sees those ids for that request, but does not store unmatched ids or log the list. A possible match becomes an Exo-user-id claim; a connection is created only after both verified, opted-in accounts submit each other as a mutual store friendship. Claims expire after 30 days. The current Windows host can supply a proven mutual list only for Steam. Epic and GOG linking work, but neither currently exposes a verified automatic mutual-match source to Exo, so no list is fabricated. One-sided or plugin-derived lists never create a claim. Turning discovery off deletes pending claims but leaves already completed connections until removal.
+Exo can show some desktop apps inside its own window. Those apps keep their own sign-in, data and privacy policies. Exo does not read your messages or playback history, and it does not send them anywhere.
 
-### Presence
+### Discord
 
-Presence starts when the WebView host attaches for a signed-in session and runs only while Launcher is open; there is no separate presence-enable switch or tray agent. A per-user hibernating Durable Object stores active connection/session ids, status, optional game id/title, last-seen time, and cached friend presence. Connections expire after 90 seconds without a heartbeat, every heartbeat/status revalidates the session against D1, and cached peer rows expire after 24 hours as a safety bound. Account deletion also purges related peer copies immediately or fails for retry.
+- **Hosting.** The Discord room shows your installed Discord desktop app. Once setup is finished, Exo starts Discord hidden when Exo opens, so the room opens instantly. Discord closes when Exo closes.
+- **Settings Exo changes.** To fit Discord in its window, Exo edits a few window settings in Discord's `settings.json`.
+- **"Optimize Discord" (off by default).** When you press Run, Exo:
+  - downloads a fixed Equicord build from Equicord's GitHub releases and checks its size and SHA-256;
+  - changes Discord's app files so Discord loads Equicord, keeping Discord's original file next to it;
+  - writes Equicord settings, including plugins that block Discord's analytics, clean tracking parameters from links and hide clutter, and keeps a small file beside them (`exo-applied.json`) recording which values Exo set, so your own changes in Equicord are kept.
 
-Only connected, non-blocked, non-suppressed friends receive presence. Activity privacy hides game id/title; it does not turn a reachable online person into offline. **Offline** means the service authoritatively has no live connection. **Unknown** means presence could not be determined because the service or a peer object was unavailable. Exo does not convert unknown to offline.
+  After the first install, Equicord updates itself. Undo puts Discord's original file back. Exo also undoes the change if a Discord update gets stuck. If you installed Equicord yourself, Exo leaves it alone.
 
-The Exo account service does not store chat or message content. Chats and calls in the Friends room are handled by Discord.
+### Spotify, Apple Music and Cider
 
-## Export, deletion, and retention
+These are your installed desktop apps. When Exo starts one of them:
 
-Account export includes account/provider names, handle, portable profile/preferences, staff roles and fixed profile badges, privacy, media metadata, session ids/timestamps, discovery state, the owner's decrypted verified store links, discovered/direct friends, requests, outgoing blocks, owner-created suppressions, and the owner's presence snapshot. It excludes bearer/provider tokens, friend store ids, machine paths, and media bytes.
+- **Spotify.** While **Optimize Spotify** is on (the default), Exo recolors it and hides ads, promos and install prompts by adding CSS to Spotify's local `xpui.spa` file, and turns on two of Spotify's own preferences that hide home-page takeovers and promoted songs; Undo puts the original file back and removes those two lines. It turns on Spotify's "system media controls" preference so the mini player can follow playback. It also starts Spotify with a debugging port that only this PC can reach, and uses it to hide Spotify's window buttons and, while optimized, to pause Canvas videos.
+- **Cider.** Exo adds a marked block of CSS to Cider's own settings file to hide its window buttons and, while **Optimize Cider** is on, to turn off blurred panels and smooth scrolling. The block is removed when Cider closes.
+- **Apple Music.** While **Optimize Apple Music** is on (the default), Exo runs a local helper that recolors the app.
 
-Account deletion requires a session created within the last 15 minutes. It removes cached copies from related peers' Durable Objects (broadcasting unknown/unavailable), closes presence sockets, and deletes the user's own Durable Object state, R2 profile media, sessions/provider account, live handle, profile/preferences/privacy, verified links, match claims, discovered/direct friendships, requests, blocks, and suppressions. If presence cleanup cannot be confirmed, deletion fails so the user can retry instead of reporting partial success. Cleanup spans multiple stores and is retry-oriented, not one atomic transaction. The deleted normalized handle remains tombstoned for 365 days to prevent immediate impersonation; an abuse hold may remain indefinitely.
+All of these changes stay on this PC. The mini player reads what is playing from Windows' media controls.
 
-Exo's custom application rate-limit identifiers are scoped hashes. Better Auth's separate database limiter stores its own IP-plus-route key. Application logging redacts email, authorization/session data, provider/store tokens, store-native ids, friend-id lists, and account/user ids.
+### Your mouse (Exo Mouse)
+
+The Devices room is Exo Mouse, which is part of Exo's download and talks to your mouse directly over USB HID. It reads and writes your mouse's own settings (such as DPI, polling rate, buttons, lighting, battery level and onboard profiles). That data stays on this PC: profiles you save in Exo Mouse (a name, the settings to put back and the games they are for) are kept in Exo's data folder on this PC (`mouse\profiles.json`), nothing is sent anywhere, and Exo needs no OpenMouse app, vendor software or driver for it. To show a picture of your mouse, Exo Mouse loads its product render from OpenMouse's image server (img.openmouse.app); the request names the model's image file, and the image is then kept in Exo's browser cache.
+
+Earlier versions of Exo answered the OpenMouse web panel through a bridge of their own and could stop the OpenMouse Bridge app to do it. That bridge is gone. The first time this version starts, if Exo had stopped the OpenMouse Bridge app, Exo puts its start with Windows back exactly as it was and writes the profiles Exo kept into the app's own settings file, then deletes Exo's copy. It does not start the app.
+
+### YouTube Music
+
+YouTube Music runs inside Exo as a web page (Microsoft Edge WebView2), using a browser profile stored under `%LocalAppData%\ExoLauncher`. You sign in to Google there, and Google handles that data.
+
+Exo adds these browser extensions to that profile:
+
+- **uBlock Origin** blocks ads and trackers. It downloads filter-list updates from the internet.
+- **SponsorBlock** asks sponsor.ajay.app about the video that is playing.
+- **Better Lyrics** fetches lyrics from outside lyrics services.
+
+These extensions have their own privacy policies. Pages that ask for your microphone, camera, clipboard or notifications prompt you by default. You can change this in Settings.
 
 ## Other network requests
 
-| Purpose | When |
-| --- | --- |
-| Store library, metadata, cover, achievement, friend, and playtime services | While refreshing the corresponding supported feature |
-| GitHub release service | When update checking is enabled or you press **Check** |
-| Official dependency releases | When a supported action needs Legendary or gogdl; Exo verifies the official asset digest |
-| Upscaler version catalog | During bounded prewarm/status checks for installed non-protected games, or when you explicitly check/update |
-| Vendor upscaler DLL assets | Only when you explicitly ask Exo to update existing DLSS / FSR / XeSS files |
-| exo-id | Public profile/search/share reads, or optional signed-in identity, social, media, and presence actions |
-| Discord and music providers | When their embedded pages are loaded or used; playback or an active session may continue while you browse another room |
+| Destination | What is sent | When |
+| --- | --- | --- |
+| GitHub (ExoLauncher releases) | Version lookup; update download | When Exo starts, and when you press **Check**. The download happens only when you choose to install. Update checks cannot be turned off. |
+| GitHub (Legendary, gogdl, Nile, Equicord releases) | Download of a fixed version, checked against its SHA-256 | When a feature first needs the tool, or when you press Run on **Optimize Discord** and Equicord is not downloaded yet |
+| Epic, GOG, Amazon (through Legendary, gogdl, Nile) | Your own store sign-in, library, installs, updates | When you sign in, refresh, install or play |
+| Epic account and library services | Your Legendary/Heroic or Epic Games Launcher sign-in, used to read your Epic playtime | When your library refreshes, if you're signed in to Epic on this PC |
+| GOG (gameplay.gog.com, api.gog.com, gamesdb.gog.com) | Your gogdl sign-in for achievements and owned games; product ids for artwork | When your library or achievements refresh |
+| Steam | Nothing is sent. Owned games come from the Steam client running on this PC | When your library refreshes |
+| Steam Web API | Your pasted key and Steam id, for owned games and achievements | Only if you pasted a key |
+| itch.io API | Your pasted key, for owned games | Only if you pasted a key |
+| tracker.gg | Your Riot ID (Name#TAG), to read public Valorant / League of Legends hours | About 12 seconds after Exo starts (at most every 12 hours), and when you refresh. Exo uses a Riot ID you saved, or one it reads from the Riot Client on this PC. Riot sign-in data is never sent. |
+| Cover art: Steam CDN and Steam store search, Epic store catalog, GOG, Microsoft Store catalog | Steam app ids, store product ids, and game titles as search terms | When a game needs artwork |
+| SteamGridDB | Your pasted key and a Steam app id | Only if you pasted a key |
+| IGDB (Twitch) | Developer credentials | Developer builds only |
+| Vendor upscaler files (NVIDIA DLSS, AMD FidelityFX SDK and Intel XeSS repositories on GitHub, raw.githubusercontent.com at pinned commits) | File downloads, checked against SHA-256 values built into Exo | Only when you choose Update all or a version for a game's DLSS / FSR / XeSS file |
+| SCSKiller's own app | Exo sends SCSKiller nothing. Its app makes its own requests (its update feed, its Patreon sign-in, the community recordings) under [its own privacy terms](https://github.com/BlueHeisenberg/SCSKiller) | Whenever the app runs, inside Exo or from its tray |
+| Microsoft (Visual C++ and other runtimes), Discord, Spotify | Official installer downloads | Only when you choose to install them |
 
-For upscaler status, Exo reads the beeradmoore DLSS Swapper version manifest and reuses a bounded in-memory cache; protected/anti-cheat titles are rejected before that network step. An explicit update may then retrieve an approved NVIDIA, NVIDIA-RTX/Streamline, GPUOpen-LibrariesAndSDKs/FidelityFX-SDK, or Intel XeSS asset. Extracted DLLs are accepted only after vendor signature, PE/export/version, and local SHA-256 integrity checks. Exo never downloads or swaps an upscaler merely because a game was opened or launched.
+Store and service websites (store pages, key redemption, sign-up pages) open in your normal browser.
 
-Network requests use bounded timeouts. Store-authenticated verification requests do not follow redirects, so a credential is not forwarded to another host.
+## Logs
+
+Exo writes a diagnostic log to `%LocalAppData%\ExoLauncher\logs\app.log`. It holds up to about 2 MB, plus one older file. The log can include:
+
+- game titles and folder names;
+- app and store tool messages;
+- errors from the app's interface;
+- crash details.
+
+Before writing, Exo removes things that look like tokens, passwords, keys, account or store ids, and email addresses. **Logs never leave your PC.** Exo does not upload them. **Open logs** in Settings only opens the folder. If you share a log for support, check it first.
 
 ## What Exo Launcher does not do
 
-- No advertising, behavioral analytics, telemetry SDK, or silent crash upload.
-- No Exo account requirement for local library browsing and game launching. Store requirements and online features still apply.
-- No Sign in with Apple in the current service.
-- Friends embeds Discord's website in a separate WebView2 profile. Discord handles login, messages, calls, and its browser storage under its own privacy policy. Exo account export does not include Discord messages. Music providers likewise handle their web login and playback; their browser sessions are stored locally in separate WebView2 profiles.
-- No password recovery or verified-email claim in the current email/password flow.
-- No upload of machine paths or raw local play-session history. A signed-in account may share the limited activity summary described above. Store credentials are sent only for the explicit verification actions described above.
+- No ads, analytics, telemetry or crash-reporting service. Crashes are written to the local log only.
+- No Exo account, and no online dependency for your library or game actions.
+- No online status, current game, library activity, playtime or per-PC id sent anywhere.
+- No uploading of your library, install folders, playtime history or store sign-ins.
+- No friends list, profiles, profile pictures, handles, badges, chat or settings sync in the app.
 - No kernel driver, anti-cheat bypass, or silent approval of Windows security prompts.
+- The clipboard is read only when you open **Activate a key**, to spot a game key, and only on this PC. Exo then opens the store's own redeem page; it does not send the key anywhere itself.
