@@ -62,4 +62,4 @@ For problems, include your Exo version from Settings, the affected room or store
 
 GitHub issues are public. Remove passwords, tokens, email addresses, private chats, and personal file paths from screenshots or log excerpts before posting. Share only the relevant excerpt, rather than your whole Exo data folder.
 
-[Supported features](SUPPORT_MATRIX.md) · [Screenshots](SCREENSHOTS.md) · [Patch notes](../CHANGELOG.md) · [Back to Exo](../README.md)
+[Supported features](SUPPORT_MATRIX.md) · [Patch notes](../CHANGELOG.md) · [Back to Exo](../README.md)

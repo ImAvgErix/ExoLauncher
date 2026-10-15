@@ -216,7 +216,7 @@ This update makes game actions more reliable, reduces repeated background work, 
 
 Requires Windows 11 x64.
 
-[See Exo in pictures](https://github.com/ImAvgErix/ExoLauncher/blob/main/docs/SCREENSHOTS.md) · [Getting started and help](https://github.com/ImAvgErix/ExoLauncher/blob/main/docs/HELP.md) · [Support on Ko-fi](https://ko-fi.com/uhherix)
+[Getting started and help](https://github.com/ImAvgErix/ExoLauncher/blob/main/docs/HELP.md) · [Support on Ko-fi](https://ko-fi.com/uhherix)
 
 ### Source maintenance
 
@@ -241,7 +241,7 @@ itch.io joins Discover, Discord notifications get a quieter look, and everyday w
 
 Requires Windows 11 x64.
 
-[See Exo in pictures](https://github.com/ImAvgErix/ExoLauncher/blob/main/docs/SCREENSHOTS.md) · [Getting started and help](https://github.com/ImAvgErix/ExoLauncher/blob/main/docs/HELP.md) · [Support on Ko-fi](https://ko-fi.com/uhherix)
+[Getting started and help](https://github.com/ImAvgErix/ExoLauncher/blob/main/docs/HELP.md) · [Support on Ko-fi](https://ko-fi.com/uhherix)
 
 ## 3.2.1 — September 7, 2026
 
@@ -261,7 +261,7 @@ This update makes everyday controls respond sooner and brings a more consistent 
 
 Requires Windows 11 x64.
 
-[See Exo in pictures](https://github.com/ImAvgErix/ExoLauncher/blob/main/docs/SCREENSHOTS.md) · [Getting started and help](https://github.com/ImAvgErix/ExoLauncher/blob/main/docs/HELP.md)
+[Getting started and help](https://github.com/ImAvgErix/ExoLauncher/blob/main/docs/HELP.md)
 
 ## 3.2.0 — September 7, 2026
 
