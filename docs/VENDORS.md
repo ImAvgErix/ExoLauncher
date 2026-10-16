@@ -6,11 +6,12 @@ Exo Launcher prefers shelling out to mature open tools over re-implementing stor
 
 | Backend | Store | License | Pin approach |
 | --- | --- | --- | --- |
-| [Legendary](https://github.com/derrod/legendary) | Epic | GPL-3.0 | User-installed CLI on PATH, or drop `legendary.exe` into `%LocalAppData%\ExoLauncher\tools\` or `ExoLauncher/tools/` |
-| [heroic-gogdl](https://github.com/Heroic-Games-Launcher/heroic-gogdl) | GOG | GPL-3.0 | Same: PATH or `tools/gogdl.exe` |
-| Official clients | Steam, Epic Games, GOG Galaxy, Riot, Xbox, EA app, Ubisoft Connect, Battle.net, Amazon Games, Rockstar Games Launcher | Proprietary | Detected from exact executables/registration; never redistributed by Exo |
+| [Legendary](https://github.com/derrod/legendary) | Epic | GPL-3.0 | Exo downloads a fixed release from GitHub and checks its size and SHA-256 |
+| [heroic-gogdl](https://github.com/Heroic-Games-Launcher/heroic-gogdl) | GOG | GPL-3.0 | Same |
+| [Nile](https://github.com/imLinguin/nile) | Amazon Games | GPL-3.0 | Same |
+| Official clients | Steam, Epic Games, GOG Galaxy, Riot, Xbox, EA app, Ubisoft Connect, Battle.net, Amazon Games, Rockstar Games Launcher | Proprietary | Detected from exact executables and registration; never redistributed by Exo |
 
-Exo does **not** vendor GPL binaries into the MIT app binary. Users install backends themselves. Adapters fail honestly when a backend is missing.
+Exo does not bundle these GPL tools into its installer: it downloads them when a feature first needs them and runs each as its own program. A copy you put on PATH or in `%LocalAppData%\ExoLauncher\tools\` is used instead. Adapters say so plainly when a backend is missing.
 
 Steam, Epic, GOG, and Riot have wired game-library actions. Xbox, EA app,
 Ubisoft Connect, Battle.net, Amazon Games, and Rockstar Games Launcher list

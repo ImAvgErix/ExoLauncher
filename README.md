@@ -1,81 +1,129 @@
 <p align="center"><img src="docs/media/logo.png" alt="Exo" width="88"></p>
-<h1 align="center">Exo Launcher 3.4.0</h1>
-<p align="center"><strong>Your games. Your music. Your space.</strong></p>
-<p align="center">A home for your PC gaming life. Bring your libraries together, keep Discord close, and take your music from browsing to playing.</p>
-<p align="center"><a href="https://github.com/ImAvgErix/ExoLauncher/releases/latest/download/ExoLauncher-Setup.exe"><strong>Download for Windows 11</strong></a> · <a href="https://github.com/ImAvgErix/ExoLauncher/releases/tag/v3.4.0">3.4.0 release notes</a></p>
+<h1 align="center">Exo Launcher 3.5</h1>
+<p align="center"><strong>Your games, your music, your friends and your mouse. One app.</strong></p>
+<p align="center">Exo brings every game store, Discord, Spotify, Apple Music, YouTube Music and your mouse software into one fast, quiet window for Windows 11.</p>
+<p align="center"><a href="https://github.com/ImAvgErix/ExoLauncher/releases/latest/download/ExoLauncher-Setup.exe"><strong>Download for Windows 11</strong></a> · <a href="https://github.com/ImAvgErix/ExoLauncher/releases/tag/v3.5.0">What's new in 3.5</a> · <a href="CHANGELOG.md">Changelog</a> · <a href="PRIVACY.md">Privacy</a></p>
 
-![Exo Launcher library](docs/media/library-3.4.png)
+![The Exo Library: every game from every store in one grid](docs/media/library.jpg)
 
-## Meet your next launcher
+## Why one app instead of eight
 
-**Your whole session in one place.** A focused library, a full music room, Discord, and your mouse share one desktop app. The interface stays compact; your games get the space.
+A normal gaming PC runs Steam, the Epic Games Launcher, Riot Client, Discord, Spotify, a mouse app and more, each with its own window, its own tray icon, its own updater and its own built-in browser holding memory. Exo replaces all of that with one window you actually use, and keeps the apps it depends on quiet in the background.
 
-- **One library, across stores.** Find installed games, pin favorites, search, and open a game for its available Play, Install, or Update action. Steam, Epic, GOG, Riot, and portable games have provider-specific support; additional stores support detected local games.
-- **Your whole Steam library, no key needed.** Exo asks the Steam client you're signed in to which games you own, so installed games show as owned and games you haven't installed appear ready to install. If Steam has a remembered sign-in but isn't running, Exo starts it quietly once. A Steam Web API key is optional.
-- **Setup in two short steps.** Your game stores, then Music and Discord, with no keys to paste and no account to make.
-- **Settings, rebuilt.** One column with a section list: General, Downloads, Music and Discord, Game stores, Optional keys, and About. Every row says what it does, and optional keys you paste (Steam, itch.io, SteamGridDB) save.
-- **Keep the music going.** Choose Spotify, Apple Music, Cider, or YouTube Music, use the mini player, and keep playback running while moving between rooms. Provider accounts and subscriptions still apply.
-- **Discord, within reach.** The Discord room hosts your installed Discord desktop app inside Exo, left exactly as Discord ships it. Voice, video, and screen sharing are Discord's own. Run **Optimize Discord** in Settings if you want Exo to add Equicord; Spotify, Apple Music, Cider and YouTube Music have their own Optimize rows.
-- **Your mouse, in its own room.** The Devices room is Exo Mouse: DPI, polling rate, lift-off, buttons, lighting, sleep and onboard profiles for every mouse [OpenMouse](https://github.com/OpenMouse-Project) supports, showing only what your mouse has. It needs no other app, no vendor software and no driver. Every change is written to the mouse and read back.
-- **Epic and GOG sign-in completes**, including sign-in with Google, Xbox, PlayStation, Steam, and the other providers those stores offer.
-- **Quiet behind your game.** A hidden Discord stops redrawing, hosted apps behind a closed room run in Windows efficiency mode, Exo uses about 40 MB while minimized, and scrolling the library costs about half the CPU it did.
-- **Make it yours.** Replace game artwork with covers you choose; they stay on your PC.
+- **One library for every store.** Steam, Epic, GOG, Amazon, Riot, Xbox, EA, Ubisoft, Battle.net, Rockstar, itch.io and your own folders in one grid, with one search, one sort, play time, last launched, sizes and achievements. Play, install and update from the same page.
+- **Less memory, not more.** The apps Exo hosts are kept as lean as they can be:
+  - Discord and Spotify start hidden behind Exo and stop drawing while you can't see them.
+  - A paused music player is frozen until you reach for it, then wakes before your click lands.
+  - While Steam, Epic, EA, Ubisoft, GOG Galaxy or Battle.net sits hidden behind Exo, Exo gives the memory their built-in browser holds back to Windows. On our test PC, Steam's browser helpers went from about 280 MB to under 80 MB.
+  - Behind a game, Exo itself drops to low priority and Windows efficiency mode, and its rooms stop working.
+- **Faster to use.** Rooms switch instantly because their apps are already running. Store pages open in about half a second. The Library is usable about half a second after Exo's window appears.
+- **Your music, your way.** Spotify, Apple Music and YouTube Music all play in Exo's own player: the same look, the same controls, your whole song library one click away, Jam and Friend activity for Spotify, lyrics that follow the song, and a mini player in the top bar that works from every room.
+- **Game-aware.** Downloads pause while you play. Your mouse switches to a game's profile when it starts. Exo goes quiet behind a game and comes back when you do.
+- **Better games.** Update DLSS, FSR and XeSS in every game with checked, official files and a one-click restore, set NVIDIA's DLSS presets, and precompile shaders so games stop stuttering.
+- **Yours.** No Exo account, no ads, no analytics, no telemetry. Your library, settings and keys stay on your PC.
 
-## Four rooms. One session.
+## How it works
 
-| Room | What you can do |
-| --- | --- |
-| Library | Browse your games, pin favorites, and use supported store actions. |
-| Discord | Use your installed Discord desktop app inside Exo. |
-| Music | Open your music service and control playback from the mini player. |
-| Devices | Tune your mouse with Exo Mouse: DPI, polling rate, buttons, lighting and more. |
+Exo is a native Windows app (WinUI 3 and .NET) with its interface drawn in an embedded Microsoft Edge WebView2.
 
-<p align="center"><img src="docs/media/game-3.4.jpg" alt="A game sheet with upscalers and shaders" width="420"> <img src="docs/media/settings-3.4.png" alt="Settings" width="420"></p>
+- **Stores.** Exo reads what each store already keeps on your PC (Steam's library and manifests, Riot Client's records, the Xbox app's game configs and more) and uses each store's own client to launch. Epic, GOG and Amazon run through the open-source tools Legendary, gogdl and Nile. You sign in on each store's own page, and the store keeps its own sign-in. Downloads, ownership, DRM and anti-cheat stay the stores' job.
+- **Discord.** Exo runs your real Discord desktop app and places its window inside the Discord room, so calls, video, screen share and notifications are Discord's own. Equicord, an open-source Discord client mod, is applied with Exo's plugin set: no Quests or Nitro clutter, no tracking, lighter drawing, and FakeNitro.
+- **Music.** Each service plays the music itself, hidden behind Exo: Spotify's desktop app, Apple Music's web player and YouTube Music's web player. Exo drives them through their own in-app interfaces and draws everything you see, so your account, downloads and sound quality are the service's own.
+- **Devices and Shaders.** These are separate open-source programs that ship with Exo and talk to it only through messages: Exo Mouse talks to your mouse directly over USB, and Exo Shaders precompiles shaders for your graphics driver.
+- **Memory.** Exo watches which window is in front and what you can see. A room you can't see costs as little as possible: its renderer stops drawing, its memory is trimmed, and its processes run in efficiency mode. Nothing a game, download or call needs is ever closed.
 
-Settings keeps game stores, downloads, Music and Discord, optional keys, and game runtimes together.
+## The rooms
 
-## Built around your PC
+### Library
 
-Exo has no account of its own. Your library, settings, artwork overrides, paths, playtime, and optional keys stay on your PC. Store, Discord and music features use those services' own accounts.
+Every game you own, from every store, in one grid. Pinned games sit on top, then installed, then owned but not installed. Sort by name, last launched, time played, size or store. Refresh reads every store again, measures sizes, reads achievements and fetches art.
 
-Exo coordinates supported store clients and helpers. Vendors still handle ownership, authentication, downloads, DRM, and anti-cheat. Support varies by store; see the [feature matrix](docs/SUPPORT_MATRIX.md) and [vendor notes](docs/VENDORS.md).
+![A game page: play, time played, last launched, size, achievements, upscalers and shaders](docs/media/game.jpg)
 
-**Upscalers:** optional, and only for files a game already ships. Exo puts in official NVIDIA, AMD and Intel files pinned by SHA-256, saves the originals for a byte-checked Restore, and never changes games with anti-cheat unless you allow it for that game, at your own risk. Riot games are never changed.
+A game's page shows where it's from, time played, last launched, its size and achievements, and its upscalers and shaders, with Play, Open folder, Verify files and Remove. Replace its cover with your own art if you like.
 
-**Shaders:** [SCSKiller](https://github.com/BlueHeisenberg/SCSKiller), the free shader precompiler, runs inside Exo: **Library > Shaders** shows SCSKiller's own app at a large size without its title bar, with everything it does (compiling, recordings, Before and after, official and community recordings, its settings, updates and Patreon builds). It keeps compiling from its tray after Exo closes. Each game's sheet says Compiled when SCSKiller compiled it for your current graphics driver, or offers one button that opens Shaders. Exo runs no part of SCSKiller itself.
+### Upscalers
 
-**No Exo account.** Exo 3.4 removed the optional Exo account. Nothing in the app signs in to Exo, and the first start after updating deletes the sign-in an earlier version saved on this PC. See the [privacy policy](PRIVACY.md) for what that means for an account you made before.
+![Library > Upscalers: NVIDIA DLSS presets for every model](docs/media/upscalers.jpg)
 
-Read the [privacy policy](PRIVACY.md).
+Library > Upscalers lists every installed game that can get newer DLSS, FSR or XeSS and updates them all at once.
+- **Files:** every file is the vendor's own, checked for its signature, exact version and checksum before it goes in, and Restore puts the game's originals back byte for byte. A running game waits until you close it.
+- **Anti-cheat:** a game with anti-cheat changes only after you allow it for that game, at your own risk. Riot games are never changed.
+- **DLSS presets:** on an NVIDIA PC, this tab sets the driver's forced preset for Super Resolution, Ray Reconstruction and Frame Generation, with what each model is good at and the best one for your card marked.
 
-The application source is private. Public downloads and documentation are maintained in [ImAvgErix/ExoLauncher](https://github.com/ImAvgErix/ExoLauncher). Future original changes are proprietary under [LICENSE](LICENSE); previously MIT-licensed releases retain their applicable permissions. Exo Mouse, the Devices room, is a separate program under AGPL-3.0-or-later, built on OpenMouse's protocol library; its source is public at [ImAvgErix/exo-mouse](https://github.com/ImAvgErix/exo-mouse), updated with each release that ships it. Exo Launcher is not covered by the AGPL.
+### Shaders
 
-## Get Exo 3.4
+![Library > Shaders: Exo Shaders shows which games are compiled](docs/media/shaders.jpg)
+
+Exo Shaders precompiles each game's shaders for the graphics driver you have now, so a game doesn't stutter the first time it meets a new effect. It shows which games are compiled and keeps a queue. When your driver updates, it compiles them again while your PC is idle.
+
+### Store
+
+![The Store: featured games, Epic's free games and Steam's top sellers](docs/media/store.jpg)
+
+Steam's top sellers, new releases, specials and upcoming games, Epic's free games, and search, with prices in your own currency, review scores and Steam Deck ratings. Wishlist a game and Exo tells you when it goes on sale.
+
+![A Store game page: trailers, buying options, description, details and system requirements](docs/media/store-game.jpg)
+
+A game's Store page fits on one screen: trailers and screenshots on the left, buying options on the right with each official store's price, then the description, details and system requirements. Get opens the store's own app; the prices Exo shows come from official stores only.
+
+### Discord
+
+![The Discord room: your Discord app inside Exo (names and messages hidden in this picture)](docs/media/discord.jpg)
+
+Your own Discord, inside Exo, ready the moment you open the room. Its unread count shows on the Discord tab and on Exo's taskbar button. The names and messages in this picture are hidden for privacy.
+
+### Music
+
+![The Music room: Exo's own player, here with Apple Music](docs/media/music.jpg)
+
+Exo's own player for Spotify, Apple Music and YouTube Music:
+- **Browsing:** your library down the left, Songs for every song you saved, Home, search, playlists, albums, artists and podcasts.
+- **Playing:** a queue you can jump around in, lyrics that follow the song, and the mini player in the top bar.
+- **Spotify extras:** Jam with friends, see what they're listening to, and pick the device that plays.
+
+### Devices
+
+![The Devices room: Exo Mouse with a Finalmouse Starlight X](docs/media/devices.jpg)
+
+Exo Mouse talks to your mouse directly, with no vendor app, driver or account:
+- **Status:** your mouse's battery, signal and firmware.
+- **Settings:** DPI, polling rate, lift-off, switches, lighting and more, showing only what your mouse has.
+- **Profiles:** each one switches on by itself when a linked game starts.
+- **Compatibility:** it works with the mice OpenMouse supports and fully with the Finalmouse Starlight X.
+
+### Settings
+
+![Settings: General, Downloads, Music and Discord, Game stores, Optional keys and About](docs/media/settings.jpg)
+
+Text size, reduce motion, download hours and folders, your music service, your game stores, optional keys and updates, in one short page.
+
+## Privacy and safety
+
+- **No Exo account, no ads, no analytics, no telemetry.** Exo has no server of its own. Your library, settings, covers, play time and keys stay in `%LocalAppData%\ExoLauncher`. Optional keys are encrypted with Windows.
+- **Your sign-ins stay with each service.** You sign in on the store's or service's own page or window. Exo never sees your passwords.
+- **What leaves your PC** is only what a feature needs: store lookups, cover art, Store pages, prices, and the update check. The [privacy policy](PRIVACY.md) lists every destination and what is sent.
+- **Your choices, your risk, said plainly.** Equicord and FakeNitro go against Discord's terms; you can turn FakeNitro or any plugin off in Equicord's settings. Changing upscaler files in a game with anti-cheat can get an account banned, which is why Exo asks for each game and never touches Riot games.
+
+## Install
 
 1. Download **[ExoLauncher-Setup.exe](https://github.com/ImAvgErix/ExoLauncher/releases/latest/download/ExoLauncher-Setup.exe)**.
-2. Run the installer, then open Exo.
-3. Let Exo find the games and clients on your PC.
+2. Run it, then open Exo. Setup asks for your game stores, then your music service.
+3. Exo finds your games, starts Discord and your music app behind it, and keeps itself up to date.
 
-**Windows 11 x64.** Installs per user to `%LOCALAPPDATA%\ExoLauncher\app`. The installer is unsigned, so Windows SmartScreen may display a warning.
+**Requirements:** Windows 11 x64. Exo installs for your Windows user only, in `%LOCALAPPDATA%\ExoLauncher\app`, and needs no administrator rights. The installer isn't code-signed yet, so Windows SmartScreen may warn the first time; choose **More info**, then **Run anyway**. Each release lists the installer's SHA-256 so you can check your download.
 
-## Build locally (private source)
+## License and legal
 
-WinUI 3 + React/WebView2, with the .NET SDK pinned in [global.json](global.json) and Node 24. `VERSION` supplies the native app version; the private UI package mirrors it.
+- **Exo Launcher** is free for personal use under its own [terms](LICENSE). Its source is private, and it is provided as is, without warranty.
+- **Open-source parts that ship with Exo** keep their own licenses, and their source is public:
+  - [Exo Mouse](https://github.com/ImAvgErix/exo-mouse) (AGPL-3.0-or-later), built on OpenMouse.
+  - [Exo Shaders](https://github.com/ImAvgErix/exo-shaders) (GPL-3.0-or-later), based on SCSKiller.
+  - uBlock Origin (GPL-3.0).
+  
+  Every bundled library and tool is listed in [Third-party notices](THIRD_PARTY_NOTICES.md).
+- **Not affiliated.** Exo Launcher is an independent product, not affiliated with or endorsed by Valve, Epic Games, GOG, Riot Games, Microsoft, EA, Ubisoft, Blizzard, Amazon, Discord, Spotify, Apple, Google, NVIDIA, AMD, Intel, Finalmouse or any other company it works with. Their names, logos and game art belong to their owners. Your use of each service stays under that service's own terms.
 
-```powershell
-cd ui
-npm ci
-cd ..\mouse
-npm ci
-cd ..
-dotnet build ExoLauncher\ExoLauncher.csproj -c Release -p:Platform=x64
-pwsh -File Run-ExoLauncher.ps1
-```
-
-See [architecture](ARCHITECTURE.md), [supported features and validation limits](docs/SUPPORT_MATRIX.md), and [cache policy](docs/CACHE_POLICY.md).
-
-[Report an issue](https://github.com/ImAvgErix/ExoLauncher/issues) · [Support development](https://www.buymeacoffee.com/UhhErix) · [Changelog](CHANGELOG.md)
-
-Exo Launcher, [Exo OS](https://github.com/ImAvgErix/ExoOS), and [Exo Browser](https://github.com/ImAvgErix/ExoBrowser) are separate products.
+[Report an issue](https://github.com/ImAvgErix/ExoLauncher/issues) · [Support development](https://www.buymeacoffee.com/UhhErix)
 
 © 2026 Erix ([ImAvgErix](https://github.com/ImAvgErix)).

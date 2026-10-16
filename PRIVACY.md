@@ -10,12 +10,15 @@ Exo keeps its data in `%LocalAppData%\ExoLauncher`. This includes:
 
 - settings (`settings.json`), the library cache, playtime Exo recorded, window position, cover art and thumbnail caches, achievement cache, and upscaler backups;
 - copies of custom game covers you choose. They are stored locally and never uploaded;
+- your Store wishlist (`wishlist-v2.json`) and the last sale price Exo told you about, the Store's saved pages (`store/home-v5.json`, Steam's public facts about the games it showed in `store/items-v1.json`, tag names in `store/tags-v1.json`), and your Exo Mouse profiles (`mouse/profiles.json`);
 - the store tools Exo downloads (Legendary, gogdl, Nile) and their data, plus the browser data from the Epic and GOG sign-in windows;
-- Nothing for SCSKiller. Library > Shaders shows SCSKiller's own app, which keeps its data in its own folder (`%LOCALAPPDATA%\SCSKiller`); Exo only reads its game list and per-game records there to show Compiled on a game's sheet. The first start of this version deletes the copy of SCSKiller an earlier Exo downloaded to `tools\scskiller`, after taking out any recorder that copy put in a game's folder;
-- the browser profile used for YouTube Music;
+- Exo Shaders, the shader engine behind Library > Shaders, keeps its compile records, recordings and settings in `%LOCALAPPDATA%\SCSKiller` (the same folder SCSKiller uses). Exo passes it your installed games' names and folders so it can find their shaders; nothing leaves your PC (see **Exo Shaders** under **Other network requests** for the files it may download);
+- the browser profile used for YouTube Music and Apple Music;
 - logs (see **Logs** below).
 
 To find your games, Exo reads local folders, store manifests, registry keys and data saved by store clients on this PC. Exo does not upload your library, install folders, launch settings, playtime or achievements. Some services see a game title or store id when Exo looks up artwork or hours for it; they are listed under **Other network requests**.
+
+To free memory, Exo reads the process list on this PC (names, parent processes, and the command line of a Battle.net process to tell its renderers apart) to find the browser helpers of Steam, the Epic Games Launcher, the EA app, Ubisoft Connect, GOG Galaxy and Battle.net, and lowers their memory use while they are hidden. It reads nothing inside them, keeps nothing and sends nothing.
 
 **Keys and sign-ins stay local.** Optional keys you paste (Steam Web API, itch.io, SteamGridDB) and your saved Riot ID are encrypted with Windows (DPAPI) for your Windows user. They are not written to `settings.json`, not shown back in the app, and only sent to the service they belong to (see **Other network requests**). Other programs running as the same Windows user can still get at them.
 
@@ -49,22 +52,24 @@ Exo can show some desktop apps inside its own window. Those apps keep their own 
 
 - **Hosting.** The Discord room shows your installed Discord desktop app. Once setup is finished, Exo starts Discord hidden when Exo opens, so the room opens instantly. Discord closes when Exo closes.
 - **Settings Exo changes.** To fit Discord in its window, Exo edits a few window settings in Discord's `settings.json`.
-- **"Optimize Discord" (off by default).** When you press Run, Exo:
+- **Equicord (always on).** The first time Discord starts through Exo, and whenever Discord updates, Exo:
   - downloads a fixed Equicord build from Equicord's GitHub releases and checks its size and SHA-256;
   - changes Discord's app files so Discord loads Equicord, keeping Discord's original file next to it;
-  - writes Equicord settings, including plugins that block Discord's analytics, clean tracking parameters from links and hide clutter, and keeps a small file beside them (`exo-applied.json`) recording which values Exo set, so your own changes in Equicord are kept.
+  - writes Equicord settings, including plugins that block Discord's analytics, clean tracking parameters from links and hide clutter, plus FakeNitro (Nitro emoji, stickers and stream quality without Nitro, which Discord's terms forbid; turn it off in Equicord's plugins if you'd rather not), and keeps a small file beside them (`exo-applied.json`) recording which values Exo set, so your own changes in Equicord are kept;
+  - once, only where an earlier Exo set Discord's zoom, reads Discord's zoom from its own storage on your PC (the `AccessibilityStore` entry, nothing else) and puts it back to 100% if it is still the value Exo set. Nothing leaves your PC, and a zoom you choose in Discord later is never changed.
 
-  After the first install, Equicord updates itself. Undo puts Discord's original file back. Exo also undoes the change if a Discord update gets stuck. If you installed Equicord yourself, Exo leaves it alone.
+  After the first install, Equicord updates itself. Exo puts Discord's original file back if a Discord update gets stuck. If you installed Equicord yourself, Exo leaves it alone. Discord's terms forbid client modifications; that risk comes with using Discord through Exo.
 
-### Spotify, Apple Music and Cider
+### Spotify and Cider
 
 These are your installed desktop apps. When Exo starts one of them:
 
-- **Spotify.** While **Optimize Spotify** is on (the default), Exo recolors it and hides ads, promos and install prompts by adding CSS to Spotify's local `xpui.spa` file, and turns on two of Spotify's own preferences that hide home-page takeovers and promoted songs; Undo puts the original file back and removes those two lines. It turns on Spotify's "system media controls" preference so the mini player can follow playback. It also starts Spotify with a debugging port that only this PC can reach, and uses it to hide Spotify's window buttons and, while optimized, to pause Canvas videos.
-- **Cider.** Exo adds a marked block of CSS to Cider's own settings file to hide its window buttons and, while **Optimize Cider** is on, to turn off blurred panels and smooth scrolling. The block is removed when Cider closes.
-- **Apple Music.** While **Optimize Apple Music** is on (the default), Exo runs a local helper that recolors the app.
+- **Spotify.** Exo recolors it and hides ads, promos and install prompts by adding CSS to Spotify's local `xpui.spa` file, and turns on two of Spotify's own preferences that hide home-page takeovers and promoted songs. It turns on Spotify's "system media controls" preference so the mini player can follow playback. It also starts Spotify with a debugging port that only this PC can reach, and uses it to hide Spotify's window buttons and to pause Canvas videos.
+- **Cider.** Exo adds a marked block of CSS to Cider's own settings file to hide its window buttons and to turn off blurred panels and smooth scrolling. The block is removed when Cider closes.
 
 All of these changes stay on this PC. The mini player reads what is playing from Windows' media controls.
+
+**Exo's Music room for Spotify** draws Spotify's pages itself. Through that same local debugging port it asks the Spotify app for what the room shows (your library, home, search, playlists, albums, artists, podcasts, the queue, devices, recently played, lyrics of the playing song, your friends' activity, and your Jam) and passes on what you click (play, queue, like, add to or remove from a playlist, start, leave or end a Jam, remove someone from it). Spotify makes every one of these requests itself, with its own sign-in, exactly as when you click in Spotify; Exo never reads your token or cookies. Only small summaries (names, picture links, durations) reach Exo's window, and nothing is stored. A Jam's invite link reaches Exo only to be copied when you press Copy invite link. Album art, profile pictures and lyrics' covers load in Exo's window straight from Spotify's image servers (`*.scdn.co`, `*.spotifycdn.com`).
 
 ### Your mouse (Exo Mouse)
 
@@ -75,6 +80,12 @@ Earlier versions of Exo answered the OpenMouse web panel through a bridge of the
 ### YouTube Music
 
 YouTube Music runs inside Exo as a web page (Microsoft Edge WebView2), using a browser profile stored under `%LocalAppData%\ExoLauncher`. You sign in to Google there, and Google handles that data.
+
+Exo's Music room draws YouTube Music's pages itself and keeps that page out of sight behind it (it shows only so you can sign in). Exo asks the page for what the room shows (home, search, your library, playlists, albums, artists, the queue, lyrics) and passes on what you click (play, like, shuffle, repeat); the page makes every request itself with your Google sign-in, as when you click in it, and Exo never reads its cookies or tokens. Only small summaries reach Exo's window, and nothing is stored. Covers load in Exo's window straight from Google's image servers (`*.googleusercontent.com`, `i.ytimg.com`).
+
+### Apple Music
+
+Apple Music runs inside Exo as Apple's own web player (music.apple.com) in the same browser profile. You sign in to Apple there, in Apple's own sign-in window, and Apple handles that data. Exo's Music room draws Apple Music's pages itself and keeps that page out of sight behind it (it shows only so you can sign in). Exo asks the page's own Apple Music player (MusicKit) for what the room shows (home, recently played, search, your library, playlists, albums, artists, the queue, lyrics of the playing song) and passes on what you click (play, add to the queue, favorite, add to or remove from your library or a playlist, shuffle, repeat, volume). The page makes every request itself, with Apple's own developer token and your sign-in; Exo never reads, stores or copies those tokens or its cookies. Music plays inside Apple's page, protected as Apple protects it; Exo never handles the audio. Only small summaries (names, picture links, durations) reach Exo's window, and nothing is stored. Covers load in Exo's window straight from Apple's image servers (`*.mzstatic.com`). The Apple Music app for Windows is no longer used.
 
 Exo adds these browser extensions to that profile:
 
@@ -89,7 +100,7 @@ These extensions have their own privacy policies. Pages that ask for your microp
 | Destination | What is sent | When |
 | --- | --- | --- |
 | GitHub (ExoLauncher releases) | Version lookup; update download | When Exo starts, and when you press **Check**. The download happens only when you choose to install. Update checks cannot be turned off. |
-| GitHub (Legendary, gogdl, Nile, Equicord releases) | Download of a fixed version, checked against its SHA-256 | When a feature first needs the tool, or when you press Run on **Optimize Discord** and Equicord is not downloaded yet |
+| GitHub (Legendary, gogdl, Nile, Equicord releases) | Download of a fixed version, checked against its SHA-256 | When a feature first needs the tool, and Equicord the first time Discord starts through Exo |
 | Epic, GOG, Amazon (through Legendary, gogdl, Nile) | Your own store sign-in, library, installs, updates | When you sign in, refresh, install or play |
 | Epic account and library services | Your Legendary/Heroic or Epic Games Launcher sign-in, used to read your Epic playtime | When your library refreshes, if you're signed in to Epic on this PC |
 | GOG (gameplay.gog.com, api.gog.com, gamesdb.gog.com) | Your gogdl sign-in for achievements and owned games; product ids for artwork | When your library or achievements refresh |
@@ -100,8 +111,11 @@ These extensions have their own privacy policies. Pages that ask for your microp
 | Cover art: Steam CDN and Steam store search, Epic store catalog, GOG, Microsoft Store catalog | Steam app ids, store product ids, and game titles as search terms | When a game needs artwork |
 | SteamGridDB | Your pasted key and a Steam app id | Only if you pasted a key |
 | IGDB (Twitch) | Developer credentials | Developer builds only |
-| Vendor upscaler files (NVIDIA DLSS, AMD FidelityFX SDK and Intel XeSS repositories on GitHub, raw.githubusercontent.com at pinned commits) | File downloads, checked against SHA-256 values built into Exo | Only when you choose Update all or a version for a game's DLSS / FSR / XeSS file |
-| SCSKiller's own app | Exo sends SCSKiller nothing. Its app makes its own requests (its update feed, its Patreon sign-in, the community recordings) under [its own privacy terms](https://github.com/BlueHeisenberg/SCSKiller) | Whenever the app runs, inside Exo or from its tray |
+| Vendor upscaler files (NVIDIA DLSS, AMD FidelityFX SDK and Intel XeSS repositories on GitHub, raw.githubusercontent.com at pinned commits; other DLSS, FSR 3.1 and XeSS builds from DLSS Swapper's archive, dlss-swapper-downloads.beeradmoore.com) | File downloads, checked against SHA-256 values built into Exo, or for archive builds the list's size and MD5 and then the SHA-256 Exo recorded, and always the vendor's signature and version | When you choose Update all or a version for a game's DLSS / FSR / XeSS file |
+| DLSS Swapper's release list (beeradmoore.github.io/dlss-swapper/manifest.json) | Nothing about you or your games; an ordinary download | When the upscaler page or sheet is opened, at most once a day |
+| Store room: Steam store and Steam Web API (store search, ranked lists, game pages), CheapShark (prices from official stores only), Epic free games | Search terms, Steam app ids, and the app ids on your wishlist | When you open the Store, and a wishlist price check a minute after Exo starts and every 6 hours |
+| Store room: Steam tag names (IStoreService/GetTagList) | Nothing personal: only the language (English) | When a game page opens, at most once a week |
+| Exo Shaders (GitHub: Oodle and zlib-ng codec libraries, and some games' public archive keys) | Nothing about you: ordinary downloads of fixed files | Only when a game it compiles needs them. Exo Shaders makes no calls to SCSKiller's servers: no account, no community recordings, no diagnostics and no daily check |
 | Microsoft (Visual C++ and other runtimes), Discord, Spotify | Official installer downloads | Only when you choose to install them |
 
 Store and service websites (store pages, key redemption, sign-up pages) open in your normal browser.

@@ -21,12 +21,13 @@ body:
       options:
         - Install or update Exo
         - Library or game details
-        - Discover or wishlist
+        - Upscalers or Shaders
+        - Store or wishlist
         - Downloads or game updates
         - Music
-        - Friends or Discord
-        - Devices or game profiles
-        - Settings or Exo account
+        - Discord
+        - Devices or mouse profiles
+        - Settings
         - Something else
     validations:
       required: true

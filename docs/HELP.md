@@ -1,65 +1,46 @@
 # Getting started and help
 
-## Install or update Exo
+## Install and update
 
 1. Download **ExoLauncher-Setup.exe** from the [latest release](https://github.com/ImAvgErix/ExoLauncher/releases/latest).
-2. Run the installer, then open Exo Launcher.
-3. Let Exo find your games and connect the stores or services you want in Settings.
+2. Run it and open Exo. Setup asks for your game stores, then your music service and Discord.
+3. Exo finds your games. Updates download in the background and install when you choose; your settings, library and sign-ins stay.
 
-Exo requires **Windows 11 x64**. The installer is unsigned, so Windows may show a SmartScreen warning. Updates keep your settings and sign-ins. You can find your installed version and check for updates in Settings.
+Exo needs **Windows 11 x64** and installs for your Windows user only. The installer isn't code-signed yet, so SmartScreen may warn the first time: choose **More info**, then **Run anyway**. Each release lists the installer's SHA-256.
 
-## Find and play your games
+## Library
 
-Open **Library** to browse your games. Select a game to see its details and available actions. Pin favorites for quick access, or add a local game folder when a game isn't found automatically.
+- **A game is missing.** Press the round **Refresh** button next to **+**. Exo reads every store again. For Epic, GOG or Amazon, sign in under **Settings > Game stores**. For a game outside any store, press **+** and pick its folder or executable.
+- **Play, install and update.** Double-click an installed game, or open its page. Updates and downloads show in **Downloads & updates** at the bottom of the Library. Downloads can pause while you play and wait for the hours you set in **Settings > Downloads**.
+- **Covers.** Replace cover on a game's page uses your own picture; Refresh art fetches the store's again.
 
-Store support varies: Steam, Epic, and GOG provide supported library and game actions, while several other stores support finding and launching installed games. Keep the official client installed where required. [See the store-by-store guide](VENDORS.md).
+## Upscalers and Shaders
 
-If a game is missing, check the store account, confirm that the game is installed when required, and refresh the library. If an action fails, read the message shown in Exo and check that the official store client can access the game. Epic and GOG may also need their helper tool or sign-in restored.
+- **Upscalers** (Library > Upscalers, or a game's page) update DLSS, FSR and XeSS files a game already has. Close the game first. **Restore** puts the game's own files back. A game with anti-cheat changes only after you allow it on its page, at your own risk; Riot games are never changed. **DLSS presets** needs an NVIDIA graphics card.
+- **Shaders** (Library > Shaders) precompiles games' shaders. Press **Compile all ready**, or **Compile** on a game's page. It compiles again by itself after a graphics driver update, while your PC is idle.
 
-Open **Downloads & updates** for available game updates and ongoing download progress. Update and removal options depend on the store.
+## Store
 
-## Browse Discover
+Browse, search and wishlist games. **Get on Steam** and the other buttons open the store's own app (or its page when the app isn't installed) to buy. Prices are in your Windows region's currency. Wishlisted games on sale show on the Store tab.
 
-Use **Discover** to browse categories, offers, and search results. Open a game for more information, then return to continue browsing. Catalogs, prices, and availability can change by service and region.
+## Discord
 
-Your wishlist is stored on this PC and shared between Exo accounts on this PC. It doesn't sync to other computers.
+The Discord room is your own Discord app. Sign in to Discord there. Exo runs Discord with Equicord and Exo's plugin set, which includes FakeNitro; Discord's terms forbid client mods, and you can turn any plugin off in Discord's settings under Equicord. Discord's own settings (text size, zoom, notifications, voice) are where you change Discord.
 
-## Music and Discord
+## Music
 
-Choose Apple Music, Spotify, or YouTube Music for **Music**, then sign in to that service. A subscription may be required. The mini player lets you control supported playback while browsing Exo.
+Pick Spotify, Apple Music, YouTube Music or Cider in **Settings > Music and Discord**, then press **Sign in** in the Music room and sign in on the service's own page. Spotify needs its desktop app, which Exo can install for you. **Songs**, under Home, lists every song you saved. The mini player in the top bar controls playback from every room.
 
-Open **Friends** for Discord chats and calls. Discord uses its own account; an Exo account doesn't sign you into Discord or your music service.
+If the Music room stays empty or signed out, check that the service works in your browser, then sign in again from the Music room.
 
-If a service is blank, stuck, or signed out, check your connection and whether its website works in your browser, then reopen Exo and sign in again if requested. Service outages or account restrictions can also affect the embedded page.
+## Devices
 
-For calls and other embedded features, check microphone, camera, clipboard, and notification permissions in Settings. Screen sharing asks you to choose what to share each time. Windows privacy settings can also affect microphone and camera access.
+Plug in a supported mouse or its receiver and open **Devices**. Only the settings your mouse has are shown; every change is written to the mouse and read back. Save a profile, link it to games, and it switches on by itself when one starts. If the mouse isn't found, wake it, check its battery and connection, then open Devices again.
 
-## Mouse controls and game profiles
+## Your data
 
-Open **Devices** with a supported mouse or receiver connected. Available settings depend on the model and connection. Use the controls shown for the device, or open **Game profiles** to manage profiles for your games and desktop.
+Everything Exo keeps is in `%LocalAppData%\ExoLauncher`. Exo has no account, ads, analytics or telemetry. The [privacy policy](../PRIVACY.md) lists every network request.
 
-If Exo sees the receiver but says the mouse isn't responding, turn on or wake the mouse, check its battery and connection mode, then select **Rescan**. A connected receiver alone doesn't mean mouse settings can be read or changed.
+## Report a problem
 
-If a profile doesn't switch as expected, check the games assigned to that profile and confirm the device is responding. Include the mouse model and wired or wireless connection type when reporting a problem.
-
-## Accounts and local data
-
-An Exo account is optional. You can browse and launch locally installed games while signed out. Games may still require their store's account or online access, and downloads, updates, Music, Discord, and online catalogs need a connection.
-
-Exo accounts currently use email and password. Password reset, email verification, Google sign-in, and email sign-in links are not available yet. Account export and deletion are available in Settings; deletion may require a recent sign-in.
-
-Settings and local library data are stored under `%LocalAppData%\ExoLauncher`. Read the [privacy statement](../PRIVACY.md) for account data, third-party services, and retention details.
-
-## Optional game tools
-
-Upscaler tools apply only to supported existing game files. Close the game first, read the message shown for that title, and use the available backup restore action if needed. Compatibility varies by game; protected or anti-cheat titles may be unavailable for these tools.
-
-## Report a problem or suggest something
-
-Check [existing issues](https://github.com/ImAvgErix/ExoLauncher/issues) first, then [open a report or feature request](https://github.com/ImAvgErix/ExoLauncher/issues/new/choose).
-
-For problems, include your Exo version from Settings, the affected room or store, what you did, and what happened. An exact error message or screenshot helps. For device problems, include the model and connection type.
-
-GitHub issues are public. Remove passwords, tokens, email addresses, private chats, and personal file paths from screenshots or log excerpts before posting. Share only the relevant excerpt, rather than your whole Exo data folder.
-
-[Supported features](SUPPORT_MATRIX.md) · [Patch notes](../CHANGELOG.md) · [Back to Exo](../README.md)
+Check [existing issues](https://github.com/ImAvgErix/ExoLauncher/issues) first, then [open a report](https://github.com/ImAvgErix/ExoLauncher/issues/new/choose). Include your Exo version (Settings > About) and, if you can, the log at `%LocalAppData%\ExoLauncher\logs\app.log`. It contains no passwords or keys.

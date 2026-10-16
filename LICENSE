@@ -12,4 +12,8 @@ Previously released versions obtained under the MIT license retain their MIT per
 
 Third-party components, fonts, libraries, and other materials remain governed by their own licenses. These terms do not restrict rights granted by those licenses or replace their required notices.
 
+The installer also carries separate programs under open-source licenses: Exo Mouse (AGPL-3.0-or-later, source at https://github.com/ImAvgErix/exo-mouse), Exo Shaders (GPL-3.0-or-later with an additional permission, source at https://github.com/ImAvgErix/exo-shaders) and uBlock Origin (GPL-3.0). Their licenses, not these terms, govern those programs, and nothing here limits the rights those licenses give you. See THIRD_PARTY_NOTICES.md.
+
+Exo Launcher is an independent product, not affiliated with or endorsed by the game stores, music services, Discord, hardware makers or other companies whose names or services it works with. Their names and marks belong to their owners. Using those services through Exo remains subject to each service's own terms, which you accept with them, not with these terms.
+
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT. TO THE EXTENT PERMITTED BY LAW, THE COPYRIGHT HOLDER IS NOT LIABLE FOR CLAIMS, DAMAGES, OR OTHER LIABILITY ARISING FROM THE SOFTWARE OR ITS USE.
