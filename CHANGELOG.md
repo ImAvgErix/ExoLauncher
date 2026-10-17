@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.5.5 — October 17, 2026
+
+This update shows Fortnite as one game.
+
+### Library
+- **Fortnite is one card.** The new Epic Games Launcher lists Fortnite's modes, like LEGO Fortnite Odyssey and Save the World, as their own installs with no name, so each showed as an extra card titled with a code. They now fold into Fortnite's card, and their hours count toward it. The same goes for any Epic game whose modes install this way. _Checked in code only._
+
 ## 3.5.4 — October 17, 2026
 
 This update counts hours for Minecraft and Roblox, keeps Fortnite's hours moving, finds more of your owned Steam and Epic games, and lets Update all in Upscalers include anti-cheat games at your risk.
