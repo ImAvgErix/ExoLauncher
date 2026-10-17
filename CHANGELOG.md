@@ -140,8 +140,6 @@ This update rebuilds setup and Settings, shows your whole Steam library without 
 - **Exo no longer shares your status or game activity.** While you were signed in, Exo kept a connection open to the Exo account service and sent it whether you were online and which game you were playing. About a minute after your library changed, it also uploaded your total hours, game counts, up to ten of your most-played games with their hours and achievement counts, and a random id for this PC. Exo sends none of that now. The account only signs you in and out, exports your data and deletes the account, and the id file is deleted on the next start. Whatever an earlier version sent is in your account export and is removed if you delete the account. The privacy statement is rewritten to match what Exo actually does.
 - **Smaller app.** Code for retired features, unused styles and host messages nothing called are removed, along with a Discord start-up setting Exo wrote that Discord never reads. An Exo account no longer syncs preferences, which needed a handle Exo no longer offers; your settings stay on this PC. Exo's own page now loads scripts only from Exo and allows nothing it does not show.
 
-[Download Exo Launcher for Windows 11](https://github.com/ImAvgErix/ExoLauncher/releases/download/v3.3.0/ExoLauncher-Setup.exe)
-
 Requires Windows 11 x64.
 
 ## 3.2.7 — September 23, 2026
@@ -167,8 +165,6 @@ This update makes Exo start about three times faster, use less memory, and keep 
 - **Smoother UI.** Scrolling runs on the compositor, cards no longer rebuild on every library refresh or remount when they change rows, the command palette takes mouse clicks and always lists its actions, and messages like "Install complete" stay on screen.
 - **A hosted app that comes up empty gets one clean start.** If Discord, Spotify, Apple Music or Cider is running but never produces its own window, Exo used to keep waking that same wedged process and give up, leaving the room empty until you noticed and restarted the app yourself. It now closes that tree once and starts the app fresh, which is what recovers a client whose runtime was replaced underneath it. An app you already had open yourself is never restarted; it stays yours.
 
-[Download Exo Launcher for Windows 11](https://github.com/ImAvgErix/ExoLauncher/releases/download/v3.2.7/ExoLauncher-Setup.exe)
-
 Requires Windows 11 x64.
 
 ## 3.2.6 — September 16, 2026
@@ -176,8 +172,6 @@ Requires Windows 11 x64.
 This update keeps the mini player from moving the window when you use it.
 
 - **The player is not a drag handle.** While a track is showing, the mini player and the space around it stay clickable — skip, seek, volume, and the track. Other blank parts of the top bar still move the window. With no song, that empty centre drags again.
-
-[Download Exo Launcher for Windows 11](https://github.com/ImAvgErix/ExoLauncher/releases/download/v3.2.6/ExoLauncher-Setup.exe)
 
 Requires Windows 11 x64.
 
@@ -188,8 +182,6 @@ This update installs hosted apps during setup, checks for Exo updates on the boo
 - **Install Discord, Spotify, Apple Music and Cider during setup.** Permissions lists each app. You can install more than one even if Exo plays a different service. Extra players stay on disk until you switch to them.
 - **Updates before the library.** If a newer Exo is on GitHub, the logo screen offers it. Update downloads and installs there; the silent installer closes this build and opens the new one. Not now still opens the app. Settings can still check later.
 - **Mini player volume stays where you left it.** The control no longer reports 100% when it has not read the playing session, and it no longer writes that 100% onto a quieter song when you click it.
-
-[Download Exo Launcher for Windows 11](https://github.com/ImAvgErix/ExoLauncher/releases/download/v3.2.5/ExoLauncher-Setup.exe)
 
 Requires Windows 11 x64.
 
@@ -258,8 +250,6 @@ This update makes game actions more reliable, reduces repeated background work, 
 
 **Updating keeps your settings and sign-ins.**
 
-[Download Exo Launcher for Windows 11](https://github.com/ImAvgErix/ExoLauncher/releases/download/v3.2.4/ExoLauncher-Setup.exe)
-
 Requires Windows 11 x64.
 
 [Getting started and help](https://github.com/ImAvgErix/ExoLauncher/blob/main/docs/HELP.md) · [Support on Ko-fi](https://ko-fi.com/uhherix)
@@ -283,8 +273,6 @@ itch.io joins Discover, Discord notifications get a quieter look, and everyday w
 
 **Updating keeps your settings and sign-ins.**
 
-[Download Exo Launcher for Windows 11](https://github.com/ImAvgErix/ExoLauncher/releases/download/v3.2.2/ExoLauncher-Setup.exe)
-
 Requires Windows 11 x64.
 
 [Getting started and help](https://github.com/ImAvgErix/ExoLauncher/blob/main/docs/HELP.md) · [Support on Ko-fi](https://ko-fi.com/uhherix)
@@ -303,8 +291,6 @@ This update makes everyday controls respond sooner and brings a more consistent 
 
 **Updating keeps your settings and sign-ins.**
 
-[Download Exo Launcher for Windows 11](https://github.com/ImAvgErix/ExoLauncher/releases/download/v3.2.1/ExoLauncher-Setup.exe)
-
 Requires Windows 11 x64.
 
 [Getting started and help](https://github.com/ImAvgErix/ExoLauncher/blob/main/docs/HELP.md)
@@ -322,8 +308,6 @@ This update makes Exo feel quicker and keeps everyday actions running more smoot
 - **More dependable saves and installs.** Improved settings saves and Steam game removal, including when Steam has just opened.
 
 **Updating keeps your settings and sign-ins.**
-
-[Download Exo Launcher for Windows 11](https://github.com/ImAvgErix/ExoLauncher/releases/download/v3.2.0/ExoLauncher-Setup.exe)
 
 Requires Windows 11 x64.
 
