@@ -1,8 +1,8 @@
 <p align="center"><img src="docs/media/logo.png" alt="Exo" width="88"></p>
-<h1 align="center">Exo Launcher 3.6</h1>
+<h1 align="center">Exo Launcher 3.7</h1>
 <p align="center"><strong>Your games, your music, your friends and your mouse. One app.</strong></p>
 <p align="center">Exo brings every game store, Discord, Spotify, Apple Music, YouTube Music and your mouse software into one fast, quiet window for Windows 11.</p>
-<p align="center"><a href="https://github.com/ImAvgErix/ExoLauncher/releases/latest/download/ExoLauncher-Setup.exe"><strong>Download for Windows 11</strong></a> · <a href="https://github.com/ImAvgErix/ExoLauncher/releases/tag/v3.6.0">What's new in 3.6</a> · <a href="CHANGELOG.md">Changelog</a> · <a href="PRIVACY.md">Privacy</a></p>
+<p align="center"><a href="https://github.com/ImAvgErix/ExoLauncher/releases/latest/download/ExoLauncher-Setup.exe"><strong>Download for Windows 11</strong></a> · <a href="https://github.com/ImAvgErix/ExoLauncher/releases/tag/v3.7.0">What's new in 3.7</a> · <a href="CHANGELOG.md">Changelog</a> · <a href="PRIVACY.md">Privacy</a></p>
 
 ![The Exo Library: every game from every store in one grid](docs/media/library.jpg)
 
@@ -19,7 +19,7 @@ A normal gaming PC runs Steam, the Epic Games Launcher, Riot Client, Discord, Sp
 - **Faster to use.** Rooms switch instantly because their apps are already running. Store pages open in about half a second. The Library is usable about half a second after Exo's window appears.
 - **Your music, your way.** Spotify, Apple Music and YouTube Music all play in Exo's own player: the same look, the same controls, your whole song library one click away, Jam and Friend activity for Spotify, lyrics that follow the song, and a mini player in the top bar that works from every room.
 - **Game-aware.** Downloads pause while you play. Your mouse switches to a game's profile when it starts. Exo goes quiet behind a game and comes back when you do.
-- **Better games.** Update DLSS, FSR and XeSS in every game with checked, official files and a one-click restore, set NVIDIA's DLSS presets, and precompile shaders so games stop stuttering.
+- **Better games.** Update DLSS, FSR and XeSS in every game with checked, official files and a one-click restore, pick the best NVIDIA driver profile for your card, and precompile shaders so games stop stuttering.
 - **Yours.** No Exo account, no ads, no analytics, no telemetry. Your library, settings and keys stay on your PC.
 
 ## How it works
@@ -44,12 +44,11 @@ A game's page shows where it's from, time played, last launched, its size and ac
 
 ### Upscalers
 
-![Library > Upscalers: NVIDIA DLSS presets for every model](docs/media/upscalers.jpg)
+![Library > GPU > Upscalers](docs/media/upscalers.jpg)
 
-Library > Upscalers lists every installed game that can get newer DLSS, FSR or XeSS and updates them all at once.
+Library > GPU > Upscalers lists every installed game that can get newer DLSS, FSR or XeSS and updates them all at once.
 - **Files:** every file is the vendor's own, checked for its signature, exact version and checksum before it goes in, and Restore puts the game's originals back byte for byte. A running game waits until you close it.
 - **Anti-cheat:** a game with anti-cheat changes only after you allow it for that game, at your own risk. Riot games are never changed.
-- **DLSS presets:** on an NVIDIA PC, this tab sets the driver's forced preset for Super Resolution, Ray Reconstruction and Frame Generation, with what each model is good at and the best one for your card marked.
 
 ### Shaders
 

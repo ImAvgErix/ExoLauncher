@@ -31,7 +31,7 @@ The source for every build of these programs that Exo ships is published at the 
 | hls.js | 1.7.3 | Apache-2.0 |
 | dash.js | 4.7.4 | BSD-3-Clause |
 | Hugeicons free icons and React bindings | 4.3.4, 1.1.10 | MIT |
-| Geist font (Vercel), via Fontsource | 5.3.0 | SIL Open Font License 1.1 |
+| Inter font (Rasmus Andersson and the Inter Project Authors): Fontsource 5.3.0 in the UI, InterVariable.ttf 4.1 in the app | 5.3.0 / 4.1 | SIL Open Font License 1.1 |
 
 The WebView2 Runtime itself is Microsoft's, installed and updated by Windows.
 
