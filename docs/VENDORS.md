@@ -1,87 +1,28 @@
-# Vendor backends
+# Game stores and the tools Exo uses
 
-Exo Launcher prefers shelling out to mature open tools over re-implementing store protocols.
+Exo Launcher doesn't replace any store's downloads, sign-in or copy protection. For each store it uses the store's own client or a well-known open-source tool, and those keep doing the store's job.
 
-## Strategy
-
-| Backend | Store | License | Pin approach |
+| Store | What Exo uses | License | How Exo gets it |
 | --- | --- | --- | --- |
-| [Legendary](https://github.com/derrod/legendary) | Epic | GPL-3.0 | Exo downloads a fixed release from GitHub and checks its size and SHA-256 |
-| [heroic-gogdl](https://github.com/Heroic-Games-Launcher/heroic-gogdl) | GOG | GPL-3.0 | Same |
-| [Nile](https://github.com/imLinguin/nile) | Amazon Games | GPL-3.0 | Same |
-| Official clients | Steam, Epic Games, GOG Galaxy, Riot, Xbox, EA app, Ubisoft Connect, Battle.net, Amazon Games, Rockstar Games Launcher | Proprietary | Detected from exact executables and registration; never redistributed by Exo |
+| Steam | The official Steam client, through a small Exo helper | Proprietary (Valve) | Already on your PC; Exo never copies or redistributes it |
+| Epic Games | [Legendary](https://github.com/derrod/legendary) | GPL-3.0 | Downloaded the first time a feature needs it, at a fixed version checked by size and SHA-256 |
+| GOG | [heroic-gogdl](https://github.com/Heroic-Games-Launcher/heroic-gogdl) | GPL-3.0 | Same as Legendary |
+| Amazon Games | [Nile](https://github.com/imLinguin/nile) | GPL-3.0 | Same as Legendary |
+| Riot | The official Riot Client | Proprietary (Riot Games) | Already on your PC |
+| Xbox, EA app, Ubisoft Connect, Battle.net, Rockstar Games Launcher, itch.io | The store's own client, where the game needs one | Proprietary | Already on your PC |
 
-Exo does not bundle these GPL tools into its installer: it downloads them when a feature first needs them and runs each as its own program. A copy you put on PATH or in `%LocalAppData%\ExoLauncher\tools\` is used instead. Adapters say so plainly when a backend is missing.
+Legendary, gogdl and Nile aren't bundled in Exo's installer. Each runs as its own program, and a copy you put on PATH or in `%LocalAppData%\ExoLauncher\tools\` is used instead of the download. If a tool is missing, Exo says so plainly.
 
-Steam, Epic, GOG, and Riot have wired game-library actions. Xbox, EA app,
-Ubisoft Connect, Battle.net, Amazon Games, and Rockstar Games Launcher list
-only proven on-disk installs and launch those titles; Exo does not invent
-account state, ownership, or install/update through those clients.
+## What Exo does
 
-## Legendary (Epic)
+- **Steam:** lists your owned and installed games and installs, updates, removes and launches them through the Steam client you're signed in to. Download progress is Steam's own.
+- **Epic, GOG and Amazon:** lists your library and installs, updates and launches games through Legendary, gogdl and Nile. You sign in on the store's own page.
+- **Riot:** finds Riot games installed anywhere, shows when Riot needs to update them, and launches them with the Riot Client's own commands.
+- **Xbox, EA app, Ubisoft Connect, Battle.net, Rockstar and others:** finds the games installed on your PC and launches them.
 
-```text
-legendary auth
-legendary list-installed --json
-legendary install <AppName> -y --base-path <path>
-legendary install <AppName> -y --update-only
-legendary launch <AppName>
-legendary uninstall <AppName> -y
-```
+## What Exo doesn't do
 
-Progress is parsed from DLManager stdout (`Progress: N%`, MiB/s lines).
-
-## gogdl (GOG)
-
-```text
-gogdl auth
-gogdl download <id> --platform windows --path <path>
-gogdl repair <id> --platform windows --path <path>
-gogdl launch --path <path> <id>
-```
-
-Galaxy is optional for the happy path.
-
-gogdl has **no stable “list owned” CLI**. Owned-but-not-installed titles come from:
-
-1. GOG registry (installed)
-2. Library JSON caches (Heroic `gog_store/library.json`, or `%LocalAppData%\ExoLauncher\gog-owned.json`)
-
-Drop a products array into `gog-owned.json` after auth if you want Exo to show not-yet-installed owned titles.
-
-## Riot
-
-Official flags only (no CDN scrapers):
-
-```text
-RiotClientServices.exe --launch-product=<id> --launch-patchline=live
-RiotClientServices.exe --uninstall-product=<id> --uninstall-patchline=live
-RiotClientInstall.exe --skip-to-install
-```
-
-Vanguard (`vgk` / `vgc`) is never force-closed.
-
-## Steam
-
-Exo commands the already-running official Steam client through a small helper
-(`ExoLauncher.SteamIpc.exe` → `steamclient64.dll` IClientAppManager). Steam
-stays on disk where Valve installed it. Exo does not copy the Steam tree, does
-not click Steam chrome, and does not use DepotDownloader.
-
-```text
-install / update / uninstall <appid>   via the live Steam client
-steam://rungameid/<appid>              launch
-```
-
-Progress is Steam’s live download job: `appmanifest_*.acf` when those counters
-are moving, otherwise the job totals from `content_log` plus bytes in
-`steamapps/downloading/<appid>`. A leftover full ACF or a one-shot
-`download 0/total` line is not shown as 0% or 100%. The helper identifies
-`IClientAppManager` by RTTI on this Steam build (`GetIClientAppManager` is
-engine slot 43; `InstallApp` takes app id, folder index, and a legacy flag).
-
-## Other stores
-
-Epic, GOG, and Riot already command official agents (Legendary, gogdl,
-RiotClientServices). Xbox, EA app, Ubisoft Connect, Battle.net, Amazon Games,
-and Rockstar Games Launcher stay list + launch until an official agent exists.
+- It doesn't download games from store servers itself, use unofficial downloaders, or click through a store's window for you.
+- It doesn't invent ownership, account state, installs or updates for stores that don't offer them to other apps. For those, Exo shows only what's installed on your PC.
+- It never modifies Riot games and never closes anti-cheat such as Riot Vanguard.
+- It doesn't edit game files, except upscaler files you choose to update in Library > Upscalers, with a restore.
