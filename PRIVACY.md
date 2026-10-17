@@ -105,7 +105,7 @@ These extensions have their own privacy policies. Pages that ask for your microp
 | Epic account and library services | Your Legendary/Heroic or Epic Games Launcher sign-in, used to read your Epic playtime | When your library refreshes, if you're signed in to Epic on this PC |
 | GOG (gameplay.gog.com, api.gog.com, gamesdb.gog.com) | Your gogdl sign-in for achievements and owned games; product ids for artwork | When your library or achievements refresh |
 | Steam | Nothing is sent. Owned games come from the Steam client running on this PC | When your library refreshes |
-| Steam Web API | Your pasted key and Steam id, for owned games and achievements | Only if you pasted a key |
+| Steam Web API | Your pasted key and Steam id, for owned games and achievements; to the Steam store, the app id of an owned app Steam has no details for on this PC, to tell a game from a tool or DLC | Only if you pasted a key |
 | itch.io API | Your pasted key, for owned games | Only if you pasted a key |
 | tracker.gg | Your Riot ID (Name#TAG), to read public Valorant / League of Legends hours | About 12 seconds after Exo starts (at most every 12 hours), and when you refresh. Exo uses a Riot ID you saved, or one it reads from the Riot Client on this PC. Riot sign-in data is never sent. |
 | Cover art: Steam CDN and Steam store search, Epic store catalog, GOG, Microsoft Store catalog, and the image servers a store's own data points to | Steam app ids, store product ids, and game titles as search terms; for a picture a store's own data names (Riot, Ubisoft, EA, Battle.net, Xbox, IGDB, SteamGridDB), the request for that picture | When a game needs artwork |
