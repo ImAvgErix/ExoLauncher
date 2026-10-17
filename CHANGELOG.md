@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.5.2 — October 17, 2026
+
+This update brings Razer mice into Devices.
+
+### Devices
+- **Razer mice show up.** A Razer mouse such as the Viper V3 Pro never appeared in Devices: Razer keeps its settings on the part of the mouse Windows reserves for moving the pointer, and Exo stayed away from it. Exo now reaches that part for the mouse's settings only, the way OpenMouse Bridge and Chrome do, while the pointer stays Windows' own and keyboards are never touched. _Checked in code only._
+
 ## 3.5.1 — October 17, 2026
 
 This update closes the holes a security review of Exo found, keeps Exo further away from anti-cheat, and makes text sizes and hover effects match across the app.
