@@ -16,4 +16,4 @@ What Exo Launcher 3.5 does in each area, and what it depends on. Windows 11 x64.
 | Music | Exo's own player for Spotify, Apple Music and YouTube Music, plus Cider hosted as is; mini player in the top bar | The service's own account and subscription; Spotify needs its desktop app, Apple Music and YouTube Music play through their web players |
 | Devices | Exo Mouse: DPI, polling, lift-off, switches, lighting, profiles per game for mice OpenMouse supports, and the Finalmouse Starlight X | A supported mouse or receiver; no vendor software or driver needed |
 
-Exo is verified on a real Windows 11 PC with its end-to-end script (`tools/e2e/Invoke-ExoE2E.ps1`) and on-screen checks. Stores, services and hardware Exo can't test on that PC are marked as checked in code only in the changelog.
+Exo is verified on a real Windows 11 PC, on screen and with an automated end-to-end run of the installed app. Each changelog entry says how it was checked: Verified: on screen, Verified: end-to-end, or Checked in code only for stores, services and hardware that PC can't test.

@@ -10,8 +10,8 @@ body:
     id: version
     attributes:
       label: Exo version
-      description: Find this in Settings under About.
-      placeholder: "3.2.0"
+      description: The version shown in Settings > About.
+      placeholder: "Settings > About"
     validations:
       required: true
   - type: dropdown
