@@ -8,19 +8,20 @@ Your library, installs, updates, game launches and settings work offline. Exo ha
 
 Exo keeps its data in `%LocalAppData%\ExoLauncher`. This includes:
 
-- settings (`settings.json`), the library cache, playtime Exo recorded, window position, cover art and thumbnail caches, achievement cache, and upscaler backups;
+- settings (`settings.json`), the library cache, playtime Exo recorded, hours Xbox and tracker.gg reported (`reported-hours.json`: game titles and minutes only), window position, cover art and thumbnail caches, achievement cache, and upscaler backups;
 - copies of custom game covers you choose. They are stored locally and never uploaded;
 - your Store wishlist (`wishlist-v2.json`) and the last sale price Exo told you about, the Store's saved pages (`store/home-v5.json`, Steam's public facts about the games it showed in `store/items-v1.json`, tag names in `store/tags-v1.json`), and your Exo Mouse profiles (`mouse/profiles.json`);
 - the store tools Exo downloads (Legendary, gogdl, Nile) and their data, plus the browser data from the Epic and GOG sign-in windows;
 - Exo Shaders, the shader engine behind Library > Shaders, keeps its compile records, recordings and settings in `%LOCALAPPDATA%\SCSKiller` (the same folder SCSKiller uses). Exo passes it your installed games' names and folders so it can find their shaders; nothing leaves your PC (see **Exo Shaders** under **Other network requests** for the files it may download);
+- Exo Capture, the add-on behind the Capture button, saves the instant replays, recordings and snips you ask for in your captures folder (`Videos\Exo Captures` unless you choose another), and keeps its settings, thumbnails and which game each capture belongs to in `capture` under Exo's data folder. It captures the game's window or the screen through Windows; only when Windows gets no picture from a game (exclusive full screen) does it load OBS Studio's game capture hook into that game to copy its frames, never into Riot games or while FACEIT or ESEA runs. It records only the sound you turned on in Settings > Capture (the game, Discord voice, your microphone). Instant replay holds the last minutes in memory, by default only while a game is running, and writes nothing until you save. Captures never leave your PC: Send to Discord copies the file for you to paste into a chat yourself. A storage limit you set deletes the oldest captures; favourites are never deleted. A capture you delete goes to the Recycle Bin;
 - the browser profile used for YouTube Music and Apple Music;
 - logs (see **Logs** below).
 
-To find your games, Exo reads local folders, store manifests, registry keys and data saved by store clients on this PC. Exo does not upload your library, install folders, launch settings, playtime or achievements. Some services see a game title or store id when Exo looks up artwork or hours for it; they are listed under **Other network requests**.
+To find your games, Exo reads local folders, store manifests, registry keys and data saved by store clients on this PC. For hours, it also reads GOG Galaxy 2.0's database (`galaxy-2.0.db`, read-only) for the time Galaxy holds for games on the other platforms you connected to it. Exo does not upload your library, install folders, launch settings, playtime or achievements. Some services see a game title or store id when Exo looks up artwork or hours for it; they are listed under **Other network requests**.
 
 To free memory, Exo reads the process list on this PC (names, parent processes, and the command line of a Battle.net process to tell its renderers apart) to find the browser helpers of Steam, the Epic Games Launcher, the EA app, Ubisoft Connect, GOG Galaxy and Battle.net, and lowers their memory use while they are hidden. It reads nothing inside them, keeps nothing and sends nothing.
 
-**Keys and sign-ins stay local.** Optional keys you paste (Steam Web API, itch.io, SteamGridDB) and your saved Riot ID are encrypted with Windows (DPAPI) for your Windows user. They are not written to `settings.json`, not shown back in the app, and only sent to the service they belong to (see **Other network requests**). Other programs running as the same Windows user can still get at them.
+**Keys and sign-ins stay local.** Optional keys you paste (Steam Web API, itch.io, SteamGridDB, OpenXBL), your saved Riot ID and the player names you save for tracker.gg hours are encrypted with Windows (DPAPI) for your Windows user. They are not written to `settings.json`, not shown back in the app, and only sent to the service they belong to (see **Other network requests**). Other programs running as the same Windows user can still get at them.
 
 Store sign-ins stay with the official tools:
 
@@ -29,6 +30,8 @@ Store sign-ins stay with the official tools:
 - Amazon sign-in goes to Nile.
 
 Exo opens the store's own sign-in page, passes the result to that tool, and does not keep its own copy of the token.
+
+**Accounts in Settings > Game stores.** To show who each store is signed in as, Exo reads the display names in Steam's `config\loginusers.vdf`, Legendary's `user.json`, Nile's `user.json`, and the Epic Games Launcher's account id in the registry (to tell whether it uses a different account). Only display names reach the page; account names, ids and tokens are never logged. Switch account on Steam does what Steam's own account picker does: it closes Steam, marks that account as the one to sign in to in `loginusers.vdf` and the registry (`AutoLoginUser`, `RememberPassword`), and starts Steam again. Exo never sees a Steam password and never touches `config.vdf`. Epic accounts you add for their hours each get their own Legendary folder in `%LocalAppData%\ExoLauncher\epic-accounts`, and the last Epic playtime of each account signed in on this PC is kept in `epic-playtime.json` under a one-way tag. With **Count hours from all my accounts** on, Exo adds up the hours each Steam account on this PC and each of those Epic accounts recorded; nothing is sent anywhere new.
 
 ## Exo accounts (removed)
 
@@ -107,7 +110,8 @@ These extensions have their own privacy policies. Pages that ask for your microp
 | Steam | Nothing is sent. Owned games come from the Steam client running on this PC | When your library refreshes |
 | Steam Web API | Your pasted key and Steam id, for owned games and achievements; to the Steam store, the app id of an owned app Steam has no details for on this PC, to tell a game from a tool or DLC | Only if you pasted a key |
 | itch.io API | Your pasted key, for owned games | Only if you pasted a key |
-| tracker.gg | Your Riot ID (Name#TAG), to read public Valorant / League of Legends hours | About 12 seconds after Exo starts (at most every 12 hours), and when you refresh. Exo uses a Riot ID you saved, or one it reads from the Riot Client on this PC. Riot sign-in data is never sent. |
+| tracker.gg | Your Riot ID (Name#TAG), to read public Valorant / League of Legends hours; the Ubisoft name or Bungie name you saved, to read public Rainbow Six Siege or Destiny 2 hours | About 12 seconds after Exo starts (at most every 12 hours), when you save a name, and when you refresh. Exo uses a Riot ID you saved, or one it reads from the Riot Client on this PC. Riot sign-in data is never sent. |
+| OpenXBL (api.xbl.io) | Your pasted OpenXBL key, to read your Xbox account's games played and the time played Xbox records for them (MinutesPlayed) | Only if you pasted a key: about 15 seconds after Exo starts (at most every 12 hours), when you save the key, and when you refresh |
 | Cover art: Steam CDN and Steam store search, Epic store catalog, GOG, Microsoft Store catalog, and the image servers a store's own data points to | Steam app ids, store product ids, and game titles as search terms; for a picture a store's own data names (Riot, Ubisoft, EA, Battle.net, Xbox, IGDB, SteamGridDB), the request for that picture | When a game needs artwork |
 | SteamGridDB | Your pasted key and a Steam app id | Only if you pasted a key |
 | IGDB (Twitch) | Developer credentials | Developer builds only |
@@ -140,4 +144,4 @@ Before writing, Exo removes things that look like tokens, passwords, keys, accou
 - No uploading of your library, install folders, playtime history or store sign-ins.
 - No friends list, profiles, profile pictures, handles, badges, chat or settings sync in the app.
 - No kernel driver, anti-cheat bypass, or silent approval of Windows security prompts.
-- The clipboard is read only when you open **Activate a key**, to spot a game key, and only on this PC. Exo then opens the store's own redeem page; it does not send the key anywhere itself.
+- The clipboard is read only when you open **Activate a key**, to spot a game key, and only on this PC. Exo then opens the store's own redeem page; it does not send the key anywhere itself. Exo Capture writes to the clipboard when you snip or press Copy or Send to Discord, and never reads it.
