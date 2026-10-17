@@ -14,10 +14,17 @@ Exo needs **Windows 11 x64** and installs for your Windows user only. The instal
 - **Play, install and update.** Double-click an installed game, or open its page. Updates and downloads show in **Downloads & updates** at the bottom of the Library. Downloads can pause while you play and wait for the hours you set in **Settings > Downloads**.
 - **Covers.** Replace cover on a game's page uses your own picture; Refresh art fetches the store's again.
 
+## GPU
+
+Library > GPU holds your graphics card's settings.
+- **Profile** applies Exo's NVIDIA driver profile (lowest latency, G-SYNC full screen only) and shows your driver. **Update** installs NVIDIA's newest Game Ready driver clean and driver-only, with no NVIDIA app, PhysX or HDMI audio; Exo puts your profile and color back after. It waits while a game runs.
+- **Display** has each screen's refresh rate, output color, scaling (with **Override the scaling set by games**), brightness to hue, and RTX Video. A change to the picture comes back by itself after 15 seconds unless you keep it.
+- **HDR** turns HDR on only while a game with real HDR runs. **SDR looks right in HDR** draws the desktop with gamma 2.2 while HDR is on, so blacks stay black.
+
 ## Upscalers and Shaders
 
 - **Upscalers** (Library > GPU > Upscalers, or a game's page) update DLSS, FSR and XeSS files a game already has. Close the game first. **Restore** puts the game's own files back. A game with anti-cheat changes only after you allow it on its page, at your own risk; Riot games are never changed. DLSS presets are part of Library > GPU > Profile, on an NVIDIA graphics card.
-- **Shaders** (Library > GPU > Shaders) precompiles games' shaders. Press **Compile all ready**, or **Compile** on a game's page. It compiles again by itself after a graphics driver update, while your PC is idle.
+- **Shaders** (Library > GPU > Shaders) precompiles games' shaders. Press **Compile all ready**, or **Compile** on a game's page. It compiles again by itself after a graphics driver update, while your PC is idle. The **i** button shows its cache and version.
 
 ## Store
 
@@ -26,6 +33,8 @@ Browse, search and wishlist games. **Get on Steam** and the other buttons open t
 ## Discord
 
 The Discord room is your own Discord app. Sign in to Discord there. Exo runs Discord with Equicord and Exo's plugin set, which includes FakeNitro; Discord's terms forbid client mods, and you can turn any plugin off in Discord's settings under Equicord. Discord's own settings (text size, zoom, notifications, voice) are where you change Discord.
+
+**Exo's own Discord client** (Settings > Music and Discord, off by default) shows your servers, DMs and messages in Exo's own room instead. Open the Discord room, then on your phone open Discord, go to **You > Scan QR code** and scan the code; confirm on the phone. Exo never sees your password. Calls, video and screen share stay in the Discord app for now. **Sign out** is under Settings > Music and Discord. Discord's terms don't allow other clients, so use it at your own risk.
 
 ## Music
 

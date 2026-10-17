@@ -1,8 +1,8 @@
 <p align="center"><img src="docs/media/logo.png" alt="Exo" width="88"></p>
-<h1 align="center">Exo Launcher 3.7</h1>
+<h1 align="center">Exo Launcher 3.8</h1>
 <p align="center"><strong>Your games, your music, your friends and your mouse. One app.</strong></p>
 <p align="center">Exo brings every game store, Discord, Spotify, Apple Music, YouTube Music and your mouse software into one fast, quiet window for Windows 11.</p>
-<p align="center"><a href="https://github.com/ImAvgErix/ExoLauncher/releases/latest/download/ExoLauncher-Setup.exe"><strong>Download for Windows 11</strong></a> · <a href="https://github.com/ImAvgErix/ExoLauncher/releases/tag/v3.7.0">What's new in 3.7</a> · <a href="CHANGELOG.md">Changelog</a> · <a href="PRIVACY.md">Privacy</a></p>
+<p align="center"><a href="https://github.com/ImAvgErix/ExoLauncher/releases/latest/download/ExoLauncher-Setup.exe"><strong>Download for Windows 11</strong></a> · <a href="https://github.com/ImAvgErix/ExoLauncher/releases/tag/v3.8.0">What's new in 3.8</a> · <a href="CHANGELOG.md">Changelog</a> · <a href="PRIVACY.md">Privacy</a></p>
 
 ![The Exo Library: every game from every store in one grid](docs/media/library.jpg)
 
@@ -42,6 +42,15 @@ Every game you own, from every store, in one grid. Pinned games sit on top, then
 
 A game's page shows where it's from, time played, last launched, its size and achievements, and its upscalers and shaders, with Play, Open folder, Verify files and Remove. Replace its cover with your own art if you like.
 
+### GPU
+
+![Library > GPU > Display: refresh rate, output color, scaling and its override, color and RTX Video](docs/media/gpu.jpg)
+
+Library > GPU is your graphics card in one place:
+- **Profile:** Exo's NVIDIA driver profile for the lowest latency, and NVIDIA's newest Game Ready driver installed clean, driver only, with no NVIDIA app, telemetry, PhysX or HDMI audio.
+- **Display:** refresh rate, output color, scaling and **Override the scaling set by games**, brightness to hue, and RTX Video Super Resolution and HDR. A picture change undoes itself after 15 seconds unless you keep it.
+- **HDR:** on only while a game with real HDR runs, and SDR drawn at gamma 2.2 while it is, so blacks stay black.
+
 ### Upscalers
 
 ![Library > GPU > Upscalers](docs/media/upscalers.jpg)
@@ -71,6 +80,8 @@ A game's Store page fits on one screen: trailers and screenshots on the left, bu
 ![The Discord room: your Discord app inside Exo (names and messages hidden in this picture)](docs/media/discord.jpg)
 
 Your own Discord, inside Exo, ready the moment you open the room. Its unread count shows on the Discord tab and on Exo's taskbar button. The names and messages in this picture are hidden for privacy.
+
+Or turn on **Exo's own Discord client** (preview) in Settings: your servers, DMs and messages in Exo's own room, signed in with a QR code from Discord's phone app. Calls stay in the Discord app for now.
 
 ### Music
 

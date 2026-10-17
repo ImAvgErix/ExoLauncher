@@ -28,6 +28,7 @@ The source for every build of these programs that Exo ships is published at the 
 | SQLite | bundled with SQLitePCLRaw | Public domain |
 | React, React DOM | 19.3.0 | MIT |
 | clsx | 2.1.1 | MIT |
+| qrcode-generator (Kazuhiko Arase), the Discord sign-in code | 2.0.4 | MIT |
 | hls.js | 1.7.3 | Apache-2.0 |
 | dash.js | 4.7.4 | BSD-3-Clause |
 | Hugeicons free icons and React bindings | 4.3.4, 1.1.10 | MIT |
