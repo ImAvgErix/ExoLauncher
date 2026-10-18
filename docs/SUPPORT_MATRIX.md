@@ -1,6 +1,6 @@
 # Supported features
 
-What Exo Launcher 3.8 does in each area, and what it depends on. Windows 11 x64.
+What Exo Launcher 3.9 does in each area, and what it depends on. Windows 11 x64.
 
 | Area | What Exo does | Depends on, and limits |
 |---|---|---|
@@ -13,7 +13,7 @@ What Exo Launcher 3.8 does in each area, and what it depends on. Windows 11 x64.
 | GPU | Profile: Exo's NVIDIA driver profile for the lowest latency, and the newest Game Ready driver installed clean and driver-only. Display: refresh rate, output color, scaling and its override, brightness to hue, RTX Video. HDR: on only while an HDR game runs, with SDR drawn at gamma 2.2 while HDR is on | Profile, driver and most of Display need an NVIDIA GPU (AMD and Intel get refresh rate, output color and color sliders where their drivers allow); the driver comes from NVIDIA and is checked for NVIDIA's signature; HDR needs an HDR screen |
 | Upscalers | Update DLSS, FSR and XeSS files a game already ships, with byte-checked restore | Files are signature-, version- and checksum-checked; the game must be closed; anti-cheat games only when you allow each one; never Riot games; presets need an NVIDIA GPU |
 | Shaders | Exo Shaders precompiles games' shaders for your current graphics driver | Ships with Exo; DirectX 12 and Vulkan games it supports; recordings stay on this PC |
-| Discord | Your installed Discord desktop app inside Exo, with Equicord and Exo's plugin set; or, turned on in Settings, Exo's own Discord client (preview): servers, DMs and messages | Discord's own account; calls, video and screen share are Discord's app; client mods and other clients are against Discord's terms; the own client signs in by QR code from Discord's phone app |
+| Discord | Your installed Discord desktop app inside Exo, with Equicord and Exo's plugin set; or, turned on in Settings, Exo's own Discord client (preview): servers, DMs, messages, files, emoji, reactions and voice calls with noise suppression | Discord's own account; in the own client, video and screen share are still the Discord app's; client mods and other clients are against Discord's terms; the own client signs in by QR code from Discord's phone app |
 | Music | Exo's own player for Spotify, Apple Music and YouTube Music, plus Cider hosted as is; mini player in the top bar | The service's own account and subscription; Spotify needs its desktop app, Apple Music and YouTube Music play through their web players |
 | Devices | Exo Mouse: DPI, polling, lift-off, switches, lighting, profiles per game for mice OpenMouse supports, and the Finalmouse Starlight X | A supported mouse or receiver; no vendor software or driver needed |
 

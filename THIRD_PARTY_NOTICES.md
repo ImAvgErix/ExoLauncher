@@ -26,6 +26,11 @@ The source for every build of these programs that Exo ships is published at the 
 | Microsoft.Data.Sqlite | 10.0.12 | MIT |
 | SQLitePCLRaw | 3.0.5 | Apache-2.0 |
 | SQLite | bundled with SQLitePCLRaw | Public domain |
+| libdave (Discord, DAVE end-to-end encryption for calls; `dave.dll`) | 8de72b1 | MIT |
+| mlspp (Cisco, linked into `dave.dll`) | as pinned by libdave | BSD-2-Clause |
+| OpenSSL 3 (linked into `dave.dll`) | as pinned by libdave | Apache-2.0 |
+| Opus (Xiph.Org, `opus.dll`) | 1.5 | BSD-3-Clause |
+| DeepFilterNet 3 (Hendrik Schröter, noise suppression in calls; `deep_filter.dll`, the project's own Windows build) | 0.5.6 | MIT or Apache-2.0 |
 | React, React DOM | 19.3.0 | MIT |
 | clsx | 2.1.1 | MIT |
 | qrcode-generator (Kazuhiko Arase), the Discord sign-in code | 2.0.4 | MIT |

@@ -34,7 +34,7 @@ Browse, search and wishlist games. **Get on Steam** and the other buttons open t
 
 The Discord room is your own Discord app. Sign in to Discord there. Exo runs Discord with Equicord and Exo's plugin set, which includes FakeNitro; Discord's terms forbid client mods, and you can turn any plugin off in Discord's settings under Equicord. Discord's own settings (text size, zoom, notifications, voice) are where you change Discord.
 
-**Exo's own Discord client** (Settings > Music and Discord, off by default) shows your servers, DMs and messages in Exo's own room instead. Open the Discord room, then on your phone open Discord, go to **You > Scan QR code** and scan the code; confirm on the phone. Exo never sees your password. Calls, video and screen share stay in the Discord app for now. **Sign out** is under Settings > Music and Discord. Discord's terms don't allow other clients, so use it at your own risk.
+**Exo's own Discord client** (Settings > Music and Discord, off by default) shows your servers, DMs and messages in Exo's own room instead. Open the Discord room, then on your phone open Discord, go to **You > Scan QR code** and scan the code; confirm on the phone. Exo never sees your password. Click a voice channel to join it, or **Call** in a DM; **Mute**, **Deafen** and **Leave** sit above your name, and Settings > Music and Discord has **Noise suppression in calls**. Video and screen share stay in the Discord app for now. **Sign out** is under Settings > Music and Discord. Discord's terms don't allow other clients, so use it at your own risk.
 
 ## Music
 
