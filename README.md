@@ -12,7 +12,7 @@ A normal gaming PC runs Steam, the Epic Games Launcher, Riot Client, Discord, Sp
 
 - **One library for every store.** Steam, Epic, GOG, Amazon, Riot, Xbox, EA, Ubisoft, Battle.net, Rockstar, itch.io and your own folders in one grid, with one search, one sort, play time, last launched, sizes and achievements. Play, install and update from the same page.
 - **Less memory, not more.** The apps Exo hosts are kept as lean as they can be:
-  - Discord and Spotify start hidden behind Exo and stop drawing while you can't see them.
+  - Spotify starts hidden behind Exo and stops drawing while you can't see it, and Discord needs no app at all: Exo has its own client.
   - A paused music player is frozen until you reach for it, then wakes before your click lands.
   - While Steam, Epic, EA, Ubisoft, GOG Galaxy or Battle.net sits hidden behind Exo, Exo gives the memory their built-in browser holds back to Windows. On our test PC, Steam's browser helpers went from about 280 MB to under 80 MB.
   - Behind a game, Exo itself drops to low priority and Windows efficiency mode, and its rooms stop working.
@@ -27,7 +27,7 @@ A normal gaming PC runs Steam, the Epic Games Launcher, Riot Client, Discord, Sp
 Exo is a native Windows app (WinUI 3 and .NET) with its interface drawn in an embedded Microsoft Edge WebView2.
 
 - **Stores.** Exo reads what each store already keeps on your PC (Steam's library and manifests, Riot Client's records, the Xbox app's game configs and more) and uses each store's own client to launch. Epic, GOG and Amazon run through the open-source tools Legendary, gogdl and Nile. You sign in on each store's own page, and the store keeps its own sign-in. Downloads, ownership, DRM and anti-cheat stay the stores' job.
-- **Discord.** Exo's own Discord client: servers, DMs, Friends, voice calls, GIFs, stickers and full profiles in Exo's look, with no Discord app to install. Video and screen share aren't in it yet.
+- **Discord.** Exo's own Discord client: servers, DMs, Friends, voice calls, GIFs, stickers and full profiles in Exo's look, with no Discord app to install, including your camera and Go Live screen share in calls.
 - **Music.** Each service plays the music itself, hidden behind Exo: Spotify's desktop app, Apple Music's web player and YouTube Music's web player. Exo drives them through their own in-app interfaces and draws everything you see, so your account, downloads and sound quality are the service's own.
 - **Devices and Shaders.** These are separate open-source programs that ship with Exo and talk to it only through messages: Exo Mouse talks to your mouse directly over USB, and Exo Shaders precompiles shaders for your graphics driver.
 - **Memory.** Exo watches which window is in front and what you can see. A room you can't see costs as little as possible: its renderer stops drawing, its memory is trimmed, and its processes run in efficiency mode. Nothing a game, download or call needs is ever closed.
@@ -38,7 +38,7 @@ Exo is a native Windows app (WinUI 3 and .NET) with its interface drawn in an em
 
 Every game you own, from every store, in one grid, plus the games your Steam Family shares; a game that is not installed carries a small mark. Sort by name, last launched, time played, size or store. Refresh reads every store again, measures sizes, reads achievements and fetches art.
 
-![A game page: play, time played, last launched, size, achievements, upscalers and shaders](docs/media/game.jpg)
+![A game page: play, time played, last launched, size, Properties, upscalers and shaders](docs/media/game.jpg)
 
 A game's page shows where it's from, time played, last launched, its size and achievements, and its upscalers and shaders, with Play, Open folder, Verify files and Remove. Replace its cover with your own art if you like.
 
@@ -65,13 +65,13 @@ System > Graphics > Upscalers lists every installed game that can get newer DLSS
 
 ### Shaders
 
-![Library > Shaders: Exo Shaders shows which games are compiled](docs/media/shaders.jpg)
+![System > Shaders: Exo Shaders shows which games are compiled](docs/media/shaders.jpg)
 
 Exo Shaders precompiles each game's shaders for the graphics driver you have now, so a game doesn't stutter the first time it meets a new effect. It shows which games are compiled and keeps a queue. When your driver updates, it compiles them again while your PC is idle.
 
 ### Store
 
-![The Store: featured games, Epic's free games and Steam's top sellers](docs/media/store.jpg)
+![The Store: featured games, Epic's free games and new and trending games](docs/media/store.jpg)
 
 Steam's top sellers, new releases, specials and upcoming games, Epic's free games, and search, with prices in your own currency, review scores and Steam Deck ratings. Wishlist a game and Exo tells you when it goes on sale.
 
@@ -87,7 +87,7 @@ Exo's own Discord client, laid out like Discord in Exo's look: your servers, DMs
 
 ### Music
 
-![The Music room: Exo's own player, here with Apple Music](docs/media/music.jpg)
+![The Music room: Exo's own player, here with Spotify (your library blurred in this picture)](docs/media/music.jpg)
 
 Exo's own player for Spotify, Apple Music and YouTube Music:
 - **Browsing:** your library down the left, Songs for every song you saved, Home, search, playlists, albums, artists and podcasts.
