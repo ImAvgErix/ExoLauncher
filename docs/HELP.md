@@ -3,7 +3,7 @@
 ## Install and update
 
 1. Download **ExoLauncher-Setup.exe** from the [latest release](https://github.com/ImAvgErix/ExoLauncher/releases/latest).
-2. Run it and open Exo. Setup asks for your game stores, then your music service and Discord.
+2. Run it and open Exo. Setup asks for your game stores, then your music service and Lucid, Discord, and your PC's graphics settings.
 3. Exo finds your games. Updates download in the background and install when you choose; your settings, library and sign-ins stay.
 
 Exo needs **Windows 11 x64** and installs for your Windows user only. The installer isn't code-signed yet, so SmartScreen may warn the first time: choose **More info**, then **Run anyway**. Each release lists the installer's SHA-256.
@@ -13,18 +13,21 @@ Exo needs **Windows 11 x64** and installs for your Windows user only. The instal
 - **A game is missing.** Press the round **Refresh** button next to **+**. Exo reads every store again. For Epic, GOG or Amazon, sign in under **Settings > Game stores**. For a game outside any store, press **+** and pick its folder or executable.
 - **Play, install and update.** Double-click an installed game, or open its page. Updates and downloads show in **Downloads & updates** at the bottom of the Library. Downloads can pause while you play and wait for the hours you set in **Settings > Downloads**.
 - **Covers.** Replace cover on a game's page uses your own picture; Refresh art fetches the store's again.
+- **Properties.** On an installed game's page, or right-click its card: launch options, language, cloud saves, betas, updates, moving it to another drive, and its DLC or optional content (for example a high-resolution texture pack) on or off. Anything that downloads or deletes shows its size and asks first.
+- **Steam Family.** Games your Steam Family shares show in the Library next to your own and install through Steam.
+- **More than one account.** **Settings > Game stores** lists the Steam accounts Steam remembers and the Riot accounts Exo saved: **Switch** restarts that store's client as the other account, and **Add account** opens its own sign-in.
 
 ## GPU
 
-Library > GPU holds your graphics card's settings.
+The System room holds your graphics card's settings, in Graphics, Display and Shaders.
 - **Profile** applies Exo's NVIDIA driver profile (lowest latency, G-SYNC full screen only) and shows your driver. **Update** installs NVIDIA's newest Game Ready driver clean and driver-only, with no NVIDIA app, PhysX or HDMI audio; Exo puts your profile and color back after. It waits while a game runs.
 - **Display** has each screen's refresh rate, output color, scaling (with **Override the scaling set by games**), brightness to hue, and RTX Video. A change to the picture comes back by itself after 15 seconds unless you keep it.
 - **HDR** turns HDR on only while a game with real HDR runs. **SDR looks right in HDR** draws the desktop with gamma 2.2 while HDR is on, so blacks stay black.
 
 ## Upscalers and Shaders
 
-- **Upscalers** (Library > GPU > Upscalers, or a game's page) update DLSS, FSR and XeSS files a game already has. Close the game first. **Restore** puts the game's own files back. A game with anti-cheat changes only after you allow it on its page, at your own risk; Riot games are never changed. DLSS presets are part of Library > GPU > Profile, on an NVIDIA graphics card.
-- **Shaders** (Library > GPU > Shaders) precompiles games' shaders. Press **Compile all ready**, or **Compile** on a game's page. It compiles again by itself after a graphics driver update, while your PC is idle. The **i** button shows its cache and version.
+- **Upscalers** (System > Graphics, or a game's page) update DLSS, FSR and XeSS files a game already has. Close the game first. **Restore** puts the game's own files back. A game with anti-cheat changes only after you allow it on its page, at your own risk; Riot games are never changed. DLSS presets are part of System > Graphics, on an NVIDIA graphics card.
+- **Shaders** (System > Shaders) precompiles games' shaders. Press **Compile all ready**, or **Compile** on a game's page. It compiles again by itself after a graphics driver update, while your PC is idle. The **i** button shows its cache and version.
 
 ## Store
 
@@ -32,13 +35,11 @@ Browse, search and wishlist games. **Get on Steam** and the other buttons open t
 
 ## Discord
 
-The Discord room is your own Discord app. Sign in to Discord there. Exo runs Discord with Equicord and Exo's plugin set, which includes FakeNitro; Discord's terms forbid client mods, and you can turn any plugin off in Discord's settings under Equicord. Discord's own settings (text size, zoom, notifications, voice) are where you change Discord.
-
-**Exo's own Discord client** (Settings > Music and Discord, off by default) shows your servers, DMs and messages in Exo's own room instead. Open the Discord room, then on your phone open Discord, go to **You > Scan QR code** and scan the code; confirm on the phone. Exo never sees your password. Click a voice channel to join it, or **Call** in a DM; **Mute**, **Deafen** and **Leave** sit above your name, and Settings > Music and Discord has **Noise suppression in calls**. Video and screen share stay in the Discord app for now. **Sign out** is under Settings > Music and Discord. Discord's terms don't allow other clients, so use it at your own risk.
+The Discord room is **Exo's own Discord client**: your servers, DMs and messages in Exo's own room. Exo no longer runs the Discord desktop app inside it. Open the Discord room, then on your phone open Discord, go to **You > Scan QR code** and scan the code; confirm on the phone. Exo never sees your password. Click a voice channel to join it, or **Call** in a DM; **Mute**, **Deafen** and **Leave** sit above your name. Share Your Screen in a call opens Exo's own picker (an app or a screen, with its sound), and Turn On Camera shares your camera. Discord's own User Settings open from the gear in your Discord bar, laid out as in Discord: your profile and account, privacy and who can message you, notifications and sounds, Voice & Video (input profile, Push to Talk, sensitivity, echo cancellation, attenuation, camera), Appearance, Accessibility, keybinds, language, Activity Privacy, connections and authorized apps, Developer Mode and **Log Out**. Settings that belong to your Discord account change it everywhere you use Discord. Discord's terms don't allow other clients, so use it at your own risk.
 
 ## Music
 
-Pick Spotify, Apple Music, YouTube Music or Cider in **Settings > Music and Discord**, then press **Sign in** in the Music room and sign in on the service's own page. Spotify needs its desktop app, which Exo can install for you. **Songs**, under Home, lists every song you saved. The mini player in the top bar controls playback from every room.
+Pick Spotify, Apple Music or YouTube Music in **Settings > Music**, then press **Sign in** in the Music room and sign in on the service's own page. Spotify needs its desktop app, which Exo can install for you. **Songs**, under Home, lists every song you saved. The mini player in the top bar controls playback from every room.
 
 If the Music room stays empty or signed out, check that the service works in your browser, then sign in again from the Music room.
 

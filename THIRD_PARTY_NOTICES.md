@@ -36,8 +36,10 @@ The source for every build of these programs that Exo ships is published at the 
 | qrcode-generator (Kazuhiko Arase), the Discord sign-in code | 2.0.4 | MIT |
 | hls.js | 1.7.3 | Apache-2.0 |
 | dash.js | 4.7.4 | BSD-3-Clause |
-| Hugeicons free icons and React bindings | 4.3.4, 1.1.10 | MIT |
+| Lucide icons (lucide-react) | 1.50.0 | ISC |
 | Inter font (Rasmus Andersson and the Inter Project Authors): Fontsource 5.3.0 in the UI, InterVariable.ttf 4.1 in the app | 5.3.0 / 4.1 | SIL Open Font License 1.1 |
+| Simple Icons, the marks of a Discord profile's connected accounts (`ui/src/components/discord/connectionMarks.ts`; Skype, Xbox and Amazon from 8.15.0) | 15.22.0 | CC0 1.0 |
+| emojibase-data (Miles Johnson), the Discord room's emoji names, categories and keywords (`ui/src/components/discord/emoji.json`, trimmed from it) | 17.0.0 | MIT |
 
 The WebView2 Runtime itself is Microsoft's, installed and updated by Windows.
 
@@ -57,4 +59,4 @@ Upscaler builds that NVIDIA, AMD and Intel don't publish on GitHub come from [DL
 
 ## Trademarks
 
-Steam, Valve, Epic Games, GOG, Riot Games, VALORANT, League of Legends, Xbox, Microsoft Store, EA, Ubisoft, Battle.net, Amazon Games, Discord, Spotify, Apple Music, YouTube Music, Cider, NVIDIA, DLSS, AMD, FSR, Intel, XeSS, Finalmouse and the other names, logos and game art shown in Exo or in these documents belong to their owners. Exo Launcher is an independent product and is not affiliated with, endorsed by or sponsored by any of them. Game covers, trailers and store data are shown as the stores and services provide them.
+Steam, Valve, Epic Games, GOG, Riot Games, VALORANT, League of Legends, Xbox, Microsoft Store, EA, Ubisoft, Battle.net, Amazon Games, Discord, Spotify, Apple Music, YouTube Music, NVIDIA, DLSS, AMD, FSR, Intel, XeSS, Finalmouse and the other names, logos and game art shown in Exo or in these documents belong to their owners. Exo Launcher is an independent product and is not affiliated with, endorsed by or sponsored by any of them. Game covers, trailers and store data are shown as the stores and services provide them.

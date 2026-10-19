@@ -1,8 +1,8 @@
 <p align="center"><img src="docs/media/logo.png" alt="Exo" width="88"></p>
-<h1 align="center">Exo Launcher 3.9</h1>
+<h1 align="center">Exo Launcher 3.10</h1>
 <p align="center"><strong>Your games, your music, your friends and your mouse. One app.</strong></p>
 <p align="center">Exo brings every game store, Discord, Spotify, Apple Music, YouTube Music and your mouse software into one fast, quiet window for Windows 11.</p>
-<p align="center"><a href="https://github.com/ImAvgErix/ExoLauncher/releases/latest/download/ExoLauncher-Setup.exe"><strong>Download for Windows 11</strong></a> · <a href="https://github.com/ImAvgErix/ExoLauncher/releases/tag/v3.9.0">What's new in 3.9</a> · <a href="CHANGELOG.md">Changelog</a> · <a href="PRIVACY.md">Privacy</a></p>
+<p align="center"><a href="https://github.com/ImAvgErix/ExoLauncher/releases/latest/download/ExoLauncher-Setup.exe"><strong>Download for Windows 11</strong></a> · <a href="https://github.com/ImAvgErix/ExoLauncher/releases/tag/v3.10.0">What's new in 3.10</a> · <a href="CHANGELOG.md">Changelog</a> · <a href="PRIVACY.md">Privacy</a></p>
 
 ![The Exo Library: every game from every store in one grid](docs/media/library.jpg)
 
@@ -27,7 +27,7 @@ A normal gaming PC runs Steam, the Epic Games Launcher, Riot Client, Discord, Sp
 Exo is a native Windows app (WinUI 3 and .NET) with its interface drawn in an embedded Microsoft Edge WebView2.
 
 - **Stores.** Exo reads what each store already keeps on your PC (Steam's library and manifests, Riot Client's records, the Xbox app's game configs and more) and uses each store's own client to launch. Epic, GOG and Amazon run through the open-source tools Legendary, gogdl and Nile. You sign in on each store's own page, and the store keeps its own sign-in. Downloads, ownership, DRM and anti-cheat stay the stores' job.
-- **Discord.** Exo runs your real Discord desktop app and places its window inside the Discord room, so calls, video, screen share and notifications are Discord's own. Equicord, an open-source Discord client mod, is applied with Exo's plugin set: no Quests or Nitro clutter, no tracking, lighter drawing, and FakeNitro.
+- **Discord.** Exo's own Discord client: servers, DMs, Friends, voice calls, GIFs, stickers and full profiles in Exo's look, with no Discord app to install. Video and screen share aren't in it yet.
 - **Music.** Each service plays the music itself, hidden behind Exo: Spotify's desktop app, Apple Music's web player and YouTube Music's web player. Exo drives them through their own in-app interfaces and draws everything you see, so your account, downloads and sound quality are the service's own.
 - **Devices and Shaders.** These are separate open-source programs that ship with Exo and talk to it only through messages: Exo Mouse talks to your mouse directly over USB, and Exo Shaders precompiles shaders for your graphics driver.
 - **Memory.** Exo watches which window is in front and what you can see. A room you can't see costs as little as possible: its renderer stops drawing, its memory is trimmed, and its processes run in efficiency mode. Nothing a game, download or call needs is ever closed.
@@ -36,26 +36,30 @@ Exo is a native Windows app (WinUI 3 and .NET) with its interface drawn in an em
 
 ### Library
 
-Every game you own, from every store, in one grid. Pinned games sit on top, then installed, then owned but not installed. Sort by name, last launched, time played, size or store. Refresh reads every store again, measures sizes, reads achievements and fetches art.
+Every game you own, from every store, in one grid, plus the games your Steam Family shares; a game that is not installed carries a small mark. Sort by name, last launched, time played, size or store. Refresh reads every store again, measures sizes, reads achievements and fetches art.
 
 ![A game page: play, time played, last launched, size, achievements, upscalers and shaders](docs/media/game.jpg)
 
 A game's page shows where it's from, time played, last launched, its size and achievements, and its upscalers and shaders, with Play, Open folder, Verify files and Remove. Replace its cover with your own art if you like.
 
+**Properties** has what Steam's and Epic's own Properties have: launch options, language, cloud saves, betas, automatic updates, moving the game to another drive, and its DLC and optional content, such as a high-resolution texture pack, switched on or off with the space it takes or frees shown first.
+
+**More than one account?** Switch between your Steam accounts, or your Riot accounts for League and VALORANT, in Settings > Game stores.
+
 ### GPU
 
-![Library > GPU > Display: refresh rate, output color, scaling and its override, color and RTX Video](docs/media/gpu.jpg)
+![System > Display: refresh rate, output color, scaling and its override, color and RTX Video](docs/media/gpu.jpg)
 
-Library > GPU is your graphics card in one place:
+The System room is your graphics card in one place:
 - **Profile:** Exo's NVIDIA driver profile for the lowest latency, and NVIDIA's newest Game Ready driver installed clean, driver only, with no NVIDIA app, telemetry, PhysX or HDMI audio.
 - **Display:** refresh rate, output color, scaling and **Override the scaling set by games**, brightness to hue, and RTX Video Super Resolution and HDR. A picture change undoes itself after 15 seconds unless you keep it.
 - **HDR:** on only while a game with real HDR runs, and SDR drawn at gamma 2.2 while it is, so blacks stay black.
 
 ### Upscalers
 
-![Library > GPU > Upscalers](docs/media/upscalers.jpg)
+![System > Graphics > Upscalers](docs/media/upscalers.jpg)
 
-Library > GPU > Upscalers lists every installed game that can get newer DLSS, FSR or XeSS and updates them all at once.
+System > Graphics > Upscalers lists every installed game that can get newer DLSS, FSR or XeSS and updates them all at once.
 - **Files:** every file is the vendor's own, checked for its signature, exact version and checksum before it goes in, and Restore puts the game's originals back byte for byte. A running game waits until you close it.
 - **Anti-cheat:** a game with anti-cheat changes only after you allow it for that game, at your own risk. Riot games are never changed.
 
@@ -77,11 +81,9 @@ A game's Store page fits on one screen: trailers and screenshots on the left, bu
 
 ### Discord
 
-![The Discord room: your Discord app inside Exo (names and messages hidden in this picture)](docs/media/discord.jpg)
+![The Discord room: Exo's own Discord client (names, messages and pictures blurred in this picture)](docs/media/discord.jpg)
 
-Your own Discord, inside Exo, ready the moment you open the room. Its unread count shows on the Discord tab and on Exo's taskbar button. The names and messages in this picture are hidden for privacy.
-
-Or turn on **Exo's own Discord client** (preview) in Settings: your servers, DMs and messages in Exo's own room, signed in with a QR code from Discord's phone app, with voice calls that are end-to-end encrypted and cleaned of background noise. Video and screen share stay in the Discord app for now.
+Exo's own Discord client, laid out like Discord in Exo's look: your servers, DMs, Friends, voice calls that are end-to-end encrypted and cleaned of background noise, GIFs, stickers, emoji with your favorites, full profiles, and moderation where you have the permission. You sign in with a QR code from Discord's phone app, never a password. Chats you have opened show instantly, notifications follow Discord's own rules and clear when you read the chat anywhere, and the unread count shows on the Discord tab and Exo's taskbar button. The names, messages and pictures in this picture are blurred for privacy.
 
 ### Music
 
@@ -90,7 +92,7 @@ Or turn on **Exo's own Discord client** (preview) in Settings: your servers, DMs
 Exo's own player for Spotify, Apple Music and YouTube Music:
 - **Browsing:** your library down the left, Songs for every song you saved, Home, search, playlists, albums, artists and podcasts.
 - **Playing:** a queue you can jump around in, lyrics that follow the song, and the mini player in the top bar.
-- **Spotify extras:** Jam with friends, see what they're listening to, and pick the device that plays.
+- **Spotify extras:** Jam with friends, see what they're listening to, and pick the device that plays. A Spotify link someone sends you in Discord opens right here, and a Jam link joins it.
 
 ### Devices
 
@@ -104,16 +106,16 @@ Exo Mouse talks to your mouse directly, with no vendor app, driver or account:
 
 ### Settings
 
-![Settings: General, Downloads, Music and Discord, Game stores, Optional keys and About](docs/media/settings.jpg)
+![Settings: a floating panel over the room you were in](docs/media/settings.jpg)
 
-Text size, reduce motion, download hours and folders, your music service, your game stores, optional keys and updates, in one short page.
+Text size, reduce motion, download hours and folders, your music service, Lucid, your game stores and their accounts, optional keys and updates, in one short page that floats over the room you were in. **Lucid**, if you use it, switches your headphones' EQ when your device or game changes; Exo starts it with you, keeps it out of sight and keeps it updated.
 
 ## Privacy and safety
 
 - **No Exo account, no ads, no analytics, no telemetry.** Exo has no server of its own. Your library, settings, covers, play time and keys stay in `%LocalAppData%\ExoLauncher`. Optional keys are encrypted with Windows.
 - **Your sign-ins stay with each service.** You sign in on the store's or service's own page or window. Exo never sees your passwords.
 - **What leaves your PC** is only what a feature needs: store lookups, cover art, Store pages, prices, and the update check. The [privacy policy](PRIVACY.md) lists every destination and what is sent.
-- **Your choices, your risk, said plainly.** Equicord and FakeNitro go against Discord's terms; you can turn FakeNitro or any plugin off in Equicord's settings. Changing upscaler files in a game with anti-cheat can get an account banned, which is why Exo asks for each game and never touches Riot games.
+- **Your choices, your risk, said plainly.** Discord's terms don't allow other clients, so Exo's Discord client is used at your own risk. Changing upscaler files in a game with anti-cheat can get an account banned, which is why Exo asks for each game and never touches Riot games.
 
 ## Install
 
