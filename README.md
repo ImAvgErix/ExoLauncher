@@ -102,7 +102,7 @@ Exo Mouse talks to your mouse directly, with no vendor app, driver or account:
 - **Status:** your mouse's battery, signal and firmware.
 - **Settings:** DPI, polling rate, lift-off, switches, lighting and more, showing only what your mouse has.
 - **Profiles:** each one switches on by itself when a linked game starts.
-- **Compatibility:** it works with the mice OpenMouse supports and fully with the Finalmouse Starlight X.
+- **Compatibility:** it works with the mice OpenMouse supports.
 
 ### Settings
 
