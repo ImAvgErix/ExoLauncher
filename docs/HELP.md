@@ -26,8 +26,8 @@ The System room holds your graphics card's settings, in Graphics, Display and Sh
 
 ## Upscalers and Shaders
 
-- **Upscalers** (System > Graphics, or a game's page) update DLSS, FSR and XeSS files a game already has. Close the game first. **Restore** puts the game's own files back. A game with anti-cheat changes only after you allow it on its page, at your own risk; Riot games are never changed. DLSS presets are part of System > Graphics, on an NVIDIA graphics card.
-- **Shaders** (System > Shaders) precompiles games' shaders. Press **Compile all ready**, or **Compile** on a game's page. It compiles again by itself after a graphics driver update, while your PC is idle. The **i** button shows its cache and version.
+- **Upscalers** (System > Graphics; a game's page shows where it stands and opens it) update DLSS, FSR and XeSS files a game already has. Close the game first. **Restore** puts the game's own files back. A game with anti-cheat changes only after you allow it in its Properties, at your own risk; Riot games are never changed. DLSS presets are part of System > Graphics, on an NVIDIA graphics card.
+- **Shaders** (System > Shaders) precompiles games' shaders. Press **Compile all ready**; a game's Shaders row opens it here. It compiles again by itself after a graphics driver update, while your PC is idle. The **i** button shows its cache and version.
 
 ## Store
 

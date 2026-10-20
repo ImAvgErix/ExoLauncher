@@ -1,8 +1,8 @@
 <p align="center"><img src="docs/media/logo.png" alt="Exo" width="88"></p>
-<h1 align="center">Exo Launcher 3.10</h1>
+<h1 align="center">Exo Launcher 3.11</h1>
 <p align="center"><strong>Your games, your music, your friends and your mouse. One app.</strong></p>
 <p align="center">Exo brings every game store, Discord, Spotify, Apple Music, YouTube Music and your mouse software into one fast, quiet window for Windows 11.</p>
-<p align="center"><a href="https://github.com/ImAvgErix/ExoLauncher/releases/latest/download/ExoLauncher-Setup.exe"><strong>Download for Windows 11</strong></a> · <a href="https://github.com/ImAvgErix/ExoLauncher/releases/tag/v3.10.0">What's new in 3.10</a> · <a href="CHANGELOG.md">Changelog</a> · <a href="PRIVACY.md">Privacy</a></p>
+<p align="center"><a href="https://github.com/ImAvgErix/ExoLauncher/releases/latest/download/ExoLauncher-Setup.exe"><strong>Download for Windows 11</strong></a> · <a href="https://github.com/ImAvgErix/ExoLauncher/releases/tag/v3.11.0">What's new in 3.11</a> · <a href="CHANGELOG.md">Changelog</a> · <a href="PRIVACY.md">Privacy</a></p>
 
 ![The Exo Library: every game from every store in one grid](docs/media/library.jpg)
 
@@ -40,7 +40,7 @@ Every game you own, from every store, in one grid, plus the games your Steam Fam
 
 ![A game page: play, time played, last launched, size, Properties, upscalers and shaders](docs/media/game.jpg)
 
-A game's page shows where it's from, time played, last launched, its size and achievements, and its upscalers and shaders, with Play, Open folder, Verify files and Remove. Replace its cover with your own art if you like.
+A game's page shows where it's from, time played, last launched, its size and achievements, with a long Play and a smaller Remove, and one row each for its upscalers and shaders that opens their System page. Open folder, Verify files and the cover tools live in its Properties, where you can also replace its cover with your own art.
 
 **Properties** has what Steam's and Epic's own Properties have: launch options, language, cloud saves, betas, automatic updates, moving the game to another drive, and its DLC and optional content, such as a high-resolution texture pack, switched on or off with the space it takes or frees shown first.
 
@@ -102,7 +102,7 @@ Exo Mouse talks to your mouse directly, with no vendor app, driver or account:
 - **Status:** your mouse's battery, signal and firmware.
 - **Settings:** DPI, polling rate, lift-off, switches, lighting and more, showing only what your mouse has.
 - **Profiles:** each one switches on by itself when a linked game starts.
-- **Compatibility:** it works with the mice OpenMouse supports.
+- **Compatibility:** it works with the mice OpenMouse supports and fully with the Finalmouse Starlight X.
 
 ### Settings
 

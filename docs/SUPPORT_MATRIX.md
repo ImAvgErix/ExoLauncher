@@ -1,6 +1,6 @@
 # Supported features
 
-What Exo Launcher 3.10 does in each area, and what it depends on. Windows 11 x64.
+What Exo Launcher 3.11 does in each area, and what it depends on. Windows 11 x64.
 
 | Area | What Exo does | Depends on, and limits |
 |---|---|---|
