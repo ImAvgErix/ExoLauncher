@@ -3,10 +3,12 @@
 ## Install and update
 
 1. Download **ExoLauncher-Setup.exe** from the [latest release](https://github.com/ImAvgErix/ExoLauncher/releases/latest).
-2. Run it and open Exo. Setup asks for your game stores, then your music service and Lucid, Discord, and your PC's graphics settings.
+2. Run it, choose Install, then Launch Exo. Setup asks for your game stores, your music service, Discord, your capture keys, Lucid and your PC's graphics settings, then offers to remove the apps Exo replaces (Settings > Clean up has the same list later).
 3. Exo finds your games. Updates download in the background and install when you choose; your settings, library and sign-ins stay.
 
 Exo needs **Windows 11 x64** and installs for your Windows user only. The installer isn't code-signed yet, so SmartScreen may warn the first time: choose **More info**, then **Run anyway**. Each release lists the installer's SHA-256.
+
+To uninstall, open **Windows Settings > Apps > Installed apps**, choose **Exo Launcher**, then **Uninstall**. Your games, settings and accounts stay on your PC.
 
 ## Library
 
