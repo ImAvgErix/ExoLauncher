@@ -1,0 +1,26 @@
+<Project>
+  <!--
+    Stamp Debug builds with git provenance so local work is never mistaken for a
+    shipped release. Release builds stay clean and use the VERSION file exactly.
+  -->
+  <Target Name="SetExoGitVersion" BeforeTargets="InitializeSourceControlInformation;GetAssemblyAttributes"
+          Condition="'$(Configuration)' == 'Debug'">
+    <Exec Command="git rev-parse --short HEAD"
+          WorkingDirectory="$(MSBuildThisFileDirectory)"
+          ConsoleToMSBuild="true" StandardOutputImportance="low" IgnoreExitCode="true">
+      <Output TaskParameter="ConsoleOutput" PropertyName="_GitSha" />
+    </Exec>
+    <Exec Command="git diff --quiet"
+          WorkingDirectory="$(MSBuildThisFileDirectory)"
+          IgnoreExitCode="true">
+      <Output TaskParameter="ExitCode" PropertyName="_GitDirtyExitCode" />
+    </Exec>
+    <PropertyGroup>
+      <_GitSha>$(_GitSha.Trim())</_GitSha>
+      <_GitDirtySuffix Condition="'$(_GitDirtyExitCode)' != '0'">-dirty</_GitDirtySuffix>
+      <!-- Stop the SDK from appending its own full source revision. -->
+      <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+      <InformationalVersion Condition="'$(_GitSha)' != ''">$(Version)+$(_GitSha)$(_GitDirtySuffix)</InformationalVersion>
+    </PropertyGroup>
+  </Target>
+</Project>

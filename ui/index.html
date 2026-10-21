@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en" data-exo-motion="full">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://covers.exo-launcher.local https://thumbs.exo-launcher.local https://captures.exo-launcher.local https://capture-thumbs.exo-launcher.local https://cdn.cloudflare.steamstatic.com https://cdn.akamai.steamstatic.com https://shared.cloudflare.steamstatic.com https://shared.akamai.steamstatic.com https://shared.fastly.steamstatic.com https://shared.steamstatic.com https://steamcdn-a.akamaihd.net https://cdn1.epicgames.com https://cdn2.unrealengine.com https://shared-static-prod.epicgames.com https://images.gog.com https://images.gog-statics.com https://gog-statics.com https://*.gog-statics.com https://ddragon.leagueoflegends.com https://riotgames.com https://*.riotgames.com https://playvalorant.com https://*.playvalorant.com https://leagueoflegends.com https://*.leagueoflegends.com https://store-images.s-microsoft.com https://images-eds-ssl.xboxlive.com https://ubisoft.com https://*.ubisoft.com https://ubi.com https://*.ubi.com https://ea.com https://*.ea.com https://origin.com https://*.origin.com https://blizzard.com https://*.blizzard.com https://battle.net https://*.battle.net https://images.igdb.com https://cdn.steamgriddb.com https://www.cheapshark.com https://*.imgix.net https://www.steamgriddb.com https://steamgriddb.com https://i.scdn.co https://*.scdn.co https://*.spotifycdn.com https://*.googleusercontent.com https://i.ytimg.com https://music.youtube.com https://www.gstatic.com https://*.ytimg.com https://*.mzstatic.com https://cdn.discordapp.com https://media.discordapp.net https://*.discordapp.net https://*.klipy.com https://*.tenor.com https://*.giphy.com; font-src 'self'; connect-src 'self' https://video.akamai.steamstatic.com https://video.fastly.steamstatic.com https://video.cloudflare.steamstatic.com https://cdn.akamai.steamstatic.com https://cdn.cloudflare.steamstatic.com https://shared.akamai.steamstatic.com https://shared.fastly.steamstatic.com; media-src 'self' blob: https://captures.exo-launcher.local https://cdn.discordapp.com https://media.discordapp.net https://*.discordapp.net https://*.klipy.com https://*.tenor.com https://*.giphy.com https://video.akamai.steamstatic.com https://video.fastly.steamstatic.com https://video.cloudflare.steamstatic.com https://cdn.akamai.steamstatic.com https://cdn.cloudflare.steamstatic.com https://shared.akamai.steamstatic.com https://shared.fastly.steamstatic.com; frame-src https://mouse.exo-launcher.local https://pay.exo-launcher.local; worker-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'"
+    />
+    <meta name="referrer" content="no-referrer" />
+    <link rel="preload" href="/fonts/InterVariable.woff2" as="font" type="font/woff2" crossorigin />
+    <!-- The intro shows the app icon on its first frames: fetched with the page, not after it. -->
+    <link rel="preload" href="/logo.svg" as="image" type="image/svg+xml" />
+    <link rel="icon" type="image/png" href="/favicon.png" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Exo Launcher</title>
+    <style>html, body { margin: 0; background: #000; }</style>
+  </head>
+  <body>
+    <!-- Liquid Glass's material (src/styles/glass.css): in the page from the first frame, because a backdrop-filter
+         that names a missing filter draws nothing at all. Small glass blurs what is behind it (exo-glass-soft, or its
+         own lens from src/lib/glass.ts), then a tone saturates it and keeps it within a band of brightness: dark glass
+         5% to 33% under white words, light glass 70% to 96% under dark words (small glass turns light over bright
+         content); large glass blurs and tones in one, 3% to 24%, so over black it stays black (no flat gray) and over
+         art it carries the art's color. Clear keeps as much of the art as the words allow: each band's bright end is
+         the highest that keeps the secondary words at 4.5:1 on a hovered row. Tinted is a frosted pane: more blur, so
+         art turns to a wash of its color, in a narrower band (small 10% to 22%, light 84% to 94%, large 7% to 14%).
+         Alpha is set whole last, so near an edge, where the blur reaches past what the glass can see, the colors that
+         were sampled fill in instead of the raw art behind. -->
+    <svg width="0" height="0" aria-hidden="true" style="position:absolute">
+      <filter id="exo-glass-soft" x="-50%" y="-50%" width="200%" height="200%" color-interpolation-filters="sRGB">
+        <feGaussianBlur stdDeviation="6" />
+      </filter>
+      <filter id="exo-glass-tone" x="-50%" y="-50%" width="200%" height="200%" color-interpolation-filters="sRGB">
+        <feColorMatrix type="saturate" values="1.8" />
+        <feComponentTransfer>
+          <feFuncR type="linear" slope="0.28" intercept="0" />
+          <feFuncG type="linear" slope="0.28" intercept="0" />
+          <feFuncB type="linear" slope="0.28" intercept="0" />
+          <feFuncA type="linear" slope="0" intercept="1" />
+        </feComponentTransfer>
+      </filter>
+      <filter id="exo-glass-tone-light" x="-50%" y="-50%" width="200%" height="200%" color-interpolation-filters="sRGB">
+        <feColorMatrix type="saturate" values="1.5" />
+        <feComponentTransfer>
+          <feFuncR type="linear" slope="0.26" intercept="0.7" />
+          <feFuncG type="linear" slope="0.26" intercept="0.7" />
+          <feFuncB type="linear" slope="0.26" intercept="0.7" />
+          <feFuncA type="linear" slope="0" intercept="1" />
+        </feComponentTransfer>
+      </filter>
+      <filter id="exo-glass-tone-tinted" x="-50%" y="-50%" width="200%" height="200%" color-interpolation-filters="sRGB">
+        <feGaussianBlur stdDeviation="10" />
+        <feColorMatrix type="saturate" values="1.2" />
+        <feComponentTransfer>
+          <feFuncR type="linear" slope="0.12" intercept="0.1" />
+          <feFuncG type="linear" slope="0.12" intercept="0.1" />
+          <feFuncB type="linear" slope="0.12" intercept="0.1" />
+          <feFuncA type="linear" slope="0" intercept="1" />
+        </feComponentTransfer>
+      </filter>
+      <filter id="exo-glass-tone-light-tinted" x="-50%" y="-50%" width="200%" height="200%" color-interpolation-filters="sRGB">
+        <feGaussianBlur stdDeviation="10" />
+        <feColorMatrix type="saturate" values="1.1" />
+        <feComponentTransfer>
+          <feFuncR type="linear" slope="0.1" intercept="0.84" />
+          <feFuncG type="linear" slope="0.1" intercept="0.84" />
+          <feFuncB type="linear" slope="0.1" intercept="0.84" />
+          <feFuncA type="linear" slope="0" intercept="1" />
+        </feComponentTransfer>
+      </filter>
+      <filter id="exo-glass-panel" x="-50%" y="-50%" width="200%" height="200%" color-interpolation-filters="sRGB">
+        <feGaussianBlur stdDeviation="18" />
+        <feColorMatrix type="saturate" values="1.6" />
+        <feComponentTransfer>
+          <feFuncR type="linear" slope="0.21" intercept="0" />
+          <feFuncG type="linear" slope="0.21" intercept="0" />
+          <feFuncB type="linear" slope="0.21" intercept="0" />
+          <feFuncA type="linear" slope="0" intercept="1" />
+        </feComponentTransfer>
+      </filter>
+      <filter id="exo-glass-panel-tinted" x="-50%" y="-50%" width="200%" height="200%" color-interpolation-filters="sRGB">
+        <feGaussianBlur stdDeviation="40" />
+        <feColorMatrix type="saturate" values="1.1" />
+        <feComponentTransfer>
+          <feFuncR type="linear" slope="0.07" intercept="0.07" />
+          <feFuncG type="linear" slope="0.07" intercept="0.07" />
+          <feFuncB type="linear" slope="0.07" intercept="0.07" />
+          <feFuncA type="linear" slope="0" intercept="1" />
+        </feComponentTransfer>
+      </filter>
+    </svg>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

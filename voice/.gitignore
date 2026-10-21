@@ -1,0 +1,5 @@
+third_party/
+build/
+out/
+apm/subprojects/*/
+apm/subprojects/.wraplock

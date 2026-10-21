@@ -1,0 +1,8 @@
+/* Endgame Gear and Pulsar Pro rows: two axis fields side by side. */
+.egp-axes {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.egp-axes .m-number input { width: 64px; }

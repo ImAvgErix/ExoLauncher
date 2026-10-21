@@ -1,0 +1,14 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "entry": [
+    "vite.chunks.ts",
+    "src/setup/main.tsx"
+  ],
+  "project": [
+    "src/**/*.{ts,tsx,css}"
+  ],
+  "ignoreExportsUsedInFile": true,
+  "rules": {
+    "types": "warn"
+  }
+}

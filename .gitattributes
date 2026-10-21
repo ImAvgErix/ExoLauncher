@@ -1,0 +1,15 @@
+* text=auto
+*.ps1 text eol=crlf
+*.cs text
+*.ts text
+*.tsx text
+*.css text
+*.png binary
+*.jpg binary
+*.ico binary
+*.woff2 binary
+*.dll binary
+
+# Vendored extensions are hash-pinned byte for byte (WebExtensions.Entries);
+# checkout must never rewrite their line endings.
+ExoLauncher/Assets/Extensions/** -text

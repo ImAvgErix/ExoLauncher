@@ -1,0 +1,14 @@
+/* Logitech group: two controls side by side on a row's right edge. */
+.lg-pair {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.lg-name {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 300px;
+  max-width: 100%;
+}

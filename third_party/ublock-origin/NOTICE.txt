@@ -1,0 +1,10 @@
+uBlock Origin 1.74.0 — Raymond Hill and contributors
+
+This directory contains the unmodified official Chromium extension release, distributed separately from Exo under GPL-3.0. The complete license is in extension/LICENSE.txt. Filter lists retain their respective upstream notices and licenses.
+
+Release: https://github.com/gorhill/uBlock/releases/tag/1.74.0
+Package: https://github.com/gorhill/uBlock/releases/download/1.74.0/uBlock0_1.74.0.chromium.zip
+Corresponding source: https://github.com/gorhill/uBlock/tree/1.74.0
+Build instructions: https://github.com/gorhill/uBlock/blob/1.74.0/tools/make-chromium.sh
+
+Exo loads the extension through WebView2's extension API. No uBlock implementation code is linked into Exo. Exo applies a one-time profile through the extension's dashboard API: automatic list updates and cosmetic filtering enabled, dark dashboard, toolbar badge disabled, and startup suspension disabled. A labeled, editable My filters block skips generic cosmetic filtering on Spotify, Apple Music, YouTube Music, and Discord while keeping network and site-specific filtering. Exo enables My filters when adding these rules to an empty profile; existing custom rules and their enabled/trusted state, and other selected lists are preserved. The official extension files are unmodified.

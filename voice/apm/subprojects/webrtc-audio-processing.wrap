@@ -1,0 +1,4 @@
+[wrap-git]
+url = https://gitlab.freedesktop.org/pulseaudio/webrtc-audio-processing.git
+revision = v2.1
+depth = 1

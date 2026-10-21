@@ -137,7 +137,7 @@ Text size, reduce motion, download hours and folders, your music service, your g
 
 ## License and legal
 
-- **Exo Launcher** is free for personal use under its own [terms](LICENSE). Its source is private, and it is provided as is, without warranty.
+- **Exo Launcher** is free for personal use under its own [terms](LICENSE), provided as is, without warranty. Its source is in this repository for anyone to read and check, but it is not open source: copying it, forking it outside GitHub or publishing changed versions needs written permission.
 - **Open-source parts that ship with Exo** keep their own licenses, and their source is public:
   - [Exo Mouse](https://github.com/ImAvgErix/exo-mouse) (AGPL-3.0-or-later), built on OpenMouse.
   - [Exo Capture](https://github.com/ImAvgErix/exo-capture) (GPL-3.0-or-later), with OBS Studio's game capture hook.

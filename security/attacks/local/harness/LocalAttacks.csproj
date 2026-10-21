@@ -1,0 +1,43 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Security attack harness. Deliberately a plain console app with NO package
+    dependencies (no NuGet restore / no network) and NO WinUI reference. It
+    compile-LINKS the real product source files under attack so the tests
+    exercise the genuine predicates, unchanged. A tiny homemade assert harness
+    (Check.cs) drives them; Program.Main returns non-zero if any attack
+    assertion fails. Run it with: dotnet run against this project.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net11.0-windows</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Platforms>x64</Platforms>
+    <Platform Condition="'$(Platform)' == '' or '$(Platform)' == 'AnyCPU'">x64</Platform>
+    <PlatformTarget>x64</PlatformTarget>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <RootNamespace>ExoLauncher.Tests</RootNamespace>
+    <AssemblyName>LocalAttacks</AssemblyName>
+    <EnableDefaultCompileItems>true</EnableDefaultCompileItems>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <!-- Real product code under attack, linked (not referenced) so internals are reachable. -->
+  <ItemGroup>
+    <Compile Include="..\..\..\..\ExoLauncher\Adapters\Cli\SteamProtocol.cs" Link="Product\SteamProtocol.cs" />
+    <Compile Include="..\..\..\..\ExoLauncher\Adapters\Cli\WindowsCommandLine.cs" Link="Product\WindowsCommandLine.cs" />
+    <Compile Include="..\..\..\..\ExoLauncher\Helpers\ManagedProcessResources.cs" Link="Product\ManagedProcessResources.cs" />
+    <Compile Include="..\..\..\..\ExoLauncher\Helpers\BackgroundTrim.cs" Link="Product\BackgroundTrim.cs" />
+    <Compile Include="..\..\..\..\ExoLauncher\Helpers\HostedProcessKind.cs" Link="Product\HostedProcessKind.cs" />
+    <Compile Include="..\..\..\..\ExoLauncher\Helpers\AppLog.cs" Link="Product\AppLog.cs" />
+    <Compile Include="..\..\..\..\ExoLauncher\Helpers\PathHelper.cs" Link="Product\PathHelper.cs" />
+    <Compile Include="..\..\..\..\ExoLauncher\Services\ExoDpapi.cs" Link="Product\ExoDpapi.cs" />
+    <Compile Include="..\..\..\..\ExoLauncher\Services\SteamWebApiKeyStore.cs" Link="Product\SteamWebApiKeyStore.cs" />
+    <Compile Include="..\..\..\..\ExoLauncher\Services\SecretFileAcl.cs" Link="Product\SecretFileAcl.cs" />
+    <Compile Include="..\..\..\..\ExoLauncher\Services\StoreSecrets\StoreSecretStore.cs" Link="Product\StoreSecretStore.cs" />
+  </ItemGroup>
+
+</Project>

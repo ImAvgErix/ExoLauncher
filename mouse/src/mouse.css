@@ -1,0 +1,1258 @@
+/*
+ * Exo's look: void black, white ink, Inter, hairlines and one pill. Type is
+ * 20 / 13 / 12 (times Exo's text size, --exo-scale), 600 only for headings;
+ * spacing 4 / 8 / 12 / 16 / 24 / 32; radius 14 for cards, 999 for pills.
+ */
+/* Exo's type (ui/src/fonts.css): Inter 4.1's official variable font, with Exo's features. */
+@font-face {
+  font-family: "Inter Variable";
+  font-style: normal;
+  font-display: block;
+  font-weight: 100 900;
+  src: url("./fonts/InterVariable.woff2") format("woff2");
+}
+
+:root {
+  --bg: #000;
+  --hair: #1f1f1f;
+  --hair-control: #242424;
+  --line-soft: #161616;
+  --selected: #262626;
+  /* Exo's controls (ui/src/tokens.css › Controls): small glass, which over this page's black is black, with one
+     even hairline all around, fields too; no shading that reads as an edge missing. */
+  --fill: #000;
+  --rim: inset 0 0 0 1px rgb(255 255 255 / 0.09);
+  --rim-pressed: inset 0 0 0 1px rgb(255 255 255 / 0.06);
+  --field-rim: inset 0 0 0 1px rgb(255 255 255 / 0.09);
+  /* Panels, the hero, menus and pickers are Exo's large glass, and controls its small glass: over this page's
+     black both are black (ui/index.html › exo-glass-panel keeps no floor), never a flat gray; the hairline draws them. */
+  --float: #000;
+  /* A hovered control: solid, so nothing shows through it (Exo's --hover-fill). */
+  --hover-fill: #1a1a1a;
+  /* A primary (white) control under the pointer steps down a shade (Exo's --exo-primary-hover). */
+  --primary-hover: #e8e8e8;
+  /* The off half of a switch and the empty part of a slider (Exo's --exo-track). */
+  --track: #2c2c2c;
+  --ink: #ffffff;
+  --muted: #9d9d9d;
+  --faint: #747474;
+  --good: #3dd68c;
+  --bad: #ff5c5c;
+  --ease: cubic-bezier(0.23, 1, 0.32, 1);
+  /* Exo's motion tokens (ui/src/tokens.css): what appears or changes eases out, what travels springs
+     (critically damped at 0.9, never visibly past its place); press, quick, base and move times. */
+  --ease-spring: linear(0, 0.005 1.8%, 0.018 3.7%, 0.04 5.7%, 0.074 8%, 0.111 10.2%, 0.156 12.5%, 0.437 25.8%,
+    0.512 29.7%, 0.576 33.2%, 0.645 37.3%, 0.703 41.3%, 0.756 45.5%, 0.803 49.8%, 0.846 54.5%, 0.883 59.5%,
+    0.913 64.7%, 0.939 70.3%, 0.958 76%, 0.973 82%, 0.986 90.2%, 0.995 99.8%, 1);
+  --dur-press: 90ms;
+  --dur-quick: 120ms;
+  --dur-base: 160ms;
+  --dur-move: 220ms;
+  --type-title: calc(20px * var(--exo-scale, 1));
+  --type-body: calc(13px * var(--exo-scale, 1));
+  --type-small: calc(12px * var(--exo-scale, 1));
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font: var(--type-body)/1.45 'Inter Variable', system-ui, sans-serif;
+  font-feature-settings: "ss01" 1, "cv05" 1, "ss07" 1;
+  font-optical-sizing: auto;
+  overflow: hidden;
+}
+
+button, input, select { font: inherit; color: inherit; }
+
+button:focus-visible, input:focus-visible, select:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
+/* ------------------------------------------------------------------ room */
+
+/*
+ * The mouse as the room's hero on the left, full height; its settings in
+ * whole sections, in as few columns as hold them without scrolling
+ * (layout.ts). The mouse takes what the columns leave.
+ */
+.m-room {
+  --gap: 16px;
+  display: grid;
+  /* The settings take the columns they need (layout.ts sets --settings-w); the mouse takes the rest, at least 280 px. */
+  grid-template-columns: minmax(280px, 1fr) var(--settings-w, minmax(0, 2fr));
+  gap: var(--gap);
+  height: 100%;
+  padding: 24px 32px 32px;
+}
+
+/* A short room: a little less air around it. */
+@media (max-height: 760px) {
+  .m-room { padding: 16px 24px 24px; }
+}
+
+/* The hero: one card, the picture taking all the height its readout leaves. */
+.m-hero {
+  container: hero / inline-size;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  border: 1px solid var(--hair);
+  border-radius: 14px;
+  background: var(--bg);
+  overflow: hidden;
+}
+
+.m-hero-pick {
+  display: flex;
+  justify-content: center;
+  padding: 16px 16px 0;
+}
+
+.m-hero-art {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 120px;
+  border-radius: 14px 14px 0 0;
+  overflow: hidden;
+}
+
+/* The picture's own light: itself, blurred far back, as the game page washes its art. */
+.m-hero-wash {
+  position: absolute;
+  inset: 12%;
+  width: 76%;
+  height: 76%;
+  object-fit: contain;
+  filter: blur(64px) saturate(1.2);
+  opacity: 0.32;
+  pointer-events: none;
+}
+
+/* Never larger than the render itself (700 px): enlarged, a render goes soft. */
+.m-hero-image {
+  position: absolute;
+  inset: 0;
+  width: min(calc(100% - 64px), 700px);
+  height: min(calc(100% - 64px), 700px);
+  margin: auto;
+  object-fit: contain;
+  user-select: none;
+}
+
+.m-hero-image.is-empty { display: block; }
+
+.m-hero-id {
+  padding: 16px 24px 0;
+}
+
+.m-name {
+  margin: 0;
+  font-size: var(--type-title);
+  font-weight: 600;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+
+.m-meta {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: var(--type-small);
+}
+
+/* The readout: one bar of figures on hairlines (battery and signal over gauges), wrapping only when the mouse is narrow. */
+.m-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(calc(132px * var(--exo-scale, 1)), 1fr));
+  margin: 16px 0 0 -1px;
+}
+
+.m-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  padding: 16px 24px;
+  border-top: 1px solid var(--hair);
+  border-left: 1px solid var(--hair);
+}
+
+/* What the mouse says beside a figure's name: a voltage, a dBm, Full. */
+.m-stat-detail {
+  color: var(--faint);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.m-stat-label {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--muted);
+  font-size: var(--type-small);
+}
+
+.m-stat-good { color: var(--good); }
+
+.m-stat-figure {
+  color: var(--ink);
+  font-size: var(--type-title);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.m-stat-unit {
+  margin-left: 2px;
+  color: var(--muted);
+  font-size: var(--type-body);
+}
+
+.m-stat-line {
+  color: var(--ink);
+  font-size: var(--type-small);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.m-stat.is-low .m-stat-figure { color: var(--bad); }
+
+/* A slim hero (a small window, a large text size): the readout keeps its words by giving up some air. */
+@container hero (max-width: 360px) {
+  .m-hero-id { padding: 16px 16px 0; }
+  .m-stat { padding: 12px 16px; }
+}
+
+/* One 4px track: a fill for the charge, four steps for the signal. */
+.m-gauge {
+  display: flex;
+  gap: 4px;
+  height: 4px;
+  margin-top: 8px;
+  border-radius: 999px;
+  background: var(--hair-control);
+  overflow: hidden;
+}
+
+.m-gauge.is-steps { background: none; }
+
+.m-gauge-fill {
+  border-radius: 999px;
+  background: var(--ink);
+  transition: width 360ms var(--ease);
+}
+
+.m-gauge-step {
+  flex: 1;
+  border-radius: 999px;
+  background: var(--hair-control);
+  transition: background-color 200ms var(--ease);
+}
+
+.m-gauge-step.is-on { background: var(--ink); }
+.m-stat.is-low :is(.m-gauge-fill, .m-gauge-step.is-on) { background: var(--bad); }
+
+/* The last change that did not take: one pill floating at the picture's foot, so nothing moves. */
+.m-error {
+  position: absolute;
+  left: 50%;
+  bottom: 16px;
+  z-index: 6;
+  max-width: calc(100% - 32px);
+  margin: 0;
+  padding: 8px 16px;
+  border: 1px solid var(--hair-control);
+  border-radius: 999px;
+  background: var(--bg);
+  color: var(--bad);
+  font-size: var(--type-small);
+  text-align: center;
+  overflow-wrap: anywhere;
+  transform: translateX(-50%);
+  animation: m-fade 200ms var(--ease) both;
+}
+
+/* A narrow room: the mouse above, its picture beside its readout. */
+@media (max-width: 860px) {
+  .m-room {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .m-hero {
+    display: grid;
+    grid-template-columns: 180px minmax(0, 1fr);
+  }
+
+  .m-hero-pick { grid-column: 1 / -1; }
+  .m-hero-art { grid-row: span 2; min-height: 180px; border-radius: 14px 0 0 14px; }
+  .m-hero-id { grid-column: 2; }
+  .m-stats { grid-column: 2; }
+}
+
+.m-settings {
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+
+.m-settings::-webkit-scrollbar { display: none; }
+
+/*
+ * The columns: panels flow top to bottom and wrap at a .m-break, which
+ * layout.ts places; every column is as tall as the room and its last panel
+ * reaches the foot. The breaks are zero-wide lines, so half a gap either side
+ * of one makes one gap.
+ */
+.m-grid {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  row-gap: var(--gap);
+  column-gap: calc(var(--gap) / 2);
+  height: var(--grid-h, 100%);
+}
+
+.m-break {
+  flex: 0 0 100%;
+  width: 0;
+}
+
+.m-break[hidden] { display: none; }
+
+.m-grid.is-measuring { flex-wrap: nowrap; height: auto; }
+
+/* Panels keep their own height; the last in each column takes the rest, so the columns end level. */
+.m-grid.is-columns > .m-panel { flex: 0 0 auto; }
+/* Panels keep their own height: a column ends where its settings end, never as an empty card. */
+.m-grid.is-columns > .m-panel { flex-grow: 0; }
+.m-grid > .m-panel[hidden] { display: none; }
+
+/* ------------------------------------------------------------------ panels and rows */
+
+/* A card: hairline, black inside; its name the only bold type, its rows ruled by softer hairlines. */
+.m-panel {
+  display: flex;
+  flex-direction: column;
+  flex: var(--grow, 1) 0 auto;
+  width: var(--col-w, 100%);
+  min-width: 0;
+  padding: 16px 24px 4px;
+  border: 1px solid var(--hair);
+  border-radius: 14px;
+  background: var(--float);
+}
+
+.m-grid.is-measuring > .m-panel { flex: 0 0 auto; }
+
+.m-panel-title {
+  margin: 0 0 8px;
+  font-size: var(--type-body);
+  font-weight: 600;
+}
+
+/* A panel that is only a few actions: its name and its buttons share one line. */
+.m-panel.has-actions { padding-bottom: 16px; }
+
+.m-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.m-panel-head .m-panel-title { margin: 0; }
+.m-panel-head .m-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+
+.m-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: var(--row-min, 48px);
+  padding: 8px 0;
+  border-top: 1px solid var(--line-soft);
+}
+
+.m-dpi {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-width: 0;
+}
+
+.m-dpi .m-slider { width: 220px; }
+
+/* Two controls for one thing in one row: lift-off's custom slider and presets, the receiver's color and light. */
+.m-lod,
+.m-inline {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.m-lod .m-slider { width: 168px; }
+
+/* The one of the two the mouse is not running. */
+.m-dim { display: flex; opacity: 0.45; transition: opacity 160ms var(--ease); }
+.m-dim:hover, .m-dim:focus-within { opacity: 1; }
+
+.m-row-label {
+  display: flex;
+  flex-direction: column;
+  flex: 0 0 auto;
+  gap: 4px;
+  min-width: 0;
+}
+
+.m-row-value {
+  color: var(--faint);
+  font-size: var(--type-small);
+}
+
+.m-row-value.is-good { color: var(--good); }
+
+.m-row-control {
+  display: flex;
+  flex: 0 1 auto;
+  justify-content: flex-end;
+  min-width: 0;
+}
+
+/* A value the mouse reports but does not let you change: a word on the right edge. */
+.m-state {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ------------------------------------------------------------------ controls */
+
+/* One pill, 32px; the selected fill glides between options (.m-glide). */
+.m-seg {
+  display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--hair-control);
+  border-radius: 999px;
+}
+
+.m-seg-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 24px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font-size: var(--type-small);
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color 120ms var(--ease), color 120ms var(--ease);
+}
+
+.m-seg-item.is-on {
+  background: var(--selected);
+  color: var(--ink);
+}
+
+.m-seg-item:disabled { cursor: default; }
+.m-seg-item:disabled:not(.is-on) { opacity: 0.5; }
+
+.m-seg-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .m-seg-item:not(.is-on):not(:disabled):hover { color: var(--ink); }
+}
+
+/* Exo's switch: a dark track, white when on. */
+.m-switch {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  width: 32px;
+  height: 16px;
+  padding: 0 2px;
+  border: 0;
+  border-radius: 999px;
+  background: #171717;
+  cursor: pointer;
+  transition: background-color 200ms var(--ease);
+}
+
+.m-switch-knob {
+  width: 16px;
+  height: 12px;
+  border-radius: 999px;
+  background: #fff;
+  transition: transform var(--dur-move) var(--ease-spring), background-color var(--dur-base) var(--ease);
+}
+
+.m-switch[aria-checked='true'] { background: var(--ink); }
+.m-switch[aria-checked='true'] .m-switch-knob { transform: translateX(12px); background: #0a0a0a; }
+.m-switch:disabled { cursor: default; opacity: 0.5; }
+
+.m-slider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 280px;
+  max-width: 100%;
+  min-width: 0;
+}
+
+/* Exo's slider, value for value (ui/src/styles/chrome.css): a 4px track filled white over the track gray, a 14px white knob. */
+.m-slider input {
+  flex: 1;
+  min-width: 0;
+  height: 20px;
+  margin: 0;
+  appearance: none;
+  /* The keyboard focus ring is a capsule around the track, as in Exo. */
+  border-radius: 999px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.m-slider input::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--ink) var(--fill), var(--track) var(--fill));
+}
+
+.m-slider input::-webkit-slider-thumb {
+  width: 14px;
+  height: 14px;
+  margin-top: -5px;
+  appearance: none;
+  border-radius: 50%;
+  background: var(--ink);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.35);
+}
+
+.m-slider input:disabled {
+  cursor: default;
+  opacity: 0.4;
+}
+
+.m-slider-value {
+  min-width: 64px;
+  color: var(--muted);
+  font-size: var(--type-small);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.m-number {
+  display: inline-flex;
+  align-items: center;
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--hair-control);
+  border-radius: 999px;
+}
+
+.m-number input {
+  width: 64px;
+  border: 0;
+  outline: none;
+  background: transparent;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.m-number-suffix { margin-left: 4px; color: var(--faint); }
+
+/* A dropdown (ui.tsx Dropdown): a pill with its value and a chevron; it opens Exo's own menu, never Windows' list. */
+.m-select {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  max-width: 260px;
+  padding: 0 10px 0 12px;
+  border: 1px solid var(--hair-control);
+  border-radius: 999px;
+  background: var(--bg);
+  color: var(--ink);
+  font-size: var(--type-small);
+  cursor: pointer;
+  transition: background-color 150ms var(--ease), scale var(--dur-quick) var(--ease);
+}
+
+.m-select:disabled { cursor: default; opacity: 0.5; }
+.m-select[aria-expanded='true'] { background: var(--hover-fill); }
+
+.m-select-value { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.m-select-chevron {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  fill: none;
+  stroke: var(--muted);
+  /* Tabler's chevron at Exo's line (ui/src/brand/icons.tsx), as Exo's menus draw it. */
+  stroke-width: 1.875;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: transform 150ms var(--ease);
+}
+
+.m-select[aria-expanded='true'] .m-select-chevron { transform: rotate(180deg); }
+
+/* Its menu: a black card over the room, the current choice marked, the pointed one in the hover fill. */
+.m-menu {
+  position: fixed;
+  z-index: 20;
+  margin: 0;
+  padding: 4px;
+  overflow-y: auto;
+  list-style: none;
+  border: 1px solid var(--hair-control);
+  border-radius: 12px;
+  background: var(--bg);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6);
+  scrollbar-width: thin;
+  transform-origin: top center;
+  animation: m-menu-in var(--dur-base) var(--ease) both;
+}
+
+.m-menu-group {
+  padding: 8px 10px 4px;
+  color: var(--faint);
+  font-size: var(--type-small);
+}
+
+.m-menu-item {
+  display: flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 0 10px;
+  border-radius: 8px;
+  color: var(--muted);
+  font-size: var(--type-small);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.m-menu-item.is-on { color: var(--ink); font-weight: 500; }
+.m-menu-item.is-active { background: var(--hover-fill); color: var(--ink); }
+.m-menu-item[aria-disabled='true'] { cursor: default; opacity: 0.5; }
+
+/* A color well: a 28px dot. */
+.m-color {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--hair-control);
+  border-radius: 999px;
+  background: none;
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.m-color::-webkit-color-swatch-wrapper { padding: 0; }
+.m-color::-webkit-color-swatch { border: 0; border-radius: 999px; }
+.m-color:disabled { cursor: default; opacity: 0.5; }
+
+.m-button {
+  display: inline-flex;
+  align-items: center;
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--hair-control);
+  border-radius: 999px;
+  background: var(--bg);
+  font-size: var(--type-small);
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 120ms var(--ease), box-shadow 120ms var(--ease), opacity 120ms var(--ease), scale var(--dur-quick) var(--ease);
+}
+
+.m-button:disabled { cursor: default; opacity: 0.4; }
+
+.m-button.is-primary {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: #000;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .m-button:not(:disabled):not(.is-primary):hover { background: var(--hover-fill); }
+  .m-button.is-primary:not(:disabled):hover { background-color: var(--primary-hover); }
+}
+
+.m-actions { gap: 12px; align-items: center; }
+
+.m-link {
+  padding: 0;
+  border: 0;
+  /* A text button still gets a rounded focus ring. */
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+  font-size: var(--type-small);
+  cursor: pointer;
+  transition: color 120ms var(--ease);
+}
+
+.m-link:hover { color: var(--ink); }
+.m-link:disabled { color: var(--faint); opacity: 0.5; cursor: default; }
+
+.m-text {
+  flex: 1;
+  min-width: 0;
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--hair-control);
+  border-radius: 999px;
+  background: var(--bg);
+  outline: none;
+}
+
+/* A text field shows focus with its own edge, not a second ring around it. */
+.m-text:focus-visible {
+  outline: none;
+  border-color: var(--ink);
+}
+
+/* ------------------------------------------------------------------ states */
+
+.m-center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 100%;
+  padding: 24px;
+  text-align: center;
+}
+
+.m-center-title {
+  margin: 0;
+  font-size: var(--type-title);
+  font-weight: 600;
+}
+
+.m-center-line {
+  margin: 0 0 8px;
+  max-width: 420px;
+  color: var(--muted);
+}
+
+/* ------------------------------------------------------------------ profiles and the game picker */
+
+/* Saving a new profile sits at the panel's foot, so the room the column gives it is room for the list. */
+.m-profile-new { margin-top: auto; }
+
+.m-profile-name {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.m-profile-name .m-row-value {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* A profile's games beside its name: small covers, then a count. */
+.m-linked {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.m-linked-cover {
+  display: block;
+  width: 20px;
+  height: 28px;
+  border-radius: 4px;
+  object-fit: cover;
+  background: #0d0d0d;
+  box-shadow: 0 0 0 1px var(--hair) inset;
+}
+
+.m-linked-cover.is-blank { font-size: 0; }
+
+.m-linked-more,
+.m-linked-name {
+  margin-left: 4px;
+  color: var(--muted);
+  font-size: var(--type-small);
+}
+
+/* The picker: the library's covers over the room, picked like Exo's own shelves. */
+.m-picker-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: grid;
+  place-items: center;
+  padding: 32px;
+  background: rgba(0, 0, 0, 0.78);
+  animation: m-fade 200ms var(--ease) both;
+}
+
+.m-picker {
+  display: flex;
+  flex-direction: column;
+  width: min(1040px, 100%);
+  height: min(760px, 100%);
+  border: 1px solid var(--hair);
+  border-radius: 14px;
+  background: var(--bg);
+  overflow: hidden;
+}
+
+.m-picker-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 24px 24px 16px;
+}
+
+.m-picker-title {
+  margin: 0;
+  font-size: var(--type-title);
+  font-weight: 600;
+}
+
+.m-picker-tools {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 24px 16px;
+  border-bottom: 1px solid var(--hair);
+}
+
+.m-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  align-content: start;
+  gap: 16px 12px;
+  padding: 24px;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+
+.m-picker-empty {
+  grid-column: 1 / -1;
+  margin: 24px 0;
+  color: var(--muted);
+  text-align: center;
+}
+
+.m-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.m-tile-art {
+  position: relative;
+  display: block;
+  aspect-ratio: 2 / 3;
+  border-radius: 14px;
+  overflow: hidden;
+  background: #0d0d0d;
+  box-shadow: 0 0 0 1px var(--hair) inset;
+  transition: box-shadow 120ms var(--ease);
+}
+
+.m-tile-cover {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: opacity 120ms var(--ease);
+}
+
+.m-tile-cover.is-blank {
+  display: grid;
+  place-items: center;
+  padding: 12px;
+  color: var(--muted);
+  font-size: var(--type-small);
+  text-align: center;
+}
+
+.m-tile-title {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: var(--type-small);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.m-tile.is-on .m-tile-art { box-shadow: 0 0 0 2px var(--ink) inset, 0 0 0 1px var(--ink); }
+.m-tile.is-on .m-tile-title { color: var(--ink); }
+
+.m-tile-check {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  background: var(--ink);
+}
+
+.m-tile-check::after {
+  content: "";
+  position: absolute;
+  left: 7px;
+  top: 4px;
+  width: 5px;
+  height: 9px;
+  border: solid #000;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+.m-tile.is-elsewhere .m-tile-cover { opacity: 0.45; }
+
+.m-tile-owner {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 8px;
+  overflow: hidden;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.8);
+  color: var(--ink);
+  font-size: var(--type-small);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .m-tile:not(.is-on):hover .m-tile-art { box-shadow: 0 0 0 1px #3a3a3a inset; }
+  .m-tile:hover .m-tile-cover { opacity: 1; }
+}
+
+/* ------------------------------------------------------------------ motion
+ * Exo's motion language (ui/src/tokens.css): arrive, work, done, switch and
+ * the gliding fill. Every move stops under reduce motion: Exo's setting,
+ * passed in as data-exo-motion (host-look.ts), or Windows' when standalone.
+ */
+
+/* Arrive: panels rise 8px into place in turn, 24ms apart; --i is the panel's place, the 8th on share one delay. */
+.m-arrive {
+  animation: m-arrive 280ms var(--ease) both;
+  animation-delay: calc(min(var(--i, 0), 7) * 24ms);
+}
+
+/* Switch: a new device or state fades in. */
+.m-switch-in {
+  animation: m-fade 200ms var(--ease) both;
+}
+
+/* Work: a soft diagonal band of light crosses the element while a change is written. */
+.m-work {
+  position: relative;
+  overflow: hidden;
+}
+
+/* A layer two and a half times as wide slides across (a transform, so nothing under it repaints). */
+.m-work::after {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 250%;
+  background: linear-gradient(115deg, transparent 30%, rgba(255, 255, 255, 0.16) 50%, transparent 70%);
+  animation: m-work-band 1400ms linear infinite;
+  pointer-events: none;
+}
+
+/* The same band, through text that is waiting (looking for, connecting to the mouse). */
+.m-work-text {
+  background: linear-gradient(115deg, var(--muted) 30%, var(--ink) 50%, var(--muted) 70%) no-repeat;
+  background-size: 250% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: m-work 1400ms linear infinite;
+}
+
+/* Done: a green check draws itself. */
+.m-check {
+  width: 12px;
+  height: 12px;
+  fill: none;
+  stroke: currentColor;
+  /* Tabler's check at Exo's line (ui/src/brand/icons.tsx), drawn in. */
+  stroke-width: 1.875;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: m-check 380ms var(--ease) 80ms forwards;
+}
+
+/* Done on the mouse (a change landed): it dims under a green ring and a check draws, then both ease away, as on Exo's covers. */
+.m-done {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  border-radius: inherit;
+  background: rgba(0, 0, 0, 0.55);
+  box-shadow: inset 0 0 0 1px var(--good);
+  opacity: 0;
+  animation: m-done 3000ms var(--ease) forwards;
+  pointer-events: none;
+}
+
+.m-done-check {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 40%;
+  max-width: 56px;
+  aspect-ratio: 1;
+  fill: none;
+  stroke: var(--good);
+  stroke-width: 1.875;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: m-done-check 3000ms var(--ease) forwards;
+}
+
+/* Glide: one selected fill slides to the chosen option on the switch timing. */
+.m-glide {
+  position: relative;
+  isolation: isolate;
+}
+
+.m-glide::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: -1;
+  width: var(--glide-w, 0);
+  height: var(--glide-h, 0);
+  border-radius: 999px;
+  background: var(--selected);
+  opacity: var(--glide-o, 0);
+  transform: translate(var(--glide-x, 0), var(--glide-y, 0));
+  pointer-events: none;
+}
+
+.m-glide.is-glide-ready::before {
+  transition:
+    transform var(--dur-move) var(--ease-spring),
+    width var(--dur-move) var(--ease-spring),
+    height var(--dur-move) var(--ease-spring),
+    opacity var(--dur-quick) var(--ease);
+}
+
+.m-glide.is-glide-ready [aria-checked='true'] { background-color: transparent; }
+
+@keyframes m-arrive {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes m-fade { from { opacity: 0; } }
+
+/* A menu settles in from 0.96 under its field, never from nothing. */
+@keyframes m-menu-in { from { opacity: 0; scale: 0.96; } }
+
+@keyframes m-work-band {
+  from { translate: -90% 0; }
+  to { translate: 30% 0; }
+}
+
+@keyframes m-work {
+  from { background-position: 150% 0; }
+  to { background-position: -50% 0; }
+}
+
+@keyframes m-check { to { stroke-dashoffset: 0; } }
+
+@keyframes m-done {
+  0% { opacity: 0; }
+  8% { opacity: 1; }
+  80% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+@keyframes m-done-check {
+  0%, 3% { stroke-dashoffset: 1; opacity: 1; }
+  15% { stroke-dashoffset: 0; opacity: 1; }
+  80% { stroke-dashoffset: 0; opacity: 1; }
+  100% { stroke-dashoffset: 0; opacity: 0; }
+}
+
+/* Reduce motion: nothing moves; the done check simply shows while it lasts. */
+:root[data-exo-motion='reduce'] :is(.m-arrive, .m-switch-in, .m-picker-scrim, .m-work-text, .m-check, .m-error, .m-done-check),
+:root[data-exo-motion='reduce'] .m-work::after {
+  animation: none;
+}
+
+:root[data-exo-motion='reduce'] .m-work-text { color: var(--ink); background: none; }
+:root[data-exo-motion='reduce'] :is(.m-check, .m-done-check) { stroke-dashoffset: 0; }
+:root[data-exo-motion='reduce'] .m-done { animation: none; opacity: 1; background: none; }
+
+:root[data-exo-motion='reduce'] :is(.m-switch, .m-switch-knob, .m-gauge-fill, .m-gauge-step),
+:root[data-exo-motion='reduce'] .m-glide::before {
+  transition: none;
+}
+
+/* A menu still fades in (opacity alone); a press only darkens. */
+:root[data-exo-motion='reduce'] .m-menu { animation-name: m-fade; }
+:root[data-exo-motion='reduce'] :is(.m-select, .m-button):active:not(:disabled) { scale: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  :root:not([data-exo-motion]) :is(.m-arrive, .m-switch-in, .m-picker-scrim, .m-work-text, .m-check, .m-error, .m-done-check),
+  :root:not([data-exo-motion]) .m-work::after {
+    animation: none;
+  }
+
+  :root:not([data-exo-motion]) .m-work-text { color: var(--ink); background: none; }
+  :root:not([data-exo-motion]) :is(.m-check, .m-done-check) { stroke-dashoffset: 0; }
+  :root:not([data-exo-motion]) .m-done { animation: none; opacity: 1; background: none; }
+
+  :root:not([data-exo-motion]) :is(.m-switch, .m-switch-knob, .m-gauge-fill, .m-gauge-step),
+  :root:not([data-exo-motion]) .m-glide::before {
+    transition: none;
+  }
+
+  :root:not([data-exo-motion]) .m-menu { animation-name: m-fade; }
+  :root:not([data-exo-motion]) :is(.m-select, .m-button):active:not(:disabled) { scale: none; }
+}
+
+/* ------------------------------------------------------------- system */
+
+/* Exo's system, as in Exo's own rooms (ui/src/styles/system.css): panels float as the near-black
+   material with a white rim, controls are filled capsules with no outline, switches are 40×24
+   with a round white knob, gray off and green on. */
+.m-panel,
+.m-hero {
+  border-color: var(--hair);
+  border-radius: 18px;
+  background: var(--float);
+  box-shadow: none;
+}
+
+/* Controls are flat: the near-black fill and one even hairline, no outline ring, fields the same; primary buttons stay white. */
+.m-seg,
+.m-select,
+.m-button,
+.m-color {
+  border-color: transparent;
+  background-color: var(--fill);
+  box-shadow: var(--rim);
+}
+
+.m-number,
+.m-text {
+  border-color: transparent;
+  background-color: var(--fill);
+  box-shadow: var(--field-rim);
+}
+
+.m-button.is-primary {
+  border-color: var(--ink);
+  box-shadow: none;
+}
+
+:is(.m-select, .m-button:not(.is-primary)):active:not(:disabled) {
+  box-shadow: var(--rim-pressed);
+}
+
+/* A press gives way a little, in fast and back on the quick time, as Exo's controls do. */
+:is(.m-select, .m-button):active:not(:disabled) {
+  scale: 0.97;
+  transition-duration: var(--dur-press);
+}
+
+.m-menu,
+.m-picker {
+  border-color: var(--hair);
+  background: var(--float);
+  box-shadow: 0 16px 40px rgb(0 0 0 / 0.55);
+}
+
+.m-switch {
+  width: 40px;
+  height: 24px;
+  padding: 0 2px;
+  background: var(--track);
+}
+
+.m-switch-knob {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--ink);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.35);
+}
+
+.m-switch[aria-checked='true'] { background: var(--good); }
+.m-switch[aria-checked='true'] .m-switch-knob { transform: translateX(16px); background: var(--ink); }
+
+/* Menus as in Exo's rooms: the floating material, 34px rows rounded 8px, 13px text, the hover
+   gray, and the current choice marked with a check on the right. */
+.m-menu {
+  padding: 5px;
+  border-color: var(--hair);
+  border-radius: 14px;
+  background: var(--float);
+}
+
+.m-menu-item {
+  min-height: 34px;
+  border-radius: 8px;
+  color: var(--ink);
+  font-size: var(--type-body);
+  font-weight: 500;
+}
+
+.m-menu-item.is-on::after {
+  content: "";
+  flex: none;
+  width: 14px;
+  height: 14px;
+  margin-left: auto;
+  padding-left: 16px;
+  background: currentColor;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.15' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12l5 5l10 -10'/%3E%3C/svg%3E") right center / 14px no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.15' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12l5 5l10 -10'/%3E%3C/svg%3E") right center / 14px no-repeat;
+}

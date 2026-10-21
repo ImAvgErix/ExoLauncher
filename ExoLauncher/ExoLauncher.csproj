@@ -1,0 +1,145 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net11.0-windows10.0.28000.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
+    <RootNamespace>ExoLauncher</RootNamespace>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+
+    <Platforms>x64</Platforms>
+    <Platform Condition="'$(Platform)' == '' or '$(Platform)' == 'AnyCPU'">x64</Platform>
+    <PlatformTarget>x64</PlatformTarget>
+    <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
+    <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">win-x64</RuntimeIdentifier>
+
+    <UseWinUI>true</UseWinUI>
+    <EnableMsixTooling>true</EnableMsixTooling>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <WindowsPackageType>None</WindowsPackageType>
+    <WindowsAppSDKSelfContained>false</WindowsAppSDKSelfContained>
+    <PublishSelfContained>true</PublishSelfContained>
+    <!-- Keep private source metadata in local build symbols, outside release downloads. -->
+    <CopyOutputSymbolsToPublishDirectory>false</CopyOutputSymbolsToPublishDirectory>
+    <PublishReadyToRun Condition="'$(Configuration)' == 'Release'">true</PublishReadyToRun>
+    <!-- Trim only what is marked trimmable: the runtime and the Windows, WinUI and WebView2
+         projections (Microsoft.Windows.SDK.NET alone shipped 60 MB). Exo's own assembly stays
+         whole, so its reflection JSON (anonymous RPC replies) and [ComImport] interop keep
+         working; Native AOT can express neither. The analyzers would only repeat that. -->
+    <PublishTrimmed>true</PublishTrimmed>
+    <TrimMode>partial</TrimMode>
+    <EnableTrimAnalyzer>false</EnableTrimAnalyzer>
+    <SuppressTrimAnalysisWarnings>true</SuppressTrimAnalysisWarnings>
+    <JsonSerializerIsReflectionEnabledByDefault>true</JsonSerializerIsReflectionEnabledByDefault>
+    <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
+    <!-- No instrumented JIT tier: less JIT work at start and while idle. -->
+    <TieredPGO>false</TieredPGO>
+    <ApplicationIcon Condition="Exists('Assets\ExoLauncher.ico')">Assets\ExoLauncher.ico</ApplicationIcon>
+    <AssemblyName>ExoLauncher</AssemblyName>
+    <Product>Exo Launcher</Product>
+    <AssemblyTitle>Exo Launcher</AssemblyTitle>
+    <Company>ImAvgErix</Company>
+    <Description>One calm Windows library UI. Other store clients become invisible backends.</Description>
+    <DefineConstants>DISABLE_XAML_GENERATED_MAIN</DefineConstants>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <RuntimeHostConfigurationOption Include="System.GC.ConserveMemory" Value="5" />
+    <InternalsVisibleTo Include="ExoLauncher.Tests" />
+  </ItemGroup>
+
+
+
+  <ItemGroup>
+    <!-- Reference only the WinUI components used by the active host. -->
+    <PackageReference Include="Microsoft.WindowsAppSDK.Base" Version="2.0.4" />
+    <PackageReference Include="Microsoft.WindowsAppSDK.DWrite" Version="2.1.0" />
+    <PackageReference Include="Microsoft.WindowsAppSDK.Foundation" Version="2.3.9" />
+    <PackageReference Include="Microsoft.WindowsAppSDK.InteractiveExperiences" Version="2.1.6" />
+    <PackageReference Include="Microsoft.WindowsAppSDK.Runtime" Version="2.4.0" />
+    <PackageReference Include="Microsoft.WindowsAppSDK.WinUI" Version="2.3.6" />
+    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.28000.2705" />
+    <PackageReference Include="Microsoft.Windows.SDK.BuildTools.MSIX" Version="1.7.260903100">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4191.47" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.12" />
+    <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="3.0.5" />
+    <Manifest Include="$(ApplicationManifest)" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="Assets\**\*">
+      <!-- Asset archives can retain upstream timestamps. Always copy them so a
+           rebuilt app never ships an older cue merely because its source date
+           predates a previous publish. -->
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+      <CopyToPublishDirectory>Always</CopyToPublishDirectory>
+    </Content>
+    <Content Include="..\VERSION" Link="VERSION" Condition="Exists('..\VERSION')">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>Always</CopyToPublishDirectory>
+    </Content>
+
+  </ItemGroup>
+
+
+
+  <Target Name="BuildWebUi" Condition="Exists('$(MSBuildThisFileDirectory)..\ui\package.json')">
+    <Error Condition="!Exists('$(MSBuildThisFileDirectory)..\ui\node_modules')" Text="ui/node_modules is missing. Run: cd ui &amp;&amp; npm ci. Refusing to package stale generated web assets." />
+    <Error Condition="!Exists('$(MSBuildThisFileDirectory)..\mouse\node_modules')" Text="mouse/node_modules is missing. Run: cd mouse &amp;&amp; npm ci. Exo Mouse builds with the web UI." />
+    <Exec Command="node scripts/build-cache.mjs" WorkingDirectory="$(MSBuildThisFileDirectory)..\ui" IgnoreExitCode="false" />
+  </Target>
+
+  <!--
+    Vite emits content-hashed filenames and clears the output directory, so a
+    wwwroot glob evaluated at project load names the *previous* build's assets
+    and the copy step fails with MSB3030. Collect it after the UI build instead.
+  -->
+  <Target Name="CollectWebUi" BeforeTargets="AssignTargetPaths" DependsOnTargets="BuildWebUi">
+    <Error Condition="!Exists('$(MSBuildThisFileDirectory)wwwroot\index.html')" Text="ExoLauncher/wwwroot/index.html missing. Run: cd ui &amp;&amp; npm ci &amp;&amp; npm run build" />
+    <ItemGroup>
+      <Content Include="wwwroot\**\*">
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      </Content>
+    </ItemGroup>
+  </Target>
+
+  <ItemGroup Condition="'$(DisableMsixProjectCapabilityAddedByProject)'!='true' and '$(EnableMsixTooling)'=='true'">
+    <ProjectCapability Include="Msix" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <_SteamIpcPub>$(MSBuildThisFileDirectory)..\ExoLauncher.SteamIpc\bin\x64\$(Configuration)\native-publish\</_SteamIpcPub>
+  </PropertyGroup>
+  <ItemGroup>
+    <_SteamIpcInputs Include="$(MSBuildThisFileDirectory)..\ExoLauncher.SteamIpc\*.cs;$(MSBuildThisFileDirectory)..\ExoLauncher.SteamIpc\*.csproj;$(MSBuildThisFileDirectory)Adapters\SteamProgressCounters.cs;$(MSBuildThisFileDirectory)..\Directory.Build.props;$(MSBuildThisFileDirectory)..\global.json;$(MSBuildThisFileDirectory)..\VERSION;$(MSBuildThisFileFullPath)" />
+  </ItemGroup>
+  <Target Name="PrepareSteamIpc" Inputs="@(_SteamIpcInputs)" Outputs="$(_SteamIpcPub)ExoLauncher.SteamIpc.exe" Condition="'$(DesignTimeBuild)' != 'true'">
+    <!-- A fresh helper must be evaluated again after restore so its NativeAOT
+         package targets are imported. Restore;Publish in one MSBuild instance
+         misses those imports when obj was cleaned. dotnet publish handles this. -->
+    <Exec Command="dotnet publish &quot;$(MSBuildThisFileDirectory)..\ExoLauncher.SteamIpc\ExoLauncher.SteamIpc.csproj&quot; -c $(Configuration) -r win-x64 -p:Platform=x64 --self-contained true -p:PublishAot=true --output &quot;$(_SteamIpcPub).&quot;" />
+  </Target>
+  <Target Name="BuildSteamIpc" AfterTargets="Build" DependsOnTargets="PrepareSteamIpc" Condition="'$(DesignTimeBuild)' != 'true'">
+    <MakeDir Directories="$(OutDir)steam-ipc" />
+    <Copy SourceFiles="$(_SteamIpcPub)ExoLauncher.SteamIpc.exe" DestinationFolder="$(OutDir)steam-ipc" SkipUnchangedFiles="true" />
+  </Target>
+  <Target Name="PublishSteamIpc" AfterTargets="Publish" DependsOnTargets="PrepareSteamIpc" Condition="'$(DesignTimeBuild)' != 'true'">
+    <MakeDir Directories="$(PublishDir)steam-ipc" />
+    <Copy SourceFiles="$(_SteamIpcPub)ExoLauncher.SteamIpc.exe" DestinationFolder="$(PublishDir)steam-ipc" SkipUnchangedFiles="true" />
+  </Target>
+
+  <ItemGroup>
+    <Content Include="..\third_party\ublock-origin\extension\**\*" Link="extensions\ublock-origin\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <!-- Discord voice: libdave (DAVE end-to-end encryption), libopus and exo_apm (WebRTC's echo cancellation), built by voice\build.ps1. -->
+    <Content Include="..\voice\out\dave.dll;..\voice\out\opus.dll;..\voice\out\exo_apm.dll;..\voice\out\LICENSE-*.txt" Link="%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="..\third_party\ublock-origin\NOTICE.txt" Link="extensions\uBlock-Origin-NOTICE.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="..\LICENSE" Link="LICENSE.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="..\THIRD_PARTY_NOTICES.md" Link="THIRD_PARTY_NOTICES.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="..\PRIVACY.md" Link="PRIVACY.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

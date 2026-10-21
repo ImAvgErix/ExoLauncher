@@ -1,0 +1,11 @@
+M:System.Net.Http.HttpClient.#ctor;Use ExoHttp.Create (ExoLauncher/Helpers/ExoHttp.cs) and list the host in NetworkDestinations
+M:System.Net.Http.HttpClient.#ctor(System.Net.Http.HttpMessageHandler);Use ExoHttp.Create (ExoLauncher/Helpers/ExoHttp.cs) and list the host in NetworkDestinations
+M:System.Net.Http.HttpClient.#ctor(System.Net.Http.HttpMessageHandler,System.Boolean);Use ExoHttp.Create (ExoLauncher/Helpers/ExoHttp.cs) and list the host in NetworkDestinations
+M:System.Diagnostics.Process.Kill;Close the process normally (ProcessHelper.TryCloseProcesses, WM_CLOSE); a last-resort stop goes through ProcessTermination.Kill, which refuses anti-cheat
+M:System.Diagnostics.Process.Kill(System.Boolean);Close the process normally (ProcessHelper.TryCloseProcesses, WM_CLOSE); a last-resort stop goes through ProcessTermination.Kill, which refuses anti-cheat
+M:System.Drawing.Graphics.CopyFromScreen(System.Drawing.Point,System.Drawing.Point,System.Drawing.Size);No screen capture: read state from the store's files, ExoLauncher.SteamIpc, Legendary, gogdl or the store's API
+M:System.Drawing.Graphics.CopyFromScreen(System.Drawing.Point,System.Drawing.Point,System.Drawing.Size,System.Drawing.CopyPixelOperation);No screen capture: read state from the store's files, ExoLauncher.SteamIpc, Legendary, gogdl or the store's API
+M:System.Drawing.Graphics.CopyFromScreen(System.Int32,System.Int32,System.Int32,System.Int32,System.Drawing.Size);No screen capture: read state from the store's files, ExoLauncher.SteamIpc, Legendary, gogdl or the store's API
+M:System.Drawing.Graphics.CopyFromScreen(System.Int32,System.Int32,System.Int32,System.Int32,System.Drawing.Size,System.Drawing.CopyPixelOperation);No screen capture: read state from the store's files, ExoLauncher.SteamIpc, Legendary, gogdl or the store's API
+T:Windows.Graphics.Capture.GraphicsCaptureSession;No screen capture: read state from the store's files, ExoLauncher.SteamIpc, Legendary, gogdl or the store's API
+T:System.Windows.Forms.SendKeys;No synthetic input: drive a store through ExoLauncher.SteamIpc, Legendary, gogdl or its own URI or CLI

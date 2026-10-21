@@ -1,0 +1,16 @@
+/* Core extras: the stage editor, on Exo's rows. */
+
+.cx-stage {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.cx-stage .m-slider { width: 150px; }
+.cx-stage .m-slider-value { display: none; }
+
+.cx-pair {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}

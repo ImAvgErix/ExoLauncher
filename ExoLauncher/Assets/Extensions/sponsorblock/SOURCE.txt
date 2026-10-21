@@ -1,0 +1,3 @@
+SponsorBlock 6.1.7 (MV3, YouTube / YouTube Music)
+Source: https://github.com/ajayyy/SponsorBlock/releases/download/6.1.7/ChromeExtension.zip
+Zip SHA-256: 7c8e3dc8b5e560b480ae8efdf28f4f1101fce0cc32434562a336a89e4962eda3

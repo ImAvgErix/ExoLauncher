@@ -1,0 +1,27 @@
+#include <winres.h>
+1 ICON "../../ExoLauncher/Assets/ExoLauncher.ico"
+1 RT_MANIFEST "ExoSetup.manifest"
+101 RCDATA "../build/ui.pack"
+VS_VERSION_INFO VERSIONINFO
+ FILEVERSION VERSION_COMMA
+ PRODUCTVERSION VERSION_COMMA
+ FILEOS 0x40004L
+ FILETYPE 0x1L
+BEGIN
+  BLOCK "StringFileInfo"
+  BEGIN
+    BLOCK "040904b0"
+    BEGIN
+      VALUE "CompanyName", "Erix (ImAvgErix)"
+      VALUE "FileDescription", "Exo Launcher Setup"
+      VALUE "FileVersion", VERSION_TEXT
+      VALUE "ProductName", "Exo Launcher"
+      VALUE "ProductVersion", VERSION_TEXT
+      VALUE "LegalCopyright", "Copyright (c) 2026 Erix (ImAvgErix)"
+    END
+  END
+  BLOCK "VarFileInfo"
+  BEGIN
+    VALUE "Translation", 0x409, 1200
+  END
+END

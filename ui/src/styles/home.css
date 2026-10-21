@@ -1,0 +1,368 @@
+.exo-now-wash-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+  opacity: 0;
+  transform: translateZ(0);
+  transition: opacity 280ms var(--ease-out);
+}
+
+.exo-now-wash-img.is-on {
+  opacity: 1;
+}
+
+.exo-windowed-game-grid {
+  --exo-card-meta-height: 36px;
+  --exo-grid-padding-top: 8px;
+  --exo-grid-padding-bottom: 40px;
+  --exo-grid-column-gap: 12px;
+  --exo-grid-row-gap: 12px;
+  display: block;
+  width: 100%;
+  min-width: 0;
+  column-gap: var(--exo-grid-column-gap);
+  row-gap: var(--exo-grid-row-gap);
+  overflow-anchor: none;
+}
+
+.exo-grid-spacer {
+  width: 1px;
+  min-height: 0;
+  pointer-events: none;
+}
+
+/* The mounted slice is one flat grid; cards keep their element as they
+   move between rows. Width comes from the library pane's --exo-card-w. */
+.exo-game-grid {
+  display: grid;
+  grid-template-columns: repeat(var(--exo-grid-columns), var(--exo-card-w));
+  justify-content: start;
+  column-gap: var(--exo-grid-column-gap);
+  row-gap: var(--exo-grid-row-gap);
+  padding: 0 var(--exo-gutter);
+}
+
+.exo-tile {
+  position: relative;
+  isolation: isolate;
+  min-width: 0;
+}
+
+.exo-tile-hit {
+  display: block;
+  width: 100%;
+  height: calc((var(--exo-card-w) * 1.5) + var(--exo-card-meta-height));
+  overflow: visible;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  color: inherit;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+/* The frame is the art's one clip. Its ring (hover, focus, the open sheet's title, a running game) is an
+   outline 2px outside the art, so it never lands on the art's own antialiased corner. */
+.exo-tile-frame {
+  position: relative;
+  aspect-ratio: 2 / 3;
+  border-radius: var(--exo-tile-radius);
+  overflow: hidden;
+  background: #000;
+  box-shadow: none;
+  outline: 1px solid transparent;
+  outline-offset: 2px;
+  isolation: isolate;
+  transition: outline-color var(--dur-quick) var(--ease-out), transform var(--dur-move) var(--ease-out);
+}
+
+.exo-tile.is-update .exo-tile-frame {
+  box-shadow: none;
+}
+
+/* No clip of its own: a second rounded clip at the same edge antialiases the corner twice. */
+.exo-tile-media {
+  position: absolute;
+  inset: 0;
+}
+
+.exo-tile-media .exo-cover {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+/* Hover on a cover (DESIGN.md › Motion › Hover; the same in the Store and Shaders): the art lifts toward
+   you, 3px up, and takes a little more light, with no ring around it. It never grows: a growing layer draws
+   soft until it stops. Not-installed art comes back to color. Keyboard focus keeps its ring. The light
+   is the art's own brightness, not a white layer over it, so its blacks stay black on an AMOLED panel. */
+.exo-tile-media img {
+  transition: filter var(--dur-quick) var(--ease-out);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .exo-tile-hit:hover:not(:disabled) .exo-tile-media img {
+    filter: brightness(1.08);
+  }
+
+  .exo-tile-hit:hover:not(:disabled) .exo-tile-frame {
+    transform: translateY(-3px);
+  }
+
+  .exo-tile.is-dim .exo-tile-hit:hover:not(:disabled) .exo-card-title {
+    color: var(--color-fg);
+  }
+
+  .exo-tile-hit:hover:not(:disabled) .exo-card-title {
+    white-space: normal;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
+}
+
+.exo-tile-hit:focus-visible {
+  outline: none;
+}
+
+.exo-tile-hit:focus-visible .exo-tile-frame {
+  outline: 2px solid var(--color-fg);
+}
+
+.exo-tile-hit:focus-visible .exo-card-title {
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+/* A running game glows so it reads from across the room. */
+.exo-tile.is-playing .exo-tile-frame {
+  outline-color: rgba(61, 214, 140, 0.55);
+  box-shadow: 0 0 28px rgba(61, 214, 140, 0.22);
+}
+
+.exo-tile-hit:disabled {
+  cursor: default;
+}
+
+.exo-tile-media img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  pointer-events: none;
+}
+
+/* The tile's motion layer (DESIGN.md › Motion): the work band while it downloads,
+   the done ring and check when it lands. Under the progress bar and badge. */
+.exo-tile-frame > .exo-tile-motion {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+.exo-tile-progress {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  left: 10px;
+  z-index: 4;
+  height: 3px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #292929;
+  pointer-events: none;
+}
+
+.exo-tile-progress::before {
+  content: "";
+  display: block;
+  height: 100%;
+  transform: scaleX(var(--progress, 0));
+  transform-origin: left center;
+  background: var(--color-fg);
+  transition: transform 90ms var(--ease-out);
+}
+
+.exo-tile-progress.is-unknown::before {
+  width: 36%;
+  transform: none;
+  animation: exo-progress-unknown 0.7s var(--ease-out) infinite;
+}
+
+.exo-tile.is-dim {
+  opacity: 1;
+}
+
+/* No translateZ/backface hints: they gave every cover and every image its own
+   compositor layer (two per card, a hundred or more mounted), each under a
+   rounded clip. Fast scrolls then outran tile raster and cards drew each
+   other's stale tiles. Covers paint into the scroller's own layer. */
+/* The wrapper (tile frame, game sheet cover, queue row) is the one rounded clip; the cover adds no clip
+   and no fill, so nothing but the art reaches the antialiased edge. */
+.exo-cover {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  border: none;
+}
+
+.exo-cover img {
+  image-rendering: auto;
+  object-fit: cover;
+  object-position: center;
+  max-width: none;
+  max-height: none;
+}
+
+.exo-cover-front {
+  position: absolute;
+  inset: -1px;
+  width: calc(100% + 2px);
+  height: calc(100% + 2px);
+  transition: opacity 120ms var(--ease-out);
+}
+
+/* Icons stay letterboxed on the dark plate. Store art never takes this path. */
+.exo-cover.is-icon img,
+.exo-cover.is-icon .exo-cover-front {
+  object-fit: contain;
+  object-position: center;
+  background: #000;
+}
+
+/* Decorative fill used only behind wide artwork surfaces. */
+.exo-cover-fill {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  object-fit: cover;
+  object-position: center;
+  pointer-events: none;
+}
+
+/* Portrait art filling a wide CoverArt slot: washed, not stretched. */
+.exo-cover-derived {
+  filter: blur(20px) saturate(1.08) brightness(0.7);
+  transform: scale(1.16) translateZ(0);
+}
+
+.exo-card-meta {
+  box-sizing: border-box;
+  min-width: 0;
+  min-height: var(--exo-card-meta-height);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  margin: 0;
+  padding: 8px 2px 0;
+}
+
+/* One quiet line; the full name unfolds under the pointer or keyboard focus. */
+.exo-card-title {
+  display: block;
+  overflow: hidden;
+  width: 100%;
+  font-size: var(--exo-type-control);
+  font-weight: 500;
+  line-height: 1.3;
+  color: var(--color-fg);
+  overflow-wrap: anywhere;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.exo-tile.is-dim .exo-card-title {
+  color: var(--color-muted);
+}
+
+/* Not installed: a hint, not a blackout. Search is where the art has to sell
+   the game, and full greyscale over a 50% scrim left results unreadable. */
+.exo-cover.is-not-installed img,
+.exo-cover.is-not-installed .exo-cover-mono {
+  filter: grayscale(0.3) brightness(0.88);
+}
+
+.exo-cover-mono {
+  position: absolute;
+  inset: 0;
+  container-type: inline-size;
+  display: grid;
+  place-items: center;
+  padding: 12%;
+  font-weight: 600;
+  line-height: 1.1;
+  text-align: center;
+  color: rgba(242, 242, 242, 0.42);
+  background:
+    radial-gradient(ellipse at 40% 25%, rgb(var(--exo-ink-rgb) / 0.06) 0%, transparent 55%),
+    linear-gradient(160deg, #050505 0%, #000 55%, #000 100%);
+  transition: opacity 280ms var(--ease-out);
+}
+
+/* Scales with the card so long titles wrap inside it instead of running off the edge. */
+.exo-cover-mono > span {
+  display: -webkit-box;
+  max-width: 100%;
+  overflow: hidden;
+  font-size: clamp(14px, 16cqi, 30px);
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+}
+
+.exo-cover-mono.is-under {
+  opacity: 0;
+}
+
+.exo-empty-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+/* Library › Refresh: while it runs (data-exo-refreshing on the page) a shine
+   travels across the cards, a column after the column before, like the Work
+   band (DESIGN.md › Motion). The frame's ::after is its ring, so ::before. */
+:root[data-exo-refreshing] .exo-tile-frame::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  z-index: 3;
+  width: 250%;
+  background: linear-gradient(115deg, transparent 30%, rgb(var(--exo-ink-rgb) / 0.16) 50%, transparent 70%);
+  animation: exo-work 1400ms linear infinite both;
+  pointer-events: none;
+}
+
+:root[data-exo-refreshing] .exo-game-grid > :nth-child(8n + 2) .exo-tile-frame::before { animation-delay: 90ms; }
+:root[data-exo-refreshing] .exo-game-grid > :nth-child(8n + 3) .exo-tile-frame::before { animation-delay: 180ms; }
+:root[data-exo-refreshing] .exo-game-grid > :nth-child(8n + 4) .exo-tile-frame::before { animation-delay: 270ms; }
+:root[data-exo-refreshing] .exo-game-grid > :nth-child(8n + 5) .exo-tile-frame::before { animation-delay: 360ms; }
+:root[data-exo-refreshing] .exo-game-grid > :nth-child(8n + 6) .exo-tile-frame::before { animation-delay: 450ms; }
+:root[data-exo-refreshing] .exo-game-grid > :nth-child(8n + 7) .exo-tile-frame::before { animation-delay: 540ms; }
+:root[data-exo-refreshing] .exo-game-grid > :nth-child(8n + 8) .exo-tile-frame::before { animation-delay: 630ms; }
+
+:root[data-exo-motion='reduce'][data-exo-refreshing] .exo-tile-frame::before {
+  animation: none;
+  background: none;
+}
+
+/* Reduce motion: hover only brightens. */
+:root[data-exo-motion="reduce"] .exo-tile-hit:hover:not(:disabled) .exo-tile-frame {
+  transform: none;
+}

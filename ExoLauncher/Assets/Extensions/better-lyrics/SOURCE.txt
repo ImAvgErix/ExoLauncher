@@ -1,0 +1,3 @@
+Better Lyrics 2.3.3 (MV3, YouTube Music)
+Source: https://github.com/better-lyrics/better-lyrics/releases/download/v2.3.3/chrome-v2.3.3.zip
+Zip SHA-256: 56dda35679695f565f0ebc0713a79225bff2c628e57cc5fb9f7c86b9c11a5993
