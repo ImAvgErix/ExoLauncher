@@ -22,7 +22,7 @@ To uninstall, open **Windows Settings > Apps > Installed apps**, choose **Exo La
 ## GPU
 
 The System room holds your graphics card's settings, in Graphics, Display and Shaders.
-- **Profile** applies Exo's NVIDIA driver profile (lowest latency, G-SYNC full screen only) and shows your driver. **Update** installs NVIDIA's newest Game Ready driver clean and driver-only, with no NVIDIA app, PhysX or HDMI audio; Exo puts your profile and color back after. It waits while a game runs.
+- **Profile** applies Exo's NVIDIA driver profile (lowest latency, G-SYNC full screen only) and shows your driver. **Update** installs NVIDIA's newest Game Ready driver clean and driver-only (on a GTX 10 series or older card, which Game Ready drivers no longer support, NVIDIA's newest driver for it), with no NVIDIA app, PhysX or HDMI audio; Exo puts your profile and color back after. It waits while a game runs.
 - **Display** has each screen's refresh rate, output color, scaling (with **Override the scaling set by games**), brightness to hue, and RTX Video. A change to the picture comes back by itself after 15 seconds unless you keep it.
 - **HDR** turns HDR on only while a game with real HDR runs. **SDR looks right in HDR** draws the desktop with gamma 2.2 while HDR is on, so blacks stay black.
 
