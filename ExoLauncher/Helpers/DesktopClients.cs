@@ -37,8 +37,8 @@ internal sealed class DesktopClientSpec
     internal Func<DesktopClientInstall, int, bool> RestartAdopted { get; init; } = (_, _) => false;
 
     /// Starts the client's own executable in place of a shell launch: (install,
-    /// arguments) → pid. Spotify uses it to hand over its private DevTools pipe.
-    internal Func<DesktopClientInstall, string, int>? Start { get; init; }
+    /// arguments). Spotify uses it to hand over its private DevTools pipe.
+    internal Action<DesktopClientInstall, string>? Start { get; init; }
 
     /// Runs once on a background thread after Exo itself launched the client
     /// process — never for a session adopted already running. Spotify uses it
@@ -178,30 +178,22 @@ internal static class DesktopClients
         catch { return false; }
     }
 
-    /// Polls for the client window: activate once, reactivate once at the
-    /// halfway stall, give up at the timeout. The search walks processes and
-    /// windows, so it runs on the thread pool; activation and the result stay
-    /// on the caller's dispatcher. Any cancellation between polls abandons the
-    /// wait without another nudge.
-    internal static async Task<nint> WaitForWindowAsync(Func<nint> find, Action activate, Action reactivate,
+    /// Polls for the client window: activate once, give up at the timeout. No
+    /// second activation: Spotify answers one by raising its own window onto
+    /// the screen. The search walks processes and windows, so it runs on the
+    /// thread pool; activation and the result stay on the caller's dispatcher.
+    internal static async Task<nint> WaitForWindowAsync(Func<nint> find, Action activate,
         TimeSpan timeout, TimeSpan poll, CancellationToken cancellation)
     {
         cancellation.ThrowIfCancellationRequested();
         activate();
         var started = Environment.TickCount64;
-        var nudged = false;
         while (Environment.TickCount64 - started < timeout.TotalMilliseconds)
         {
             cancellation.ThrowIfCancellationRequested();
             var window = await Task.Run(find, cancellation);
             cancellation.ThrowIfCancellationRequested();
             if (window != 0) return window;
-            if (!nudged && Environment.TickCount64 - started >= timeout.TotalMilliseconds / 2)
-            {
-                cancellation.ThrowIfCancellationRequested();
-                nudged = true;
-                reactivate();
-            }
             await Task.Delay(poll, cancellation);
         }
         cancellation.ThrowIfCancellationRequested();
@@ -214,16 +206,19 @@ internal static class DesktopClients
     /// then a start only raises the running one, as its shortcut would. A
     /// Spotify that runs without the pipe is restarted by the room
     /// (<see cref="DesktopClientHost.RestartForRoom"/>).
-    private static int StartSpotify(DesktopClientInstall install, string arguments)
+    private static void StartSpotify(DesktopClientInstall install, string arguments)
     {
-        if (!SpotifyRunning() && !SpotifyDevTools.IsConnected) return SpotifyDevTools.Launch(install.Executable, arguments, install.AppDirectory);
+        if (!SpotifyRunning() && !SpotifyDevTools.IsConnected)
+        {
+            SpotifyDevTools.Launch(install.Executable, arguments, install.AppDirectory);
+            return;
+        }
         using var raised = Process.Start(new ProcessStartInfo(install.Executable)
         {
             Arguments = arguments.Replace(SpotifyDevTools.PipeArgument, "", StringComparison.Ordinal).Trim(),
             WorkingDirectory = install.AppDirectory,
             UseShellExecute = true,
         }) ?? throw new InvalidOperationException("Spotify did not start.");
-        return raised.Id;
     }
 
     /// The classic app wherever it was installed (<see cref="SpotifyInstalls"/>); the Store edition is not hosted.
@@ -253,12 +248,15 @@ internal static class DesktopClients
         var running = false;
         foreach (var process in Process.GetProcessesByName("Spotify"))
         {
-            try { running |= !process.HasExited && HostedProcessClass.QueryCommandLine(process.Id)?.Contains("--type=crashpad-handler", StringComparison.Ordinal) != true; }
+            try { running |= !process.HasExited && !IsCrashHandler(process.Id); }
             catch { running = true; }
             process.Dispose();
         }
         return running;
     }
+
+    internal static bool IsCrashHandler(int pid) =>
+        HostedProcessClass.QueryCommandLine(pid)?.Contains("--type=crashpad-handler", StringComparison.Ordinal) == true;
 
     internal static void PrepareSpotifySettings(DesktopClientInstall install)
     {

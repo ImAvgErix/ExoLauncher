@@ -18,12 +18,12 @@ namespace ExoLauncher.Services.DiscordClient;
 internal sealed partial class DiscordSession
 {
     private VoiceConnection? _stream;
-    private string? _streamKey, _streamServer, _streamEndpoint, _streamToken;
+    private string? _streamKey, _streamServer, _streamChannel, _streamEndpoint, _streamToken;
     private VoiceConnection? _live;
     private GoLiveCapture? _liveCapture;
     // Your stream's tile is on screen: it is sent the stream's own frames.
     private volatile bool _livePreview;
-    private string? _liveKey, _liveServer, _liveEndpoint, _liveToken, _liveTitle;
+    private string? _liveKey, _liveServer, _liveChannel, _liveEndpoint, _liveToken, _liveTitle;
     private uint? _liveSound; // null: no sound; 0: this PC's but Exo's; else the shared app's process
 
     /// <summary>
@@ -53,7 +53,7 @@ internal sealed partial class DiscordSession
             if (key is not null)
             {
                 _liveKey = key;
-                _liveServer = _liveEndpoint = _liveToken = null;
+                _liveServer = _liveChannel = _liveEndpoint = _liveToken = null;
                 _liveCapture = capture;
                 _liveTitle = source.Title;
                 _liveSound = !sound ? null : source.Kind == "window" ? source.ProcessId : 0;
@@ -116,8 +116,8 @@ internal sealed partial class DiscordSession
         {
             if (_live is not null || _liveKey is null || _liveServer is null || _liveEndpoint is null || _liveToken is null
                 || _voiceSession is null || Cache.Me is null) return;
-            if (!ulong.TryParse(_liveServer, NumberStyles.None, CultureInfo.InvariantCulture, out var server)) return;
-            live = new VoiceConnection(_liveEndpoint, _liveServer, (server - 1).ToString(CultureInfo.InvariantCulture), Cache.Me.Id, _voiceSession, _liveToken, listening: true);
+            if (StreamChannel(_liveServer, _liveChannel) is not { } channel) return;
+            live = new VoiceConnection(_liveEndpoint, _liveServer, channel, Cache.Me.Id, _voiceSession, _liveToken, listening: true, screen: true);
             _live = live;
             (capture, title, sound) = (_liveCapture, _liveTitle, _liveSound);
         }
@@ -140,6 +140,14 @@ internal sealed partial class DiscordSession
         live.Start();
     }
 
+    /// <summary>
+    /// A stream's own channel, which its connection identifies with and is its DAVE group: STREAM_CREATE's rtc_channel_id,
+    /// else rtc_server_id - 1 (Discord's RTCConnection.trueChannelId); null when the server id isn't a number.
+    /// </summary>
+    internal static string? StreamChannel(string server, string? channel) =>
+        !string.IsNullOrEmpty(channel) ? channel
+        : ulong.TryParse(server, NumberStyles.None, CultureInfo.InvariantCulture, out var id) && id > 0 ? (id - 1).ToString(CultureInfo.InvariantCulture) : null;
+
     /// <summary>A user's Go Live stream key in the call this client is in.</summary>
     private string? StreamKeyOf(string userId)
     {
@@ -155,7 +163,7 @@ internal sealed partial class DiscordSession
     {
         if (StreamKeyOf(userId) is not { } key) return "Join the voice channel to watch.";
         StopWatching();
-        lock (_voiceGate) { _streamKey = key; _streamServer = _streamEndpoint = _streamToken = null; }
+        lock (_voiceGate) { _streamKey = key; _streamServer = _streamChannel = _streamEndpoint = _streamToken = null; }
         _ = SendAsync(20, new JsonObject { ["stream_key"] = key });
         AppLog.Info("Discord video: watching a stream.");
         return null;
@@ -195,6 +203,7 @@ internal sealed partial class DiscordSession
             {
                 case "STREAM_CREATE":
                     _streamServer = d.TryGetProperty("rtc_server_id", out var s) ? s.GetString() : null;
+                    _streamChannel = d.TryGetProperty("rtc_channel_id", out var c) && c.ValueKind == JsonValueKind.String ? c.GetString() : null;
                     break;
                 case "STREAM_SERVER_UPDATE":
                     _streamEndpoint = d.TryGetProperty("endpoint", out var e) ? e.GetString() : null;
@@ -219,9 +228,9 @@ internal sealed partial class DiscordSession
         {
             if (_stream is not null || _streamKey is null || _streamServer is null || _streamEndpoint is null || _streamToken is null
                 || _voiceSession is null || Cache.Me is null) return;
-            if (!ulong.TryParse(_streamServer, NumberStyles.None, CultureInfo.InvariantCulture, out var server)) return;
+            if (StreamChannel(_streamServer, _streamChannel) is not { } channel) return;
             user = UserOfKey(_streamKey);
-            stream = new VoiceConnection(_streamEndpoint, _streamServer, (server - 1).ToString(CultureInfo.InvariantCulture), Cache.Me.Id, _voiceSession, _streamToken, listening: true)
+            stream = new VoiceConnection(_streamEndpoint, _streamServer, channel, Cache.Me.Id, _voiceSession, _streamToken, listening: true)
             {
                 Deafened = _deafened,
                 // The stream's sound at its Stream Volume, or silent when muted for me.
@@ -242,11 +251,18 @@ internal sealed partial class DiscordSession
 
     private void OnLiveDispatch(string type, JsonElement d)
     {
+        // Whether Discord holds your stream paused and how many watch it: the first thing to read when viewers can't see it.
+        if (type is "STREAM_CREATE" or "STREAM_UPDATE")
+            AppLog.Info($"Discord video: {type} for your stream (paused {(d.TryGetProperty("paused", out var paused) ? paused.GetRawText() : "unset")}, " +
+                $"{(d.TryGetProperty("viewer_ids", out var viewers) && viewers.ValueKind == JsonValueKind.Array ? viewers.GetArrayLength() : 0)} watching).");
         lock (_voiceGate)
         {
             switch (type)
             {
-                case "STREAM_CREATE": _liveServer = d.TryGetProperty("rtc_server_id", out var s) ? s.GetString() : null; break;
+                case "STREAM_CREATE":
+                    _liveServer = d.TryGetProperty("rtc_server_id", out var s) ? s.GetString() : null;
+                    _liveChannel = d.TryGetProperty("rtc_channel_id", out var c) && c.ValueKind == JsonValueKind.String ? c.GetString() : null;
+                    break;
                 case "STREAM_SERVER_UPDATE":
                     _liveEndpoint = d.TryGetProperty("endpoint", out var e) ? e.GetString() : null;
                     _liveToken = d.TryGetProperty("token", out var t) ? t.GetString() : null;

@@ -20,7 +20,9 @@ namespace ExoLauncher.Services.DiscordClient.Voice;
 /// </summary>
 internal sealed class VoiceConnection : IAsyncDisposable
 {
-    private readonly string _endpoint, _serverId, _userId, _sessionId, _token;
+    private readonly string _endpoint, _serverId, _channelId, _userId, _sessionId, _token;
+    // "screen" for this client's own Go Live, "video" for a call's camera, as Discord's client names them.
+    private readonly string _videoType;
     private readonly ulong _groupId;
     private readonly CancellationTokenSource _stop = new();
     private readonly SemaphoreSlim _sendGate = new(1, 1);
@@ -51,7 +53,7 @@ internal sealed class VoiceConnection : IAsyncDisposable
     private nint _encoder;
     private uint _ssrc, _videoSsrc, _rtxSsrc;
     private ushort _videoSequence;
-    private readonly bool _listening;
+    private readonly bool _listening, _screen;
     private readonly int _bitrate;
     private int _seqAck = -1;
     private bool _acked = true;
@@ -78,11 +80,19 @@ internal sealed class VoiceConnection : IAsyncDisposable
     /// <summary>A Go Live stream being watched: its sound plays, nothing is captured or sent.</summary>
     internal bool Listening => _listening;
 
-    internal VoiceConnection(string endpoint, string serverId, string channelId, string userId, string sessionId, string token, bool listening = false, int bitrate = 64000)
+    /// <summary>
+    /// channelId is the call's channel, or a Go Live stream's (its rtc_channel_id, else rtc_server_id - 1): Discord's client
+    /// identifies with it and it is the DAVE group. screen: this client's own Go Live, whose video Discord's client calls
+    /// "screen" (MediaEngineStore.getVideoStreamParameters for the stream context), and whose signaling goes to app.log.
+    /// </summary>
+    internal VoiceConnection(string endpoint, string serverId, string channelId, string userId, string sessionId, string token, bool listening = false, int bitrate = 64000, bool screen = false)
     {
         _bitrate = Math.Clamp(bitrate, 8000, 384000);
         _endpoint = endpoint;
         _serverId = serverId;
+        _channelId = channelId;
+        _videoType = screen ? "screen" : "video";
+        _screen = screen;
         _listening = listening;
         _groupId = ulong.Parse(channelId, System.Globalization.CultureInfo.InvariantCulture);
         _userId = userId;
@@ -159,13 +169,7 @@ internal sealed class VoiceConnection : IAsyncDisposable
                 if (resume && _transport is not null)
                     await SendJsonAsync(7, new { server_id = _serverId, session_id = _sessionId, token = _token, seq_ack = _seqAck }).ConfigureAwait(false);
                 else
-                    await SendJsonAsync(0, new
-                    {
-                        server_id = _serverId, user_id = _userId, session_id = _sessionId, token = _token,
-                        max_dave_protocol_version = (int)DaveSession.MaxVersion,
-                        video = true,
-                        streams = new[] { new { type = "video", rid = "100", quality = 100 } },
-                    }).ConfigureAwait(false);
+                    await SendJsonAsync(0, Identify(_serverId, _channelId, _userId, _sessionId, _token, _videoType, DaveSession.MaxVersion)).ConfigureAwait(false);
                 break;
             case 6: _acked = true; break;
             case 2: await OnReadyAsync(d, ct).ConfigureAwait(false); break;
@@ -178,9 +182,14 @@ internal sealed class VoiceConnection : IAsyncDisposable
             case 11:
                 foreach (var id in d.GetProperty("user_ids").EnumerateArray())
                     if (id.GetString() is { } user) _dave?.AddUser(user);
+                if (_screen) AppLog.Info($"Discord video: {d.GetProperty("user_ids").GetArrayLength()} joined your stream's connection.");
                 break;
             case 13:
                 if (d.GetProperty("user_id").GetString() is { } gone) Forget(gone);
+                if (_screen) AppLog.Info("Discord video: someone left your stream's connection.");
+                break;
+            case 15 when _screen:
+                AppLog.Info("Discord video: your stream's viewers want " + d.GetRawText() + ".");
                 break;
             case 12: OnVideo(d); break;
             case 21: _dave?.OnPrepareTransition(d.GetProperty("transition_id").GetUInt16(), d.GetProperty("protocol_version").GetUInt16()); break;
@@ -213,6 +222,7 @@ internal sealed class VoiceConnection : IAsyncDisposable
             _videoSsrc = stream.TryGetProperty("ssrc", out var vs) ? vs.GetUInt32() : 0;
             _rtxSsrc = stream.TryGetProperty("rtx_ssrc", out var rs) ? rs.GetUInt32() : 0;
         }
+        if (_screen) AppLog.Info("Discord video: your stream's connection is ready (streams " + (d.TryGetProperty("streams", out var announced) ? announced.GetRawText() : "none") + ").");
         var modes = d.GetProperty("modes").EnumerateArray().Select(m => m.GetString()).ToList();
         var mode = modes.Contains(VoiceTransport.Aes) ? VoiceTransport.Aes : VoiceTransport.XChaCha;
         _transport?.Dispose();
@@ -221,7 +231,7 @@ internal sealed class VoiceConnection : IAsyncDisposable
         _transport.RtcpReceived += OnRtcp;
         _videoTimer ??= new Timer(_ => PollVideo(), null, 20, 20);
         var (address, port) = await _transport.DiscoverAsync(ct).ConfigureAwait(false);
-        _dave ??= new DaveSession(_userId, _groupId, (op, payload) => _ = SendBinaryAsync(op, payload), (op, body) => _ = SendJsonAsync(op, body));
+        _dave ??= new DaveSession(_userId, _groupId, (op, payload) => _ = SendBinaryAsync(op, payload), (op, body) => _ = SendJsonAsync(op, body)) { Verbose = _screen };
         _dave.AssignSsrc(_ssrc);
         if (_videoSsrc != 0) _dave.AssignSsrc(_videoSsrc, Dave.CodecH264);
         await SendJsonAsync(1, new
@@ -241,6 +251,8 @@ internal sealed class VoiceConnection : IAsyncDisposable
         var key = d.GetProperty("secret_key").EnumerateArray().Select(b => (byte)b.GetInt32()).ToArray();
         _transport!.Start(d.GetProperty("mode").GetString() ?? VoiceTransport.Aes, key);
         var version = d.TryGetProperty("dave_protocol_version", out var v) && v.ValueKind == JsonValueKind.Number ? v.GetUInt16() : (ushort)0;
+        if (_screen)
+            AppLog.Info($"Discord video: your stream's connection is up (video codec {(d.TryGetProperty("video_codec", out var codec) ? codec.GetString() : "none")}, DAVE {version}).");
         _dave!.OnSessionDescription(version);
         if (_audio is null)
         {
@@ -608,6 +620,7 @@ internal sealed class VoiceConnection : IAsyncDisposable
     private void PollVideo()
     {
         var now = Environment.TickCount64;
+        if (_sent.Due(now) is { } line) AppLog.Info("Discord video: " + line);
         try { ReportArrivals(now); }
         catch (Exception ex) when (ex is not OutOfMemoryException) { AppLog.Debug("Discord video: arrival report failed (" + ex.GetType().Name + ")."); }
         try { lock (_gate) foreach (var receiver in _receivers.Values) receiver.Poll(now); }
@@ -645,12 +658,16 @@ internal sealed class VoiceConnection : IAsyncDisposable
         if (_videoSsrc == 0 || _transport is null) return;
         var (lost, keyframe) = Rtcp.Read(packet, _videoSsrc);
         // Under the send lock: the history is written as frames go out, and a half-written entry would resend the wrong packet.
+        Interlocked.Add(ref _sent.Nacked, lost.Count);
         if (lost.Count > 0 && _rtxSsrc != 0)
             lock (_videoSendGate)
                 foreach (var sequence in lost)
                     if (_sent.Resend(sequence) is { } resend)
+                    {
                         _transport.SendVideo(_rtxSsrc, H264Rtp.RtxPayloadType, resend.Marker, _rtxSequence++, resend.Timestamp, resend.Payload);
-        if (keyframe) KeyframeRequested?.Invoke();
+                        Interlocked.Increment(ref _sent.Resent);
+                    }
+        if (keyframe) { Interlocked.Increment(ref _sent.KeyframeAsks); KeyframeRequested?.Invoke(); }
     }
 
     /// <summary>The server wants a keyframe of this client's video (someone started watching, or lost one).</summary>
@@ -662,20 +679,32 @@ internal sealed class VoiceConnection : IAsyncDisposable
 
     /// <summary>Turns this client's own video on (with its size, frame rate and top bit rate) or off (op 12).</summary>
     internal Task SetVideoAsync(int width, int height, int fps, int maxBitrate = 8_000_000) =>
-        SendJsonAsync(12, width == 0
-            ? new { audio_ssrc = _ssrc, video_ssrc = 0u, rtx_ssrc = 0u, streams = Array.Empty<object>() }
-            : new
+        SendJsonAsync(12, Video(_ssrc, _videoSsrc, _rtxSsrc, _videoType, width, height, fps, maxBitrate));
+
+    /// <summary>op 0 IDENTIFY as Discord's client sends it (RTCControlSocket.identify): with the channel, and the video's type.</summary>
+    internal static object Identify(string serverId, string channelId, string userId, string sessionId, string token, string videoType, ushort daveVersion) => new
+    {
+        server_id = serverId, channel_id = channelId, user_id = userId, session_id = sessionId, token,
+        max_dave_protocol_version = (int)daveVersion,
+        video = true,
+        streams = new[] { new { type = videoType, rid = "100", quality = 100 } },
+    };
+
+    /// <summary>op 12: this client's video on its SSRCs at a size, frame rate and top bit rate, or off (width 0).</summary>
+    internal static object Video(uint audio, uint video, uint rtx, string type, int width, int height, int fps, int maxBitrate) => width == 0
+        ? new { audio_ssrc = audio, video_ssrc = 0u, rtx_ssrc = 0u, streams = Array.Empty<object>() }
+        : new
+        {
+            audio_ssrc = audio, video_ssrc = video, rtx_ssrc = rtx,
+            streams = new object[]
             {
-                audio_ssrc = _ssrc, video_ssrc = _videoSsrc, rtx_ssrc = _rtxSsrc,
-                streams = new object[]
+                new
                 {
-                    new
-                    {
-                        type = "video", rid = "100", ssrc = _videoSsrc, active = true, quality = 100, rtx_ssrc = _rtxSsrc,
-                        max_bitrate = maxBitrate, max_framerate = fps, max_resolution = new { type = "fixed", width, height },
-                    },
+                    type, rid = "100", ssrc = video, active = true, quality = 100, rtx_ssrc = rtx,
+                    max_bitrate = maxBitrate, max_framerate = fps, max_resolution = new { type = "fixed", width, height },
                 },
-            });
+            },
+        };
 
     /// <summary>Sends one of this client's H.264 frames (Annex B): DAVE, then RTP packets on the video SSRC.</summary>
     internal void SendVideoFrame(byte[] frame, uint timestamp)
@@ -683,8 +712,15 @@ internal sealed class VoiceConnection : IAsyncDisposable
         if (_transport is not { Started: true } || _dave is null || _videoSsrc == 0) return;
         var sealedFrame = new byte[frame.Length + 256];
         var length = _dave.EncryptFrame(_videoSsrc, frame, sealedFrame, video: true);
-        if (length <= 0) return;
+        if (length <= 0) { Interlocked.Increment(ref _sent.Unsealed); return; }
         var packets = H264Rtp.Packetize(sealedFrame[..length]);
+        Interlocked.Increment(ref _sent.Frames);
+        Interlocked.Add(ref _sent.Packets, packets.Count);
+        if (_screen && !_describedKeyframe && H264Rtp.IsKeyframe(frame))
+        {
+            _describedKeyframe = true;
+            AppLog.Info("Discord video: your stream's first key frame: " + H264Rtp.Describe(frame) + $", {length - frame.Length:+0;-0} bytes from DAVE.");
+        }
         // One frame at a time: frames arrive on several threads, and a frame's packets must not interleave with another's.
         lock (_videoSendGate)
         for (var i = 0; i < packets.Count; i++)
@@ -695,6 +731,8 @@ internal sealed class VoiceConnection : IAsyncDisposable
             _transport.SendVideo(_videoSsrc, H264Rtp.PayloadType, marker, sequence, timestamp, packets[i]);
         }
     }
+
+    private bool _describedKeyframe;
 
     private StreamAudio? _soundshare;
     private nint _musicEncoder;

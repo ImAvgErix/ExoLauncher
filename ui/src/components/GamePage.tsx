@@ -16,7 +16,7 @@ import { useGlassTone, useLens } from '../lib/glass'
 import { UpscalerFiles } from './UpscalerFiles'
 
 function isNoiseStatus(message: string): boolean {
-  return /^(canceled\.?|uninstalled\.?|removed\.?|installed\.?|up to date\.?|running|removing .+…)$/i.test(message.trim())
+  return /^(canceled\.?|uninstalled\.?|removed\.?|installed\.?|up to date\.?|running|(removing|uninstalling) .+…)$/i.test(message.trim())
 }
 
 /** Which sections a card gets. A portable "Add folder" tile gets none of them. */

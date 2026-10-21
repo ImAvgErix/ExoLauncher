@@ -583,6 +583,7 @@ public sealed partial class MainWindow : Window
                 if (_closingWindow) return;
                 if (args.IsSuccess)
                 {
+                    ApplyPageScale(again: true);
                     // A shell reload can discard a WebView2 overlay without a
                     // dismiss; never leave the embedded player hidden underneath.
                     if (_musicWeb is { } musicSurface && _musicWebWanted && _musicWebReady && !_musicWebClosed)
@@ -613,6 +614,7 @@ public sealed partial class MainWindow : Window
             core.Settings.IsStatusBarEnabled = false;
             core.Settings.AreDefaultContextMenusEnabled = false;
             core.Settings.IsZoomControlEnabled = false;
+            WebHost.SizeChanged += (_, _) => ApplyPageScale();
             try { core.Settings.IsPasswordAutosaveEnabled = false; } catch { }
             try { core.Settings.IsGeneralAutofillEnabled = false; } catch { }
             try { core.Settings.IsWebMessageEnabled = true; } catch { }
@@ -1032,6 +1034,8 @@ public sealed partial class MainWindow : Window
         // AppWindow minimums are physical pixels. Moving between monitors can
         // change DPI without changing the logical 960×640 product floor.
         ApplyWindowMinimumSize();
+        // Another screen can call for another zoom; the same one returns at once.
+        if (args.DidPositionChange) ApplyPageScale();
         if (args.DidPresenterChange || args.DidSizeChange)
         {
             _bridge?.NotifyWindowState(IsMaximized);

@@ -60,6 +60,15 @@ internal static class H264Rtp
     /// <summary>Whether an Annex B frame holds an IDR slice (a keyframe a decoder can start from).</summary>
     internal static bool IsKeyframe(byte[] frame) => Nals(frame).Any(n => n.Count > 0 && (n[0] & 0x1F) == 5);
 
+    /// <summary>An Annex B frame's NAL unit types and sizes and its SPS's profile and level, for app.log ("7:25 8:4 5:81234, profile 100 level 42").</summary>
+    internal static string Describe(byte[] frame)
+    {
+        var nals = Nals(frame);
+        var text = string.Join(' ', nals.Where(n => n.Count > 0).Select(n => $"{n[0] & 0x1F}:{n.Count}"));
+        var sps = nals.FirstOrDefault(n => n.Count >= 4 && (n[0] & 0x1F) == 7);
+        return sps.Count >= 4 ? $"{text}, profile {sps[1]} level {sps[3]}" : text;
+    }
+
     /// <summary>Rebuilds one frame's RTP payloads (single NAL, STAP-A, FU-A) as Annex B; null when malformed.</summary>
     internal static byte[]? Build(IEnumerable<byte[]> payloads)
     {
@@ -265,6 +274,23 @@ internal static class H264Rtp
     {
         private const int Size = 1024;
         private readonly (ushort Sequence, uint Timestamp, bool Marker, byte[]? Payload)[] _ring = new (ushort, uint, bool, byte[]?)[Size];
+
+        // What went out and what the server asked for since the last report (Interlocked: frames, RTCP and the timer
+        // are on different threads), so a stream nobody can see shows in app.log where it stops.
+        internal int Frames, Packets, Unsealed, Nacked, Resent, KeyframeAsks;
+        private long _reportAt;
+
+        /// <summary>The report line ten seconds after the first frame, then each minute; null when nothing is due or nothing was sent.</summary>
+        internal string? Due(long now)
+        {
+            if (Volatile.Read(ref Frames) + Volatile.Read(ref Unsealed) == 0) return null;
+            if (_reportAt == 0) { _reportAt = now + 10_000; return null; }
+            if (now < _reportAt) return null;
+            _reportAt = now + 60_000;
+            return $"sent {Interlocked.Exchange(ref Frames, 0)} frames in {Interlocked.Exchange(ref Packets, 0)} packets, " +
+                $"{Interlocked.Exchange(ref Unsealed, 0)} not sent (DAVE didn't encrypt them); the server asked for " +
+                $"{Interlocked.Exchange(ref KeyframeAsks, 0)} key frames and {Interlocked.Exchange(ref Nacked, 0)} lost packets ({Interlocked.Exchange(ref Resent, 0)} resent).";
+        }
 
         internal void Remember(ushort sequence, uint timestamp, bool marker, byte[] payload) => _ring[sequence % Size] = (sequence, timestamp, marker, payload);
 

@@ -555,7 +555,7 @@ public sealed class NoiseSuppressorTests
     {
         var root = new DirectoryInfo(AppContext.BaseDirectory);
         while (root is not null && !Directory.Exists(Path.Combine(root.FullName, "voice"))) root = root.Parent;
-        NoiseSuppressor.PluginPath = Path.Combine(root!.FullName, "voice", "build", "dfn", "deep_filter.dll");
+        NoiseSuppressor.PluginPath = Path.Combine(root!.FullName, "voice", "build", "dfn", "exo-deepfilter.dll");
     }
 
     [Fact]

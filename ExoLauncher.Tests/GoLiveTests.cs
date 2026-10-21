@@ -12,7 +12,10 @@ namespace ExoLauncher.Tests;
 /// hands the encoder an odd size, or picks a bit rate that falls as quality rises or leaves 1-10 Mbit/s;
 /// the pipe reader misreads the header's byte order, loses a frame, takes a huge length as a frame,
 /// or throws instead of ending when the add-on goes; capture times land on the wrong RTP clock; a raw
-/// Windows error reaches the user instead of a sentence.
+/// Windows error reaches the user instead of a sentence. Discord's side: the stream's connection identifies
+/// without its channel or calls its video "video" where Discord's own Go Live says "screen", joins the wrong
+/// DAVE group (rtc_channel_id ignored, or not rtc_server_id - 1 without it), or the send report in app.log
+/// comes every frame, never, or counts a minute twice.
 /// </summary>
 public sealed class GoLiveTests
 {
@@ -159,5 +162,66 @@ public sealed class GoLiveTests
         Assert.Equal("Exo Capture couldn't use your graphics card to share your screen.",
             GoLiveCapture.Explain(new InvalidOperationException("D3D11 device (0x887A0004)")));
         Assert.Equal("Exo Capture didn't start the stream in time.", GoLiveCapture.Explain(new TimeoutException()));
+    }
+
+    [Fact]
+    public void GoLiveIdentifiesAsAScreenWithItsChannel()
+    {
+        var identify = System.Text.Json.JsonSerializer.SerializeToElement(
+            Services.DiscordClient.Voice.VoiceConnection.Identify("1001", "1000", "7", "s", "t", "screen", 1));
+        Assert.Equal("1000", identify.GetProperty("channel_id").GetString());
+        Assert.Equal("1001", identify.GetProperty("server_id").GetString());
+        Assert.Equal(1, identify.GetProperty("max_dave_protocol_version").GetInt32());
+        var stream = identify.GetProperty("streams")[0];
+        Assert.Equal("screen", stream.GetProperty("type").GetString());
+        Assert.Equal("100", stream.GetProperty("rid").GetString());
+
+        var on = System.Text.Json.JsonSerializer.SerializeToElement(
+            Services.DiscordClient.Voice.VoiceConnection.Video(1, 2, 3, "screen", 1920, 1080, 60, 12_000_000));
+        var sent = on.GetProperty("streams")[0];
+        Assert.Equal("screen", sent.GetProperty("type").GetString());
+        Assert.Equal(2u, sent.GetProperty("ssrc").GetUInt32());
+        Assert.Equal(3u, sent.GetProperty("rtx_ssrc").GetUInt32());
+        Assert.True(sent.GetProperty("active").GetBoolean());
+        Assert.Equal(1080, sent.GetProperty("max_resolution").GetProperty("height").GetInt32());
+        var off = System.Text.Json.JsonSerializer.SerializeToElement(
+            Services.DiscordClient.Voice.VoiceConnection.Video(1, 2, 3, "screen", 0, 0, 0, 0));
+        Assert.Equal(0u, off.GetProperty("video_ssrc").GetUInt32());
+        Assert.Equal(0, off.GetProperty("streams").GetArrayLength());
+    }
+
+    [Fact]
+    public void AStreamsChannelIsItsRtcChannelElseTheServerBeforeIt()
+    {
+        Assert.Equal("555", DiscordSession.StreamChannel("1000", "555"));
+        Assert.Equal("999", DiscordSession.StreamChannel("1000", null));
+        Assert.Equal("1100000000000000000", DiscordSession.StreamChannel("1100000000000000001", ""));
+        Assert.Null(DiscordSession.StreamChannel("not a number", null));
+        Assert.Null(DiscordSession.StreamChannel("0", null));
+    }
+
+    [Fact]
+    public void TheSendReportComesTenSecondsInThenEachMinute()
+    {
+        var sent = new Services.DiscordClient.Voice.H264Rtp.SentHistory();
+        Assert.Null(sent.Due(1_000)); // nothing sent yet
+        sent.Frames = 3;
+        sent.Packets = 30;
+        sent.KeyframeAsks = 2;
+        Assert.Null(sent.Due(1_000)); // the clock starts at the first frame
+        Assert.Null(sent.Due(10_999));
+        Assert.Equal("sent 3 frames in 30 packets, 0 not sent (DAVE didn't encrypt them); the server asked for 2 key frames and 0 lost packets (0 resent).", sent.Due(11_000));
+        sent.Unsealed = 1;
+        Assert.Null(sent.Due(70_999));
+        Assert.StartsWith("sent 0 frames in 0 packets, 1 not sent", sent.Due(71_000));
+        Assert.Null(sent.Due(200_000)); // nothing since
+    }
+
+    [Fact]
+    public void AFrameIsDescribedByItsNalUnitsAndProfile()
+    {
+        byte[] frame = [0, 0, 0, 1, 0x67, 100, 0, 42, 0xAC, 0, 0, 0, 1, 0x68, 0xEE, 0x3C, 0x80, 0, 0, 1, 0x65, 0x88, 0x84];
+        Assert.Equal("7:5 8:4 5:3, profile 100 level 42", Services.DiscordClient.Voice.H264Rtp.Describe(frame));
+        Assert.Equal("1:2", Services.DiscordClient.Voice.H264Rtp.Describe([0, 0, 1, 0x41, 0x9A]));
     }
 }

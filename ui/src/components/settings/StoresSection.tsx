@@ -109,6 +109,40 @@ function MissingStore({ store, onError }: { store: StoreStatus; onError: (error:
   )
 }
 
+/** Steam's and Epic's own pop-ups and sounds, off with one press and kept off. */
+function QuietStores({ settings }: { settings: LauncherSettings }) {
+  const [busy, setBusy] = useState(false)
+  const [done, setDone] = useState(settings.quietStoreApps === true)
+  const [note, setNote] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const turnOff = useCallback(async () => {
+    setBusy(true)
+    setError(null)
+    try {
+      const result = await host.quietStores()
+      if (result.ok) {
+        setDone(true)
+        setNote(result.message ?? null)
+      } else setError(result.message ?? 'Could not turn them off. Try again.')
+    } catch {
+      setError('Could not turn them off. Try again.')
+    } finally {
+      setBusy(false)
+    }
+  }, [])
+  return (
+    <Row
+      label="Notifications and sounds"
+      detail={note ?? 'Steam and Epic stay silent: no pop-ups, toasts or sounds, for every account on this PC.'}
+      error={error}
+    >
+      {done && !busy
+        ? <State>Off</State>
+        : <button type="button" className="exo-set-btn" disabled={busy} onClick={() => void turnOff()}>{busy ? 'Turning off…' : 'Turn off'}</button>}
+    </Row>
+  )
+}
+
 export const StoresSection = memo(function StoresSection({
   stores,
   storeBusy,
@@ -179,6 +213,7 @@ export const StoresSection = memo(function StoresSection({
           onChange={on => onSave({ steamOverlayDefaultOn: on }).then(ok => ok ? null : 'Could not save. Try again.')}
         />
       ) : null}
+      {settings && installed.some(store => store.store === 'steam' || store.store === 'epic') ? <QuietStores settings={settings} /> : null}
       {hasAccounts ? <AccountHours settings={settings} accounts={accounts} onSave={onSave} onChanged={changed} /> : null}
       {missing.length > 0 ? (
         <div className="exo-set-item">

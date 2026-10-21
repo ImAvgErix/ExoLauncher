@@ -60,7 +60,11 @@ internal sealed partial class DiscordSession
             if (DiscordToken.Read() is not { } token) { SetState("signedOut"); return; }
             var session = new DiscordSession(token);
             _current = session;
-            if (Voice.VoiceProcessing.Current.NoiseSuppression || App.Services.Settings.Shared.DiscordOthersNoiseSuppression) _ = Voice.NoiseSuppressorDownload.EnsureAsync(CancellationToken.None);
+            // Noise suppression fetched, and its model loaded ahead (about 2 s) into the idle pool, so a call's first words
+            // are cleaned too instead of going out as they came while it loads.
+            if (Voice.VoiceProcessing.Current.NoiseSuppression || App.Services.Settings.Shared.DiscordOthersNoiseSuppression)
+                _ = Voice.NoiseSuppressorDownload.EnsureAsync(CancellationToken.None)
+                    .ContinueWith(_ => Voice.NoiseSuppressor.Create()?.Dispose(), TaskScheduler.Default);
             _ = Task.Run(() => session.RunAsync()).ContinueWith(run => session.Ended(run.Exception), TaskScheduler.Default);
         }
     }

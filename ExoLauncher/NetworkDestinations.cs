@@ -25,7 +25,7 @@ internal static class NetworkDestinations
     internal sealed record Destination(string Host, string PrivacyRow);
 
     internal const string ExoReleases = "GitHub (ExoLauncher releases)";
-    internal const string ToolReleases = "GitHub (Legendary, gogdl, Nile, DeepFilterNet releases)";
+    internal const string ToolReleases = "GitHub (Legendary, gogdl and Nile releases, and Exo's own build of DeepFilterNet from Exo's release)";
     internal const string StoreTools = "Epic, GOG, Amazon (through Legendary, gogdl, Nile)";
     internal const string EpicServices = "Epic account and library services";
     internal const string LegendaryApi = "Legendary's optional content lists (api.legendary.gl)";

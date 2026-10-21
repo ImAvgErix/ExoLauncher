@@ -55,13 +55,17 @@ internal static partial class AudioDevices
         return devices;
     }
 
-    /// <summary>The chosen device when it is still there, else Windows' default communications device.</summary>
+    /// <summary>
+    /// The chosen device when it is still there, else Windows' default device (Sound settings' "Choose your input/output
+    /// device"), as Discord's Default is. The default communications device was used before: on a PC where that is a
+    /// webcam's mic or a monitor's speakers, a call opened the wrong one.
+    /// </summary>
     internal static IMMDevice? Open(IMMDeviceEnumerator enumerator, bool capture, string? chosen)
     {
         if (!string.IsNullOrEmpty(chosen) && enumerator.GetDevice(chosen, out var picked) == 0 && picked is not null
             && picked.GetState(out var state) == 0 && state == DeviceStateActive)
             return picked;
-        return enumerator.GetDefaultAudioEndpoint(capture ? EDataFlow.ECapture : EDataFlow.ERender, ERole.ECommunications, out var device) == 0 ? device : null;
+        return enumerator.GetDefaultAudioEndpoint(capture ? EDataFlow.ECapture : EDataFlow.ERender, ERole.EConsole, out var device) == 0 ? device : null;
     }
 
     /// <summary>

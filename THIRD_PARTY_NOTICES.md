@@ -30,7 +30,7 @@ The source for every build of these programs that Exo ships is published at the 
 | mlspp (Cisco, linked into `dave.dll`) | as pinned by libdave | BSD-2-Clause |
 | OpenSSL 3 (linked into `dave.dll`) | as pinned by libdave | Apache-2.0 |
 | Opus (Xiph.Org, `opus.dll`) | 1.5 | BSD-3-Clause |
-| DeepFilterNet 3 (Hendrik Schröter, noise suppression in calls; `deep_filter.dll`, the project's own Windows build) | 0.5.6 | MIT or Apache-2.0 |
+| DeepFilterNet 3 (Hendrik Schröter, noise suppression in calls; `exo-deepfilter.dll`, Exo's build of its C interface, libDF, with the low-latency model and the Rust crates it links: tract, ndarray and the rest, each MIT or Apache-2.0) | 0.5.6 | MIT or Apache-2.0 |
 | webrtc-audio-processing (freedesktop.org's copy of WebRTC's audio processing; its AEC3 echo canceller in calls, built into `exo_apm.dll`), with the code it carries: Ooura's and Mark Olesen's FFTs, pffft, rnnoise and spl_sqrt_floor, each under its own permissive license | 2.1 | BSD-3-Clause |
 | Abseil C++ (Google, linked into `exo_apm.dll`) | 20240722.0 | Apache-2.0 |
 | React, React DOM | 19.3.0 | MIT |

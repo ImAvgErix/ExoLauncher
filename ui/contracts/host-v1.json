@@ -182,6 +182,7 @@
     "stores.auth": "{ ok: boolean; message?: string; requiresUserAction?: boolean; handoff?: boolean }",
     "stores.check": "StoreLocalCheck",
     "stores.matrix": "StoreStatus[]",
+    "stores.quiet": "{ ok: boolean; message?: string | null }",
     "twitch.connect": "{ ok: boolean; message?: string }",
     "web.preferences.get": "WebClientOptions",
     "web.preferences.set": "WebClientOptions",

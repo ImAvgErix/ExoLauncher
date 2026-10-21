@@ -10,6 +10,7 @@ namespace ExoLauncher;
 /// back. Games without HDR stay SDR. Only HDR Exo itself switched on is ever switched off.
 /// While any screen is in HDR (Exo's doing or the user's), SDR on it is drawn with gamma 2.2
 /// (<see cref="SdrInHdr"/>); when HDR goes off the profile the screen had before comes back.
+/// The screen Exo switched on is kept in settings: HDR still goes back off after a crash or an update.
 /// </summary>
 public sealed partial class MainWindow
 {
@@ -17,7 +18,9 @@ public sealed partial class MainWindow
     private System.Threading.Timer? _hdrWatch;
     private WindowsHdr.Screen? _hdrSwitchedOn;
     private ushort[]? _hdrRamp;
-    private int _hdrSyncing, _hdrAsked;
+    private int _hdrSyncing, _hdrAsked, _sdrGammaTries = 6;
+    private bool _hdrAdopted;
+    private readonly HashSet<string> _sdrGammaWhyLogged = [];
     private string? _lastScreenMode;
     private SubclassProc? _displayChangeProc;
 
@@ -43,6 +46,8 @@ public sealed partial class MainWindow
     /// <summary>Runs the HDR check on the pool now: a game started or closed, a setting or the screen changed.</summary>
     internal void SyncHdrSoon()
     {
+        // A screen just switched to HDR can still be settling: the profile is tried again for about 30 s.
+        Volatile.Write(ref _sdrGammaTries, 6);
         try { _hdrWatch?.Change(TimeSpan.Zero, Timeout.InfiniteTimeSpan); } catch (ObjectDisposedException) { }
     }
 
@@ -66,8 +71,9 @@ public sealed partial class MainWindow
         try
         {
             FollowScreenMode();
-            SyncSdrGamma();
-            if (!App.Services.Settings.Shared.HdrForGames) { RestoreHdr(); return _hdrSwitchedOn is not null; }
+            AdoptHdr();
+            var gammaPending = !SyncSdrGamma() && Interlocked.Decrement(ref _sdrGammaTries) >= 0;
+            if (!App.Services.Settings.Shared.HdrForGames) { RestoreHdr(); return _hdrSwitchedOn is not null || gammaPending; }
             var running = RunningLibraryGames().Keys;
             var want = running.Any(id =>
             {
@@ -82,14 +88,36 @@ public sealed partial class MainWindow
                 {
                     _hdrSwitchedOn = screen;
                     _hdrRamp = ramp;
+                    RememberHdrSwitchedOn(screen.DevicePath);
                     AppLog.Info("HDR on for a game.");
                     SyncSdrGamma();
                 }
             }
             else if (!want) RestoreHdr();
-            return running.Count > 0 || _hdrSwitchedOn is not null;
+            return running.Count > 0 || _hdrSwitchedOn is not null || gammaPending;
         }
         catch (Exception ex) { AppLog.Debug("HDR for games: " + ex.GetType().Name); return _hdrSwitchedOn is not null; }
+    }
+
+    // Once a run: a screen Exo switched HDR on for before it last closed, still in HDR, is Exo's to switch back off.
+    private void AdoptHdr()
+    {
+        if (_hdrAdopted) return;
+        _hdrAdopted = true;
+        var path = App.Services.Settings.Shared.HdrSwitchedOn;
+        if (path.Length == 0 || _hdrSwitchedOn is not null) return;
+        if (WindowsHdr.All().FirstOrDefault(screen => string.Equals(screen.DevicePath, path, StringComparison.OrdinalIgnoreCase)) is { Enabled: true } left)
+        {
+            _hdrSwitchedOn = left;
+            AppLog.Info("HDR: still on from the last run's game; Exo switches it back off once no HDR game runs.");
+        }
+        else RememberHdrSwitchedOn("");
+    }
+
+    private static void RememberHdrSwitchedOn(string devicePath)
+    {
+        try { App.Services.Settings.UpdateProfile(settings => settings.HdrSwitchedOn = devicePath); }
+        catch (Exception ex) { AppLog.Warn("HDR: " + ex.Message); }
     }
 
     // A new refresh rate or main screen moves the G-SYNC frame cap with it; the driver is
@@ -137,19 +165,25 @@ public sealed partial class MainWindow
         return before;
     }
 
-    /// <summary>Exo's SDR gamma 2.2 profile on every screen in HDR (when the setting is on), off every other.</summary>
-    private void SyncSdrGamma()
+    /// <summary>Exo's SDR gamma 2.2 profile on every screen in HDR (when the setting is on), off every other; false while a
+    /// screen in HDR is still without it.</summary>
+    private bool SyncSdrGamma()
     {
         var on = App.Services.Settings.Shared.HdrSdrGamma;
+        var done = true;
         foreach (var screen in WindowsHdr.All())
         {
             if (on && screen.Enabled)
             {
-                if (SdrInHdr.Apply(screen, RememberSdrGammaReplaced) is { } why)
-                    AppLog.Debug("HDR: SDR gamma 2.2 not on " + screen.GdiName + ": " + why);
+                if (SdrInHdr.Apply(screen, RememberSdrGammaReplaced) is not { } why) continue;
+                done = false;
+                // Once per screen and reason, where a friend's log shows it.
+                lock (_sdrGammaWhyLogged)
+                    if (_sdrGammaWhyLogged.Add(screen.DevicePath + why)) AppLog.Warn($"HDR: SDR gamma 2.2 not on {screen.GdiName} ({screen.Name}): {why}");
             }
             else SdrInHdr.Remove(screen, ForgetSdrGammaReplaced(screen.DevicePath));
         }
+        return done;
     }
 
     private bool _hdrOffRefusedLogged;
@@ -168,6 +202,7 @@ public sealed partial class MainWindow
         }
         _hdrSwitchedOn = null;
         _hdrOffRefusedLogged = false;
+        RememberHdrSwitchedOn("");
         if (_hdrRamp is { } ramp) WindowsHdr.WriteRamp(screen.GdiName, ramp);
         AppLog.Info("HDR back off after the game.");
     }

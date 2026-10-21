@@ -209,12 +209,13 @@ internal sealed unsafe partial class VoiceAudio : IDisposable
     private void Run(bool captureSide, CancellationToken side)
     {
         CoInitializeEx(0, 0); // MTA for this thread
-        // A device that goes away mid-call is followed: the side opens again on what Windows uses now (for about 10 s
-        // while there is none at all), instead of the call falling silent.
-        for (var reopen = 0; RunOnce(captureSide, side, reopen > 0) && reopen < 20; reopen++)
+        // A device that goes away mid-call is followed: the side opens again on what Windows uses now, every half second
+        // at first and then every 2 s for as long as the call lasts (it gave up after 10 s, and the call stayed silent
+        // until it was left and joined again).
+        for (var reopen = 0; RunOnce(captureSide, side, reopen > 0); reopen++)
         {
             if (reopen == 0) AppLog.Info($"Discord voice: the {(captureSide ? "microphone" : "speakers")} went away; opening the one Windows uses now.");
-            if (side.WaitHandle.WaitOne(500) || _stop.IsCancellationRequested) return;
+            if (side.WaitHandle.WaitOne(reopen < 20 ? 500 : 2000) || _stop.IsCancellationRequested) return;
         }
     }
 
@@ -243,11 +244,14 @@ internal sealed unsafe partial class VoiceAudio : IDisposable
             var client = (IAudioClient)clientObject;
             var format = Format();
             var processing = VoiceProcessing.Current;
+            // Exo's noise suppression, when it can run; when it can't (its library not fetched yet), Windows' own takes over.
+            var exoCleans = processing.NoiseSuppression && NoiseSuppressorDownload.Ready();
             // The microphone raw: no Windows or driver "enhancements" and nothing an Equalizer APO chain (Lucid Voice) adds,
             // so Exo's noise suppression gets the voice as it is. A mic that can't give raw sound comes as Windows has it.
-            if (captureSide) RawStream(clientObject);
+            // Not while Windows' noise suppression stands in: a raw stream skips it.
+            if (captureSide && (exoCleans || !processing.NoiseSuppression)) RawStream(clientObject);
             Marshal.ThrowExceptionForHR(client.Initialize(0, EventCallback | AutoConvert, BufferHns, 0, ref format, 0));
-            if (captureSide) Effects(client, processing.AutoGain);
+            if (captureSide) Effects(client, processing.AutoGain, processing.NoiseSuppression && !exoCleans);
             using var ready = new AutoResetEvent(false);
             Marshal.ThrowExceptionForHR(client.SetEventHandle(ready.SafeWaitHandle.DangerousGetHandle()));
             Marshal.ThrowExceptionForHR(client.GetBufferSize(out var bufferFrames));
@@ -284,8 +288,9 @@ internal sealed unsafe partial class VoiceAudio : IDisposable
         NoiseEffect = new("6f64adbf-8211-11e2-8c70-2c27d7f001fa"), GainEffect = new("6f64adc0-8211-11e2-8c70-2c27d7f001fa");
 
     // Windows 11's own processing on this stream, all off: echo cancellation, gain control and noise suppression (Exo's
-    // own do all three). Older Windows has no effects manager: nothing to set.
-    private void Effects(IAudioClient client, bool autoGain)
+    // own do all three); Windows' noise suppression on instead when Exo's can't run. Older Windows has no effects
+    // manager: nothing to set.
+    private void Effects(IAudioClient client, bool autoGain, bool windowsCleans)
     {
         SystemGain = false;
         var iid = typeof(IAudioEffectsManager).GUID;
@@ -294,11 +299,11 @@ internal sealed unsafe partial class VoiceAudio : IDisposable
             Release(service);
             return;
         }
-        try { SetEffects(manager, autoGain); }
+        try { SetEffects(manager, autoGain, windowsCleans); }
         finally { Release(manager); }
     }
 
-    private void SetEffects(IAudioEffectsManager manager, bool autoGain)
+    private void SetEffects(IAudioEffectsManager manager, bool autoGain, bool windowsCleans)
     {
         if (manager.GetAudioEffects(out var list, out var count) != 0) return;
         bool echo = false, gain = false;
@@ -309,7 +314,7 @@ internal sealed unsafe partial class VoiceAudio : IDisposable
             {
                 var effect = Marshal.PtrToStructure<AudioEffect>(list + i * size);
                 // Windows' own echo cancellation, gain control and noise suppression all off: Exo does them itself.
-                bool? want = effect.Id == EchoEffect || effect.Id == GainEffect || effect.Id == NoiseEffect ? false : null;
+                bool? want = effect.Id == NoiseEffect ? windowsCleans : effect.Id == EchoEffect || effect.Id == GainEffect ? false : null;
                 if (want is not { } on) continue;
                 var set = effect.CanSetState != 0 && manager.SetAudioEffectState(effect.Id, on ? 1 : 0) == 0;
                 var now = set ? on : effect.State != 0;
@@ -344,6 +349,8 @@ internal sealed unsafe partial class VoiceAudio : IDisposable
         var frame = new float[FrameFloats];
         var filled = 0;
         long frameAt = 0;
+        // The mic's own delay: the least a packet has been old lately (followed down at once, up 1 ms a second).
+        var usual = long.MaxValue;
         WaitHandle[] waits = [ready, side.WaitHandle];
         try
         {
@@ -360,11 +367,13 @@ internal sealed unsafe partial class VoiceAudio : IDisposable
                 while ((hr = capture.GetNextPacketSize(out var packet)) == 0 && packet > 0)
                 {
                     if ((hr = capture.GetBuffer(out var data, out var frames, out var flags, out _, out var at)) != 0) break;
-                    // Sound captured over 40 ms ago (this thread stalled) is dropped, not sent late: a backlog kept instead
-                    // stays in every word after it for the rest of the call (one drop at 100 ms held the call 100 ms
-                    // behind). This thread does nothing but cut frames, so with Exo kept fit for real time
-                    // (LiveAudio) it doesn't stall.
-                    if ((flags & 4) == 0 && QpcNow() - (long)at > 400_000)
+                    // Sound more than 40 ms later than this mic usually is (this thread stalled) is dropped, not sent late: a
+                    // backlog kept instead stays in every word after it for the rest of the call (one drop at 100 ms held
+                    // the call 100 ms behind). Measured against the mic's own delay, not from zero: a Bluetooth headset or
+                    // a USB mic with a deep buffer delivers every packet over 40 ms old, and all of them were dropped.
+                    var age = QpcNow() - (long)at;
+                    if ((flags & 4) == 0) usual = age < usual ? age : usual + 100;
+                    if ((flags & 4) == 0 && age > usual + 400_000)
                     {
                         capture.ReleaseBuffer(frames);
                         filled = 0;

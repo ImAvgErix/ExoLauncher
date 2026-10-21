@@ -1,20 +1,27 @@
 import { Button } from '../ui/Button'
 import { Menu } from '../ui/Menu'
-import { CHECK_PATH, ChevronDown, FolderPlus, Key, Plus, Refresh, Settings } from '../../brand/icons'
+import { CHECK_PATH, ChevronDown, FolderOpen, FolderPlus, Gamepad, Key, Plus, Refresh, Settings } from '../../brand/icons'
 import type { SortMode } from '../../lib/host'
 import { SORT_LABELS, SORT_OPTIONS } from '../../lib/library'
 
 const SORT_ITEMS = SORT_OPTIONS.map((mode) => ({ id: mode, label: SORT_LABELS[mode] }))
 const ADD_ITEMS = [
-  { id: 'folder', label: 'Add a folder', icon: <FolderPlus size={16} /> },
+  { id: 'new-folder', label: 'New folder', icon: <FolderPlus size={16} /> },
+  { id: 'game', label: 'Add a game', icon: <Gamepad size={16} /> },
+  { id: 'folder', label: 'Find a game in a folder', icon: <FolderOpen size={16} /> },
   { id: 'key', label: 'Activate key', icon: <Key size={16} /> },
 ]
 
 /** Related library tools stay together; adding never leaves the current shelf. */
-export function LibraryTools({ sort, onSort, onActivateKey, onAddFolder, refresh, onRefresh }: {
+export function LibraryTools({ sort, onSort, onActivateKey, onNewFolder, onAddGame, onAddFolder, refresh, onRefresh }: {
   sort: SortMode
   onSort: (mode: SortMode) => void
   onActivateKey: () => void
+  /** A Library folder: its name, color and games (FolderSheet). */
+  onNewFolder: () => void
+  /** A game's own .exe. */
+  onAddGame: () => void
+  /** A game's folder, its .exe found in it. */
   onAddFolder: () => void
   refresh: RefreshState
   onRefresh: () => void
@@ -39,7 +46,7 @@ export function LibraryTools({ sort, onSort, onActivateKey, onAddFolder, refresh
         triggerClassName="exo-add-game-btn exo-library-add"
         trigger={<Plus size={16} />}
         items={ADD_ITEMS}
-        onAction={(id) => id === 'key' ? onActivateKey() : onAddFolder()}
+        onAction={(id) => id === 'key' ? onActivateKey() : id === 'new-folder' ? onNewFolder() : id === 'game' ? onAddGame() : onAddFolder()}
       />
     </div>
   )

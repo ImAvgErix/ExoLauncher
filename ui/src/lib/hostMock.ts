@@ -799,6 +799,7 @@ const MOCK_HANDLERS: Record<string, MockHandler> = {
     status: p?.action === 'apply' ? 'applied' : 'ready', gsync: p?.action === 'apply' && p.gsync === true,
     canUndo: p?.action === 'apply', driverUpdated: false, items: [],
   }),
+  'stores.quiet': () => ({ ok: true, message: null }),
   'hdr.state': () => ({ supported: true, on: false, name: 'Mock OLED', peakNits: 1000, calibrated: false, verdict: 'great' }),
   'hdr.game': (p) => ({ ok: true, hdr: 'true', mode: typeof p?.mode === 'string' ? p.mode : 'auto' }),
   'gpu.display': (p) => ({

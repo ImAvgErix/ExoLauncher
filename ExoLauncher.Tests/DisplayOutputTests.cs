@@ -84,26 +84,12 @@ public sealed class DisplayOutputTests
     [InlineData(0xA5, 8)]   // digital, 8 bits per color, DisplayPort
     [InlineData(0xB5, 10)]  // digital, 10 bits
     [InlineData(0x80, null)] // digital, depth not stated
-    [InlineData(0x25, null)] // analogue input
     public void PanelDepthComesFromEdidByte20(int input, int? bpc)
     {
-        var edid = new byte[128];
-        edid[20] = (byte)input;
-        Assert.Equal(bpc, WindowsHdr.EdidPanelBpc(edid));
-    }
-
-    // GPU > Display offers only what the screen takes. It fails if it offers 10-bit on an 8-bit
-    // panel, hides the color in use, or hides depths when the EDID says nothing.
-    [Fact]
-    public void OffersNoDepthBeyondThePanel()
-    {
-        var offered = DisplayOutput.Offered(DisplayPort, C("rgb", 8, true), panelBpc: 8);
-        Assert.DoesNotContain(offered, color => color.Bpc > 8);
-        Assert.Contains(C("rgb", 6, true), offered);
-        Assert.Contains(C("444", 8), offered);
-        Assert.Contains(C("rgb", 12, true), DisplayOutput.Offered(DisplayPort, C("rgb", 12, true), panelBpc: 8));
-        Assert.DoesNotContain(DisplayOutput.Offered(DisplayPort, null, null), color => color.Bpc == 16);
-        Assert.Contains(C("rgb", 12, true), DisplayOutput.Offered(DisplayPort, null, null));
+        var edid = MonitorCapsTests.Base(4, (byte)input, 0, null);
+        Assert.Equal(bpc, Edid.Parse(edid)!.PanelBpc);
+        edid[20] = 0x25; // analogue input: nothing digital to say
+        Assert.Null(Edid.Parse(edid));
     }
 
     [Theory]

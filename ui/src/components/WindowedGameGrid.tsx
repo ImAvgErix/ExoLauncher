@@ -28,6 +28,8 @@ import {
   type GridWindowInput,
 } from '../lib/gridWindow'
 import { GameCard } from './GameCard'
+import { FolderCard } from './shell/FolderCard'
+import { isFolderTile } from '../lib/folders'
 import type { GameMenuAt } from './shell/GameMenu'
 
 type WindowedGameGridProps = {
@@ -408,6 +410,19 @@ export function WindowedGameGrid({
   const { startIndex, endIndex, columnCount } = measurement.window
   const cards = games.slice(startIndex, endIndex).map((game, offset) => {
     const index = startIndex + offset
+    if (isFolderTile(game)) return (
+      <FolderCard
+        key={game.id}
+        tile={game}
+        tabIndex={game.id === resolvedActiveId ? 0 : -1}
+        position={index + 1}
+        setSize={games.length}
+        arriveIndex={arriving ? offset : undefined}
+        onActiveGameChange={onActiveGameChange}
+        onSelect={onSelect}
+        onMenu={onMenu}
+      />
+    )
     return (
       <GameCard
         key={game.id}

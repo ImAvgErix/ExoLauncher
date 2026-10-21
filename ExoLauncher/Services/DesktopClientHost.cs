@@ -599,11 +599,16 @@ internal sealed partial class DesktopClientHost : IDisposable
                 Publish(ClientState.Error, prompt == IntPtr.Zero
                     ? _spec.Title + " did not open a window."
                     : WaitingOn(prompt));
-                lock (_gate) { _windowLostAt = Environment.TickCount64; _lostEmbedded = false; }
-                EnsureWatch();
+                WatchForWindow();
                 return;
             }
-            Embed(client);
+            try { Embed(client); }
+            catch (InvalidOperationException error)
+            {
+                AppLog.Warn(error.Message + " Kept hidden; hosted when its window comes back.");
+                WatchForWindow();
+                return;
+            }
             RestoreQuietHidden(client);
             Publish(ClientState.Running, AppearanceWarning());
             AppLog.Info(_spec.Title + " desktop client embedded: " + Describe(client) +
@@ -823,34 +828,46 @@ internal sealed partial class DesktopClientHost : IDisposable
     private void StartProcess(DesktopClientInstall install)
     {
         RememberForeground();
+        // Before the start: one that lands on a running client raises it at once.
+        GuardShows(WindowTimeout + TimeSpan.FromSeconds(30));
         // UseShellExecute: CreateProcess would inherit Exo's std handles, and a
         // packaged app has no console — a Chromium client's console.log hits a
         // broken stdout pipe and dies with an EPIPE dialog.
-        // Only when Exo starts the client's own executable: a shell
-        // activation (explorer.exe) or an updater is not the client's tree.
+        // The spec's own start only for the client's own executable, not a
+        // shell activation (explorer.exe) or an updater.
         var ownExecutable = _spec.ProcessNames.Contains(
             Path.GetFileNameWithoutExtension(install.Executable), StringComparer.OrdinalIgnoreCase);
-        var arguments = install.Arguments;
-        int? pid;
-        if (ownExecutable && _spec.Start is { } start) pid = start(install, arguments);
+        if (ownExecutable && _spec.Start is { } start) start(install, install.Arguments);
         else
         {
             using var process = Process.Start(new ProcessStartInfo(install.Executable)
             {
-                Arguments = arguments,
+                Arguments = install.Arguments,
                 WorkingDirectory = install.AppDirectory,
                 UseShellExecute = true,
             });
-            pid = process?.Id;
-        }
-        if (pid is { } started && ownExecutable)
-        {
-            _launchGuard?.Dispose();
-            _launchGuard = new LaunchShowGuard(started, HideBootWindow, WindowTimeout + TimeSpan.FromSeconds(30));
         }
     }
 
     private LaunchShowGuard? _launchGuard;
+
+    /// Until the window is hosted, every window the client shows is hidden as it appears.
+    private void GuardShows(TimeSpan lifetime)
+    {
+        _launchGuard?.Dispose();
+        _launchGuard = new LaunchShowGuard(IsClientProcess, HideBootWindow, lifetime);
+    }
+
+    private bool IsClientProcess(int pid)
+    {
+        if (ActiveInstall is not { } install) return false;
+        try
+        {
+            using var process = Process.GetProcessById(pid);
+            return ProcessMatches(process, install);
+        }
+        catch { return false; }
+    }
 
     /// A window the starting client just showed, hidden before it reaches the
     /// screen for more than a frame: the same rule <see cref="FindClientWindow"/>
@@ -867,16 +884,18 @@ internal sealed partial class DesktopClientHost : IDisposable
     /// Measured at Exo's start: a Chromium client's splash and main window were each
     /// on screen for about 60 ms, and Spotify's window for most of a second
     /// (it ignores a minimized start), before the window poll hid them. This
-    /// hooks EVENT_OBJECT_SHOW for the new process on a thread of its own,
-    /// so a busy UI thread at startup cannot delay the hide, until the host
-    /// embeds the client window or the boot runs out of time.
+    /// hooks EVENT_OBJECT_SHOW on a thread of its own, so a busy UI thread at
+    /// startup cannot delay the hide, until the host embeds the client window
+    /// or the guard runs out of time. Every process, not only the one Exo
+    /// started: a start that lands on a running Spotify makes that one raise
+    /// its window, and an update restarts Spotify as a new process.
     private sealed class LaunchShowGuard : IDisposable
     {
         private readonly Thread _thread;
         private uint _threadId;
         private int _done;
 
-        internal LaunchShowGuard(int pid, Action<IntPtr> hide, TimeSpan lifetime)
+        internal LaunchShowGuard(Func<int, bool> isClient, Action<IntPtr> hide, TimeSpan lifetime)
         {
             var started = new ManualResetEventSlim();
             _thread = new Thread(() =>
@@ -886,9 +905,10 @@ internal sealed partial class DesktopClientHost : IDisposable
                 WinEventProc proc = (_, _, hwnd, idObject, idChild, _, _) =>
                 {
                     if (idObject != ObjidWindow || idChild != 0 || GetAncestor(hwnd, GaRoot) != hwnd) return;
-                    try { hide(hwnd); } catch { }
+                    GetWindowThreadProcessId(hwnd, out var pid);
+                    try { if (isClient((int)pid)) hide(hwnd); } catch { }
                 };
-                var hook = SetWinEventHook(EventObjectShow, EventObjectShow, IntPtr.Zero, proc, (uint)pid, 0, WineventOutOfContext);
+                var hook = SetWinEventHook(EventObjectShow, EventObjectShow, IntPtr.Zero, proc, 0, 0, WineventOutOfContext | WineventSkipOwnProcess);
                 started.Set();
                 using var timer = new Timer(_ => Dispose(), null, lifetime, Timeout.InfiniteTimeSpan);
                 while (Volatile.Read(ref _done) == 0 && GetMessage(out var message, IntPtr.Zero, 0, 0) > 0)
@@ -969,22 +989,9 @@ internal sealed partial class DesktopClientHost : IDisposable
             }
             return IntPtr.Zero;
         }
-        // Store activation occasionally stalls when a relaunch lands while
-        // the previous instance is still tearing down. One extra shell
-        // activation only raises the existing process; it cannot double it.
         var window = await DesktopClients.WaitForWindowAsync(
             Find,
             () => { if (launch) Launch(install); },
-            () =>
-            {
-                if (!launch || !AnyClientRunning(install)) return;
-                try
-                {
-                    StartProcess(install);
-                    AppLog.Info(_spec.Title + " activation re-requested after a stalled window. " + WindowDiagnostics(install));
-                }
-                catch { }
-            },
             timeout, WindowPoll, _lifetime.Token);
         if (window != IntPtr.Zero && window == prompt) return (IntPtr.Zero, prompt);
         if (window == IntPtr.Zero)
@@ -998,7 +1005,6 @@ internal sealed partial class DesktopClientHost : IDisposable
                 window = await DesktopClients.WaitForWindowAsync(
                     Find,
                     () => Launch(install),
-                    () => { },
                     timeout, WindowPoll, _lifetime.Token);
             if (window != IntPtr.Zero && window == prompt) return (IntPtr.Zero, prompt);
             if (window == IntPtr.Zero && restarted)
@@ -1019,28 +1025,12 @@ internal sealed partial class DesktopClientHost : IDisposable
         return false;
     }
 
-    /// A process of this client's own install runs now (the user started it,
-    /// or a crashed Exo left it). Reads module paths: off the UI thread.
-    internal static bool IsRunning(DesktopClientSpec spec)
-    {
-        var install = spec.Locate(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData));
-        if (install is null) return false;
-        foreach (var name in spec.ProcessNames)
-        foreach (var process in Process.GetProcessesByName(name))
-        {
-            try
-            {
-                if (DesktopClients.MatchesClientProcess(spec, process.ProcessName, process.MainModule?.FileName, install)) return true;
-            }
-            catch { }
-            finally { process.Dispose(); }
-        }
-        return false;
-    }
-
-    /// Reading a module path is the expensive part of a
-    /// poll, so each process (pid plus start time) is judged once per install.
+    /// Each process (pid plus start time) is judged once per install. Its
+    /// image path, not MainModule: a process Exo just started has no module
+    /// list yet (half the time, measured), and that miss, kept, hid Spotify's
+    /// own process and its window from Exo for the whole session. A crash
+    /// handler is never the client: one orphaned by an earlier Spotify made a
+    /// fresh start look like the user's Spotify and became its root.
     private bool ProcessMatches(Process process, DesktopClientInstall install)
     {
         try
@@ -1051,10 +1041,10 @@ internal sealed partial class DesktopClientHost : IDisposable
                 if (_matchInstall != install) { _matchCache.Clear(); _matchInstall = install; }
                 if (_matchCache.TryGetValue(key, out var known)) return known;
             }
-            string? executable = null;
-            try { executable = process.MainModule?.FileName; }
-            catch { }
-            var match = DesktopClients.MatchesClientProcess(_spec, process.ProcessName, executable, install);
+            // Unreadable: not kept, so the next poll asks again.
+            if (Adapters.ProcessHelper.TryGetExecutablePath(process) is not { } executable) return false;
+            var match = DesktopClients.MatchesClientProcess(_spec, process.ProcessName, executable, install) &&
+                !DesktopClients.IsCrashHandler(process.Id);
             lock (_matchCache)
             {
                 if (_matchInstall == install)
@@ -1276,8 +1266,9 @@ internal sealed partial class DesktopClientHost : IDisposable
         // above their owner, hide when it minimizes, have no taskbar or
         // Alt+Tab entry (WS_EX_TOOLWINDOW), and still get normal activation
         // and keyboard input — everything SetParent broke. The window hides
-        // first so a partially-owned surface can never flash on the taskbar.
-        var originalOwner = GetWindowLongPtr(client, GwlpHwndParent);
+        // first so a partially-owned surface can never flash on the taskbar,
+        // and stays hidden when hosting fails (a window going away under an
+        // update or a closing Spotify): the watch hosts the next one.
         var originalStyle = GetWindowLongPtr(client, GwlStyle);
         var originalExtended = GetWindowLongPtr(client, GwlExstyle);
         ShowWindow(client, SwHide);
@@ -1295,15 +1286,7 @@ internal sealed partial class DesktopClientHost : IDisposable
         var owner = GetWindowLongPtr(client, GwlpHwndParent);
         var appliedExtended = GetWindowLongPtr(client, GwlExstyle).ToInt64();
         if (owner != _owner || (appliedExtended & WsExAppWindow) != 0 || (appliedExtended & WsExToolWindow) == 0)
-        {
-            SetWindowLongPtr(client, GwlpHwndParent, originalOwner);
-            SetWindowLongPtr(client, GwlStyle, originalStyle);
-            SetWindowLongPtr(client, GwlExstyle, originalExtended);
-            SetWindowPos(client, IntPtr.Zero, 0, 0, 0, 0,
-                SwpNoMove | SwpNoSize | SwpNoZorder | SwpNoActivate | SwpFrameChanged | SwpAsyncWindowPos);
-            ShowWindowAsync(client, SwShow);
             throw new InvalidOperationException(_spec.Title + " could not be hosted; window ownership or taskbar style did not apply.");
-        }
         string? directory = null;
         string? executable = null;
         try
@@ -1880,6 +1863,15 @@ internal sealed partial class DesktopClientHost : IDisposable
             ShowWindowAsync(client, SwHide);
     }
 
+    /// No window hosted yet (none came, or hosting failed on one going away):
+    /// the watch adopts the next one, hidden meanwhile.
+    private void WatchForWindow()
+    {
+        lock (_gate) { _windowLostAt = Environment.TickCount64; _lostEmbedded = false; }
+        GuardShows(AdoptWindow);
+        EnsureWatch();
+    }
+
     private void EnsureWatch()
     {
         if (_watch is null)
@@ -1918,6 +1910,8 @@ internal sealed partial class DesktopClientHost : IDisposable
                 _lostEmbedded = true;
             }
             client = IntPtr.Zero;
+            // An update restarts Spotify as a new process that shows its window.
+            GuardShows(AdoptWindow);
             UpdateKeyHook();
         }
         if (client == IntPtr.Zero)
@@ -2391,7 +2385,6 @@ internal sealed partial class DesktopClientHost : IDisposable
     private const long WsExToolWindow = 0x00000080;
     private const long WsExDlgModalFrame = 0x00000001;
     private const int SwHide = 0;
-    private const int SwShow = 5;
     private const int SwShowNoActivate = 4;
     private const int SwShowNa = 8;
     private const int SwpNoSize = 0x0001;
@@ -2430,6 +2423,7 @@ internal sealed partial class DesktopClientHost : IDisposable
     private const uint JobObjectLimitSilentBreakawayOk = 0x00001000;
     private const uint JobObjectLimitKillOnJobClose = 0x00002000;
     private const uint WineventOutOfContext = 0x0000;
+    private const uint WineventSkipOwnProcess = 0x0002;
     private const int WhKeyboardLl = 13;
     private const int DwmwaSystemBackdropType = 38;
     private const int DwmsbtNone = 1;

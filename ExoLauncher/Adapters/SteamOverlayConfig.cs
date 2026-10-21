@@ -108,7 +108,8 @@ internal static class SteamOverlayConfig
         return text;
     }
 
-    private static string SetValue(string text, string[] path, string key, string value)
+    /// <summary>The VDF text with <paramref name="key"/> under <paramref name="path"/> set to <paramref name="value"/> (escaped as Steam writes it).</summary>
+    internal static string SetValue(string text, string[] path, string key, string value)
     {
         // Each pass adds one missing section; the path is at most six deep.
         for (var pass = 0; pass <= path.Length; pass++)

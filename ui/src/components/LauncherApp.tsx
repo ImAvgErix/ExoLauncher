@@ -15,6 +15,7 @@ import {
   type PausedDownload,
   type LaunchResponse,
   type LauncherSettings,
+  type LibraryFolder,
   type StoreStatus,
 } from '../lib/host'
 import { sortGames } from '../lib/utils'
@@ -38,7 +39,7 @@ import {
   statusBelongsToSelection,
   transferForGame,
 } from '../lib/library'
-import { addPortableFolder } from '../lib/portable'
+import { addPortableFolder, addPortableProgram } from '../lib/portable'
 import { onMouseNotice } from '../lib/mouseState'
 import { startMouseRelay } from '../lib/mouseRelay'
 import { report } from '../lib/report'
@@ -116,6 +117,22 @@ function useBootPreload(booting: boolean, settings: LauncherSettings | null, mus
 }
 
 /** The splash always plays in full (the mark lands, then holds), however fast Exo is ready. */
+const NO_FOLDERS: LibraryFolder[] = []
+
+/** The Library's folders, from settings: a change shows at once, then is saved. */
+function useLibraryFolders(
+  settings: LauncherSettings | null,
+  setSettings: (update: (current: LauncherSettings | null) => LauncherSettings | null) => void,
+  persist: (patch: Partial<LauncherSettings>) => void,
+) {
+  const folders = settings?.libraryFolders ?? NO_FOLDERS
+  const save = useCallback((next: LibraryFolder[]) => {
+    setSettings(current => current ? { ...current, libraryFolders: next } : current)
+    persist({ libraryFolders: next })
+  }, [setSettings, persist])
+  return [folders, save] as const
+}
+
 const MIN_BOOT_SPLASH_MS = 2200
 /** Exo's own rooms start loading once the mark has landed (intro settle + tile + bars). */
 const BOOT_PRELOAD_AFTER_MS = 1300
@@ -811,7 +828,8 @@ export function LauncherApp() {
       }]
     })
     const actions: Command[] = [
-      { id: 'act-add-folder', group: 'Actions', title: 'Add a game folder', icon: FolderPlus },
+      { id: 'act-add-game', group: 'Actions', title: 'Add a game', icon: Gamepad },
+      { id: 'act-add-folder', group: 'Actions', title: 'Find a game in a folder', icon: FolderPlus },
       { id: 'act-activate-key', group: 'Actions', title: 'Activate a key', icon: Key },
       { id: 'act-refresh', group: 'Actions', title: 'Refresh library', icon: Refresh },
       { id: 'act-update', group: 'Actions', title: 'Check for updates', icon: AppUpdate },
@@ -837,6 +855,7 @@ export function LauncherApp() {
   }
 
   const ACTION_COMMANDS: Record<string, () => void> = {
+    'act-add-game': () => void addGameFromLibrary(),
     'act-add-folder': () => void addFolderFromLibrary(),
     // The key popover sits under the Library's Add button, and a refresh reports in the Library.
     'act-activate-key': () => void goToView('library').then(() => setActivateKeyOpen(true)),
@@ -1240,18 +1259,23 @@ export function LauncherApp() {
     return true
   }
 
-  const addFolderFromLibrary = useCallback(async () => {
+  /** Library > Add a game (its .exe) or Add a game folder: one at a time. */
+  const addFromLibrary = useCallback(async (add: typeof addPortableFolder) => {
     if (addingFolder.current) return
     addingFolder.current = true
     try {
-      const result = await addPortableFolder()
+      const result = await add()
       if (result.cancelled) return
-      setStatus(result.message ?? (result.ok ? 'Game folder added.' : 'Could not add the game folder.'), null, false, result.ok ? 'info' : 'bad')
+      setStatus(result.message ?? (result.ok ? 'Game added.' : 'Could not add the game.'), null, false, result.ok ? 'info' : 'bad')
       if (result.ok) await loadLibrary(true, true)
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : 'Could not open the folder picker.', null, false, 'bad')
+      setStatus(error instanceof Error ? error.message : 'Could not open the picker.', null, false, 'bad')
     } finally { addingFolder.current = false }
   }, [loadLibrary, setStatus])
+  const addGameFromLibrary = useCallback(() => addFromLibrary(addPortableProgram), [addFromLibrary])
+  const addFolderFromLibrary = useCallback(() => addFromLibrary(addPortableFolder), [addFromLibrary])
+
+  const [libraryFolders, saveFolders] = useLibraryFolders(settings, setSettings, persistSettings)
 
   const sortLibrary = useCallback((next: Parameters<typeof librarySortMode>[0]) => persistSettings({ sortMode: librarySortMode(next) }), [persistSettings])
   const activateKey = useCallback(() => setActivateKeyOpen(true), [])
@@ -1377,6 +1401,9 @@ export function LauncherApp() {
         onOpenFolder={openGameFolder}
         onProperties={openProperties}
         onSort={sortLibrary}
+        folders={libraryFolders}
+        onFolders={saveFolders}
+        onAddGame={addGameFromLibrary}
         onAddFolder={addFolderFromLibrary}
         onActivateKey={activateKey}
         onRefresh={refreshEverything}
@@ -1385,7 +1412,8 @@ export function LauncherApp() {
       />
     </Room>
   ), [under, openedRooms, view, overlayOpen, emptyLibrary, libraryError, shelves, selectedId, activeGameId, queuedIds, sortMode, layout.reduceMotion,
-    transferFor, openCard, playFromLibrary, playAs, startingId, openGameFolder, openProperties, sortLibrary, addFolderFromLibrary, activateKey, refreshEverything, retryLibrary, openStoreSettings])
+    transferFor, openCard, playFromLibrary, playAs, startingId, openGameFolder, openProperties, sortLibrary, libraryFolders, saveFolders, addGameFromLibrary,
+    addFolderFromLibrary, activateKey, refreshEverything, retryLibrary, openStoreSettings])
   const activateKeySheet = useMemo(() => (
     <ActivateKeySheet open={activateKeyOpen} onClose={closeActivateKey} onStatus={keyStatus} />
   ), [activateKeyOpen, closeActivateKey, keyStatus])

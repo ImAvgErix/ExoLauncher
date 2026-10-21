@@ -131,6 +131,10 @@ public sealed partial class MainWindow
         double left, double top, double width, double height, bool background = false,
         IReadOnlyList<Services.DesktopClientHost.DipRect>? cutouts = null)
     {
+        // The page's CSS pixels at its zoom (MainWindow.PageScale) to the window's DIPs.
+        var zoom = PageZoom;
+        (left, top, width, height) = (left * zoom, top * zoom, width * zoom, height * zoom);
+        cutouts = cutouts?.Select(cut => new Services.DesktopClientHost.DipRect(cut.Left * zoom, cut.Top * zoom, cut.Width * zoom, cut.Height * zoom)).ToList();
         if (!visible)
         {
             _musicWebWanted = false;

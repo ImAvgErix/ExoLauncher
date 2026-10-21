@@ -14,7 +14,8 @@ namespace ExoLauncher.Services;
 /// localconfig.vdf (<see cref="SteamOverlayConfig"/>), which it rewrites as it
 /// exits, so Exo writes it while Steam is closed: at once when Steam is not
 /// running, else through the same close-and-start-hidden handoff as an account
-/// switch, and never while a Steam game runs or Steam downloads.
+/// switch, and never while a Steam game runs or Steam downloads. Steam's notifications and sounds
+/// (<see cref="StoreQuiet"/>) go through the same handoff.
 /// </summary>
 public sealed partial class WebHostBridge
 {
@@ -79,13 +80,17 @@ public sealed partial class WebHostBridge
                 SteamOverlayConfig.Apps(configText), installed, settings.SteamOverlay, settings.SteamOverlayDefaultOn, choices);
             // Each installed game's EULA accepted the way Steam's Accept does, so no game stops at a EULA at launch.
             var eulas = SteamOverlayConfig.PendingEulas(configText, InstalledEulas(root, installed));
-            if (writes.Count == 0 && eulas.Count == 0)
+            var quiet = settings.QuietStoreApps ? StoreQuiet.SteamEdits(root).Count : 0;
+            if (writes.Count == 0 && eulas.Count == 0 && quiet == 0)
             {
                 SaveOverlayRecord(record);
                 return null;
             }
             var running = ProcessHelper.IsProcessRunning("steam");
+            // Quiet alone closes Steam only when asked: Steam Cloud can hand back a sharedconfig.vdf that isn't quiet,
+            // and closing Steam on its own over and over to fight that would be worse than a toast.
             string? wait = !running ? null
+                : writes.Count == 0 && eulas.Count == 0 && !userAsked ? "Steam takes it when it next closes."
                 : SteamLoginUsers.IsGameRunning() ? "Steam takes it when the game closes."
                 : SteamDownloading() ? "Steam takes it when its download finishes."
                 : !userAsked && (HiddenStoreRuntime.IsSuspended(StoreKind.Steam) || DateTimeOffset.UtcNow - _overlayRestartedAt < OverlayRestartSpacing) ? "Steam takes it when it next closes."
@@ -98,7 +103,7 @@ public sealed partial class WebHostBridge
             var exe = Path.Combine(root, "steam.exe");
             if (running)
             {
-                AppLog.Info($"Steam overlay: closing Steam to set {writes.Count} game(s) and accept {eulas.Count} game(s)' EULAs.");
+                AppLog.Info($"Steam overlay: closing Steam to set {writes.Count} game(s), accept {eulas.Count} game(s)' EULAs and quiet {quiet} file(s).");
                 _overlayRestartedAt = DateTimeOffset.UtcNow;
                 if (!await CloseSteamAsync(exe, ct).ConfigureAwait(false))
                 {
@@ -110,11 +115,19 @@ public sealed partial class WebHostBridge
             {
                 // Steam rewrote the file as it closed; the switches go into that copy.
                 var text = SteamPlaytime.ReadSharedText(config) ?? throw new IOException("localconfig.vdf is gone.");
-                SteamOverlayConfig.WriteFile(config, SteamOverlayConfig.AcceptEulas(SteamOverlayConfig.Write(text, writes), SteamOverlayConfig.PendingEulas(text, InstalledEulas(root, installed))));
+                var next = SteamOverlayConfig.AcceptEulas(SteamOverlayConfig.Write(text, writes), SteamOverlayConfig.PendingEulas(text, InstalledEulas(root, installed)));
+                if (next != text) SteamOverlayConfig.WriteFile(config, next);
+                // Every account's notifications and sounds, from the files as Steam rewrote them closing.
+                if (settings.QuietStoreApps)
+                {
+                    var quieted = StoreQuiet.SteamEdits(root);
+                    foreach (var (path, quietText) in quieted) SteamOverlayConfig.WriteFile(path, quietText);
+                    if (quieted.Count > 0) AppLog.Info($"Steam: notifications and sounds off ({quieted.Count} file(s)).");
+                }
                 if (eulas.Count > 0) AppLog.Info("Steam: EULAs accepted for " + string.Join(", ", eulas.Keys) + ".");
                 foreach (var appId in writes.Keys) record[appId] = record[appId].TrimEnd('?');
                 SaveOverlayRecord(record);
-                AppLog.Info($"Steam overlay: set for {writes.Count} game(s) ({writes.Count(w => !w.Value)} off).");
+                if (writes.Count > 0) AppLog.Info($"Steam overlay: set for {writes.Count} game(s) ({writes.Count(w => !w.Value)} off).");
                 return null;
             }
             finally
@@ -126,6 +139,19 @@ public sealed partial class WebHostBridge
         {
             _overlayGate.Release();
         }
+    }
+
+    /// <summary>
+    /// Settings > Game stores > Notifications and sounds > Turn off: Steam's and Epic's own pop-ups and sounds off now
+    /// and kept off. Steam closes and starts again hidden for it, unless a game runs or it downloads; Epic takes it
+    /// now when it's closed, else before Exo next starts it.
+    /// </summary>
+    private async Task<object> QuietStoresAsync(CancellationToken ct)
+    {
+        if (!_services.Settings.Current.QuietStoreApps) _services.Settings.UpdateProfile(s => s.QuietStoreApps = true);
+        EpicQuietSettings.HandToExo();
+        var wait = await ApplySteamOverlayAsync(null, userAsked: true, ct).ConfigureAwait(false);
+        return new { ok = true, message = wait };
     }
 
     /// <summary>Whether this Steam game has a EULA Steam would ask for at launch.</summary>

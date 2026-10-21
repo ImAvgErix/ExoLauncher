@@ -35,6 +35,9 @@ internal readonly record struct VoiceProcessing(string Profile, bool NoiseSuppre
 /// </summary>
 internal sealed class VoiceGate
 {
+    /// <summary>DeepFilterNet's local SNR (dB) over which a frame is voice whatever its level says.</summary>
+    internal const float SpeechDb = 10f;
+
     private float _noiseFloor = -60f;
     // After noise suppression: what comes out between words (the cleaned floor) and what the microphone hears all the
     // time (its own floor: the fan and the room). See Voiced.
@@ -70,7 +73,11 @@ internal sealed class VoiceGate
     /// opened it on up to 549 of 550), and the frames still shut as each word began held 0.5% of what could have been
     /// sent; a fan that starts up opens it once, for 300 ms.
     /// Null without suppression (or in its first frame, before that sound is known): the level against the noise floor.</param>
-    internal bool Voiced(ReadOnlySpan<float> frame, bool automatic, int threshold, float? before = null)
+    /// <param name="speech">DeepFilterNet's own judgment of the frame (<see cref="NoiseSuppressor.SpeechDb"/>, local SNR in
+    /// dB). Over <see cref="SpeechDb"/> it opens the automatic gate by itself, as Discord's gate takes Krisp's voice
+    /// activity: measured on the user's own voice through it, words scored 15 to 30 dB and the room around -12, a fan
+    /// included, so a word's quiet start or end the level rules missed goes out too.</param>
+    internal bool Voiced(ReadOnlySpan<float> frame, bool automatic, int threshold, float? before = null, float? speech = null)
     {
         double sum = 0;
         foreach (var s in frame) sum += s * s;
@@ -78,8 +85,8 @@ internal sealed class VoiceGate
         Level = db;
         _noiseFloor = db < _noiseFloor ? db : _noiseFloor + 0.05f;
         var open = !automatic ? db > threshold
-            : before is { } heard ? db > -65f && db > heard - 6f
-                && (heard > _micFloor.Db + 12f || (heard > _micFloor.Db + 6f && db > _cleanedFloor.Db + 18f))
+            : before is { } heard ? db > -65f && (speech > SpeechDb || (db > heard - 6f
+                && (heard > _micFloor.Db + 12f || (heard > _micFloor.Db + 6f && db > _cleanedFloor.Db + 18f))))
             : db > MathF.Max(_noiseFloor + 12f, -55f);
         if (before is { } mic)
         {

@@ -4,13 +4,13 @@ using ExoLauncher.Helpers;
 
 namespace ExoLauncher.Services.DiscordClient.Voice;
 
-/// <summary>Fetching DeepFilterNet's plugin (outside the unsafe class: it awaits).</summary>
+/// <summary>Fetching Exo's DeepFilterNet library (outside the unsafe class: it awaits).</summary>
 internal static class NoiseSuppressorDownload
 {
-    // The plugin file last found whole (its size and time): hashing 50 MB again is skipped while it's unchanged.
+    // The library file last found whole (its size and time): hashing 50 MB again is skipped while it's unchanged.
     private static (long Size, DateTime Written, bool Whole)? _checked;
 
-    /// <summary>Whether the plugin is here and whole; hashes it only when the file changed since it last checked.</summary>
+    /// <summary>Whether the library is here and whole; hashes it only when the file changed since it last checked.</summary>
     internal static bool Ready()
     {
         var file = new FileInfo(NoiseSuppressor.PluginPath);
@@ -21,111 +21,108 @@ internal static class NoiseSuppressorDownload
         return whole;
     }
 
-    /// <summary>Fetches the plugin if it isn't here yet (verified before it is kept); quiet when offline. Never on the caller's thread.</summary>
+    /// <summary>Fetches the library if it isn't here yet (verified before it is kept); quiet when offline. Never on the caller's thread.</summary>
     internal static Task EnsureAsync(CancellationToken ct) => Task.Run(() => FetchAsync(ct), ct);
 
     private static async Task FetchAsync(CancellationToken ct)
     {
-        if (Ready()) return;
+        if (Ready()) { RemoveOldPlugin(); return; }
         try
         {
             await VerifiedGitHubReleaseDownloader.Shared.DownloadPinnedAsync(NoiseSuppressor.Plugin, NoiseSuppressor.PluginPath, _ => true, ct).ConfigureAwait(false);
             AppLog.Info("Discord voice: noise suppression ready.");
+            RemoveOldPlugin();
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             AppLog.Info("Discord voice: noise suppression not fetched (" + ex.GetType().Name + ").");
         }
     }
+
+    // DeepFilterNet's LADSPA plugin (3.13.1 and before) and the copies 3.13.1 made of it, 50 MB each: unused now.
+    private static void RemoveOldPlugin()
+    {
+        var folder = Path.GetDirectoryName(NoiseSuppressor.PluginPath);
+        if (folder is null || !Directory.Exists(folder)) return;
+        foreach (var old in Directory.EnumerateFiles(folder, "deep_filter*.dll"))
+        {
+            try { File.Delete(old); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+        }
+    }
 }
 
 /// <summary>
-/// Noise suppression for the microphone: DeepFilterNet 3 (Rikorose/DeepFilterNet v0.5.6, MIT/Apache-2.0),
-/// its own prebuilt Windows plugin, fetched once from the project's GitHub release (pinned size and
-/// SHA-256, <see cref="VerifiedGitHubReleaseDownloader"/>) when Exo's Discord client starts, so its
-/// 50 MB model stays out of the installer for everyone who never uses it. Driven through the
-/// plugin's LADSPA C interface: the mono descriptor at 48 kHz, audio in and out. A 20 ms stereo frame is mixed
-/// to mono, cleaned and spread back to both channels. When the plugin can't load, frames pass through unchanged.
-/// It turns noise down by at most <see cref="MostDb"/> (Voice Tune's strength, else <see cref="GentleDb"/>):
-/// without a limit, and with its post-filter, it takes parts of the voice with the noise and sounds muffled.
-/// Its delay, from v0.5.6's source (ladspa/src/lib.rs, libDF/src/tract.rs): the plugin carries the low-latency
-/// model (no lookahead), so 10 ms of STFT (960-sample window, 480-sample hop), plus the buffer its worker thread
-/// keeps ahead of each run, which starts at one hop (10 ms), grows a hop whenever a run comes back later than real
-/// time and shrinks a hop after about 20 s of quick runs; plus the time a run waits on the worker, which polls every
-/// 2 ms (<see cref="LiveAudio"/> keeps Windows' timer at 1 ms so that is 2 ms, not 15.6). <see cref="DelaySamples"/>
-/// measures the first two from the sound itself.
+/// Noise suppression for the microphone and, with Noise Suppression for Others, for each voice heard: DeepFilterNet 3's
+/// low-latency model (Rikorose/DeepFilterNet v0.5.6, MIT/Apache-2.0) through its own C interface, built by Exo from that
+/// release's source (voice\build-deepfilter.ps1) with three entry points of Exo's added (the built-in model, the stage
+/// thresholds, and a frame call that never unwinds into Exo). Fetched once from Exo's GitHub release (pinned size and
+/// SHA-256, <see cref="VerifiedGitHubReleaseDownloader"/>) when Exo's Discord client starts, so its 50 MB stays out of
+/// the installer for everyone who never uses it. A 20 ms stereo frame is mixed to mono, cleaned as DeepFilterNet's two
+/// 10 ms hops on the caller's own thread, and spread back to both channels.
+/// It used to run through DeepFilterNet's LADSPA plugin, which hands each frame to a worker thread that polls every 2 ms
+/// and, whenever that thread falls behind (a busy PC, a coarse timer), pushes silence into the output and adds 10 ms of
+/// delay, up to a second; and whose instances all shared one model's buffers. On some PCs voices went out silent,
+/// choppy or garbled. Here nothing waits on a thread or a timer, nothing is inserted, and each instance has a model of
+/// its own. A frame the library can't clean passes through as it came.
+/// It turns noise down by at most <see cref="MostDb"/> (Voice Tune's strength, else <see cref="GentleDb"/>), its
+/// post-filter off. Its delay is DeepFilterNet's 10 ms STFT hop (the low-latency model has no lookahead), measured
+/// from the sound by <see cref="DelaySamples"/>. Each hop's local SNR estimate (<see cref="SpeechDb"/>) is its own
+/// judgment of how much voice the frame holds, which the gate reads as Discord's reads Krisp's.
 /// </summary>
 internal sealed unsafe class NoiseSuppressor : IDisposable
 {
-    /// <summary>
-    /// How far noise suppression turns noise down (dB): all the way (100), DeepFilterNet's own default and the setting it is
-    /// measured at. A cap left typing and the room heard (18-36); the muffled sound came from its post-filter (off) and the
-    /// stages Exo stacked after it (gone), not from full strength.
-    /// </summary>
+    /// <summary>How far noise suppression turns noise down (dB): DeepFilterNet's own default, all the way.</summary>
     internal const int GentleDb = 100, MostDb = 100;
 
-    private const int PortInput = 1, PortControl = 4, PortAudio = 8;
-    private const int WarmSamples = Opus.SampleRate / 2;
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct Descriptor
-    {
-        public uint UniqueId; // LADSPA's unsigned long: 32 bits on Windows
-        public nint Label;
-        public int Properties;
-        public nint Name, Maker, Copyright;
-        public uint PortCount;
-        public nint PortDescriptors, PortNames, PortRangeHints, ImplementationData;
-        public nint Instantiate, ConnectPort, Activate, Run, RunAdding, SetRunAddingGain, Deactivate, Cleanup;
-    }
+    private const int Hop = 480, WarmSamples = Opus.SampleRate / 2;
 
     internal static readonly GitHubReleaseAsset Plugin = new(
-        "Rikorose", "DeepFilterNet", "v0.5.6", "deep_filter_ladspa-0.5.6-x86_64-pc-windows-msvc.dll",
-        50671104, "f97e34275eb884b6076a96d261683d2a43c6b2d97ddf9e346bc06f7c8057eb04", PredatesGitHubDigests: true);
+        "ImAvgErix", "ExoLauncher", "v3.13.3", "exo-deepfilter-0.5.6.dll",
+        53095936, "dc392076a100a4742b0e7d051bf0e630c9b6d7ceb29a35567acb65e3c7ee3b49");
 
-    internal static string PluginPath { get; set; } = Path.Combine(PathHelper.AppDataDir, "voice", "deep_filter.dll");
+    internal static string PluginPath { get; set; } = Path.Combine(PathHelper.AppDataDir, "voice", "exo-deepfilter.dll");
 
-    // The plugin keeps one model for all its instances (a static), and each instance's worker runs a clone of it whose
-    // feature buffers are the same memory (libDF's DfTract clones share its tensors and write them through raw pointers).
-    // Two instances running at once corrupted each other: with Noise Suppression for Others on, the microphone and everyone
-    // heard went silent, and the broken instances stayed broken in Idle until Exo restarted. So each instance gets its own
-    // copy of the plugin file, loaded as a module of its own (Windows loads a hard link to the same file as the same module)
-    // with its own model, and an instance is only ever run by one user at a time (Idle). Copies stay for the next run.
-    private static readonly List<nint> Copies = [];
+    private static nint _library;
+    private static delegate* unmanaged[Cdecl]<float, nint> _create;
+    private static delegate* unmanaged[Cdecl]<nint, float, void> _attenuation, _postFilter;
+    private static delegate* unmanaged[Cdecl]<nint, float, float, float, void> _thresholds;
+    private static delegate* unmanaged[Cdecl]<nint, float*, float*, float> _process;
+    private static readonly Lock LoadGate = new();
 
-    private static nint LoadCopy()
+    private static bool LoadLibrary()
     {
-        lock (Copies)
+        lock (LoadGate)
         {
-            if (!NoiseSuppressorDownload.Ready()) return 0;
-            var n = Copies.Count;
-            var path = n == 0 ? PluginPath : Path.Combine(Path.GetDirectoryName(PluginPath)!, $"deep_filter.{n}.dll");
-            try
-            {
-                // One left by an earlier run is used when it is the same file (its size and time); else copied again.
-                var (main, copy) = (new FileInfo(PluginPath), new FileInfo(path));
-                if (n > 0 && (!copy.Exists || copy.Length != main.Length || copy.LastWriteTimeUtc != main.LastWriteTimeUtc))
-                    File.Copy(PluginPath, path, overwrite: true);
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-            {
-                AppLog.Info($"Discord voice: noise suppression's copy {n} could not be made ({ex.GetType().Name}).");
-                return 0;
-            }
-            if (!NativeLibrary.TryLoad(path, out var library)) return 0;
-            Copies.Add(library);
-            return library;
+            if (_library != 0) return true;
+            if (!NoiseSuppressorDownload.Ready() || !NativeLibrary.TryLoad(PluginPath, out var library)) return false;
+            if (!NativeLibrary.TryGetExport(library, "df_create_default", out var create)
+                || !NativeLibrary.TryGetExport(library, "df_set_atten_lim", out var attenuation)
+                || !NativeLibrary.TryGetExport(library, "df_set_post_filter_beta", out var postFilter)
+                || !NativeLibrary.TryGetExport(library, "df_set_thresholds", out var thresholds)
+                || !NativeLibrary.TryGetExport(library, "df_process_frame_checked", out var process))
+                return false;
+            _create = (delegate* unmanaged[Cdecl]<float, nint>)create;
+            _attenuation = (delegate* unmanaged[Cdecl]<nint, float, void>)attenuation;
+            _postFilter = (delegate* unmanaged[Cdecl]<nint, float, void>)postFilter;
+            _thresholds = (delegate* unmanaged[Cdecl]<nint, float, float, float, void>)thresholds;
+            _process = (delegate* unmanaged[Cdecl]<nint, float*, float*, float>)process;
+            _library = library;
+            return true;
         }
     }
 
-    private readonly Descriptor _d;
-    private readonly nint _instance;
+    // DeepFilterNet's own runtime thresholds for skipping stages (no processing on silence, none beyond the first stage
+    // on clean speech). Light: the deep filtering stage's threshold at its lowest, so no frame runs it (DeepFilterNet's
+    // own advice for a CPU too slow for it); its first stage, the ERB gains, still takes the noise down.
+    private const float MinDb = -10f, MaxErbDb = 30f, FullDf = 20f, LightDf = -15f;
+
+    private readonly nint _state;
     private readonly float* _input, _output;
-    private readonly float* _controls;
-    private readonly int _frame;
-    private readonly int _limit = -1; // the attenuation limit's control port
-    private readonly int _df = -1; // the deep filtering stage's threshold port (see Load)
     private readonly DelayTracker _delay = new();
+    private float _limit = float.NaN;
+    private bool _light;
+    private bool _failed;
 
     /// <summary>How long its runs take, and so whether it runs light (<see cref="Overload"/>).</summary>
     internal Overload Load { get; } = new();
@@ -136,59 +133,27 @@ internal sealed unsafe class NoiseSuppressor : IDisposable
     /// <summary>The level (dBFS) of the microphone's sound the last cleaned frame came from, once known (see <see cref="DelayTracker.InputDb"/>).</summary>
     internal float? InputDb => _delay.InputDb;
 
-    // Its controls by the names v0.5.6 gives them, at the settings Exo runs: the post-filter off, no extra buffer, and
-    // DeepFilterNet's own runtime thresholds for skipping its stages (no processing on silence, none beyond the first
-    // stage on clean speech) where the plugin's defaults would run every stage on every frame.
-    private static float? Setting(string name) => name switch
-    {
-        "Post Filter Beta" => 0f,
-        "Min Processing Buffer (frames)" => 0f,
-        "Min processing threshold (dB)" => -10f,
-        "Max ERB processing threshold (dB)" => 30f,
-        MaxDf => FullDf,
-        _ => null,
-    };
+    /// <summary>
+    /// DeepFilterNet's local SNR estimate for the last frame (dB, the louder of its two hops): how much of it it judged
+    /// voice over noise, from -15 (noise alone) to 35 (clean voice). Null before the first frame or after one it couldn't clean.
+    /// </summary>
+    internal float? SpeechDb { get; private set; }
 
-    // Light: the deep filtering stage's threshold at its lowest, so no frame runs it (DeepFilterNet's own advice for a CPU
-    // too slow for it). Its first stage, the ERB gains, still takes the noise down, at the same delay, in the same instance.
-    private const string MaxDf = "Max DF processing threshold (dB)";
-    private const float FullDf = 20f, LightDf = -15f;
-
-    private NoiseSuppressor(Descriptor d, nint instance, int frame)
+    private NoiseSuppressor(nint state)
     {
-        _d = d;
-        _instance = instance;
-        _frame = frame;
-        // Room for the warm-up's half second; a frame uses the start.
+        _state = state;
         _input = (float*)NativeMemory.AllocZeroed(WarmSamples, sizeof(float));
         _output = (float*)NativeMemory.AllocZeroed(WarmSamples, sizeof(float));
-        _controls = (float*)NativeMemory.AllocZeroed(d.PortCount, sizeof(float));
-        var connect = (delegate* unmanaged[Cdecl]<nint, uint, float*, void>)d.ConnectPort;
-        var kinds = (int*)d.PortDescriptors;
-        var hints = (RangeHint*)d.PortRangeHints;
-        for (uint port = 0; port < d.PortCount; port++)
-        {
-            var kind = kinds[port];
-            if ((kind & PortAudio) != 0) connect(instance, port, (kind & PortInput) != 0 ? _input : _output);
-            else if ((kind & PortControl) != 0)
-            {
-                var name = Marshal.PtrToStringUTF8(((nint*)d.PortNames)[port]) ?? "";
-                _controls[port] = Setting(name) ?? Default(hints[port]);
-                if (name.Contains("Attenuation", StringComparison.OrdinalIgnoreCase)) { _controls[port] = GentleDb; _limit = (int)port; }
-                if (name == MaxDf) _df = (int)port;
-                connect(instance, port, _controls + port);
-            }
-        }
-        if (d.Activate != 0) ((delegate* unmanaged[Cdecl]<nint, void>)d.Activate)(instance);
+        _postFilter(state, 0f);
+        _thresholds(state, MinDb, MaxErbDb, FullDf);
     }
 
-    // The plugin runs each instance on a worker thread of its own that polls every 2 ms and never ends: deactivate and
-    // cleanup leave it running, with its own copy of the model. So an instance is never cleaned up; one let go of waits
-    // here for the next call, Voice Check or Voice Tune, instead of each leaving another thread waking 500 times a second.
+    // An instance is never freed: one let go of waits here for the next call, Voice Check or Voice Tune (each holds
+    // its own model, about 30 MB, which takes a moment to load).
     private static readonly Stack<NoiseSuppressor> Idle = new();
     private int _inUse = 1;
 
-    /// <summary>A suppressor for 20 ms mono frames at 48 kHz (one let go of before, or new), or null when the plugin isn't there.</summary>
+    /// <summary>A suppressor for 20 ms frames at 48 kHz (one let go of before, or new), or null when the library isn't there.</summary>
     internal static NoiseSuppressor? Create()
     {
         NoiseSuppressor? idle;
@@ -201,15 +166,14 @@ internal sealed unsafe class NoiseSuppressor : IDisposable
         }
         try
         {
-            var library = LoadCopy();
-            if (library == 0 || !NativeLibrary.TryGetExport(library, "ladspa_descriptor", out var entry)) return null;
-            var descriptor = ((delegate* unmanaged[Cdecl]<uint, Descriptor*>)entry)(0);
-            if (descriptor == null) return null;
-            var d = *descriptor;
-            var instance = ((delegate* unmanaged[Cdecl]<Descriptor*, uint, nint>)d.Instantiate)(descriptor, Opus.SampleRate);
-            if (instance == 0) return null;
-            RaiseWorkers(library);
-            var suppressor = new NoiseSuppressor(d, instance, Opus.FrameSamples);
+            if (!LoadLibrary()) return null;
+            var state = _create(GentleDb);
+            if (state == 0)
+            {
+                AppLog.Info("Discord voice: noise suppression could not start its model.");
+                return null;
+            }
+            var suppressor = new NoiseSuppressor(state);
             suppressor.WarmUp();
             return suppressor;
         }
@@ -226,85 +190,54 @@ internal sealed unsafe class NoiseSuppressor : IDisposable
     /// </summary>
     internal void Process(float[] stereo, int limitDb = GentleDb)
     {
-        if (_limit >= 0) _controls[_limit] = Math.Clamp(limitDb, 0, MostDb);
-        if (_df >= 0) _controls[_df] = Load.Light ? LightDf : FullDf;
-        for (var i = 0; i < _frame; i++) _input[i] = (stereo[i * 2] + stereo[i * 2 + 1]) * 0.5f;
+        var limit = Math.Clamp(limitDb, 0, MostDb);
+        if (limit != _limit) { _attenuation(_state, limit); _limit = limit; }
+        if (Load.Light != _light) { _light = Load.Light; _thresholds(_state, MinDb, MaxErbDb, _light ? LightDf : FullDf); }
+        var frame = stereo.Length / 2;
+        for (var i = 0; i < frame; i++) _input[i] = (stereo[i * 2] + stereo[i * 2 + 1]) * 0.5f;
         var started = Stopwatch.GetTimestamp();
-        ((delegate* unmanaged[Cdecl]<nint, uint, void>)_d.Run)(_instance, (uint)_frame);
+        float speech = float.NegativeInfinity;
+        var ok = true;
+        for (var at = 0; at + Hop <= frame; at += Hop)
+        {
+            var snr = _process(_state, _input + at, _output + at);
+            if (float.IsNaN(snr)) { ok = false; break; }
+            speech = MathF.Max(speech, snr);
+        }
         Load.Add(Stopwatch.GetElapsedTime(started).TotalMilliseconds);
-        _delay.Add(new ReadOnlySpan<float>(_input, _frame), new ReadOnlySpan<float>(_output, _frame));
-        for (var i = 0; i < _frame; i++) stereo[i * 2] = stereo[i * 2 + 1] = _output[i];
-    }
-
-    // The plugin's worker threads (each started in its own code) run at the capture thread's priority: with a game
-    // taking the CPU, a worker left at normal priority keeps every run, and so the voice, waiting.
-    private static void RaiseWorkers(nint library)
-    {
-        try
+        if (!ok)
         {
-            using var self = System.Diagnostics.Process.GetCurrentProcess();
-            var module = self.Modules.Cast<ProcessModule>().FirstOrDefault(m => m.BaseAddress == library);
-            if (module is null) return;
-            var (from, to) = (library, library + module.ModuleMemorySize);
-            foreach (ProcessThread thread in self.Threads)
-            {
-                try
-                {
-                    if (thread.StartAddress >= from && thread.StartAddress < to && thread.PriorityLevel != ThreadPriorityLevel.Highest)
-                        thread.PriorityLevel = ThreadPriorityLevel.Highest;
-                }
-                catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception) { } // ended, or not ours to set
-                finally { thread.Dispose(); }
-            }
+            // Passed through as it came: a voice is never lost to a frame the model refused.
+            if (!_failed) AppLog.Info("Discord voice: noise suppression let a frame through uncleaned (the model refused it).");
+            _failed = true;
+            SpeechDb = null;
+            return;
         }
-        catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception or NotSupportedException)
-        {
-            AppLog.Info("Discord voice: noise suppression's threads kept their priority (" + ex.GetType().Name + ").");
-        }
+        SpeechDb = speech;
+        _delay.Add(new ReadOnlySpan<float>(_input, frame), new ReadOnlySpan<float>(_output, frame));
+        for (var i = 0; i < frame; i++) stereo[i * 2] = stereo[i * 2 + 1] = _output[i];
     }
 
-    [StructLayout(LayoutKind.Sequential)]
-    private struct RangeHint
-    {
-        public int Hints;
-        public float Lower, Upper;
-    }
-
-    // LADSPA default hints: the middle of the range, its bounds, or 0, 1, 100, 440.
-    private static float Default(RangeHint h) => (h.Hints & 0x3C0) switch
-    {
-        0x40 => h.Lower,
-        0x80 => h.Lower * 0.75f + h.Upper * 0.25f,
-        0xC0 => (h.Lower + h.Upper) / 2,
-        0x100 => h.Lower * 0.25f + h.Upper * 0.75f,
-        0x140 => h.Upper,
-        0x200 => 0,
-        0x240 => 1,
-        0x280 => 100,
-        0x2C0 => 440,
-        _ => h.Lower,
-    };
-
-    // A run that comes back later than real time grows the plugin's buffer by a hop (10 ms more delay) for the next
-    // 20 s or so, and a new instance's first inference is the slow one. So it runs first on half a second of faint
-    // noise in one go, which it can't be late for, before any frame of a call reaches it.
+    // A new instance's first pass through each stage is the slow one (90 ms and more): it runs first on half a second of
+    // a tone in noise, which takes both stages (silence would skip them), before any frame of a call reaches it.
     private void WarmUp()
     {
-        var noise = new Span<float>(_input, WarmSamples);
         var random = new Random(1);
-        for (var i = 0; i < noise.Length; i++) noise[i] = 0.001f * (float)(random.NextDouble() * 2 - 1);
-        ((delegate* unmanaged[Cdecl]<nint, uint, void>)_d.Run)(_instance, WarmSamples);
+        for (var i = 0; i < WarmSamples; i++)
+            _input[i] = 0.1f * MathF.Sin(2 * MathF.PI * 180 * i / Opus.SampleRate) + 0.03f * (float)(random.NextDouble() * 2 - 1);
+        for (var at = 0; at + Hop <= WarmSamples; at += Hop) _process(_state, _input + at, _output + at);
         Flush();
     }
 
-    // 100 ms of silence through, so what the plugin still holds of its last user's sound (its 10 ms of processing delay,
-    // more after a slow spell, and the 50 ms of past spectrum deep filtering reads) never comes out in the next one's frames.
+    // 100 ms of silence through, so what it still holds of its last user's sound (its STFT's last hop and the past
+    // spectrum deep filtering reads) never comes out in the next one's frames.
     private void Flush()
     {
-        new Span<float>(_input, _frame).Clear();
-        for (var i = 0; i < 5; i++) ((delegate* unmanaged[Cdecl]<nint, uint, void>)_d.Run)(_instance, (uint)_frame);
+        new Span<float>(_input, Hop).Clear();
+        for (var i = 0; i < 10; i++) _process(_state, _input, _output);
         _delay.Reset();
         Load.Reset();
+        SpeechDb = null;
     }
 
     /// <summary>Lets go of it for the next user (see <see cref="Idle"/>); a second call does nothing.</summary>

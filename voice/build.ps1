@@ -68,15 +68,29 @@ $apmLicenses = 'COPYING', 'webrtc\common_audio\third_party\ooura\LICENSE', 'webr
 Set-Content (Join-Path $out 'LICENSE-webrtc-audio-processing.txt') (($apmLicenses | ForEach-Object { "== $_`n" + (Get-Content -Raw (Join-Path $wap $_)) }) -join "`n")
 Copy-Item (Join-Path $here 'apm\subprojects\abseil-cpp-20240722.0\LICENSE') (Join-Path $out 'LICENSE-abseil.txt') -Force
 
-# DeepFilterNet 3 noise suppression (MIT/Apache-2.0): Exo fetches the project's own Windows plugin at run time
-# (NoiseSuppressor.Plugin, same pin); it is kept here only for the tests, and its licenses ship with Exo.
+# DeepFilterNet 3 noise suppression (MIT/Apache-2.0): Exo's own build of the project's C interface (libDF, low-latency
+# model built in) with Exo's three entry points appended (deepfilter\exo-capi.rs), so a frame is cleaned on the
+# caller's thread with nothing to poll. Exo fetches it at run time (NoiseSuppressor.Plugin, same pin) from its own
+# release; it is kept here for the tests and to make that asset. Rebuilt only when it doesn't match the pin; a rebuild
+# with a new hash means the pin and the release asset change with it. Needs Rust (rustup, per user).
 $dfnTag = 'v0.5.6'
-$dfnUrl = "https://github.com/Rikorose/DeepFilterNet/releases/download/$dfnTag/deep_filter_ladspa-0.5.6-x86_64-pc-windows-msvc.dll"
-$dfnHash = 'F97E34275EB884B6076A96D261683D2A43C6B2D97DDF9E346BC06F7C8057EB04'
-$dfn = Join-Path $here 'build\dfn\deep_filter.dll'
+$dfnHash = 'DC392076A100A4742B0E7D051BF0E630C9B6D7CEB29A35567ACB65E3C7EE3B49'
+$dfn = Join-Path $here 'build\dfn\exo-deepfilter.dll'
 New-Item -ItemType Directory -Force -Path (Split-Path $dfn) | Out-Null
-if (-not (Test-Path $dfn) -or (Get-FileHash $dfn -Algorithm SHA256).Hash -ne $dfnHash) { Invoke-WebRequest $dfnUrl -OutFile $dfn }
-if ((Get-FileHash $dfn -Algorithm SHA256).Hash -ne $dfnHash) { throw 'DeepFilterNet download did not match its pinned SHA-256.' }
+if (-not (Test-Path $dfn) -or (Get-FileHash $dfn -Algorithm SHA256).Hash -ne $dfnHash) {
+    $src = Join-Path $here 'build\dfn-src'
+    if (-not (Test-Path (Join-Path $src '.git'))) { git clone -q --depth 1 --branch $dfnTag https://github.com/Rikorose/DeepFilterNet.git $src }
+    git -C $src checkout -q -- libDF/src/capi.rs Cargo.lock
+    Add-Content (Join-Path $src 'libDF\src\capi.rs') (Get-Content -Raw (Join-Path $here 'deepfilter\exo-capi.rs'))
+    $cargo = Join-Path $env:USERPROFILE '.cargo\bin\cargo.exe'
+    # The tag's time 0.3.20 no longer compiles on current Rust (type inference); 0.3.44 is what Exo built with.
+    & $cargo update --manifest-path (Join-Path $src 'Cargo.toml') -p time --precise 0.3.44
+    & $cargo rustc --manifest-path (Join-Path $src 'libDF\Cargo.toml') --release --lib --no-default-features --features capi,default-model-ll --crate-type cdylib
+    if ($LASTEXITCODE) { throw "DeepFilterNet build failed ($LASTEXITCODE)." }
+    Copy-Item (Join-Path $src 'target\release\df.dll') $dfn -Force
+    $built = (Get-FileHash $dfn -Algorithm SHA256).Hash
+    if ($built -ne $dfnHash) { Write-Warning "exo-deepfilter.dll built as $built ($((Get-Item $dfn).Length) bytes): pin it in voice\build.ps1 and NoiseSuppressor.Plugin, and attach it to the release." }
+}
 foreach ($license in 'LICENSE-MIT', 'LICENSE-APACHE') {
     Invoke-WebRequest "https://raw.githubusercontent.com/Rikorose/DeepFilterNet/$dfnTag/$license" -OutFile (Join-Path $out "LICENSE-deepfilternet-$($license.Substring(8).ToLowerInvariant()).txt")
 }

@@ -54,6 +54,14 @@ internal sealed unsafe class DaveSession : IDisposable
 
     internal bool Active => _latestVersion != Disabled;
 
+    /// <summary>Each step of the group (commits, welcomes, transitions) goes to app.log: on for Go Live's own connection.</summary>
+    internal bool Verbose { get; init; }
+
+    private void Note(string what)
+    {
+        if (Verbose) AppLog.Info("Discord video: DAVE " + what + ".");
+    }
+
     internal void AssignSsrc(uint ssrc, int codec = Dave.CodecOpus)
     {
         lock (_gate) Dave.EncryptorAssignSsrc(_encryptor, ssrc, codec);
@@ -133,6 +141,7 @@ internal sealed unsafe class DaveSession : IDisposable
                 commit = Dave.Take(data, length);
             }
             if (commit.Length > 0) _sendBinary(28, commit);
+            Note(commit.Length > 0 ? $"proposals committed for {_users.Count} other members" : "proposals left uncommitted");
         }
     }
 
@@ -143,6 +152,7 @@ internal sealed unsafe class DaveSession : IDisposable
         {
             nint result;
             fixed (byte* p = commit) result = Dave.SessionProcessCommit(_session, p, (nuint)commit.Length);
+            Note($"commit {(Dave.CommitIgnored(result) ? "ignored" : Dave.CommitFailed(result) ? "failed" : "taken")} (transition {transitionId})");
             try
             {
                 if (Dave.CommitIgnored(result)) return;
@@ -170,6 +180,7 @@ internal sealed unsafe class DaveSession : IDisposable
             using (var ids = new UserIds(_users.Append(_self)))
             fixed (byte* p = welcome)
                 result = Dave.SessionProcessWelcome(_session, p, (nuint)welcome.Length, ids.Pointer, ids.Count);
+            Note($"welcome {(result != 0 ? "taken" : "failed")} (transition {transitionId})");
             if (result != 0)
             {
                 Dave.WelcomeDestroy(result);
@@ -227,6 +238,7 @@ internal sealed unsafe class DaveSession : IDisposable
         {
             Dave.SessionInit(_session, version, _group, _self);
             SendKeyPackage();
+            Note($"group {_group} started (protocol {version})");
         }
         else
         {
@@ -240,12 +252,13 @@ internal sealed unsafe class DaveSession : IDisposable
         if (!_transitions.Remove(transitionId, out var version)) return;
         if (version == Disabled) Dave.SessionReset(_session);
         SetupRatchet(_self, version);
+        Note($"transition {transitionId} executed (protocol {version}, {(_selfRatchet != 0 ? "encrypting" : "not encrypting")})");
     }
 
     private void PrepareRatchets(ushort transitionId, ushort version)
     {
         foreach (var user in _users) SetupRatchet(user, version);
-        if (transitionId == InitTransition) SetupRatchet(_self, version);
+        if (transitionId == InitTransition) { SetupRatchet(_self, version); Note($"keys set at once (protocol {version}, {(_selfRatchet != 0 ? "encrypting" : "not encrypting")})"); }
         else _transitions[transitionId] = version;
         _latestVersion = version;
     }

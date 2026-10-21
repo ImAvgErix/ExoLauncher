@@ -94,7 +94,7 @@ These extensions have their own privacy policies. Pages that ask for your microp
 | Destination | What is sent | When |
 | --- | --- | --- |
 | GitHub (ExoLauncher releases) | Version lookup; update download | When Exo starts, and when you press **Check**. The download happens only when you choose to install. Update checks cannot be turned off. |
-| GitHub (Legendary, gogdl, Nile, DeepFilterNet releases) | Download of a fixed version, checked against its SHA-256 | When a feature first needs the tool, and DeepFilterNet the first time Exo's own Discord client starts with noise suppression on |
+| GitHub (Legendary, gogdl and Nile releases, and Exo's own build of DeepFilterNet from Exo's release) | Download of a fixed version, checked against its SHA-256 | When a feature first needs the tool, and DeepFilterNet the first time Exo's own Discord client starts with noise suppression on |
 | Epic, GOG, Amazon (through Legendary, gogdl, Nile) | Your own store sign-in, library, installs, updates | When you sign in, refresh, install or play |
 | Epic account and library services | Your Legendary/Heroic or Epic Games Launcher sign-in, used to read your Epic playtime | When your library refreshes, if you're signed in to Epic on this PC |
 | Legendary's optional content lists (api.legendary.gl) | An installed Epic game's app name, to read which parts of it (such as high resolution textures or language packs) can be left out | When you open Properties for an installed Epic game that has such parts, once per game per run |

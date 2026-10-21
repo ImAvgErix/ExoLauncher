@@ -574,6 +574,7 @@ public sealed partial class WebHostBridge
                 "shaders.status" => await ShadersStatusAsync(paramsEl, hasParams, requestToken).ConfigureAwait(true),
                 "shaders.estimates" => await ShadersEstimatesAsync(requestToken).ConfigureAwait(true),
                 "hdr.state" => await Task.Run(HdrState).ConfigureAwait(true),
+                "stores.quiet" => await QuietStoresAsync(requestToken).ConfigureAwait(true),
                 "hdr.game" => await HdrGameAsync(paramsEl, hasParams, requestToken).ConfigureAwait(true),
                 "gpu.display" => await GpuDeadlineAsync(GpuDisplayAsync(paramsEl, hasParams), TimeSpan.FromSeconds(25), requestToken).ConfigureAwait(true),
                 "discord.status" => DiscordStatus(paramsEl, hasParams),
@@ -996,6 +997,9 @@ public sealed partial class WebHostBridge
             path = Helpers.PathHelper.GamesRoot;
         else if (NormalizeInstallRoot(requested) is { } validRoot)
             path = validRoot;
+        // Add a game: the game's own .exe, its folder held to the same rules as a folder.
+        else if (gameId == Adapters.LocalAdapter.AddPortableId && ProgramInAllowedFolder(requested) is { } program)
+            path = program;
         else
             return new { ok = false, message = InstallRootRejected };
 
@@ -1026,6 +1030,18 @@ public sealed partial class WebHostBridge
             pausedDownloads = _services.Launcher.PausedDownloads,
             progress = MapProgress(_services.Launcher.CurrentProgress),
         };
+    }
+
+    /// <summary>An existing .exe whose folder <see cref="NormalizeInstallRoot"/> takes; its full path, else null.</summary>
+    private static string? ProgramInAllowedFolder(string? path)
+    {
+        try
+        {
+            var full = Path.GetFullPath(path!.Trim());
+            return string.Equals(Path.GetExtension(full), ".exe", StringComparison.OrdinalIgnoreCase) && File.Exists(full) &&
+                NormalizeInstallRoot(Path.GetDirectoryName(full)) is not null ? full : null;
+        }
+        catch (Exception ex) when (ex is ArgumentException or IOException or NotSupportedException or System.Security.SecurityException) { return null; }
     }
 
     private const string InstallRootRejected =
@@ -1675,6 +1691,8 @@ public sealed partial class WebHostBridge
             downloadHoursEnd = s.DownloadHoursEnd,
             autoUpdateGames = s.AutoUpdateGames,
             steamOverlayDefaultOn = s.SteamOverlayDefaultOn,
+            quietStoreApps = s.QuietStoreApps,
+            libraryFolders = s.LibraryFolders.Select(folder => new { id = folder.Id, name = folder.Name, color = folder.Color, games = folder.Games }),
 
             igdbTwitchClientIdSet = CatalogApiKeyStore.HasTwitchClientId(),
             igdbTwitchClientSecretSet = CatalogApiKeyStore.HasTwitchClientSecret(),
@@ -1793,6 +1811,16 @@ public sealed partial class WebHostBridge
         }
         ApplyDownloadSettings(p);
         ApplySteamOverlaySettings(p);
+        if (p.TryGetProperty("libraryFolders", out var folders) && folders.ValueKind == JsonValueKind.Array)
+            _services.Settings.SetLibraryFolders(folders.EnumerateArray().Where(folder => folder.ValueKind == JsonValueKind.Object).Select(folder => new LibraryFolder
+            {
+                Id = folder.TryGetProperty("id", out var id) && id.ValueKind == JsonValueKind.String ? id.GetString()! : "",
+                Name = folder.TryGetProperty("name", out var name) && name.ValueKind == JsonValueKind.String ? name.GetString()! : "",
+                Color = folder.TryGetProperty("color", out var color) && color.ValueKind == JsonValueKind.String ? color.GetString()! : "gray",
+                Games = folder.TryGetProperty("games", out var list) && list.ValueKind == JsonValueKind.Array
+                    ? list.EnumerateArray().Where(game => game.ValueKind == JsonValueKind.String).Select(game => game.GetString()!).ToList()
+                    : [],
+            }).ToList());
 
         if (p.TryGetProperty("riotId", out var riotId) && riotId.ValueKind == JsonValueKind.String)
         {

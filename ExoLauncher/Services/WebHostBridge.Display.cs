@@ -21,9 +21,9 @@ public sealed partial class WebHostBridge
         public CancellationTokenRegistration Registration { get; set; }
     }
 
-    /// <summary>One active screen: its GPU, refresh rates and what its link carries now.</summary>
+    /// <summary>One active screen: its GPU, the refresh rates and colors it takes, and what its link carries now.</summary>
     private sealed record DisplayScreen(string Gdi, string Name, bool Main, bool Hdr, string? Vendor, uint? NvId, uint Target,
-        int Refresh, int[] Refreshes, OutputColor? Color, bool Auto, List<OutputColor> Supported, int? PanelBpc, WindowsHdr.Screen Raw,
+        int Refresh, int[] Refreshes, OutputColor? Color, bool Auto, List<OutputColor> Supported, MonitorCaps? Caps, WindowsHdr.Screen Raw,
         int? Scaling = null, bool? Override = null);
 
     /// <summary>
@@ -95,7 +95,8 @@ public sealed partial class WebHostBridge
                     refreshes = screen.Refreshes,
                     color = screen.Color,
                     auto = screen.Auto,
-                    supported = DisplayOutput.Offered(screen.Supported, screen.Color, screen.PanelBpc),
+                    // The color in use stays listed so the page can show it.
+                    supported = screen.Color is { } now && !screen.Supported.Contains(now) ? [.. screen.Supported, now] : screen.Supported,
                     best = new { refresh = best.Refresh, color = best.Color, why = best.Why, scaling = best.Scaling is not null, over = best.Override is not null },
                     // In use only when every part matches: refresh, color, and on NVIDIA no scaling on the GPU with the override on.
                     isBest = best.Refresh == screen.Refresh && (best.Color is null || best.Color == screen.Color)
@@ -130,7 +131,7 @@ public sealed partial class WebHostBridge
     private static (int Refresh, OutputColor? Color, string? Why, int? Scaling, bool? Override) BestFor(DisplayScreen screen)
     {
         var refresh = screen.Refreshes.Length > 0 ? screen.Refreshes.Max() : screen.Refresh;
-        var (color, why) = DisplayOutput.BestColor(screen.Supported, screen.Refresh, screen.PanelBpc);
+        var (color, why) = DisplayOutput.BestColor(screen.Supported, screen.Refresh, screen.Caps?.PanelBpc);
         if (refresh != screen.Refresh && screen.Supported.Count > 0)
             why = $"Color checked at {screen.Refresh} Hz; Exo checks it again at {refresh} Hz when you use it." + (why is null ? "" : " " + why);
         return (refresh, color, why, screen.Scaling is null ? null : NvidiaScaling.ToCode(new("none", true)), screen.Override is null ? null : true);
@@ -178,7 +179,7 @@ public sealed partial class WebHostBridge
             if (refresh != before.Refresh && DisplayOutput.SetRefresh(before.Gdi, refresh) is { } refreshError) return refreshError;
             // The driver answers for the new mode once the screen has settled on it.
             if (refresh != before.Refresh) Thread.Sleep(1000);
-            var now = refresh != before.Refresh ? ReadScreen(raw, null) : before;
+            var now = refresh != before.Refresh ? ReadScreen(Reread(raw), null) : before;
 
             OutputColor? wanted = null;
             string? message = null;
@@ -186,7 +187,7 @@ public sealed partial class WebHostBridge
             if (auto && now.Color is { } keepColor)
                 wanted = keepColor;
             else if (best)
-                wanted = DisplayOutput.BestColor(now.Supported, refresh, now.PanelBpc).Color;
+                wanted = DisplayOutput.BestColor(now.Supported, refresh, now.Caps?.PanelBpc).Color;
             else if (ReadString(p, hasParams, "format") is { } format && now.Color is { } current)
             {
                 var rgb = format == "rgb";
@@ -203,8 +204,8 @@ public sealed partial class WebHostBridge
                 // takes at the new rate and pick again once.
                 if (message is not null && best && refresh != before.Refresh)
                 {
-                    now = ReadScreen(raw, null);
-                    var retry = DisplayOutput.BestColor(now.Supported, refresh, now.PanelBpc).Color;
+                    now = ReadScreen(Reread(raw), null);
+                    var retry = DisplayOutput.BestColor(now.Supported, refresh, now.Caps?.PanelBpc).Color;
                     if (retry is null || (retry == now.Color && !now.Auto)) { message = null; wanted = null; }
                     else if (retry != wanted) { wanted = retry; message = WriteColor(now, retry); }
                 }
@@ -293,9 +294,15 @@ public sealed partial class WebHostBridge
         _displayPending = null;
     }
 
+    /// <summary>The screen as Windows has it now (its link's pixel rate changes with the refresh rate).</summary>
+    private static WindowsHdr.Screen Reread(WindowsHdr.Screen screen) =>
+        WindowsHdr.All().FirstOrDefault(item => item.GdiName == screen.GdiName) ?? screen;
+
     private static DisplayScreen ReadScreen(WindowsHdr.Screen screen, string? primary)
     {
-        var (refresh, refreshes) = DisplayOutput.RefreshRates(screen.GdiName);
+        var (refresh, listed) = DisplayOutput.RefreshRates(screen.GdiName);
+        var caps = WindowsHdr.Caps(screen);
+        var refreshes = DisplayOutput.OfferedRates(listed, refresh, caps);
         OutputColor? color = null;
         var auto = false;
         List<OutputColor> supported = [];
@@ -320,8 +327,20 @@ public sealed partial class WebHostBridge
             vendor = "intel";
             (color, supported) = intel;
         }
+        var offered = DisplayOutput.Offered(supported, caps, screen.PixelRate);
+        LogRuledOut(screen, listed.Except(refreshes).Select(hz => $"{hz} Hz").Concat(supported.Except(offered).Where(c => c.Bpc <= 12).Select(DisplayOutput.Label)));
         return new DisplayScreen(screen.GdiName, screen.Name, string.Equals(screen.GdiName, primary, StringComparison.OrdinalIgnoreCase),
-            screen.Enabled, vendor, nvId, screen.Target, refresh, refreshes, color, auto, supported, WindowsHdr.PanelBpc(screen), screen, scaling, over);
+            screen.Enabled, vendor, nvId, screen.Target, refresh, refreshes, color, auto, offered, caps, screen, scaling, over);
+    }
+
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, byte> RuledOutLogged = new();
+
+    /// <summary>Once per screen and list: what Windows or the driver listed that the screen's EDID rules out.</summary>
+    private static void LogRuledOut(WindowsHdr.Screen screen, IEnumerable<string> values)
+    {
+        var line = string.Join(", ", values);
+        if (line.Length > 0 && RuledOutLogged.TryAdd(screen.DevicePath + line, 0))
+            AppLog.Info($"Display: not offered on {DisplayId(screen.GdiName)} ({screen.Name}), its EDID doesn't take them: {line}.");
     }
 
     private static string? WriteColor(DisplayScreen screen, OutputColor color, bool auto = false) => screen.Vendor switch

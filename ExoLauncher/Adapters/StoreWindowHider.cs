@@ -581,7 +581,7 @@ internal sealed class StoreWindowHider : IDisposable
     /// per name, and the guard polls up to 25 names four times a second for a
     /// full game session. One snapshot per pass keeps that cost flat.
     /// </summary>
-    private static List<(int ProcessId, string Name)> SnapshotNamedProcesses(IEnumerable<string> processNames)
+    internal static List<(int ProcessId, string Name)> SnapshotNamedProcesses(IEnumerable<string> processNames)
     {
         var wanted = processNames is HashSet<string> set &&
                      ReferenceEquals(set.Comparer, StringComparer.OrdinalIgnoreCase)

@@ -163,6 +163,7 @@ public sealed class SettingsService
         loaded.NvidiaColor = CopyStrings(loaded.NvidiaColor);
         loaded.SdrGammaBefore = CopyStrings(loaded.SdrGammaBefore);
         loaded.DiscordVoiceTunes = CopyStrings(loaded.DiscordVoiceTunes);
+        loaded.LibraryFolders = NormalizeLibraryFolders(loaded.LibraryFolders);
         if (string.IsNullOrWhiteSpace(loaded.SortMode) || !IsLibrarySortMode(loaded.SortMode))
             loaded.SortMode = "name";
     }
@@ -506,6 +507,43 @@ public sealed class SettingsService
             return _current.HdrGameModes.TryGetValue(gameId, out var mode) ? mode : "auto";
     }
 
+    /// <summary>Library > folders: the whole list, as the Library has it now.</summary>
+    public void SetLibraryFolders(IEnumerable<LibraryFolder> folders)
+    {
+        var clean = NormalizeLibraryFolders(folders);
+        CommitMutation(settings => settings.LibraryFolders = clean);
+    }
+
+    internal static readonly string[] FolderColors = ["gray", "red", "orange", "yellow", "green", "teal", "blue", "pink"];
+
+    /// <summary>
+    /// A copy that holds: up to 200 folders with an id each (64 characters at most, once), a name (40 characters,
+    /// "Folder" when blank), one of <see cref="FolderColors"/> (gray otherwise), and up to 2,000 game ids, each game in
+    /// the first folder that lists it.
+    /// </summary>
+    internal static List<LibraryFolder> NormalizeLibraryFolders(IEnumerable<LibraryFolder?>? folders)
+    {
+        var clean = new List<LibraryFolder>();
+        var ids = new HashSet<string>(StringComparer.Ordinal);
+        var placed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        static bool Valid(string? text, int max) => !string.IsNullOrWhiteSpace(text) && text.Length <= max && !text.Any(char.IsControl);
+        foreach (var folder in folders ?? [])
+        {
+            if (folder is null || !Valid(folder.Id, 64) || !ids.Add(folder.Id)) continue;
+            var name = new string((folder.Name ?? "").Where(c => !char.IsControl(c)).ToArray()).Trim();
+            if (name.Length > 40) name = name[..40].TrimEnd();
+            clean.Add(new LibraryFolder
+            {
+                Id = folder.Id,
+                Name = name.Length > 0 ? name : "Folder",
+                Color = FolderColors.Contains(folder.Color) ? folder.Color : "gray",
+                Games = (folder.Games ?? []).Where(game => Valid(game, 512) && placed.Add(game)).Take(2_000).ToList(),
+            });
+            if (clean.Count == 200) break;
+        }
+        return clean;
+    }
+
     /// <summary>Game sheet > HDR: Auto removes the override.</summary>
     public void SetHdrGameMode(string gameId, string mode)
     {
@@ -706,6 +744,7 @@ public sealed class SettingsService
         HdrGameModes = CopyStrings(source.HdrGameModes),
         NvidiaColor = CopyStrings(source.NvidiaColor),
         SdrGammaBefore = CopyStrings(source.SdrGammaBefore),
+        HdrSwitchedOn = source.HdrSwitchedOn,
 
         OnboardingComplete = source.OnboardingComplete,
         LaunchOverrides = CopyLaunchOverrides(source.LaunchOverrides),
@@ -755,6 +794,8 @@ public sealed class SettingsService
         MouseBridgeAppPath = source.MouseBridgeAppPath,
         StartLucidWithExo = source.StartLucidWithExo,
         SteamOverlayDefaultOn = source.SteamOverlayDefaultOn,
+        QuietStoreApps = source.QuietStoreApps,
+        LibraryFolders = NormalizeLibraryFolders(source.LibraryFolders),
         SteamOverlay = CopyStrings(source.SteamOverlay),
         StartupHandedToExo = [.. (source.StartupHandedToExo ?? []).Where(id => StartupApps.Known.Any(app => app.Id == id)).Distinct()],
         LucidPath = source.LucidPath is { Length: > 0 and <= 1024 } lucid ? lucid : null,

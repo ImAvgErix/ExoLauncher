@@ -392,6 +392,9 @@ export interface GameVariant {
   canStop?: boolean
 }
 
+/** A folder of games on the Library's grid, made by the player; a game is in one folder at most. */
+export type LibraryFolder = { id: string; name: string; color?: string; games: string[] }
+
 export interface Game {
   id: string
   title: string
@@ -537,6 +540,10 @@ export interface LauncherSettings {
   autoUpdateGames?: boolean
   /** Steam overlay for a Steam game Exo has not set yet (default off); Properties sets one game. */
   steamOverlayDefaultOn?: boolean
+  /** Steam's and Epic's own pop-ups and sounds kept off (Settings > Game stores > Notifications and sounds). */
+  quietStoreApps?: boolean
+  /** The Library's folders, in their order on the grid. */
+  libraryFolders?: LibraryFolder[]
 
   /** Debug builds or EXO_SHOW_DEV_KEYS=1: show Exo's own developer-app paste fields. */
   developerKeysVisible?: boolean
@@ -1297,6 +1304,8 @@ export const host = {
     rawCall<{ ok: boolean; message?: string }>('dlss.consent', { id, allow, ...(allow && antiCheat ? { antiCheat } : {}) }),
   shadersStatus: (id: string) => rawCall<ShaderStatus>('shaders.status', { id }),
   hdrState: () => rawCall<HdrState>('hdr.state', {}),
+  /** Steam's and Epic's own notifications and sounds off, kept off; message says when a store takes it later. */
+  quietStores: () => rawCall<{ ok: boolean; message?: string | null }>('stores.quiet', {}, 60_000),
   /** A game's HDR support (asks PCGamingWiki the first time); with a mode, sets its Auto/Always/Never. */
   hdrGame: (id: string, mode?: string) => rawCall<HdrGame>('hdr.game', { id, ...(mode ? { mode } : {}) }, 30_000),
   /** Every screen's refresh rate and output color; set starts a 15 s countdown that keep ends and revert (or the host, when it runs out) undoes. */

@@ -57,6 +57,7 @@ public sealed class SettingsRoundTripTests : IDisposable
                 else if (type == typeof(int?)) property.SetValue(settings, 3);
                 else if (property.GetValue(settings) is Dictionary<string, string> map) map[@"\\?\DISPLAY#Key"] = "value";
                 else if (property.GetValue(settings) is List<string> list) list.Add("steam:1");
+                else if (property.GetValue(settings) is List<LibraryFolder> folders) folders.Add(new LibraryFolder { Id = "f1", Name = "Shooters", Games = ["steam:1"] });
                 else Assert.Fail(property.Name + " has a type this test does not set; add it here.");
             }
         });
@@ -75,6 +76,8 @@ public sealed class SettingsRoundTripTests : IDisposable
                 Assert.True(gotMap.TryGetValue(@"\\?\display#key", out var value) && value == "value", property.Name + " was not kept");
             }
             else if (want is List<string> list) Assert.True(list.SequenceEqual((List<string>)got!), property.Name + " was not kept");
+            else if (want is List<LibraryFolder>)
+                Assert.True(got is List<LibraryFolder> { Count: 1 } kept && kept[0] is { Id: "f1", Name: "Shooters" } && kept[0].Games.SequenceEqual(["steam:1"]), property.Name + " was not kept");
             else Assert.True(Equals(want, got), $"{property.Name} was not kept: {want} became {got}");
         }
     }

@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using ExoLauncher.Helpers;
 using ExoLauncher.Models;
 
 namespace ExoLauncher.Adapters;
@@ -22,6 +23,7 @@ public sealed class HiddenStoreRuntime : IDisposable
     private static readonly ConcurrentDictionary<StoreKind, DateTimeOffset> s_userOpened = new();
     private long _nextUserWindowCheck;
     private long _nextTrayCheck;
+    private long _nextAdoptCheck;
 
     /// <summary>
     /// Clients Exo started or woke, by when: they stay quiet for as long as
@@ -319,7 +321,7 @@ public sealed class HiddenStoreRuntime : IDisposable
             Volatile.Write(ref _sweeping, 0);
             lock (_gate)
                 if (!_disposed) _timer?.Change(IsHandoffActive ? TimeSpan.FromMilliseconds(250)
-                    : !s_userOpened.IsEmpty || !s_owned.IsEmpty ? TimeSpan.FromSeconds(1) : Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+                    : !s_userOpened.IsEmpty || !s_owned.IsEmpty ? TimeSpan.FromSeconds(1) : AdoptEvery, Timeout.InfiniteTimeSpan);
         }
     }
 
@@ -342,6 +344,7 @@ public sealed class HiddenStoreRuntime : IDisposable
         // restored. Pure idle ticks no longer wake the Core Audio worker.
         if (driving || wasDriving)
             _audioSilencer.Refresh();
+        AdoptBackgroundClients();
         KeepOwnedClientsQuiet();
         if (!IsAnyStoreQuiet) return;
         try
@@ -403,6 +406,33 @@ public sealed class HiddenStoreRuntime : IDisposable
             try { StoreTrayIcons.Remove(store); }
             catch { /* the client exited while its icons were read */ }
         }
+    }
+
+    private static readonly TimeSpan AdoptEvery = TimeSpan.FromSeconds(30);
+
+    // The clients that run in the background on their own and pop windows up there: an update, a sale, a friend online.
+    private static readonly StoreKind[] BackgroundClients = [StoreKind.Steam, StoreKind.Epic, StoreKind.Gog, StoreKind.Ea, StoreKind.Ubisoft];
+
+    /// <summary>
+    /// A client running in the background that Exo didn't start (Windows started it at sign-in, a game woke it) is
+    /// Exo's too, every 30 s: its pop-ups, Steam's web helper windows and its tray icon stay hidden, as for a client Exo
+    /// started. One with its main window open is the user's, and stays so while that window is open.
+    /// </summary>
+    private void AdoptBackgroundClients()
+    {
+        if (Environment.TickCount64 < _nextAdoptCheck) return;
+        _nextAdoptCheck = Environment.TickCount64 + (long)AdoptEvery.TotalMilliseconds - 500;
+        var stores = BackgroundClients.Where(store => !s_owned.ContainsKey(store) && !IsSuspended(store)).ToArray();
+        if (stores.Length == 0) return;
+        var running = StoreWindowHider.SnapshotNamedProcesses(stores.SelectMany(StoreClientCleanup.ExitProcessNames))
+            .Select(process => StoreForProcess(process.Name)).OfType<StoreKind>().Where(stores.Contains).ToHashSet();
+        if (running.Count == 0) return;
+        var open = StoreWindowHider.VisibleMainStores(running);
+        // Past the handoff's grace already: an adopted client that exits is let go on the next look.
+        var since = DateTimeOffset.UtcNow - HandoffDuration;
+        foreach (var store in running.Where(store => !open.Contains(store)))
+            if (s_owned.TryAdd(store, since))
+                AppLog.Info($"Store windows: {store} runs in the background; Exo keeps its windows and tray icon hidden.");
     }
 
     private static void SweepStore(StoreKind store, string[] processNames, StoreWindowHider.SurfaceSnapshot snapshot)

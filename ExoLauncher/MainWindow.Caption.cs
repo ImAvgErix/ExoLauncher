@@ -84,7 +84,7 @@ public sealed partial class MainWindow
         UpdateCaptionDragRegions();
     }
 
-    /// Region rects are physical client pixels; the shell's rects are DIPs.
+    /// Region rects are physical client pixels; the shell's rects are the page's CSS pixels (DIPs at its zoom).
     private void UpdateCaptionDragRegions()
     {
         try
@@ -96,7 +96,7 @@ public sealed partial class MainWindow
             var width = 0;
             try { width = AppWindow.ClientSize.Width; } catch { }
             if (width <= 0) width = (int)Math.Round(RootGrid.ActualWidth * scale);
-            CaptionDragRegions.Build(width, scale, _captionInteractiveRegions, _captionMaximizeButton,
+            CaptionDragRegions.Build(width, scale * PageZoom, _captionInteractiveRegions, _captionMaximizeButton,
                 out var caption, out var passthrough, out var maximize);
             if (caption.Length == 0) return;
             var source = _captionInput ?? InputNonClientPointerSource.GetForWindowId(AppWindow.Id);

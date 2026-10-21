@@ -162,6 +162,13 @@ public sealed class LocalAdapter : IStoreAdapter
         CancellationToken ct = default)
     {
         var path = installPath ?? game.Path;
+        // Add a game: the game's own .exe, picked itself, is the one launched; its folder is the game's.
+        string? picked = null;
+        if (!string.IsNullOrWhiteSpace(path) && File.Exists(path) && string.Equals(Path.GetExtension(path), ".exe", StringComparison.OrdinalIgnoreCase))
+        {
+            picked = Path.GetFullPath(path);
+            path = GameFolderFor(picked);
+        }
         if (string.IsNullOrWhiteSpace(path) || !Directory.Exists(path))
         {
             return new InstallResult
@@ -202,14 +209,14 @@ public sealed class LocalAdapter : IStoreAdapter
         Report(game.Id, progress, InstallPhase.Preparing, null, "Scanning folder…");
         await Task.Delay(40, ct).ConfigureAwait(false);
 
-        var exe = FindPlayableExe(path);
+        var exe = picked ?? FindPlayableExe(path);
         if (exe is null)
         {
             Report(game.Id, progress, InstallPhase.Failed, null, "No game .exe found.");
             return new InstallResult { Ok = false, Message = "No game .exe was found in that folder or the folders right inside it." };
         }
 
-        var displayTitle = Path.GetFileName(path.TrimEnd(
+        var displayTitle = picked is not null ? TitleFor(picked, path) : Path.GetFileName(path.TrimEnd(
             Path.DirectorySeparatorChar,
             Path.AltDirectorySeparatorChar));
         var copy = _copyPortableIntoLibrary ?? _settings?.Current.CopyPortableIntoLibrary == true;
@@ -241,7 +248,7 @@ public sealed class LocalAdapter : IStoreAdapter
                         Report(game.Id, progress, InstallPhase.Installing, pct, msg)).ConfigureAwait(false);
 
                     var stagedExe = Path.Combine(stagingPath, relativeExe);
-                    if (!File.Exists(stagedExe) || FindPlayableExe(stagingPath) is null)
+                    if (!File.Exists(stagedExe) || (picked is null && FindPlayableExe(stagingPath) is null))
                         throw new IOException("The staged copy did not contain a playable executable.");
                     if (!RecursiveDeleteGuard.TryValidateManagedChild(
                             libraryRoot,
@@ -306,13 +313,46 @@ public sealed class LocalAdapter : IStoreAdapter
             };
         }
 
-        Report(game.Id, progress, InstallPhase.Completed, 100, copied ? "Game copied and added." : "Game folder added.");
+        var added = copied ? "Game copied and added." : picked is not null ? $"{displayTitle} added." : "Game folder added.";
+        Report(game.Id, progress, InstallPhase.Completed, 100, added);
         return new InstallResult
         {
             Ok = true,
-            Message = copied ? "Game copied and added." : "Game folder added.",
+            Message = added,
             Path = path,
         };
+    }
+
+    // Folders an engine puts its .exe in, under the game's own folder (Unreal's Binaries\Win64, a bin\x64).
+    private static readonly HashSet<string> BuildFolders = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "bin", "bin64", "bin32", "binaries", "win64", "win32", "x64", "x86", "x86_64", "amd64", "release", "retail", "shipping", "windows", "windowsnoeditor",
+    };
+
+    /// <summary>The game's own folder for its .exe: the .exe's folder, or above it past an engine's build folders (at most 3).</summary>
+    internal static string GameFolderFor(string exe)
+    {
+        var folder = Path.GetDirectoryName(exe)!;
+        for (var up = 0; up < 3 && BuildFolders.Contains(Path.GetFileName(folder)) && Path.GetDirectoryName(folder) is { } parent && Path.GetDirectoryName(parent) is not null; up++)
+            folder = parent;
+        return folder;
+    }
+
+    // Names an engine's .exe carries instead of the game's.
+    private static readonly string[] EngineNames = ["Unity", "Unreal", "Godot", "Electron", "NW.js", "Microsoft", "Windows"];
+    private static readonly string[] BareNames = ["game", "launcher", "bootstrap", "app", "client"];
+
+    /// <summary>A picked .exe's title: its product name unless that is an engine's, else its game folder's name.</summary>
+    internal static string TitleFor(string exe, string folder)
+    {
+        string? product = null;
+        try { product = FileVersionInfo.GetVersionInfo(exe).ProductName?.Trim(); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+        if (product is { Length: > 1 and < 80 } && !EngineNames.Any(name => product.StartsWith(name, StringComparison.OrdinalIgnoreCase)) &&
+            !BareNames.Any(name => product.Equals(name, StringComparison.OrdinalIgnoreCase)))
+            return product;
+        var name = Path.GetFileName(folder.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+        return name.Length > 0 ? name : Path.GetFileNameWithoutExtension(exe);
     }
 
     public Task<InstallResult> UpdateAsync(GameEntry game, IProgress<InstallProgress>? progress, CancellationToken ct = default) =>

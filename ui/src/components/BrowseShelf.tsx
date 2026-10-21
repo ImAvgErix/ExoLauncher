@@ -13,6 +13,8 @@ export type BrowseShelfProps = {
   onMenu?: (at: GameMenuAt) => void
   transferFor?: (game: Game) => InstallProgress | null
   heading: string
+  /** The count beside the heading, when it isn't the grid's cards (a folder is one card of several games). */
+  count?: number
   actions?: ReactNode
   queuedIds?: string[]
   scrollRootRef: RefObject<HTMLElement | null>
@@ -28,6 +30,7 @@ export const BrowseShelf = memo(function BrowseShelf({
   onMenu,
   transferFor,
   heading,
+  count,
   actions,
   queuedIds = [],
   scrollRootRef,
@@ -38,7 +41,7 @@ export const BrowseShelf = memo(function BrowseShelf({
   return (
     <section className="min-w-0" aria-labelledby={headingId}>
       <header className="exo-shelf-head">
-        <h2 className="exo-shelf-title" id={headingId}>{heading}{games.length > 0 && <span className="exo-shelf-count" aria-hidden>{games.length}</span>}</h2>
+        <h2 className="exo-shelf-title" id={headingId}>{heading}{games.length > 0 && <span className="exo-shelf-count" aria-hidden>{count ?? games.length}</span>}</h2>
         {actions ? <div className="exo-shelf-actions">{actions}</div> : null}
       </header>
 

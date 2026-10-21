@@ -13,6 +13,7 @@ namespace ExoLauncher.Services.DiscordClient.Voice;
 internal sealed class InboundCleaner : IDisposable
 {
     private const int MostQueued = 10; // 200 ms: past that the oldest frame is dropped, not played late
+    private const int CatchUp = 5; // 100 ms behind: frames play uncleaned until it has caught up
     private readonly Action<float[], float> _play;
     private readonly Func<float[]> _rent;
     private readonly Queue<(float[]? Frame, float Gain)> _frames = new();
@@ -56,7 +57,12 @@ internal sealed class InboundCleaner : IDisposable
             while (!_stop)
             {
                 (float[]? Frame, float Gain) next;
-                lock (_frames) if (!_frames.TryDequeue(out next)) break;
+                int waiting;
+                lock (_frames)
+                {
+                    if (!_frames.TryDequeue(out next)) break;
+                    waiting = _frames.Count;
+                }
                 var frame = next.Frame;
                 if (frame is null)
                 {
@@ -64,7 +70,9 @@ internal sealed class InboundCleaner : IDisposable
                     frame = _rent();
                     Array.Clear(frame);
                 }
-                _suppressor?.Process(frame);
+                // Behind (a busy PC): the frames waiting play as they came until it has caught up, rather than late or
+                // not at all; a voice is never lost to its cleaning.
+                if (waiting < CatchUp) _suppressor?.Process(frame);
                 _play(frame, next.Gain);
             }
         }

@@ -33,8 +33,6 @@ internal sealed class VoiceChain : IDisposable
     private VoiceFocus? _focus;
     // The kept tuning for the microphone open now, read again only when the mic or the kept tunings change.
     private (string? Mic, Dictionary<string, string>? Tunes, VoiceTuning? Tuning) _kept;
-    private string? _learnedFor = "\0";
-    private volatile bool _micSuppresses;
 
     /// <summary>A tuning to use instead of the microphone's kept one (Voice Tune's take, before it is kept).</summary>
     internal VoiceTuning? Tuning { get; init; }
@@ -78,7 +76,7 @@ internal sealed class VoiceChain : IDisposable
             _leveler.Process(frame);
         }
         // A mic that cleans itself (NVIDIA Broadcast, AMD Noise Suppression and the like): Exo's steps aside, so nothing runs twice.
-        if (processing.NoiseSuppression && (StepsAside ?? MicSuppresses(micId))) suppression = "mic";
+        if (processing.NoiseSuppression && StepsAside == true) suppression = "mic";
         else if (processing.NoiseSuppression && Suppressor() is { } suppressor)
         {
             suppressor.Process(frame, limit);
@@ -95,7 +93,7 @@ internal sealed class VoiceChain : IDisposable
             return _focus.Process(frame, processing.AutoSensitivity, processing.Threshold, false);
         }
         // The gate judges what suppression left (Discord's gate reads Krisp's verdict the same way), against the sound it came from.
-        var open = _gate.Voiced(frame, processing.AutoSensitivity, processing.Threshold, cleaned?.InputDb);
+        var open = _gate.Voiced(frame, processing.AutoSensitivity, processing.Threshold, cleaned?.InputDb, cleaned?.SpeechDb);
         ClipGuard(frame);
         return open;
     }
@@ -160,18 +158,6 @@ internal sealed class VoiceChain : IDisposable
         return _kept.Tuning;
     }
 
-    private bool MicSuppresses(string? mic)
-    {
-        if (mic == _learnedFor) return _micSuppresses;
-        _learnedFor = mic;
-        _micSuppresses = false;
-        _ = Task.Run(() =>
-        {
-            var stands = MicStepsAside(mic);
-            if (_learnedFor == mic) _micSuppresses = stands;
-        });
-        return false;
-    }
 
     public void Dispose()
     {

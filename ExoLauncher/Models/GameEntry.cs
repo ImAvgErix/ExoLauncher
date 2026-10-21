@@ -281,6 +281,17 @@ public sealed class InstallProgress
         or InstallPhase.Installing or InstallPhase.Finalizing;
 }
 
+/// <summary>A folder of games on the Library's grid, made by the player; a game is in one folder at most.</summary>
+public sealed class LibraryFolder
+{
+    public string Id { get; set; } = "";
+    public string Name { get; set; } = "";
+    /// <summary>Its color on the grid: gray, red, orange, yellow, green, teal, blue or pink.</summary>
+    public string Color { get; set; } = "gray";
+    /// <summary>Its games' ids, in the folder's order.</summary>
+    public List<string> Games { get; set; } = [];
+}
+
 public sealed class AppSettings
 {
     /// <summary>Always on. Not in Settings.</summary>
@@ -396,6 +407,9 @@ public sealed class AppSettings
     /// <summary>System > Graphics > HDR > SDR looks right in HDR: by screen device path, the advanced-color profile the
     /// screen had before Exo's SDR gamma 2.2 one ("" for none), put back when HDR goes off.</summary>
     public Dictionary<string, string> SdrGammaBefore { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>System > Graphics > HDR > HDR for HDR games: the device path of the screen Exo switched HDR on for ("" for
+    /// none), so HDR still goes back off when Exo closed without doing it (a crash, an update, the PC shut down).</summary>
+    public string HdrSwitchedOn { get; set; } = "";
     /// <summary>Downloads Exo runs itself (Epic, GOG, Amazon) pause while a game runs and resume after it.</summary>
     public bool PauseDownloadsWhilePlaying { get; set; } = true;
     /// <summary>Download hours: downloads start only from this hour (0-23) until <see cref="DownloadHoursEnd"/>; null = any time.</summary>
@@ -429,6 +443,10 @@ public sealed class AppSettings
     public Dictionary<string, string> UpscalerAntiCheatConsent { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     /// <summary>Settings > Game stores > Steam overlay: on for a Steam game Exo has no record of. Off by default: it costs frames.</summary>
     public bool SteamOverlayDefaultOn { get; set; }
+    /// <summary>Settings > Game stores > Notifications and sounds: Steam's and Epic's own pop-ups and sounds kept off (<see cref="ExoLauncher.Adapters.StoreQuiet"/>).</summary>
+    public bool QuietStoreApps { get; set; }
+    /// <summary>The Library's folders, in their order on the grid (<see cref="LibraryFolder"/>).</summary>
+    public List<LibraryFolder> LibraryFolders { get; set; } = [];
     /// <summary>
     /// Each installed Steam game's overlay switch as Exo set it, by app id: "on" or "off", with "?" until
     /// Steam has it (<see cref="ExoLauncher.Adapters.SteamOverlayConfig.Plan"/>).

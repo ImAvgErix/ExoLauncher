@@ -68,19 +68,28 @@ and a camera frame is small.
 
 ## Protocol (seen in the open-source Discord-video-stream, ISC, before its move to WebRTC in December 2025, and in Discord's web client)
 
-- Voice gateway IDENTIFY: `video: true`, `streams: [{ type: "video", rid: "100", quality: 100 }]`.
-  READY answers with the streams' `ssrc` and `rtx_ssrc`.
+- Voice gateway IDENTIFY, as Discord's client sends it (`RTCControlSocket.identify`): `server_id`, `channel_id`,
+  `user_id`, `session_id`, `token`, `max_dave_protocol_version`, `video: true`,
+  `streams: [{ type, rid: "100", quality: 100 }]`, where `type` is `"video"` on a call's connection and `"screen"` on
+  Go Live's own (`MediaEngineStore.getVideoStreamParameters` for the stream context). READY answers with the streams'
+  `ssrc` and `rtx_ssrc`.
 - SELECT_PROTOCOL: `codecs` lists Opus (payload type 120) and H.264 (101, RTX 102), each with
   `encode`/`decode`. Exo offers only H.264 for video, which every Discord client has; SESSION
   DESCRIPTION says the call's `video_codec`.
 - Op 12 VIDEO: who sends video on which SSRC (`user_id`, `audio_ssrc`, `video_ssrc`, `rtx_ssrc`,
-  `streams`). Sent by Exo to start or stop its own video (`streams: []` to stop).
+  `streams`). Sent by Exo to start or stop its own video (`streams: []` to stop), each stream with READY's type,
+  `active`, `max_bitrate`, `max_framerate` and `max_resolution` (`fixed` with the size, or `source`). A viewer asks the
+  server for the first `active` stream's SSRC (op 15 `{ "<ssrc>": 100, pixelCounts }`).
 - Op 15 MEDIA_SINK_WANTS: which video this client wants (`{ "any": 100 }` for all of it).
 - Main gateway Go Live: op 18 STREAM_CREATE `{ type, guild_id, channel_id, preferred_region }`,
   op 22 STREAM_SET_PAUSED, op 19 STREAM_DELETE, op 20 STREAM_WATCH `{ stream_key }`. Discord answers
   with STREAM_CREATE (`stream_key`, `rtc_server_id`) and STREAM_SERVER_UPDATE (`endpoint`, `token`).
   The stream is its own voice connection: `server_id` is `rtc_server_id`, the session is the call's,
-  and DAVE's group id is `rtc_server_id - 1`. Stream keys are `guild:{guild}:{channel}:{user}` or
+  and its channel (IDENTIFY's `channel_id` and DAVE's group id) is STREAM_CREATE's `rtc_channel_id`, else
+  `rtc_server_id - 1` (`RTCConnection.trueChannelId`). STREAM_CREATE and STREAM_UPDATE also carry `paused` and
+  `viewer_ids`; Exo logs both for its own stream, with each step of the stream connection (READY, the codec, who
+  joins, what viewers ask for, DAVE's commits and transitions) and a send report (frames, packets, key frames and
+  lost packets the server asked for) ten seconds in and then each minute. Stream keys are `guild:{guild}:{channel}:{user}` or
   `call:{channel}:{user}`.
 - Voice states carry `self_video` (camera on) and `self_stream` (live).
 - Video RTP: payload type 101, 90 kHz clock, marker bit on a frame's last packet.

@@ -152,7 +152,8 @@
 :root[data-exo-vt='morph']:not([data-exo-vt-back])::view-transition-old(exo-store-art),
 :root[data-exo-vt='morph']:not([data-exo-vt-back])::view-transition-old(exo-music-art),
 :root[data-exo-vt='morph']:not([data-exo-vt-back])::view-transition-old(exo-capture),
-:root[data-exo-vt='morph']:not([data-exo-vt-back])::view-transition-old(exo-dc-image) {
+:root[data-exo-vt='morph']:not([data-exo-vt-back])::view-transition-old(exo-dc-image),
+:root[data-exo-vt='morph']:not([data-exo-vt-back])::view-transition-old(exo-folder) {
   animation-duration: 120ms;
 }
 
@@ -167,7 +168,9 @@
 :root[data-exo-vt='morph'][data-exo-vt-back]::view-transition-old(exo-capture),
 :root[data-exo-vt='morph'][data-exo-vt-back]::view-transition-new(exo-capture),
 :root[data-exo-vt='morph'][data-exo-vt-back]::view-transition-old(exo-dc-image),
-:root[data-exo-vt='morph'][data-exo-vt-back]::view-transition-new(exo-dc-image) {
+:root[data-exo-vt='morph'][data-exo-vt-back]::view-transition-new(exo-dc-image),
+:root[data-exo-vt='morph'][data-exo-vt-back]::view-transition-old(exo-folder),
+:root[data-exo-vt='morph'][data-exo-vt-back]::view-transition-new(exo-folder) {
   animation-delay: calc(var(--dur-flight) - 140ms);
   animation-duration: 140ms;
   animation-fill-mode: both;

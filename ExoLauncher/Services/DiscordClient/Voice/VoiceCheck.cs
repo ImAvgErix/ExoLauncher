@@ -28,8 +28,7 @@ internal static class VoiceCheck
             var voiced = new bool[frames];
             var done = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             // The call's own chain: the kept tuning for this mic, and its own noise suppression standing in where it does.
-            var stepsAside = await Task.Run(() => VoiceChain.MicStepsAside(App.Services.Settings.Shared.DiscordInputDevice), ct).ConfigureAwait(false);
-            using var chain = new VoiceChain { StepsAside = stepsAside };
+            using var chain = new VoiceChain();
             using var codec = new SentSound();
             await Task.Run(() => chain.Prepare(processing), ct).ConfigureAwait(false);
             var count = 0;

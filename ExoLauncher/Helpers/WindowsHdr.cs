@@ -11,8 +11,9 @@ namespace ExoLauncher.Helpers;
 /// </summary>
 internal static class WindowsHdr
 {
+    /// <summary>One active screen; PixelRate is its link's pixel clock now (Hz, 0 when Windows doesn't say).</summary>
     internal sealed record Screen(Luid Adapter, uint Target, uint Source, string GdiName, string Name, string DevicePath,
-        bool Supported, bool Enabled, bool NewApi);
+        bool Supported, bool Enabled, bool NewApi, long PixelRate = 0);
 
     /// <summary>The main screen's HDR state; null when Windows does not answer.</summary>
     internal static Screen? Primary()
@@ -27,7 +28,7 @@ internal static class WindowsHdr
         var screens = new List<Screen>();
         try
         {
-            if (!ActivePaths(out var paths)) return screens;
+            if (!ActivePaths(out var paths, out var modes)) return screens;
             foreach (var path in paths)
             {
                 var gdi = SourceGdiName(path);
@@ -35,8 +36,10 @@ internal static class WindowsHdr
                 if (gdi.Length == 0 || screens.Any(screen => string.Equals(screen.GdiName, gdi, StringComparison.OrdinalIgnoreCase))) continue;
                 var (supported, enabled, newApi) = ReadHdr(path.targetInfo.adapterId, path.targetInfo.id);
                 var (name, devicePath) = TargetName(path.targetInfo.adapterId, path.targetInfo.id);
+                // DISPLAYCONFIG_TARGET_MODE: the video signal's pixel rate is the union's first field.
+                var mode = path.targetInfo.modeInfoIdx < modes.Length ? modes[path.targetInfo.modeInfoIdx] : default;
                 screens.Add(new Screen(path.targetInfo.adapterId, path.targetInfo.id, path.sourceInfo.id, gdi, name, devicePath,
-                    supported, enabled, newApi));
+                    supported, enabled, newApi, mode.infoType == 2 ? (long)mode.u0 : 0));
             }
         }
         catch (Exception ex) { AppLog.Debug("HDR state: " + ex.GetType().Name); }
@@ -49,16 +52,8 @@ internal static class WindowsHdr
     /// </summary>
     internal static int? PeakNits(Screen screen) => ReadEdid(screen) is { } edid ? EdidPeakNits(edid) : null;
 
-    /// <summary>The panel's own color depth per channel, as its EDID states it; null when it doesn't say.</summary>
-    internal static int? PanelBpc(Screen screen) => ReadEdid(screen) is { } edid ? EdidPanelBpc(edid) : null;
-
-    /// <summary>EDID 1.4 byte 20 on a digital input: bits 6-4 are 6, 8, 10, 12, 14 or 16 bits per color.</summary>
-    internal static int? EdidPanelBpc(byte[] edid)
-    {
-        if (edid.Length < 21 || (edid[20] & 0x80) == 0) return null;
-        var code = (edid[20] >> 4) & 0x07;
-        return code is >= 1 and <= 6 ? 4 + code * 2 : null;
-    }
+    /// <summary>What the screen's EDID says it takes; null when Windows has no EDID for it.</summary>
+    internal static MonitorCaps? Caps(Screen screen) => Edid.Parse(ReadEdid(screen));
 
     private static byte[]? ReadEdid(Screen screen)
     {
@@ -164,18 +159,22 @@ internal static class WindowsHdr
         }
         var info = new AdvancedColorInfo { header = Header(9, Marshal.SizeOf<AdvancedColorInfo>(), adapter, target) };
         if (DisplayConfigGetDeviceInfo(ref info) != 0) return (false, false, false);
-        return ((info.value & 1) != 0, (info.value & 2) != 0, false);
+        // Bit 2, wide color enforced: an SDR screen under Auto color management, which reads as advanced color too.
+        var hdr = (info.value & 1) != 0 && (info.value & 4) == 0;
+        return (hdr, hdr && (info.value & 2) != 0, false);
     }
 
-    private static bool ActivePaths(out PathInfo[] paths)
+    private static bool ActivePaths(out PathInfo[] paths, out ModeInfo[] modes)
     {
         paths = [];
+        modes = [];
         const uint onlyActive = 2;
         if (GetDisplayConfigBufferSizes(onlyActive, out var pathCount, out var modeCount) != 0) return false;
         paths = new PathInfo[pathCount];
-        var modes = new ModeInfo[modeCount];
+        modes = new ModeInfo[modeCount];
         if (QueryDisplayConfig(onlyActive, ref pathCount, paths, ref modeCount, modes, IntPtr.Zero) != 0) return false;
         Array.Resize(ref paths, (int)pathCount);
+        Array.Resize(ref modes, (int)modeCount);
         return true;
     }
 

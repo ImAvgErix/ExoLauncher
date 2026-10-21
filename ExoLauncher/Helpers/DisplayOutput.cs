@@ -37,11 +37,12 @@ internal static class DisplayOutput
     /// (12-bit at most), else RGB Limited, else the fullest YCbCr. Why is one plain line when
     /// that is not RGB Full, or when a deeper color only fits as YCbCr; null otherwise. A panel
     /// whose EDID states its depth gets no deeper than that (8 at least): more bits than the
-    /// panel shows only cost link bandwidth.
+    /// panel shows only cost link bandwidth (an HDMI screen can take 12-bit on an 8-bit panel).
     /// </summary>
     internal static (OutputColor? Color, string? Why) BestColor(IReadOnlyCollection<OutputColor> supported, int refresh, int? panelBpc = null)
     {
-        var usable = Offered(supported, null, panelBpc);
+        var cap = panelBpc is { } panel ? Math.Clamp(panel, 8, 12) : 12;
+        var usable = supported.Where(color => color.Bpc >= 6 && color.Bpc <= cap).ToList();
         OutputColor? Deepest(string format, bool full) =>
             usable.Where(color => color.Format == format && color.Full == full).MaxBy(color => color.Bpc);
 
@@ -62,15 +63,16 @@ internal static class DisplayOutput
     }
 
     /// <summary>
-    /// The colors System > Display offers: what the link takes at the current mode (6 to 12-bit),
-    /// no deeper than the panel's own depth (8 at least) when its EDID states one. The color in
-    /// use stays listed so the page can show it.
+    /// The colors System > Display offers: those the driver says the link takes at the current mode
+    /// (<paramref name="supported"/>) that the screen's EDID takes too, 6 to 12-bit. With no EDID
+    /// the driver's answer stands.
     /// </summary>
-    internal static List<OutputColor> Offered(IEnumerable<OutputColor> supported, OutputColor? current, int? panelBpc)
-    {
-        var cap = panelBpc is { } panel ? Math.Clamp(panel, 8, 12) : 12;
-        return supported.Where(color => (color.Bpc >= 6 && color.Bpc <= cap) || color == current).Distinct().ToList();
-    }
+    internal static List<OutputColor> Offered(IEnumerable<OutputColor> supported, MonitorCaps? caps, long pixelRate) =>
+        supported.Where(color => color.Bpc is >= 6 and <= 12 && caps?.Takes(color, pixelRate) != false).Distinct().ToList();
+
+    /// <summary>The refresh rates offered: Windows' list for the current resolution, less what the EDID rules out; the current one always.</summary>
+    internal static int[] OfferedRates(IEnumerable<int> rates, int current, MonitorCaps? caps) =>
+        rates.Where(hz => hz == current || caps?.TakesRate(hz) != false).ToArray();
 
     /// <summary>The screen's EDID name, or "Screen n" when it has none or names itself by a bare part number (an onn monitor reports "100002487").</summary>
     internal static string ScreenName(string? edidName, int number) =>

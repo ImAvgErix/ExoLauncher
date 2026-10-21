@@ -1,9 +1,13 @@
 import { memo, useCallback, useLayoutEffect, useMemo, useState, type CSSProperties, type RefObject } from 'react'
 import { ContinueRow } from './ContinueRow'
+import { FolderPanel } from './FolderPanel'
+import { FolderSheet } from './FolderSheet'
 import { FriendsPlaying } from './FriendsPlaying'
 import { GameMenu, type GameMenuAt } from './GameMenu'
-import { shelfAction, type Game, type InstallProgress, type SortMode } from '../../lib/host'
+import { type Game, type InstallProgress, type LibraryFolder, type SortMode } from '../../lib/host'
+import { folderColor, folderTileId, freeFolderName, isFolderTile, newFolderId, renameFolder, saveFolder, withFolders, type FolderTile } from '../../lib/folders'
 import { resolveGridCardLayout } from '../../lib/gridWindow'
+import { pressedArt, transition, visible } from '../../lib/viewTransition'
 import { report } from '../../lib/report'
 import { BrowseShelf } from '../BrowseShelf'
 import { LibraryEmpty, LibraryTools, type RefreshState } from './LibraryShelf'
@@ -39,6 +43,10 @@ export type LibraryPaneProps = {
   /** Opens the game's page with its Properties over it. */
   onProperties: (game: Game) => void
   onSort: (mode: SortMode) => void
+  /** The Library's folders, and the change to them (shown at once, then saved). */
+  folders: LibraryFolder[]
+  onFolders: (next: LibraryFolder[]) => void
+  onAddGame: () => void
   onAddFolder: () => void
   onActivateKey: () => void
   /** Library › Refresh: stores again, then every cover. */
@@ -96,29 +104,86 @@ function useRefresh(onRefresh: () => Promise<unknown>): [RefreshState, () => voi
 }
 
 
+/** The open folder takes the keyboard back once a sheet over it closes, so Escape closes the folder. */
+const focusPanel = () => requestAnimationFrame(() =>
+  document.querySelector<HTMLElement>('.exo-folder-panel button[data-game-id]')?.focus({ preventScroll: true }))
+
+/** A folder's card art on screen: where its panel and its sheet grow from and fold back into. */
+const tileArt = (id: string) => visible(`[data-game-id="${CSS.escape(folderTileId(id))}"] [data-vt-art]`)
+
 export const LibraryPane = memo(function LibraryPane(props: LibraryPaneProps) {
   const { overlayOpen } = props
   const cardWidth = useCardWidth(props.mainRef)
-  const { active, sort, onSort, onActivateKey, onAddFolder } = props
+  const { active, sort, onSort, onActivateKey, onAddGame, onAddFolder } = props
   const [refresh, runRefresh, refreshError] = useRefresh(props.onRefresh)
   const [menu, setMenu] = useState<GameMenuAt | null>(null)
-  const { onOpen } = props
-  // A card with nothing to Play, Install or open has no menu; its page has what there is.
-  // A game in Continue sits there only: All games lists the rest.
+  const { onOpen, folders, onFolders, overlayOpen: covered } = props
+  // A game in Continue sits there only: All games lists the rest, its folders first as one card each.
   const { playing, games } = props
   const rest = useMemo(() => {
     const shown = new Set(playing.map(game => game.id))
     return shown.size ? games.filter(game => !shown.has(game.id)) : games
   }, [playing, games])
-  const openMenu = useCallback((at: GameMenuAt) => {
-    if (at.game.installed || shelfAction(at.game)) setMenu(at)
-    else onOpen(at.game)
-  }, [onOpen])
+  const grid = useMemo(() => withFolders(rest, games, folders), [rest, games, folders])
+  // The open folder; a new `rename` key opens it again with its name ready to type.
+  const [open, setOpen] = useState<{ id: string; rename: number } | null>(null)
+  const openTile = useMemo(() => open ? grid.find((item): item is FolderTile => isFolderTile(item) && item.folder.id === open.id) : undefined, [open, grid])
+  // A folder grows out of its card into its panel and back into it (DESIGN.md › Motion › Move: art's flight).
+  const openFolder = useCallback((id: string, rename = false) => {
+    const from = pressedArt() ?? tileArt(id)
+    void transition(() => setOpen({ id, rename: rename ? Date.now() : 0 }), {
+      kind: 'morph',
+      morph: { name: 'exo-folder', from, to: () => visible('.exo-folder-panel') },
+    })
+  }, [])
+  const closeFolder = useCallback(() => {
+    const id = open?.id
+    void transition(() => setOpen(null), {
+      kind: 'morph',
+      back: true,
+      morph: { name: 'exo-folder', from: visible('.exo-folder-panel'), to: () => id ? tileArt(id) : null },
+    })
+  }, [open])
+  const select = useCallback((game: Game) => { if (isFolderTile(game)) openFolder(game.folder.id); else onOpen(game) }, [openFolder, onOpen])
+  // New folder and Edit folder: a sheet over the Library (FolderSheet).
+  const [sheet, setSheet] = useState<(LibraryFolder & { isNew: boolean }) | null>(null)
+  const newFolder = useCallback((gameId?: string) => setSheet({
+    id: newFolderId(folders), name: freeFolderName(folders), color: 'blue', games: gameId ? [gameId] : [], isNew: true,
+  }), [folders])
+  const editFolder = useCallback((id: string) => {
+    const folder = folders.find(item => item.id === id)
+    if (folder) setSheet({ ...folder, color: folderColor(folder.color), isNew: false })
+  }, [folders])
+  const { mainRef } = props
+  // Saved, the sheet folds into the folder's card: a new one at the front of All games (scrolled into sight first),
+  // which then glows once in its color. From inside the open folder the sheet just closes over it.
+  const saveSheet = useCallback((folder: LibraryFolder) => {
+    const next = saveFolder(folders, folder)
+    const main = mainRef.current
+    const front = main?.querySelector<HTMLElement>('.exo-windowed-game-grid')
+    if (main && front && open?.id !== folder.id) {
+      const top = front.getBoundingClientRect().top - main.getBoundingClientRect().top
+      if (top < 0 || top > main.clientHeight - 160) main.scrollTop += top - 96
+    }
+    const land = () => {
+      const art = tileArt(folder.id)
+      if (!art) return
+      art.classList.add('exo-folder-landing')
+      art.addEventListener('animationend', () => art.classList.remove('exo-folder-landing'), { once: true })
+    }
+    void transition(() => { onFolders(next); setSheet(null) }, open?.id === folder.id ? { kind: 'none' } : {
+      kind: 'morph',
+      morph: { name: 'exo-folder', from: visible('.exo-folder-sheet'), to: () => tileArt(folder.id) },
+    }).then(() => { if (open?.id === folder.id) focusPanel(); else window.setTimeout(land, 260) })
+  }, [folders, onFolders, open, mainRef])
+  const cancelSheet = useCallback(() => { setSheet(null); if (open) focusPanel() }, [open])
+  // Every card has a menu now: a game can always go into a folder.
+  const openMenu = useCallback((at: GameMenuAt) => setMenu(at), [])
   // Retained rooms keep their grid, but menus must leave with their route. A game page over the
   // Library keeps them (the pane is inert under it), so the shelf's header never changes height.
   const tools = useMemo(() => active ? (
-    <LibraryTools sort={sort} onSort={onSort} onActivateKey={onActivateKey} onAddFolder={onAddFolder} refresh={refresh} onRefresh={runRefresh} />
-  ) : null, [active, sort, onSort, onActivateKey, onAddFolder, refresh, runRefresh])
+    <LibraryTools sort={sort} onSort={onSort} onActivateKey={onActivateKey} onNewFolder={() => newFolder()} onAddGame={onAddGame} onAddFolder={onAddFolder} refresh={refresh} onRefresh={runRefresh} />
+  ) : null, [active, sort, onSort, onActivateKey, newFolder, onAddGame, onAddFolder, refresh, runRefresh])
   return (
     <div className="relative z-10 flex min-h-0 min-w-0 flex-1">
       <main
@@ -153,12 +218,13 @@ export const LibraryPane = memo(function LibraryPane(props: LibraryPaneProps) {
             <FriendsPlaying games={props.games} startingId={props.startingId} onOpen={props.onOpen} onPlay={props.onPlay} />
             <BrowseShelf
               heading="All games"
+              count={rest.length}
               actions={tools}
-              games={rest}
+              games={grid}
               selectedId={props.selectedId}
               activeGameId={props.activeGameId}
               onActiveGameChange={props.onActiveGameChange}
-              onSelect={props.onOpen}
+              onSelect={select}
               onMenu={openMenu}
               transferFor={props.transferFor}
               queuedIds={props.queuedIds}
@@ -168,10 +234,34 @@ export const LibraryPane = memo(function LibraryPane(props: LibraryPaneProps) {
           </div>
         )}
       </main>
+      {openTile && active ? (
+        <FolderPanel
+          key={`${openTile.folder.id}:${open?.rename ?? 0}`}
+          folder={openTile.folder}
+          renaming={!!open?.rename}
+          inert={covered}
+          cardWidth={cardWidth}
+          selectedId={props.selectedId}
+          queuedIds={props.queuedIds}
+          transferFor={props.transferFor}
+          onRename={name => onFolders(renameFolder(folders, openTile.folder.id, name))}
+          onEdit={() => editFolder(openTile.folder.id)}
+          onClose={closeFolder}
+          onOpen={onOpen}
+          onMenu={openMenu}
+        />
+      ) : null}
+      {sheet && active ? (
+        <FolderSheet key={sheet.id} folder={sheet} library={games} folders={folders} onSave={saveSheet} onCancel={cancelSheet} />
+      ) : null}
       {menu ? (
         <GameMenu
           key={`${menu.game.id}:${menu.x}:${menu.y}`}
           at={menu}
+          folders={folders}
+          onFolders={onFolders}
+          onNewFolder={newFolder}
+          onEditFolder={editFolder}
           onClose={() => setMenu(current => (current === menu ? null : current))}
           onPlay={props.onPlay}
           onPlayAs={props.onPlayAs}
