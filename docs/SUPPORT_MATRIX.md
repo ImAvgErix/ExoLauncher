@@ -15,6 +15,6 @@ What Exo Launcher 3.11 does in each area, and what it depends on. Windows 11 x64
 | Shaders | Exo Shaders precompiles games' shaders for your current graphics driver | Ships with Exo; DirectX 12 and Vulkan games it supports; recordings stay on this PC |
 | Discord | Exo's own Discord client: servers, DMs, messages, files, emoji with favorites, reactions, notifications, moderation and calls with noise suppression, camera and Go Live | Discord's own account; other clients are against Discord's terms; it signs in by QR code from Discord's phone app |
 | Music | Exo's own player for Spotify, Apple Music and YouTube Music; mini player in the top bar; Spotify Jam and Spotify links from Discord | The service's own account and subscription; Spotify needs its desktop app, Apple Music and YouTube Music play through their web players |
-| Devices | Exo Mouse: DPI, polling, lift-off, switches, lighting, profiles per game for mice OpenMouse supports, and the Finalmouse Starlight X | A supported mouse or receiver; no vendor software or driver needed |
+| Devices | Exo Mouse: DPI, polling, lift-off, switches, lighting, profiles per game for mice OpenMouse supports, wired or on their receiver | A supported mouse or receiver; no vendor software or driver needed |
 
 Exo is verified on a real Windows 11 PC, on screen and with an automated end-to-end run of the installed app. Each changelog entry says how it was checked: Verified: on screen, Verified: end-to-end, or Checked in code only for stores, services and hardware that PC can't test.
