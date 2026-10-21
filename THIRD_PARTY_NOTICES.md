@@ -31,13 +31,15 @@ The source for every build of these programs that Exo ships is published at the 
 | OpenSSL 3 (linked into `dave.dll`) | as pinned by libdave | Apache-2.0 |
 | Opus (Xiph.Org, `opus.dll`) | 1.5 | BSD-3-Clause |
 | DeepFilterNet 3 (Hendrik Schröter, noise suppression in calls; `deep_filter.dll`, the project's own Windows build) | 0.5.6 | MIT or Apache-2.0 |
+| webrtc-audio-processing (freedesktop.org's copy of WebRTC's audio processing; its AEC3 echo canceller in calls, built into `exo_apm.dll`), with the code it carries: Ooura's and Mark Olesen's FFTs, pffft, rnnoise and spl_sqrt_floor, each under its own permissive license | 2.1 | BSD-3-Clause |
+| Abseil C++ (Google, linked into `exo_apm.dll`) | 20240722.0 | Apache-2.0 |
 | React, React DOM | 19.3.0 | MIT |
 | clsx | 2.1.1 | MIT |
 | qrcode-generator (Kazuhiko Arase), the Discord sign-in code | 2.0.4 | MIT |
 | hls.js | 1.7.3 | Apache-2.0 |
 | dash.js | 4.7.4 | BSD-3-Clause |
-| Lucide icons (lucide-react) | 1.50.0 | ISC |
-| Inter font (Rasmus Andersson and the Inter Project Authors): Fontsource 5.3.0 in the UI, InterVariable.ttf 4.1 in the app | 5.3.0 / 4.1 | SIL Open Font License 1.1 |
+| Inter font (Rasmus Andersson and the Inter Project Authors), the official release's variable fonts: InterVariable.woff2 and InterVariable-Italic.woff2 in the UI (`ui/public/fonts`) and Exo Mouse, InterVariable.ttf in the app | 4.1 | SIL Open Font License 1.1 |
+| Tabler Icons (Paweł Kuna), through Iconify's `@iconify-json/tabler`: every icon in the UI, Exo Mouse and setup | 3.48.0 | MIT |
 | Simple Icons, the marks of a Discord profile's connected accounts (`ui/src/components/discord/connectionMarks.ts`; Skype, Xbox and Amazon from 8.15.0) | 15.22.0 | CC0 1.0 |
 | emojibase-data (Miles Johnson), the Discord room's emoji names, categories and keywords (`ui/src/components/discord/emoji.json`, trimmed from it) | 17.0.0 | MIT |
 
