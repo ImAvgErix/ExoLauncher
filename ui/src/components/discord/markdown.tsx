@@ -169,10 +169,13 @@ function ChannelMention({ id, ctx }: { id: string; ctx: MarkdownContext }) {
 }
 
 // A Discord link (discord.com/channels/server or @me/channel[/message]) opens here, at the message, as Discord's app opens
-// its own links; any other goes to the browser.
+// its own links, and an invite (discord.gg/code, discord.com/invite/code) joins here; any other goes to the browser.
 const DISCORD_LINK = /^https:\/\/(?:(?:ptb|canary)\.)?discord(?:app)?\.com\/channels\/(@me|\d{5,20})\/(\d{5,20})(?:\/(\d{5,20}))?\/?$/
+const INVITE_LINK = /^https?:\/\/(?:www\.)?(?:discord\.gg|(?:(?:ptb|canary)\.)?discord(?:app)?\.com\/invite)\/([\w-]{2,32})\/?(?:[?#].*)?$/i
 
 function follow(url: string) {
+  const invite = INVITE_LINK.exec(url)?.[1]
+  if (invite) return void window.dispatchEvent(new CustomEvent('exo-dc-invite', { detail: invite }))
   const [, place, channelId, messageId] = DISCORD_LINK.exec(url) ?? []
   const guildId = place === '@me' ? null : place
   if (!channelId) open(url)

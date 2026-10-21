@@ -160,10 +160,11 @@ export function ImageHost() {
   )
 }
 
-/** Discord's Add a Server: join with an invite link. */
-export function AddServer({ onJoined, onClose }: { onJoined: (guildId: string) => void; onClose: () => void }) {
-  const [invite, setInvite] = useState('')
-  const [error, setError] = useState<string | null>(null)
+/** Discord's Add a Server: join with an invite link (refused: a clicked link Discord didn't take, and why). */
+export function AddServer({ refused, onJoined, onClose }: { refused: boolean | { invite: string; message: string }; onJoined: (guildId: string) => void; onClose: () => void }) {
+  const clicked = typeof refused === 'object' ? refused : null
+  const [invite, setInvite] = useState(clicked?.invite ?? '')
+  const [error, setError] = useState<string | null>(clicked?.message ?? null)
   const [busy, setBusy] = useState(false)
   useEscape(onClose)
   async function join() {

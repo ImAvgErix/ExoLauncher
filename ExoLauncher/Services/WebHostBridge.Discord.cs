@@ -598,8 +598,11 @@ public sealed partial class WebHostBridge
         {
             case "join" when InviteCode(ReadString(p, hasParams, "invite")) is { } code:
                 reply = await session.Rest.JoinInviteAsync(code, ct).ConfigureAwait(false);
-                var guild = reply.Body is { ValueKind: JsonValueKind.Object } body && body.TryGetProperty("guild", out var g) && g.TryGetProperty("id", out var gid) ? gid.GetString() : null;
-                return new { ok = reply.Error is null, message = reply.Error, guildId = guild };
+                // The invite's server and channel (a group DM's invite has no server), which the room opens as Discord's app does.
+                var accepted = reply.Body is { ValueKind: JsonValueKind.Object } body ? body : default;
+                var guild = accepted.ValueKind == JsonValueKind.Object && accepted.TryGetProperty("guild", out var g) && g.TryGetProperty("id", out var gid) ? gid.GetString() : null;
+                var invited = accepted.ValueKind == JsonValueKind.Object && accepted.TryGetProperty("channel", out var ch) && ch.TryGetProperty("id", out var cid) ? cid.GetString() : null;
+                return new { ok = reply.Error is null, message = reply.Error, guildId = guild, channelId = invited };
             case "leave" when ReadString(p, hasParams, "guildId") is { } leave:
                 reply = await session.Rest.LeaveGuildAsync(DiscordRest.Id(leave), ct).ConfigureAwait(false);
                 return new { ok = reply.Error is null, message = reply.Error };

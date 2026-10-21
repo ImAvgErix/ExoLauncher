@@ -19,7 +19,7 @@ namespace ExoLauncher.Services;
 ///    Game Ready or Studio on GeForce, NVIDIA's recommended RTX Enterprise driver on a workstation card. On
 ///    Game Ready, a GeForce hotfix driver (announced on NVIDIA's GeForce forums) wins when it is newer and the card
 ///    runs NVIDIA's current branches (<see cref="CurrentBranches"/>); Maxwell, Pascal and Volta stopped at release 580,
-///    and NVIDIA's list gives them its last driver for them. Cached a day.
+///    and NVIDIA's list gives them its last driver for them. Cached an hour, so a driver NVIDIA puts out today shows the same day.
 /// 2. Update, after the user's consent: download from NVIDIA; verify NVIDIA's Authenticode signature and the
 ///    size; unpack only the driver and NVIDIA's installer (on a laptop also the platform controllers) with
 ///    Windows' own tar, so nothing else (NVIDIA app, telemetry, containers, ShadowPlay, PhysX, HDMI/DP audio)
@@ -38,7 +38,7 @@ internal static partial class NvidiaDriverService
     private static readonly HttpClient Http = ExoHttp.Create(TimeSpan.FromMinutes(30));
     private static readonly Lock Gate = new();
     /// <summary>The newest driver per card and branch, so the header's Game Ready read and the row's Studio read don't evict each other.
-    /// Kept on disk too, so a restart doesn't ask NVIDIA again (PRIVACY.md: at most once a day).</summary>
+    /// Kept on disk too, so a restart doesn't ask NVIDIA again (PRIVACY.md: at most once an hour).</summary>
     private static readonly Dictionary<string, (DateTime At, Latest? Value)> Cache = [];
     /// <summary>One lookup at a time per card and branch; everyone asking meanwhile shares it.</summary>
     private static readonly Dictionary<string, Task<Latest?>> Fetching = [];
@@ -128,7 +128,7 @@ internal static partial class NvidiaDriverService
 
     private static string Plain(string name) => name.Replace("NVIDIA ", "", StringComparison.OrdinalIgnoreCase).Replace(" GPU", "", StringComparison.OrdinalIgnoreCase).Trim();
 
-    /// <summary>The newest driver for this card on the branch (game or studio; a workstation card has one), from NVIDIA (cached a day); null when it can't tell.</summary>
+    /// <summary>The newest driver for this card on the branch (game or studio; a workstation card has one), from NVIDIA (cached an hour); null when it can't tell.</summary>
     internal static async Task<Latest?> LatestAsync(string branch, CancellationToken ct)
     {
         SweepUnpacked();
@@ -143,7 +143,7 @@ internal static partial class NvidiaDriverService
         {
             LoadCacheLocked();
             var waiting = DateTime.UtcNow < _backoffUntil;
-            if (Cache.TryGetValue(key, out var c) && (waiting || DateTime.UtcNow - c.At < TimeSpan.FromDays(1))) return c.Value;
+            if (Cache.TryGetValue(key, out var c) && (waiting || DateTime.UtcNow - c.At < TimeSpan.FromHours(1))) return c.Value;
             if (waiting) return null;
             if (!Fetching.TryGetValue(key, out task))
                 Fetching[key] = task = Task.Run(() => FetchAsync(card, key, workstation, studio, hotfix));
@@ -151,7 +151,7 @@ internal static partial class NvidiaDriverService
         return await task.WaitAsync(ct).ConfigureAwait(false);
     }
 
-    /// <summary>Asks NVIDIA (shared by everyone waiting on this key, so one caller leaving doesn't stop it) and keeps the answer a day.</summary>
+    /// <summary>Asks NVIDIA (shared by everyone waiting on this key, so one caller leaving doesn't stop it) and keeps the answer an hour.</summary>
     private static async Task<Latest?> FetchAsync(string card, string key, bool workstation, bool studio, bool hotfix)
     {
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(45));

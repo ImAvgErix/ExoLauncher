@@ -43,10 +43,13 @@ public sealed partial class MainWindow
         PageZoom = zoom;
         if (zoom == 1 && was == 1 && !again) return;
         if (zoom != was) AppLog.Info($"Page scale: {zoom:0.###}, the page laid out at {width}x{height} on a screen {screenHeight:0} scaled pixels tall.");
+        // dontSetVisibleSize: the view stays the window's own size and the zoomed page fills it. Without it Chromium
+        // shrank the view to the layout size, so on a 4K screen at 150% only the top-left three quarters of the page
+        // showed, cut off at the right and bottom (the page's own screenshots looked whole, the screen didn't).
         var call = zoom == 1
             ? core.CallDevToolsProtocolMethodAsync("Emulation.clearDeviceMetricsOverride", "{}")
             : core.CallDevToolsProtocolMethodAsync("Emulation.setDeviceMetricsOverride",
-                JsonSerializer.Serialize(new { width, height, deviceScaleFactor = 0, mobile = false, scale = zoom }));
+                JsonSerializer.Serialize(new { width, height, deviceScaleFactor = 0, mobile = false, scale = zoom, dontSetVisibleSize = true }));
         _ = call.AsTask().ContinueWith(task => AppLog.Warn("Page scale: " + task.Exception?.GetBaseException().Message),
             TaskContinuationOptions.OnlyOnFaulted);
         if (zoom != was) UpdateCaptionDragRegions();

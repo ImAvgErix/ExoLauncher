@@ -135,7 +135,8 @@ export function DiscordClient({ active }: { active: boolean }) {
   // The sidebar (it holds Server Settings) remounts only for opens from outside the room, so a #channel click keeps its scroll.
   const [fromOutside, setFromOutside] = useState(0)
   const [settingsAt, setSettingsAt] = useState<DiscordSettingsSection | null>(takePendingSettings)
-  const [adding, setAdding] = useState(false)
+  // Join a Server, open (true) or holding an invite link Discord refused, with its reason.
+  const [adding, setAdding] = useState<boolean | { invite: string; message: string }>(false)
 
   // A clicked notification, Ctrl+K or a jump to a message opens its conversation, now or when the room first mounts.
   useEffect(() => {
@@ -200,6 +201,22 @@ export function DiscordClient({ active }: { active: boolean }) {
   const panel = <UserPanel home={home} voice={voice} voicePlace={voicePlaceName(voice, list, home)} status={home?.me?.status ?? null} onOpenVoice={openVoice} />
   const channelName = useCallback((id: string) => list?.channels.find(c => c.id === id)?.name ?? null, [list])
 
+  // An invite link clicked in a message joins the server (already in: opens it) at the invite's channel, as Discord's app
+  // does; when Discord refuses (an expired invite, a captcha), Join a Server shows the link and why.
+  useEffect(() => {
+    const join = (event: Event) => {
+      const invite = (event as CustomEvent<string>).detail
+      const refused = (message?: string | null) => setAdding({ invite: `https://discord.gg/${invite}`, message: message ?? 'Discord did not take that invite.' })
+      host.discordServer('join', { invite }).then(result => {
+        if (!result.ok || !(result.guildId || result.channelId)) return refused(result.message)
+        refreshHome()
+        navigate(result.guildId ?? HOME, result.channelId ?? null)
+      }).catch((error: unknown) => { report(error, 'DiscordClient.invite'); refused() })
+    }
+    window.addEventListener('exo-dc-invite', join)
+    return () => window.removeEventListener('exo-dc-invite', join)
+  }, [navigate, refreshHome])
+
   // A DM made elsewhere in the room (Add Friends to DM): open it in Direct messages.
   useEffect(() => {
     const show = (event: Event) => {
@@ -256,7 +273,7 @@ export function DiscordClient({ active }: { active: boolean }) {
       <ImageHost key={`i${opened}`} />
       <ImageMenuHost />
       <AppModalHost guildId={place === HOME ? null : place} />
-      {adding ? <AddServer onClose={() => setAdding(false)} onJoined={id => { setAdding(false); refreshHome(); go(id) }} /> : null}
+      {adding ? <AddServer refused={adding} onClose={() => setAdding(false)} onJoined={id => { setAdding(false); refreshHome(); go(id) }} /> : null}
       {caller ? <IncomingCall name={caller.name} onJoin={() => { navigate(HOME, caller.id); void voice.join(null, caller.id) }} onDecline={() => voice.decline(caller.id)} /> : null}
       <Rail home={home} place={place} onGo={railGo} onOpenDm={id => navigate(HOME, id)} onPeek={peekPlace} onAdd={() => setAdding(true)} homeIcon={<CompanyLogo company="discord" size={18} />} />
       <div className="exo-dc-side-col">
