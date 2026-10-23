@@ -13,9 +13,12 @@ const ADD_ITEMS = [
 
 /**
  * Related library tools stay together; adding never leaves the current shelf. The sort menu's Show section is what
- * the grid lists: All games, or Hidden games (only the games you hid).
+ * the grid lists: All games, or Hidden games (only the games you hid). Select picks games to act on together; Done
+ * (or Escape) ends it.
  */
-export function LibraryTools({ sort, onSort, hidden, onHidden, onActivateKey, onNewFolder, onAddGame, refresh, onRefresh }: {
+export function LibraryTools({ selecting, onSelecting, sort, onSort, hidden, onHidden, onActivateKey, onNewFolder, onAddGame, refresh, onRefresh }: {
+  selecting: boolean
+  onSelecting: (on: boolean) => void
   sort: SortMode
   onSort: (mode: SortMode) => void
   hidden: boolean
@@ -30,6 +33,9 @@ export function LibraryTools({ sort, onSort, hidden, onHidden, onActivateKey, on
 }) {
   return (
     <div className="exo-library-tools">
+      <button type="button" className={`exo-ghost-btn${selecting ? ' is-primary' : ''}`} onClick={() => onSelecting(!selecting)}>
+        {selecting ? 'Done' : 'Select'}
+      </button>
       <Menu
         label="Sort library"
         anchor="--exo-sort-menu"

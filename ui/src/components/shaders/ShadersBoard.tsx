@@ -55,7 +55,7 @@ function useShaderEngine(active: boolean) {
     report(error, 'ShadersBoard.snapshot', { level: 'warn' })
     setFailed(message(error, 'The shader engine did not answer.'))
   }), [take])
-  // Once with the room, behind the splash: the board is filled the first time it shows.
+  // Once with the room, as it's first built: the board is filled by the time it's scrolled to.
   useEffect(() => {
     let live = true
     void host.shadersAddon().then(status => { if (live) { if (status.present) void read(); else setMissing(true) } }).catch(() => { if (live) setMissing(true) })

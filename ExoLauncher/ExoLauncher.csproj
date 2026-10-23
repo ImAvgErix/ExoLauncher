@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net11.0-windows10.0.28000.0</TargetFramework>
+    <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
     <LangVersion>latest</LangVersion>
     <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
     <RootNamespace>ExoLauncher</RootNamespace>
@@ -19,8 +19,7 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <ImplicitUsings>enable</ImplicitUsings>
     <WindowsPackageType>None</WindowsPackageType>
-    <!-- Exo carries the Windows App SDK itself: it builds on the newest (experimental) release, whose runtime Windows
-         doesn't install, so no PC needs one. -->
+    <!-- Exo carries the Windows App SDK itself, so no PC needs its runtime installed. -->
     <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
     <PublishSelfContained>true</PublishSelfContained>
     <!-- Keep private source metadata in local build symbols, outside release downloads. -->
@@ -56,19 +55,19 @@
 
   <ItemGroup>
     <!-- Reference only the WinUI components used by the active host. -->
-    <PackageReference Include="Microsoft.WindowsAppSDK.Base" Version="2.0.5-experimental2" />
-    <PackageReference Include="Microsoft.WindowsAppSDK.DWrite" Version="2.1.1-experimental" />
-    <PackageReference Include="Microsoft.WindowsAppSDK.Foundation" Version="2.3.13-experimental" />
-    <PackageReference Include="Microsoft.WindowsAppSDK.InteractiveExperiences" Version="2.1.10-experimental" />
-    <PackageReference Include="Microsoft.WindowsAppSDK.Runtime" Version="2.5.4-experimental" />
-    <PackageReference Include="Microsoft.WindowsAppSDK.WinUI" Version="2.3.10-experimental" />
-    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.29648.1000-preview" />
-    <PackageReference Include="Microsoft.Windows.SDK.BuildTools.MSIX" Version="1.7.261012100-preview">
+    <PackageReference Include="Microsoft.WindowsAppSDK.Base" Version="2.0.4" />
+    <PackageReference Include="Microsoft.WindowsAppSDK.DWrite" Version="2.1.0" />
+    <PackageReference Include="Microsoft.WindowsAppSDK.Foundation" Version="2.3.12" />
+    <PackageReference Include="Microsoft.WindowsAppSDK.InteractiveExperiences" Version="2.1.9" />
+    <PackageReference Include="Microsoft.WindowsAppSDK.Runtime" Version="2.5.1" />
+    <PackageReference Include="Microsoft.WindowsAppSDK.WinUI" Version="2.3.9" />
+    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.28000.2705" />
+    <PackageReference Include="Microsoft.Windows.SDK.BuildTools.MSIX" Version="1.7.261008100">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
-    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4312-prerelease" />
-    <PackageReference Include="Microsoft.Data.Sqlite" Version="11.0.0-rc.2.26504.105" />
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4314.35" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.13" />
     <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="3.0.5" />
     <!-- Only My Voice: sherpa-onnx's C interface and ONNX Runtime (native, win-x64), for NVIDIA's TitaNet voiceprints. -->
     <PackageReference Include="org.k2fsa.sherpa.onnx.runtime.win-x64" Version="1.13.8" />
@@ -125,8 +124,10 @@
   <Target Name="PrepareSteamIpc" Inputs="@(_SteamIpcInputs)" Outputs="$(_SteamIpcPub)ExoLauncher.SteamIpc.exe" Condition="'$(DesignTimeBuild)' != 'true'">
     <!-- A fresh helper must be evaluated again after restore so its NativeAOT
          package targets are imported. Restore;Publish in one MSBuild instance
-         misses those imports when obj was cleaned. dotnet publish handles this. -->
-    <Exec Command="dotnet publish &quot;$(MSBuildThisFileDirectory)..\ExoLauncher.SteamIpc\ExoLauncher.SteamIpc.csproj&quot; -c $(Configuration) -r win-x64 -p:Platform=x64 --self-contained true -p:PublishAot=true --output &quot;$(_SteamIpcPub).&quot;" />
+         misses those imports when obj was cleaned. dotnet publish handles this. NativeAOT's linker step runs
+         Visual Studio's scripts, which call vswhere.exe by name: its folder is put on PATH for it. -->
+    <Exec Command="dotnet publish &quot;$(MSBuildThisFileDirectory)..\ExoLauncher.SteamIpc\ExoLauncher.SteamIpc.csproj&quot; -c $(Configuration) -r win-x64 -p:Platform=x64 --self-contained true -p:PublishAot=true --output &quot;$(_SteamIpcPub).&quot;"
+          EnvironmentVariables="PATH=$(MSBuildProgramFiles32)\Microsoft Visual Studio\Installer%3B$([MSBuild]::Escape($(PATH)))" />
   </Target>
   <Target Name="BuildSteamIpc" AfterTargets="Build" DependsOnTargets="PrepareSteamIpc" Condition="'$(DesignTimeBuild)' != 'true'">
     <MakeDir Directories="$(OutDir)steam-ipc" />

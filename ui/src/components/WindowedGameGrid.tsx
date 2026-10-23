@@ -7,6 +7,7 @@ import {
   useState,
   type CSSProperties,
   type KeyboardEvent as ReactKeyboardEvent,
+  type MouseEvent,
   type RefObject,
 } from 'react'
 import { type Game, type InstallProgress } from '../lib/host'
@@ -37,10 +38,14 @@ type WindowedGameGridProps = {
   selectedId: string | null
   activeGameId: string | null
   onActiveGameChange: (gameId: string) => void
-  onSelect: (game: Game) => void
+  onSelect: (game: Game, event?: MouseEvent) => void
   onMenu?: (at: GameMenuAt) => void
+  /** A folder dragged onto another moves to just before or after it. */
+  onMoveFolder?: (folderId: string, toId: string, after: boolean) => void
   transferFor?: (game: Game) => InstallProgress | null
   queuedIds?: string[]
+  /** Select mode: the picked games' ids; null outside it. */
+  pickedIds?: ReadonlySet<string> | null
   layoutKey: string
   scrollRootRef: RefObject<HTMLElement | null>
   labelledBy: string
@@ -135,8 +140,10 @@ export function WindowedGameGrid({
   onActiveGameChange,
   onSelect,
   onMenu,
+  onMoveFolder,
   transferFor,
   queuedIds = [],
+  pickedIds = null,
   layoutKey,
   scrollRootRef,
   labelledBy,
@@ -421,6 +428,7 @@ export function WindowedGameGrid({
         onActiveGameChange={onActiveGameChange}
         onSelect={onSelect}
         onMenu={onMenu}
+        onMove={onMoveFolder}
       />
     )
     return (
@@ -435,6 +443,7 @@ export function WindowedGameGrid({
         position={index + 1}
         setSize={games.length}
         arriveIndex={arriving ? offset : undefined}
+        picked={pickedIds && pickedIds.has(game.id)}
         onActiveGameChange={onActiveGameChange}
         onSelect={onSelect}
         onMenu={onMenu}

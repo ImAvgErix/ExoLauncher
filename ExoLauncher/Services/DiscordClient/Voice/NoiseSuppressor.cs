@@ -98,6 +98,7 @@ internal sealed unsafe class NoiseSuppressor : IDisposable
 
     private static nint _library;
     private static delegate* unmanaged[Cdecl]<float, nint> _create;
+    private static delegate* unmanaged[Cdecl]<nint, void> _free;
     private static delegate* unmanaged[Cdecl]<nint, float, void> _attenuation, _postFilter;
     private static delegate* unmanaged[Cdecl]<nint, float, float, float, void> _thresholds;
     private static delegate* unmanaged[Cdecl]<nint, float*, float*, float> _process;
@@ -120,6 +121,7 @@ internal sealed unsafe class NoiseSuppressor : IDisposable
             _postFilter = (delegate* unmanaged[Cdecl]<nint, float, void>)postFilter;
             _thresholds = (delegate* unmanaged[Cdecl]<nint, float, float, float, void>)thresholds;
             _process = (delegate* unmanaged[Cdecl]<nint, float*, float*, float>)process;
+            if (NativeLibrary.TryGetExport(library, "df_free", out var free)) _free = (delegate* unmanaged[Cdecl]<nint, void>)free;
             _library = library;
             return true;
         }
@@ -161,10 +163,14 @@ internal sealed unsafe class NoiseSuppressor : IDisposable
         _thresholds(state, MinDb, MaxErbDb, FullDf);
     }
 
-    // An instance is never freed: one let go of waits here for the next call, Voice Check or Voice Tune (each holds
-    // its own model, about 30 MB, which takes a moment to load).
+    // One let go of waits here for the next call, Voice Check or Voice Tune (each holds its own model: about 40 MB of its
+    // own memory and 80 MB in use, half a second to load), and is freed after a minute unused (df_free), so a PC between
+    // calls doesn't carry it. A call loads one as it joins (DiscordSession.JoinVoice), well inside the connection's own time.
     private static readonly Stack<NoiseSuppressor> Idle = new();
+    private static readonly TimeSpan IdleFor = TimeSpan.FromMinutes(1);
+    private static Timer? _sweep;
     private int _inUse = 1;
+    private long _idleSince;
 
     /// <summary>A suppressor for 20 ms frames at 48 kHz (one let go of before, or new), or null when the library isn't there.</summary>
     internal static NoiseSuppressor? Create()
@@ -269,7 +275,35 @@ internal sealed unsafe class NoiseSuppressor : IDisposable
     public void Dispose()
     {
         if (Interlocked.Exchange(ref _inUse, 0) == 0) return;
-        lock (Idle) Idle.Push(this);
+        _idleSince = Environment.TickCount64;
+        lock (Idle)
+        {
+            Idle.Push(this);
+            if (_free != null) _sweep ??= new Timer(_ => Sweep(), null, IdleFor, IdleFor);
+        }
+    }
+
+    // Frees each model unused for a minute; the sweep stops when none is left waiting.
+    private static void Sweep()
+    {
+        List<NoiseSuppressor> stale;
+        lock (Idle)
+        {
+            var now = Environment.TickCount64;
+            var all = Idle.ToArray();
+            stale = [.. all.Where(s => now - s._idleSince >= IdleFor.TotalMilliseconds)];
+            if (stale.Count == 0) return;
+            Idle.Clear();
+            foreach (var keep in all.Reverse().Where(s => !stale.Contains(s))) Idle.Push(keep);
+            if (Idle.Count == 0) { _sweep?.Dispose(); _sweep = null; }
+        }
+        foreach (var s in stale)
+        {
+            _free(s._state);
+            NativeMemory.Free(s._input);
+            NativeMemory.Free(s._output);
+        }
+        AppLog.Info($"Discord voice: noise suppression freed {stale.Count} unused model{(stale.Count == 1 ? "" : "s")}.");
     }
 }
 

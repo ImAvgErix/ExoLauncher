@@ -1,13 +1,7 @@
 <Project>
   <PropertyGroup>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
-    <!-- SDK 10/11 Preview 7 do not ship a 10.0.28000 targeting pack. Allow the TFM and use the newest published Windows SDK.NET.Ref. -->
-    <TargetPlatformVersionSupported>true</TargetPlatformVersionSupported>
-    <WindowsSdkPackageVersion>10.0.26100.87</WindowsSdkPackageVersion>
   </PropertyGroup>
-  <ItemGroup>
-    <SdkSupportedTargetPlatformVersion Include="10.0.28000.0" />
-  </ItemGroup>
 
   <!--
     Banned APIs (BannedSymbols.txt): screen capture, synthetic input, raw

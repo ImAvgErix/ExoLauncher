@@ -14,6 +14,18 @@ export const WHATS_NEW = 'exo-whats-new'
 
 export const RELEASES: WhatsNewRelease[] = [
   {
+    version: '3.14.1',
+    items: [
+      { icon: Sliders, title: 'Starts lighter', detail: "Exo opens sooner and uses about a third less memory: a room you don't open doesn't load." },
+      { icon: Cover, title: 'Select several games', detail: 'Press Select in your Library to hide, file or uninstall many games at once.' },
+      { icon: Folder, title: 'Arrange your folders', detail: 'Drag a folder to move it, or use Move earlier and Move later on its menu.' },
+      { icon: Live, title: 'Watch several streams', detail: "Watch more than one friend's Go Live at a time, each with its own sound." },
+      { icon: Live, title: 'Streams that look and sound right', detail: "Friends' streams show whole and stay sharp, and your stream carries your games and music, never your own voice." },
+      { icon: Appearance, title: 'Glass that stays glass', detail: 'Switching servers, Settings sections and pages keeps the glass clear the whole way.' },
+      { icon: Shaders, title: 'The newest Exo Shaders', detail: "Exo Shaders brings SCSKiller's newest improvements and sets each one up for you." },
+    ],
+  },
+  {
     version: '3.14.0',
     items: [
       { icon: Mic, title: 'Clearer voice', detail: "Fans, desk knocks and keyboard clicks are taken out of your mic, and your words aren't cut off." },

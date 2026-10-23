@@ -167,7 +167,7 @@ export function MyStreamTile({ meId }: { meId: string | null }) {
         <button type="button" className="exo-dc-tab" onClick={() => setPreviewShown(false)}>Hide Preview</button>
         <button type="button" className="exo-dc-tab exo-dc-golive-stop" onClick={() => void stopGoLive()}>Stop Streaming</button>
       </span>
-      <span className="exo-dc-voice-tile-name">{live.title ?? 'Your stream'}{live.stats ? <small> · {formatStats(live.stats)}</small> : null}</span>
+      <span className="exo-dc-voice-tile-name"><span className="exo-dc-voice-tile-label">{live.title ?? 'Your stream'}{live.stats ? <small> · {formatStats(live.stats)}</small> : null}</span></span>
     </article>
   )
 }

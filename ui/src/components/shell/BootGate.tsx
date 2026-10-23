@@ -138,7 +138,9 @@ const ENTRANCES = new Set(['exo-arrive', 'exo-switch', 'exo-enter', 'exo-enter-c
  * so when it comes back its entrances finish at once and it is simply there, as it was left.
  * A floating room (Settings) keeps its own open motion each time.
  */
-export function Room({ mounted, active, covered = false, warm = false, label, className, onBackdrop, children }: {
+export function Room({ name, mounted, active, covered = false, warm = false, label, className, onBackdrop, children }: {
+  /** Which room, for what looks for it on the page (a room opened the first time waits on its pictures). */
+  name?: string
   mounted: boolean
   active: boolean
   /** Under a floating room (Settings): still on screen and laid out as it was, but out of reach. */
@@ -172,7 +174,7 @@ export function Room({ mounted, active, covered = false, warm = false, label, cl
   const backstage = warm && !active && !floating
   return (
     <Activity mode={active || warm ? 'visible' : 'hidden'}>
-      <div ref={frame} className={`${className} exo-room${backstage ? ' is-backstage' : ''}`}
+      <div ref={frame} data-room={name} className={`${className} exo-room${backstage ? ' is-backstage' : ''}`}
         hidden={(!active && !backstage) || undefined} inert={backstage || (active && covered) || undefined}>
         <ErrorBoundary label={label}>
           <Suspense fallback={null}>{children}</Suspense>

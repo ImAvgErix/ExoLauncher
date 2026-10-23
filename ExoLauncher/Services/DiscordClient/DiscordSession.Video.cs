@@ -17,8 +17,8 @@ namespace ExoLauncher.Services.DiscordClient;
 /// </summary>
 internal sealed partial class DiscordSession
 {
-    private VoiceConnection? _stream;
-    private string? _streamKey, _streamServer, _streamChannel, _streamEndpoint, _streamToken;
+    // The streams this client watches, by stream key: as in Discord, several at once.
+    private readonly Dictionary<string, Watch> _watches = [];
     private VoiceConnection? _live;
     private GoLiveCapture? _liveCapture;
     // Your stream's tile is on screen: it is sent the stream's own frames.
@@ -221,35 +221,46 @@ internal sealed partial class DiscordSession
         }
     }
 
-    /// <summary>Watches someone's Go Live in the call this client is in (stops watching any other first).</summary>
+    // One watched stream: what Discord said about it, and its own connection once it has them.
+    private sealed class Watch(string key)
+    {
+        internal readonly string Key = key;
+        internal string? Server, Channel, Endpoint, Token;
+        internal VoiceConnection? Connection;
+        internal long AskedAt = Environment.TickCount64;
+        internal bool Retried;
+    }
+
+    /// <summary>Watches someone's Go Live in the call this client is in, beside any other watched; one watched already starts over (Try Again).</summary>
     internal string? WatchStream(string userId)
     {
         if (StreamKeyOf(userId) is not { } key) return "Join the voice channel to watch.";
-        StopWatching();
-        lock (_voiceGate) { _streamKey = key; _streamServer = _streamChannel = _streamEndpoint = _streamToken = null; }
+        StopWatching(userId);
+        lock (_voiceGate) _watches[key] = new Watch(key);
         _ = SendAsync(20, new JsonObject { ["stream_key"] = key });
         AppLog.Info("Discord video: watching a stream.");
         return null;
     }
 
-    internal void StopWatching()
+    /// <summary>Stops watching one person's stream, or every stream (null).</summary>
+    internal void StopWatching(string? userId = null)
     {
-        string? key;
-        VoiceConnection? stream;
+        List<Watch> stopped;
         lock (_voiceGate)
         {
-            key = _streamKey;
-            stream = _stream;
-            _streamKey = null;
-            _stream = null;
+            stopped = [.. _watches.Values.Where(w => userId is null || UserOfKey(w.Key) == userId)];
+            foreach (var watch in stopped) _watches.Remove(watch.Key);
         }
-        if (stream is not null) _ = stream.DisposeAsync().AsTask();
-        if (key is not null)
+        foreach (var watch in stopped)
         {
-            _ = SendAsync(19, new JsonObject { ["stream_key"] = key });
-            Event?.Invoke("discord.video", new { source = "stream", userId = UserOfKey(key), active = false });
+            if (watch.Connection is { } connection) _ = connection.DisposeAsync().AsTask();
+            _ = SendAsync(19, new JsonObject { ["stream_key"] = watch.Key });
+            Event?.Invoke("discord.video", new { source = "stream", userId = UserOfKey(watch.Key), active = false });
         }
     }
+
+    // Under _voiceGate: every watched stream's connection.
+    private IEnumerable<VoiceConnection> WatchedConnections() => _watches.Values.Select(w => w.Connection).OfType<VoiceConnection>();
 
     private static string UserOfKey(string key) => key[(key.LastIndexOf(':') + 1)..];
 
@@ -258,8 +269,10 @@ internal sealed partial class DiscordSession
     {
         if (type is not ("STREAM_CREATE" or "STREAM_SERVER_UPDATE" or "STREAM_DELETE" or "STREAM_UPDATE")) return false;
         var key = d.TryGetProperty("stream_key", out var k) ? k.GetString() : null;
+        bool watched;
+        lock (_voiceGate) watched = key is not null && _watches.ContainsKey(key);
         // Each Go Live message for a stream this client watches or sends (never its token): a stream that won't open says why.
-        if (key is not null && (key == _liveKey || key == _streamKey))
+        if (key is not null && (key == _liveKey || watched))
             AppLog.Info($"Discord video: {type} for {(key == _liveKey ? "your stream" : "the watched stream")}" + type switch
             {
                 "STREAM_CREATE" => $" (server {(d.TryGetProperty("rtc_server_id", out var rs) ? "given" : "missing")}, channel {(d.TryGetProperty("rtc_channel_id", out var rc) && rc.ValueKind == JsonValueKind.String ? "given" : "none")}, paused {(d.TryGetProperty("paused", out var pz) ? pz.GetRawText() : "?")}).",
@@ -268,58 +281,83 @@ internal sealed partial class DiscordSession
                 _ => ".",
             });
         if (key is not null && key == _liveKey) { OnLiveDispatch(type, d); return true; }
+        Watch? watch;
+        var again = false;
         lock (_voiceGate)
         {
-            if (key is null || key != _streamKey) return true;
+            if (key is null || !_watches.TryGetValue(key, out watch)) return true;
             switch (type)
             {
                 case "STREAM_CREATE":
-                    _streamServer = d.TryGetProperty("rtc_server_id", out var s) ? s.GetString() : null;
-                    _streamChannel = d.TryGetProperty("rtc_channel_id", out var c) && c.ValueKind == JsonValueKind.String ? c.GetString() : null;
+                    watch.Server = d.TryGetProperty("rtc_server_id", out var s) ? s.GetString() : null;
+                    watch.Channel = d.TryGetProperty("rtc_channel_id", out var c) && c.ValueKind == JsonValueKind.String ? c.GetString() : null;
                     break;
                 case "STREAM_SERVER_UPDATE":
-                    _streamEndpoint = d.TryGetProperty("endpoint", out var e) ? e.GetString() : null;
-                    _streamToken = d.TryGetProperty("token", out var t) ? t.GetString() : null;
+                    watch.Endpoint = d.TryGetProperty("endpoint", out var e) ? e.GetString() : null;
+                    watch.Token = d.TryGetProperty("token", out var t) ? t.GetString() : null;
                     break;
                 case "STREAM_DELETE":
+                    // Discord at times ends a watch the moment it's asked for (the stream between two of its states), and
+                    // Try Again then works: it is asked once more by itself, a second later.
+                    again = !watch.Retried && watch.Connection is null && Environment.TickCount64 - watch.AskedAt < 5000;
+                    watch.Retried |= again;
                     break;
                 default:
                     return true;
             }
         }
-        if (type == "STREAM_DELETE") { StopWatching(); return true; }
-        OpenStream();
+        if (type == "STREAM_DELETE")
+        {
+            if (again) _ = AskAgainAsync(watch);
+            else StopWatching(UserOfKey(watch.Key));
+            return true;
+        }
+        OpenStream(watch);
         return true;
     }
 
-    private void OpenStream()
+    private async Task AskAgainAsync(Watch watch)
+    {
+        AppLog.Info("Discord video: the watched stream closed as it was asked for: asking again.");
+        await Task.Delay(1000).ConfigureAwait(false);
+        lock (_voiceGate)
+        {
+            if (!_watches.TryGetValue(watch.Key, out var now) || now != watch) return;
+            watch.AskedAt = Environment.TickCount64;
+        }
+        _ = SendAsync(20, new JsonObject { ["stream_key"] = watch.Key });
+    }
+
+    private void OpenStream(Watch watch)
     {
         VoiceConnection stream;
         string user;
         lock (_voiceGate)
         {
-            if (_stream is not null || _streamKey is null || _streamServer is null || _streamEndpoint is null || _streamToken is null
-                || _voiceSession is null || Cache.Me is null) return;
-            if (StreamChannel(_streamServer, _streamChannel) is not { } channel)
+            if (!_watches.TryGetValue(watch.Key, out var current) || current != watch || watch.Connection is not null
+                || watch.Server is null || watch.Endpoint is null || watch.Token is null || _voiceSession is null || Cache.Me is null) return;
+            if (StreamChannel(watch.Server, watch.Channel) is not { } channel)
             {
                 AppLog.Info("Discord video: the watched stream has no channel to connect to.");
                 return;
             }
             AppLog.Info("Discord video: connecting to the watched stream.");
-            user = UserOfKey(_streamKey);
-            stream = new VoiceConnection(_streamEndpoint, _streamServer, channel, Cache.Me.Id, _voiceSession, _streamToken, listening: true)
+            user = UserOfKey(watch.Key);
+            stream = new VoiceConnection(watch.Endpoint, watch.Server, channel, Cache.Me.Id, _voiceSession, watch.Token, listening: true)
             {
                 Deafened = _deafened,
                 // The stream's sound at its Stream Volume, or silent when muted for me.
                 UserGain = StreamGain,
             };
-            _stream = stream;
+            watch.Connection = stream;
         }
         stream.Frame += (from, timestamp, key, data, orientation, hevc) => PublishFrame("stream", from, timestamp, key, data, orientation, hevc);
         stream.Changed += (kind, data) =>
         {
             // One stopped watching (StopWatching said so itself) closing late must not mark the stream watched now as ended.
-            if (kind != "state" || !ReferenceEquals(stream, _stream)) return;
+            if (kind != "state") return;
+            lock (_voiceGate)
+                if (!_watches.TryGetValue(watch.Key, out var current) || current != watch || !ReferenceEquals(stream, watch.Connection)) return;
             var state = JsonSerializer.SerializeToElement(data).GetProperty("state").GetString();
             Event?.Invoke("discord.video", new { source = "stream", userId = user, active = state == "connected", state });
         };
@@ -406,7 +444,9 @@ internal sealed partial class DiscordSession
         _framesWanted = on;
         if (!on) return;
         _voice?.RequestKeyframes();
-        _stream?.RequestKeyframes();
+        List<VoiceConnection> watched;
+        lock (_voiceGate) watched = [.. WatchedConnections()];
+        foreach (var stream in watched) stream.RequestKeyframes();
     }
 
     // rotation: the sender's quarter turns clockwise (0-3) to show it upright; flip: mirrored first (urn:3gpp:video-orientation).

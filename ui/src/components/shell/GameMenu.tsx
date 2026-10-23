@@ -1,8 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { host, shelfAction, type Game, type LibraryFolder } from '../../lib/host'
 import { report } from '../../lib/report'
-import { addToFolder, deleteFolder, isFolderTile, leaveFolder } from '../../lib/folders'
-import { Download, Eye, EyeOff, Folder, FolderOpen, FolderPlus, Pencil, Play, Sliders, Trash } from '../../brand/icons'
+import { addToFolder, deleteFolder, isFolderTile, leaveFolder, moveFolder } from '../../lib/folders'
+import { ChevronLeft, ChevronRight, Download, Eye, EyeOff, Folder, FolderOpen, FolderPlus, Pencil, Play, Sliders, Trash } from '../../brand/icons'
 
 /** The menu's fade as it closes (rooms.css › .exo-shelf-sort-menu, the quick time), and a frame to spare. */
 const LEAVE_MS = 140
@@ -56,8 +56,14 @@ export function GameMenu({ at, folders: liveFolders, hidden, onFolders, onHide, 
   // read the change ("Add to" turning into "Remove from" on the way out).
   const [folders] = useState(liveFolders)
   const tile = isFolderTile(game) ? game.folder : null
+  // A folder's neighbors on the grid (a folder with no games has no card there), for Move earlier and Move later.
+  const shown = folders.filter(folder => folder.games.length > 0)
+  const place = tile ? shown.findIndex(folder => folder.id === tile.id) : -1
+  const [earlier, later] = [shown[place - 1], place >= 0 ? shown[place + 1] : undefined]
   const items: Item[] = tile ? [
     { id: 'edit', label: 'Edit folder', icon: <Pencil size={16} />, run: () => onEditFolder(tile.id) },
+    ...(earlier ? [{ id: 'earlier', label: 'Move earlier', icon: <ChevronLeft size={16} />, run: () => onFolders(moveFolder(folders, tile.id, earlier.id, false)) }] : []),
+    ...(later ? [{ id: 'later', label: 'Move later', icon: <ChevronRight size={16} />, run: () => onFolders(moveFolder(folders, tile.id, later.id, true)) }] : []),
     { id: 'delete', label: 'Delete folder', icon: <Trash size={16} />, run: () => onFolders(deleteFolder(folders, tile.id)) },
   ] : [
     ...(shortcut ? [{ id: 'play', label: shortcut.label, icon: shortcut.action === 'install' ? <Download size={16} /> : <Play size={16} />, run: () => onPlay(game) }] : []),

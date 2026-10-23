@@ -84,8 +84,11 @@ if (typeof document !== 'undefined') {
 const setName = (element: Element | null | undefined, name: string) => {
   if (!(element instanceof HTMLElement || element instanceof SVGElement)) return
   element.style.viewTransitionName = name
-  // Captured on its own, its glass sees nothing behind it: glass.css draws it a still tint until it lands.
-  element.toggleAttribute('data-exo-vt-named', name !== '')
+  // Captured on its own, its glass sees nothing behind it: glass.css draws it a still tint until it lands. Not a
+  // pushing pane: the glass on it sits over the pane's own page, which is captured with it, so it draws as glass all
+  // the way (filmed: a server switch drew every name and button on Discord's call as a dark plate that turned back
+  // into glass as the push ended, the "fading" glass).
+  element.toggleAttribute('data-exo-vt-named', name !== '' && name !== PANE)
 }
 
 /** Drawn and at least partly inside the window (a hidden room's copy never is). */

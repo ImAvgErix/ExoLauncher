@@ -26,6 +26,67 @@ if (typeof VideoDecoder !== 'undefined')
 
 const key = (source: VideoSource, userId: string) => `${source}:${userId}`
 
+/**
+ * An H.265 keyframe's picture size, from its sequence parameter set (NAL type 33) less the conformance window. Edge's
+ * hardware H.265 decoder calls every picture 1280×720 (WebCodecs' size when the config names none), so a 1440p or
+ * 1080p stream was drawn cropped to its top-left corner; the SPS says what it really is.
+ */
+function hevcSize(bytes: Uint8Array): { width: number; height: number } | null {
+  for (let i = 0; i + 5 < bytes.length; i++)
+    if (bytes[i] === 0 && bytes[i + 1] === 0 && bytes[i + 2] === 1 && ((bytes[i + 3] >> 1) & 0x3f) === 33) return spsSize(spsPayload(bytes, i + 5))
+  return null
+}
+
+// An SPS's payload after its two-byte header, emulation prevention (00 00 03) taken out, up to the next start code.
+function spsPayload(bytes: Uint8Array, from: number): number[] {
+  const sps: number[] = []
+  for (let j = from, zeros = 0; j < bytes.length && sps.length < 128; j++) {
+    const b = bytes[j]
+    if (zeros >= 2 && b === 3) { zeros = 0; continue }
+    if (zeros >= 2 && b <= 1) break
+    sps.push(b)
+    zeros = b === 0 ? zeros + 1 : 0
+  }
+  return sps
+}
+
+// H.265's seq_parameter_set_rbsp up to the conformance window (ITU-T H.265 7.3.2.2).
+function spsSize(sps: number[]): { width: number; height: number } | null {
+  let at = 0
+  const bit = () => ((sps[at >> 3] ?? 0) >> (7 - (at++ & 7))) & 1
+  const bits = (n: number) => { let v = 0; for (let k = 0; k < n; k++) v = v * 2 + bit(); return v }
+  const ue = () => { let z = 0; while (z < 32 && bit() === 0) z++; return 2 ** z - 1 + bits(z) }
+  at += 4 // sps_video_parameter_set_id
+  const subLayers = bits(3)
+  at += 1 + 96 // temporal id nesting; profile_tier_level's general profile (88 bits) and level (8)
+  const present = Array.from({ length: subLayers }, () => [bit(), bit()])
+  if (subLayers > 0) at += 2 * (8 - subLayers)
+  for (const [profile, level] of present) at += profile * 88 + level * 8
+  ue() // sps_seq_parameter_set_id
+  const chroma = ue()
+  if (chroma === 3) at += 1
+  let width = ue(), height = ue()
+  if (bit()) {
+    const [left, right, top, bottom] = [ue(), ue(), ue(), ue()]
+    width -= (chroma === 1 || chroma === 2 ? 2 : 1) * (left + right)
+    height -= (chroma === 1 ? 2 : 1) * (top + bottom)
+  }
+  return width > 0 && height > 0 && width <= 8192 && height <= 8192 ? { width, height } : null
+}
+
+// The decoded picture at the size its SPS says, where the decoder said otherwise (a view of the same picture, no copy).
+function atSize(frame: VideoFrame, size: { width: number; height: number } | null): VideoFrame {
+  if (!size || (frame.displayWidth === size.width && frame.displayHeight === size.height)
+    || size.width > frame.codedWidth || size.height > frame.codedHeight) return frame
+  try {
+    const sized = new VideoFrame(frame, { visibleRect: { x: 0, y: 0, ...size }, displayWidth: size.width, displayHeight: size.height })
+    frame.close()
+    return sized
+  } catch {
+    return frame
+  }
+}
+
 // A frame's base64 as bytes, in a plain loop: Uint8Array.from with a map function walks the string as an iterator,
 // several times slower on every frame of a 60 fps stream.
 function decode(base64: string): Uint8Array {
@@ -61,6 +122,8 @@ class Feed {
   private canvases = new Set<HTMLCanvasElement>()
   private listeners = new Set<() => void>()
   private turn = { rotation: 0, flip: false }
+  // An H.265 stream's picture size, from its latest keyframe's SPS (hevcSize).
+  private size: { width: number; height: number } | null = null
   live = false
   /** The host said this feed ended (a stream that closed or never opened). */
   ended = false
@@ -90,6 +153,7 @@ class Feed {
     if (this.ended) { this.ended = false; this.changed() }
     this.turn = { rotation: event.rotation ?? 0, flip: event.flip ?? false }
     const bytes = event.bytes ?? decode(event.data ?? '')
+    if (this.codec === 'h265' && event.keyframe) this.size = hevcSize(bytes) ?? this.size
     try {
       // RTP's 90 kHz clock in microseconds, as WebCodecs counts.
       decoder.decode(new EncodedVideoChunk({ type: event.keyframe ? 'key' : 'delta', timestamp: Math.round(event.timestamp / 0.09), data: bytes }))
@@ -102,7 +166,8 @@ class Feed {
   private open(): VideoDecoder | null {
     if (typeof VideoDecoder === 'undefined') return null
     const decoder = new VideoDecoder({
-      output: frame => {
+      output: decoded => {
+        const frame = atSize(decoded, this.codec === 'h265' ? this.size : null)
         const { rotation, flip } = this.turn
         const w = frame.displayWidth, h = frame.displayHeight
         const [width, height] = rotation % 2 ? [h, w] : [w, h]
@@ -155,6 +220,7 @@ class Feed {
     try { if (this.decoder && this.decoder.state !== 'closed') this.decoder.close() } catch { /* already closed */ }
     this.decoder = null
     this.waiting = true
+    this.size = null
   }
 
   /** The video stopped; ended when the host says it closed rather than that it is still connecting. */

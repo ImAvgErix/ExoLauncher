@@ -32,6 +32,8 @@ export const ROOM_ORDER: readonly View[] = NAV_TABS.map(tab => tab.id)
 
 export type TitleBarProps = {
   view: View
+  /** A room being built for its first showing: its tab pulses until it opens. */
+  opening?: View | null
   onView: (view: View) => void
   /** The mini player: the Music room on Now playing. */
   onNowPlaying: () => void
@@ -47,10 +49,11 @@ export type TitleBarProps = {
 }
 
 /** A room tab: icon and name, filled while it is the current room, with an optional count. */
-function NavTab({ label, Icon, active, badge, onOpen, onWarm }: {
+function NavTab({ label, Icon, active, opening = false, badge, onOpen, onWarm }: {
   label: string
   Icon: typeof Library
   active: boolean
+  opening?: boolean
   badge?: ReactNode
   onOpen: () => void
   onWarm?: () => void
@@ -58,8 +61,9 @@ function NavTab({ label, Icon, active, badge, onOpen, onWarm }: {
   return (
     <button
       type="button"
-      className={`exo-nav-btn${active ? ' is-on' : ''}`}
+      className={`exo-nav-btn${active ? ' is-on' : ''}${opening ? ' is-opening' : ''}`}
       aria-current={active ? 'page' : undefined}
+      aria-busy={opening || undefined}
       onClick={onOpen}
       onPointerEnter={onWarm}
     >
@@ -70,7 +74,7 @@ function NavTab({ label, Icon, active, badge, onOpen, onWarm }: {
   )
 }
 
-function RoomNavigation({ view, onView, storeSales }: Pick<TitleBarProps, 'view' | 'onView' | 'storeSales'>) {
+function RoomNavigation({ view, opening, onView, storeSales }: Pick<TitleBarProps, 'view' | 'opening' | 'onView' | 'storeSales'>) {
   const glide = useGlide<HTMLElement>()
   useLens(glide)
   return (
@@ -81,6 +85,7 @@ function RoomNavigation({ view, onView, storeSales }: Pick<TitleBarProps, 'view'
           label={tab.label}
           Icon={tab.Icon}
           active={view === tab.id}
+          opening={opening === tab.id}
           badge={tab.id === 'friends' ? <DiscordBadge /> : tab.id === 'store' && storeSales ? <span className="exo-discord-notification-count" aria-label={`${storeSales} wishlisted game${storeSales === 1 ? '' : 's'} on sale`}>{storeSales > 99 ? '99+' : storeSales}</span> : null}
           onOpen={() => onView(tab.id)}
           onWarm={tab.id === 'music' ? warmMusic : undefined}
@@ -96,7 +101,7 @@ function RoomNavigation({ view, onView, storeSales }: Pick<TitleBarProps, 'view'
  * what applies everywhere; a room's own controls stay in the room) with the window controls in the
  * same capsule. Each live capsule has a slot of its own and slides in and out there, so the tabs never move.
  */
-function NavDock({ view, onView, onToggleSettings, onNowPlaying, onSearch, storeSales, island, ...music }: TitleBarProps) {
+function NavDock({ view, opening, onView, onToggleSettings, onNowPlaying, onSearch, storeSales, island, ...music }: TitleBarProps) {
   const search = useRef<HTMLButtonElement>(null)
   const tools = useRef<HTMLDivElement>(null)
   useLens(search)
@@ -111,7 +116,7 @@ function NavDock({ view, onView, onToggleSettings, onNowPlaying, onSearch, store
       </div>
       <div className="exo-bar-center">
         <div className="exo-bar-side is-start">{island}</div>
-        <RoomNavigation view={view} onView={onView} storeSales={storeSales} />
+        <RoomNavigation view={view} opening={opening} onView={onView} storeSales={storeSales} />
         <div className="exo-bar-side is-end">
           <MusicMiniPlayer key={music.musicService} service={music.musicService} hidden={view === 'music'} onOpen={onNowPlaying} />
           <MouseCapsule onOpen={() => onView('devices')} />

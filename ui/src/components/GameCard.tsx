@@ -2,9 +2,9 @@ import { resolvePrimaryAction, type Game, type InstallProgress } from '../lib/ho
 import { cn, transferPercent, formatTransferPercent } from '../lib/utils'
 import { useJustFinished } from '../lib/useJustFinished'
 import { CoverArt } from './CoverArt'
-import { memo, type CSSProperties } from 'react'
+import { memo, type CSSProperties, type MouseEvent } from 'react'
 import type { GameMenuAt } from './shell/GameMenu'
-import { CHECK_PATH } from '../brand/icons'
+import { CHECK_PATH, Check } from '../brand/icons'
 
 type Transfer = Partial<InstallProgress> | null
 
@@ -59,10 +59,12 @@ export const GameCard = memo(function GameCard({
   setSize,
   arriveIndex,
   onMenu,
+  picked,
 }: {
   game: Game
   selected: boolean
-  onSelect: (game: Game) => void
+  /** A press: Select mode passes the click on, for Shift's range. */
+  onSelect: (game: Game, event?: MouseEvent) => void
   /** Right-click: the card's menu (Play, Open folder). Without it, right-click opens the sheet. */
   onMenu?: (at: GameMenuAt) => void
   preload?: boolean
@@ -75,6 +77,8 @@ export const GameCard = memo(function GameCard({
   setSize?: number
   /** Set only while the grid first shows: this card's place in the arrival. */
   arriveIndex?: number
+  /** Select mode: whether this card is picked (a press toggles it); null outside it. */
+  picked?: boolean | null
 }) {
   const state = cardState(game, transfer)
   const percent = transferPercent(transfer)
@@ -91,6 +95,7 @@ export const GameCard = memo(function GameCard({
         'exo-tile group relative w-full',
         arriveIndex != null && 'exo-motion-arrive',
         selected && 'is-selected',
+        picked && 'is-picked',
         !state.installed && 'is-dim',
         state.hasUpdate && !state.isPlaying && 'is-update',
         state.isPlaying && 'is-playing',
@@ -103,8 +108,8 @@ export const GameCard = memo(function GameCard({
         tabIndex={tabIndex}
         onFocus={onActiveGameChange ? () => onActiveGameChange(game.id) : undefined}
         onClick={(event) => {
-          if (event.detail > 1) return
-          onSelect(game)
+          if (event.detail > 1 && picked == null) return
+          onSelect(game, event)
         }}
         onContextMenu={(event) => {
           event.preventDefault()
@@ -117,8 +122,7 @@ export const GameCard = memo(function GameCard({
         }}
         className="exo-tile-hit"
         aria-label={ariaLabelFor(game.title, state, queued)}
-        // Opens the game sheet; it is not a toggle, so no aria-pressed.
-        aria-haspopup="dialog"
+        {...pickAria(picked)}
       >
         <div className="exo-tile-frame" data-vt-art>
           <span className="exo-tile-media" aria-hidden="true">
@@ -137,6 +141,7 @@ export const GameCard = memo(function GameCard({
               <span className={cn('exo-badge', badge.tone)}>{badge.text}</span>
             </div>
           )}
+          <TileCheck picked={picked} />
         </div>
         <div className="exo-card-meta">
           <div className="exo-card-title">{game.title}</div>
@@ -145,6 +150,15 @@ export const GameCard = memo(function GameCard({
     </article>
   )
 })
+
+/** Opens the game sheet; in Select mode it picks the game instead, a toggle. */
+const pickAria = (picked: boolean | null | undefined) => picked == null ? { 'aria-haspopup': 'dialog' as const } : { 'aria-pressed': picked }
+
+/** Select mode's ring on the cover, checked once picked. */
+function TileCheck({ picked }: { picked: boolean | null | undefined }) {
+  if (picked == null) return null
+  return <span className="exo-tile-check" aria-hidden="true">{picked && <Check size={14} />}</span>
+}
 
 /** Motion's own layer (the frame's ::after is its hover and selection ring): work while it downloads, done when it lands. */
 function TileMotion({ working, finished }: { working: boolean; finished: boolean }) {

@@ -9,7 +9,7 @@ import { useSelectionGuard } from './useSelectionGuard'
 const DISARM_MS = 4000
 
 /** An armed Uninstall stands down on Escape, after DISARM_MS, or when focus leaves it (onBlur at the call site). */
-function useDisarm(armed: boolean, disarm: () => void) {
+export function useDisarm(armed: boolean, disarm: () => void) {
   useEffect(() => {
     if (!armed) return
     function onKeyDown(event: KeyboardEvent) {

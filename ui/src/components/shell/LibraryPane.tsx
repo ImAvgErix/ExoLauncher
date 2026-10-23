@@ -1,12 +1,13 @@
-import { memo, useCallback, useLayoutEffect, useMemo, useState, type CSSProperties, type RefObject } from 'react'
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent, type RefObject } from 'react'
 import { ContinueRow } from './ContinueRow'
 import { FolderPanel } from './FolderPanel'
 import { FolderSheet } from './FolderSheet'
 import { FriendsPlaying } from './FriendsPlaying'
 import { GiftsShelf } from './GiftsShelf'
 import { GameMenu, type GameMenuAt } from './GameMenu'
+import { LibrarySelectBar } from './LibrarySelectBar'
 import { type Game, type InstallProgress, type LibraryFolder, type SortMode } from '../../lib/host'
-import { folderColor, folderTileId, freeFolderName, isFolderTile, newFolderId, renameFolder, saveFolder, sortFolder, withFolders, type FolderTile } from '../../lib/folders'
+import { addToFolder, folderColor, folderTileId, freeFolderName, isFolderTile, moveFolder, newFolderId, renameFolder, saveFolder, sortFolder, withFolders, type FolderTile } from '../../lib/folders'
 import { resolveGridCardLayout } from '../../lib/gridWindow'
 import { transition, visible } from '../../lib/viewTransition'
 import { shouldReduceMotion } from '../../lib/motionPreference'
@@ -59,6 +60,8 @@ export type LibraryPaneProps = {
   onRefresh: () => Promise<unknown>
   onRetry: () => void
   onStoreSettings: () => void
+  /** Select mode's Uninstall: these games, one after another. */
+  onUninstall: (games: Game[]) => Promise<void>
 }
 
 /**
@@ -166,6 +169,12 @@ function dissolve(card: Element | null | undefined, done: () => void) {
   }).finished.then(done, done)
 }
 
+/** A grid card's tile, while it is mounted. */
+const gridTile = (id: string) => document.querySelector(`.exo-library-pane .exo-windowed-game-grid [data-game-id="${CSS.escape(id)}"]`)?.closest('.exo-tile')
+
+const paneClass = (overlayOpen: boolean, selecting: boolean) =>
+  `exo-library-pane min-w-0 flex-1${overlayOpen ? ' is-overlay-open' : ''}${selecting ? ' is-selecting' : ''}`
+
 /** The grid's heading, count, cards and a note under them: All games (folders first), or Hidden games only. */
 function shelfView(showHidden: boolean, hidden: Game[], grid: Game[], count: number) {
   return showHidden ? {
@@ -195,6 +204,30 @@ export const LibraryPane = memo(function LibraryPane(props: LibraryPaneProps) {
   }, [playing, games])
   const grid = useMemo(() => withFolders(rest, games, folders), [rest, games, folders])
   const shelf = shelfView(showHidden, props.hidden, grid, rest.length)
+  // Select mode (the tools' Select): null outside it, else the picked games. A press picks a game, Shift a run of them
+  // from the last one pressed, Ctrl+A every game; Done or Escape ends it, as does any action, leaving the room or
+  // opening a game. Folders and Continue aren't picked.
+  const [picked, setPicked] = useState<ReadonlySet<string> | null>(null)
+  const anchor = useRef<string | null>(null)
+  const selectMode = useCallback((on: boolean) => { setPicked(on ? new Set() : null); anchor.current = null }, [])
+  const pickable = useMemo(() => shelf.games.filter(game => !isFolderTile(game)), [shelf.games])
+  const pickedGames = useMemo(() => picked ? pickable.filter(game => picked.has(game.id)) : [], [picked, pickable])
+  const selecting = !!picked
+  const pick = useCallback((game: Game, run: boolean) => {
+    const to = pickable.indexOf(game)
+    if (to < 0) return
+    const from = run && anchor.current ? pickable.findIndex(item => item.id === anchor.current) : -1
+    if (from < 0) anchor.current = game.id
+    setPicked(current => {
+      if (!current) return current
+      const next = new Set(current)
+      if (from >= 0) for (const item of pickable.slice(Math.min(from, to), Math.max(from, to) + 1)) next.add(item.id)
+      else if (!next.delete(game.id)) next.add(game.id)
+      return next
+    })
+  }, [pickable])
+  // Switching between All games and Hidden games starts the pick again.
+  const hiddenView = useCallback((on: boolean) => { setShowHidden(on); setPicked(current => current && new Set()) }, [])
   // The open folder; a new `rename` key opens it again with its name ready to type.
   const [open, setOpen] = useState<{ id: string; rename: number } | null>(null)
   const openTile = useMemo(() => open ? grid.find((item): item is FolderTile => isFolderTile(item) && item.folder.id === open.id) : undefined, [open, grid])
@@ -228,14 +261,18 @@ export const LibraryPane = memo(function LibraryPane(props: LibraryPaneProps) {
   // Nothing opens while Refresh rebuilds the cards (home.css takes the pointer off them; this catches the keyboard).
   const refreshing = () => 'exoRefreshing' in document.documentElement.dataset
   const openGame = useCallback((game: Game) => { if (!refreshing()) onOpen(game) }, [onOpen])
-  const select = useCallback((game: Game) => {
+  const select = useCallback((game: Game, event?: MouseEvent) => {
     if (refreshing()) return
-    if (isFolderTile(game)) openFolder(game.folder.id); else onOpen(game)
-  }, [openFolder, onOpen])
+    if (selecting) pick(game, !!event?.shiftKey)
+    else if (isFolderTile(game)) openFolder(game.folder.id); else onOpen(game)
+  }, [openFolder, onOpen, selecting, pick])
+  // A folder dragged onto another moves beside it; not while Select picks games.
+  const moveTo = useMemo(() => picked ? undefined : (from: string, to: string, after: boolean) => onFolders(moveFolder(folders, from, to, after)),
+    [picked, folders, onFolders])
   // New folder and Edit folder: a sheet over the Library (FolderSheet).
   const [sheet, setSheet] = useState<(LibraryFolder & { isNew: boolean }) | null>(null)
-  const newFolder = useCallback((gameId?: string) => setSheet({
-    id: newFolderId(folders), name: freeFolderName(folders), color: 'blue', games: gameId ? [gameId] : [], isNew: true,
+  const newFolder = useCallback((gameIds: string[] = []) => setSheet({
+    id: newFolderId(folders), name: freeFolderName(folders), color: 'blue', games: gameIds, isNew: true,
   }), [folders])
   const editFolder = useCallback((id: string) => {
     const folder = folders.find(item => item.id === id)
@@ -294,19 +331,69 @@ export const LibraryPane = memo(function LibraryPane(props: LibraryPaneProps) {
     const emptied = !!openTile && !!card?.closest('.exo-folder-panel') && openTile.folder.games.every(item => item.id === game.id)
     dissolve(card, () => emptied ? void transition(() => { onHidden(next); setOpen(null) }, { kind: 'fade' }) : onHidden(next))
   }, [menu, hiddenIds, onHidden, openTile])
-  // Every card has a menu now: a game can always go into a folder.
-  const openMenu = useCallback((at: GameMenuAt) => setMenu(at), [])
+  // Every card has a menu now: a game can always go into a folder. In Select mode the bar acts instead.
+  const openMenu = useCallback((at: GameMenuAt) => { if (!selecting) setMenu(at) }, [selecting])
+  // Select mode's bar. Hide (or Unhide): the picked cards dissolve together, then go to the other list. Add to folder:
+  // each picked cover drops into the folder's card, as one filed from its menu; New folder opens with them ticked.
+  const hidePicked = useCallback(() => {
+    const ids = new Set(pickedGames.map(game => game.id))
+    const next = showHidden ? hiddenIds.filter(id => !ids.has(id)) : [...hiddenIds, ...ids]
+    setPicked(null)
+    void Promise.all([...ids].map(id => new Promise<void>(done => dissolve(gridTile(id), done)))).then(() => onHidden(next))
+  }, [pickedGames, showHidden, hiddenIds, onHidden])
+  const filePicked = useCallback((folderId: string | null) => {
+    const ids = pickedGames.map(game => game.id)
+    setPicked(null)
+    if (!folderId) { newFolder(ids); return }
+    for (const id of ids) dropInto(gridTile(id)?.querySelector('[data-vt-art]') ?? null, () => tileArt(folderId))
+    onFolders(ids.reduce((list, id) => addToFolder(list, id, folderId), folders))
+  }, [pickedGames, newFolder, onFolders, folders])
+  const { onUninstall } = props
+  const uninstallPicked = useCallback(() => { void onUninstall(pickedGames); setPicked(null) }, [onUninstall, pickedGames])
+  // Escape ends Select mode and Ctrl+A picks every game, unless a sheet, a folder or a menu over the grid takes the key.
+  useEffect(() => {
+    if (!active || covered) setPicked(null)
+  }, [active, covered])
+  // Ended from its bar, the keyboard goes back to the grid rather than the page.
+  const wasSelecting = useRef(false)
+  useEffect(() => {
+    if (selecting || !wasSelecting.current) { wasSelecting.current = selecting; return }
+    wasSelecting.current = false
+    requestAnimationFrame(() => {
+      const main = mainRef.current
+      if (document.activeElement !== document.body || !main) return
+      const to = main.querySelector<HTMLElement>('.exo-windowed-game-grid [tabindex="0"]') ?? main.querySelector<HTMLElement>('.exo-library-tools button')
+      to?.focus({ preventScroll: true })
+    })
+  }, [selecting, mainRef])
+  const blocked = [sheet, open, menu].some(Boolean)
+  useEffect(() => {
+    if (!selecting || blocked) return
+    const onKey = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.isComposing) return
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        selectMode(false)
+      } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'a'
+        && !(event.target instanceof HTMLElement && event.target.closest('input, textarea, [contenteditable="true"]'))) {
+        event.preventDefault()
+        setPicked(new Set(pickable.map(game => game.id)))
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [selecting, blocked, pickable, selectMode])
   // Retained rooms keep their grid, but menus must leave with their route. A game page over the
   // Library keeps them (the pane is inert under it), so the shelf's header never changes height.
   const tools = useMemo(() => active ? (
-    <LibraryTools sort={sort} onSort={onSort} hidden={showHidden} onHidden={setShowHidden} onActivateKey={onActivateKey} onNewFolder={() => newFolder()}
-      onAddGame={onAddGame} refresh={refresh} onRefresh={runRefresh} />
-  ) : null, [active, sort, onSort, showHidden, onActivateKey, newFolder, onAddGame, refresh, runRefresh])
+    <LibraryTools selecting={selecting} onSelecting={selectMode} sort={sort} onSort={onSort} hidden={showHidden} onHidden={hiddenView}
+      onActivateKey={onActivateKey} onNewFolder={() => newFolder()} onAddGame={onAddGame} refresh={refresh} onRefresh={runRefresh} />
+  ) : null, [active, selecting, selectMode, sort, onSort, showHidden, hiddenView, onActivateKey, newFolder, onAddGame, refresh, runRefresh])
   return (
     <div className="relative z-10 flex min-h-0 min-w-0 flex-1">
       <main
         ref={props.mainRef}
-        className={`exo-library-pane min-w-0 flex-1${overlayOpen ? ' is-overlay-open' : ''}`}
+        className={paneClass(overlayOpen, selecting)}
         inert={overlayOpen ? true : undefined}
         style={cardWidth == null ? undefined : { '--exo-card-w': `${cardWidth}px` } as CSSProperties}
       >
@@ -347,8 +434,10 @@ export const LibraryPane = memo(function LibraryPane(props: LibraryPaneProps) {
               onActiveGameChange={props.onActiveGameChange}
               onSelect={select}
               onMenu={openMenu}
+              onMoveFolder={moveTo}
               transferFor={props.transferFor}
               queuedIds={props.queuedIds}
+              pickedIds={picked}
               scrollRootRef={props.mainRef}
               cardWidth={cardWidth}
             />
@@ -374,6 +463,11 @@ export const LibraryPane = memo(function LibraryPane(props: LibraryPaneProps) {
           onMenu={openMenu}
         />
       ) : null}
+      {picked ? (
+        <LibrarySelectBar games={pickedGames} total={pickable.length} hiddenView={showHidden} folders={folders}
+          onAll={() => setPicked(new Set(pickable.map(game => game.id)))} onClear={() => setPicked(new Set())}
+          onHide={hidePicked} onFolder={filePicked} onUninstall={uninstallPicked} />
+      ) : null}
       {sheet && active ? (
         <FolderSheet key={sheet.id} folder={sheet} library={games} folders={folders} onSave={saveSheet} onCancel={cancelSheet} />
       ) : null}
@@ -385,7 +479,7 @@ export const LibraryPane = memo(function LibraryPane(props: LibraryPaneProps) {
           hidden={hiddenIds.includes(menu.game.id)}
           onFolders={fileGame}
           onHide={hideGame}
-          onNewFolder={newFolder}
+          onNewFolder={id => newFolder([id])}
           onEditFolder={editFolder}
           onClose={() => setMenu(current => (current === menu ? null : current))}
           onPlay={props.onPlay}

@@ -6,15 +6,19 @@ import type { FolderTile } from '../../lib/folders'
 import type { Game } from '../../lib/host'
 import type { GameMenuAt } from './GameMenu'
 
+// A folder being dragged carries its id under this type; only a folder takes it.
+const DRAG = 'application/x-exo-folder'
+
 /**
  * A Library folder on the grid, exactly a game's cover in size: its back is its color, its first three games' covers
  * (in the folder's order or its sort) stand in it like papers, and its front is Exo's Liquid Glass tinted with its
  * color, carrying its name and how many games it holds. A folder with its own picture shows that instead of its back
- * and papers, under a shorter front. Hovering opens it a little: the front tips toward you and the covers rise and fan
+ * and papers, under the same front taking the picture's colors. Hovering opens it a little: the front tips toward you and the covers rise and fan
  * out. Pressing it opens the folder (FolderPanel) out of this card, which stays empty until it closes back into it and
- * the front swings shut; right-click is its menu.
+ * the front swings shut; right-click is its menu. Dragged onto another folder it moves to just before or after it,
+ * whichever half the pointer is over, and a bar in the gap shows where.
  */
-export const FolderCard = memo(function FolderCard({ tile, tabIndex, position, setSize, arriveIndex, onActiveGameChange, onSelect, onMenu }: {
+export const FolderCard = memo(function FolderCard({ tile, tabIndex, position, setSize, arriveIndex, onActiveGameChange, onSelect, onMenu, onMove }: {
   tile: FolderTile
   tabIndex?: number
   position?: number
@@ -23,8 +27,16 @@ export const FolderCard = memo(function FolderCard({ tile, tabIndex, position, s
   onActiveGameChange?: (gameId: string) => void
   onSelect: (game: Game) => void
   onMenu?: (at: GameMenuAt) => void
+  /** Moves a dragged folder (its id) to just before, or after, this one. */
+  onMove?: (folderId: string, toId: string, after: boolean) => void
 }) {
   const { games, art } = tile.folder
+  const [dragging, setDragging] = useState(false)
+  const [drop, setDrop] = useState<'before' | 'after' | null>(null)
+  const side = (event: React.DragEvent<HTMLElement>) => {
+    const box = event.currentTarget.getBoundingClientRect()
+    return event.clientX < box.left + box.width / 2 ? 'before' : 'after'
+  }
   const flap = useRef<HTMLSpanElement>(null)
   const frame = useRef<HTMLDivElement>(null)
   useLens(flap)
@@ -43,9 +55,8 @@ export const FolderCard = memo(function FolderCard({ tile, tabIndex, position, s
       el.style.setProperty('--lean-x', `${((x - 0.5) * 10).toFixed(2)}deg`)
       el.style.setProperty('--lean-y', `${(-(y - 0.5) * 8).toFixed(2)}deg`)
       el.style.setProperty('--lx', `${(x * 100).toFixed(1)}%`)
-      // The front covers the lower 58% of the folder (34% under a picture).
-      const front = art ? 0.34 : 0.58
-      el.style.setProperty('--ly', `${(((y - 1 + front) / front) * 100).toFixed(1)}%`)
+      // The front covers the lower 58% of the folder.
+      el.style.setProperty('--ly', `${(((y - 1 + 0.58) / 0.58) * 100).toFixed(1)}%`)
     })
   }
   const settle = () => {
@@ -57,16 +68,38 @@ export const FolderCard = memo(function FolderCard({ tile, tabIndex, position, s
       role={position != null ? 'listitem' : undefined}
       aria-posinset={position}
       aria-setsize={setSize}
-      className={cn('exo-tile exo-folder-tile group relative w-full', arriveIndex != null && 'exo-motion-arrive')}
+      className={cn('exo-tile exo-folder-tile group relative w-full', arriveIndex != null && 'exo-motion-arrive', dragging && 'is-dragging', drop && `is-drop-${drop}`)}
       data-color={tile.folder.color}
       data-art={art ? '' : undefined}
       style={arriveIndex != null ? { '--i': arriveIndex } as CSSProperties : undefined}
       onPointerMove={follow}
       onPointerLeave={settle}
+      onDragOver={onMove ? event => {
+        if (dragging || !event.dataTransfer.types.includes(DRAG)) return
+        event.preventDefault()
+        event.dataTransfer.dropEffect = 'move'
+        setDrop(side(event))
+      } : undefined}
+      onDragLeave={event => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDrop(null) }}
+      onDrop={onMove ? event => {
+        setDrop(null)
+        const from = event.dataTransfer.getData(DRAG)
+        if (!from || from === tile.folder.id) return
+        event.preventDefault()
+        onMove(from, tile.folder.id, side(event) === 'after')
+      } : undefined}
     >
       <button
         type="button"
         data-game-id={tile.id}
+        draggable={!!onMove}
+        onDragStart={event => {
+          event.dataTransfer.setData(DRAG, tile.folder.id)
+          event.dataTransfer.effectAllowed = 'move'
+          settle()
+          setDragging(true)
+        }}
+        onDragEnd={() => setDragging(false)}
         tabIndex={tabIndex}
         onFocus={onActiveGameChange ? () => onActiveGameChange(tile.id) : undefined}
         onClick={(event) => {

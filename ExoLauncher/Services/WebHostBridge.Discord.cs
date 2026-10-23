@@ -548,21 +548,26 @@ public sealed partial class WebHostBridge
     /// <summary>Go Live: watch someone's stream in the call this client is in, or stop watching; frames: whether the page shows call video now.</summary>
     private static object DiscordStream(JsonElement p, bool hasParams)
     {
+        var action = ReadString(p, hasParams, "action");
+        // The page says once, as it loads, often before Discord has signed in: never lost for want of a session.
+        if (action == "decode")
+        {
+            // The page decodes H.265 in hardware: connections from now on offer to receive it.
+            DiscordClient.Voice.VoiceConnection.DecodesH265 = ReadBool(p, hasParams, "hevc") == true;
+            return new { ok = true, message = (string?)null };
+        }
         if (DiscordSession.Current is not { } session) return new { ok = false };
-        switch (ReadString(p, hasParams, "action"))
+        switch (action)
         {
             case "frames":
                 session.WantFrames(ReadBool(p, hasParams, "on") == true);
-                return new { ok = true, message = (string?)null };
-            case "decode":
-                // The page decodes H.265 in hardware: connections from now on offer to receive it.
-                DiscordClient.Voice.VoiceConnection.DecodesH265 = ReadBool(p, hasParams, "hevc") == true;
                 return new { ok = true, message = (string?)null };
             case "watch" when ReadString(p, hasParams, "userId") is { Length: > 0 and <= 24 } user && user.All(char.IsAsciiDigit):
                 var why = session.WatchStream(user);
                 return new { ok = why is null, message = why };
             case "stop":
-                session.StopWatching();
+                // One person's stream, or every stream with no one named.
+                session.StopWatching(ReadString(p, hasParams, "userId") is { Length: > 0 and <= 24 } who && who.All(char.IsAsciiDigit) ? who : null);
                 return new { ok = true, message = (string?)null };
             default:
                 return new { ok = false, message = (string?)null };

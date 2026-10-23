@@ -106,6 +106,16 @@ export function renameFolder(folders: LibraryFolder[], folderId: string, name: s
   return clean ? folders.map(folder => folder.id === folderId ? { ...folder, name: clean } : folder) : folders
 }
 
+/** A folder moved to just before or just after another: where a drag drops it, or its menu's Move earlier and Move later. */
+export function moveFolder(folders: LibraryFolder[], folderId: string, toId: string, after: boolean): LibraryFolder[] {
+  const moving = folders.find(folder => folder.id === folderId)
+  const rest = folders.filter(folder => folder.id !== folderId)
+  const at = rest.findIndex(folder => folder.id === toId)
+  if (!moving || at < 0) return folders
+  rest.splice(after ? at + 1 : at, 0, moving)
+  return rest
+}
+
 /** The folder gone; its games back in the grid. */
 export function deleteFolder(folders: LibraryFolder[], folderId: string): LibraryFolder[] {
   return folders.filter(folder => folder.id !== folderId)

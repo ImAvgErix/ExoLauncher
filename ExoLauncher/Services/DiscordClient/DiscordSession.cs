@@ -54,6 +54,9 @@ internal sealed partial class DiscordSession
 
     internal static object Status() => new { state = _state, message = _message, signedIn = DiscordToken.Read() is not null };
 
+    private static bool NoiseSuppressionWanted =>
+        Voice.VoiceProcessing.Current.NoiseSuppression || App.Services.Settings.Shared.DiscordOthersNoiseSuppression;
+
     /// <summary>Connects with the saved sign-in; does nothing when it already runs.</summary>
     internal static void Start()
     {
@@ -63,11 +66,9 @@ internal sealed partial class DiscordSession
             if (DiscordToken.Read() is not { } token) { SetState("signedOut"); return; }
             var session = new DiscordSession(token);
             _current = session;
-            // Noise suppression fetched, and its model loaded ahead (about 2 s) into the idle pool, so a call's first words
-            // are cleaned too instead of going out as they came while it loads.
-            if (Voice.VoiceProcessing.Current.NoiseSuppression || App.Services.Settings.Shared.DiscordOthersNoiseSuppression)
-                _ = Voice.NoiseSuppressorDownload.EnsureAsync(CancellationToken.None)
-                    .ContinueWith(_ => Voice.NoiseSuppressor.Create()?.Dispose(), TaskScheduler.Default);
+            // Noise suppression fetched now; its model loads as a call joins (JoinVoice), not for the whole session.
+            if (NoiseSuppressionWanted)
+                _ = Voice.NoiseSuppressorDownload.EnsureAsync(CancellationToken.None);
             _ = Task.Run(() => session.RunAsync()).ContinueWith(run => session.Ended(run.Exception), TaskScheduler.Default);
             // NVIDIA's noise removal is gone from Exo: its runtime, fetched by earlier versions, goes too (800 MB and more).
             _ = Task.Run(() =>

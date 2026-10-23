@@ -1,6 +1,6 @@
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path $PSScriptRoot -Parent
-$pub = Join-Path $repo 'ExoLauncher\bin\x64\Release\net11.0-windows10.0.28000.0\win-x64\publish'
+$pub = Join-Path $repo 'ExoLauncher\bin\x64\Release\net10.0-windows10.0.26100.0\win-x64\publish'
 $app = Join-Path $env:LOCALAPPDATA 'ExoLauncher\app'
 if (-not (Test-Path -LiteralPath (Join-Path $pub 'ExoLauncher.exe'))) { throw 'publish output is missing ExoLauncher.exe' }
 if (-not (Test-Path -LiteralPath (Join-Path $app 'ExoLauncher.exe'))) { throw 'installed app directory is missing' }

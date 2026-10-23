@@ -7,6 +7,7 @@ import { AppUpdate, Chats, Close, Download, Gamepad, Gpu, Key, Library, Minus, M
 import {
   host,
   onHostEvent,
+  hostQuiet,
   resolvePrimaryAction,
   shelfAction,
   type Game,
@@ -83,12 +84,11 @@ import { openDiscord, setPendingOpen, type DiscordNotice } from '../lib/discord'
 import { onScreen, pressedArt, transition, visible, type Morph } from '../lib/viewTransition'
 
 /**
- * Everything Exo draws itself loads behind the splash, so no room or sheet builds on
- * first open: Store, Devices (Exo Mouse, whose game-linked profiles and battery notice
- * must work with the room never opened), Settings and Discord's page (Discord itself
- * starts with its room), and the GPU sheet (kept mounted: every tab and Exo Shaders' page).
- * It starts once the splash's mark has landed, so the intro never shares its frames with
- * that work, and settles when everything is ready or after the cap.
+ * What loads behind the splash besides the Library: Settings, and Devices (Exo Mouse, whose game-linked profiles and
+ * battery notice must work with the room never opened). Store, Discord's page, Music and System load the first time
+ * they're opened (openRoom), so a room never opened costs nothing; Discord's connection itself starts with Exo.
+ * It starts once the splash's mark has landed, so the intro never shares its frames with that work, and settles when
+ * everything is ready or after the cap.
  */
 function useBootPreload(booting: boolean, settings: LauncherSettings | null, musicService: MusicService, setOpenedRooms: (update: (rooms: ReadonlySet<View>) => ReadonlySet<View>) => void) {
   const preloaded = useRef<Promise<unknown> | null>(null)
@@ -103,12 +103,10 @@ function useBootPreload(booting: boolean, settings: LauncherSettings | null, mus
     if (!booting || settings?.onboardingComplete !== true || preloaded.current) return
     preloaded.current = new Promise(resolve => window.setTimeout(() => {
       setWarming(true)
-      setOpenedRooms(current => new Set<View>([...current, 'store', 'system', 'devices', 'settings', 'friends', 'music']))
+      setOpenedRooms(current => new Set<View>([...current, 'devices', 'settings']))
       resolve(Promise.race([
         Promise.allSettled([
-          import('./store/StoreRoom'),
           import('./DevicesRoom'),
-          import('./FriendsRoomRoute'),
           import('./SettingsPanel').then(module => module.preloadSettingsRoom()),
         ]),
         new Promise<void>(done => window.setTimeout(done, BOOT_PRELOAD_CAP_MS)),
@@ -116,6 +114,46 @@ function useBootPreload(booting: boolean, settings: LauncherSettings | null, mus
     }, BOOT_PRELOAD_AFTER_MS))
   }, [booting, settings?.onboardingComplete, musicService, setOpenedRooms])
   return { preloaded, warming }
+}
+
+/** The rooms built the first time they're opened, each with its code; System's is in the main bundle. */
+const LAZY_ROOMS: ReadonlyMap<View, (() => Promise<unknown>) | null> = new Map<View, (() => Promise<unknown>) | null>([
+  ['store', () => import('./store/StoreRoom')],
+  ['friends', () => import('./FriendsRoomRoute')],
+  ['music', () => import('./music/NativeMusicRoom')],
+  ['system', null],
+])
+/** The most a room opened the first time waits to be whole; Music starts its service's engine first. */
+const ROOM_OPEN_CAP_MS = 2500
+const MUSIC_OPEN_CAP_MS = 4500
+/** How long the host has to stay quiet before a room's reads count as all back. */
+const ROOM_QUIET_MS = 150
+
+// A frame, or 50 ms where none comes (a hidden window draws none).
+const nextFrame = () => new Promise<void>(resolve => { requestAnimationFrame(() => resolve()); window.setTimeout(resolve, 50) })
+const wait = (ms: number) => new Promise<void>(resolve => window.setTimeout(resolve, Math.max(0, ms)))
+
+/**
+ * A room opened the first time, built out of sight: its code, then what it asked the host for, then the pictures on
+ * its first screen, decoded, so it shows whole at once instead of filling in after; never longer than its cap.
+ */
+async function roomReady(room: View) {
+  const until = performance.now() + (room === 'music' ? MUSIC_OPEN_CAP_MS : ROOM_OPEN_CAP_MS)
+  const code = LAZY_ROOMS.get(room)
+  if (code) await Promise.race([code().catch(() => { }), wait(until - performance.now())])
+  // React draws it and its effects send their first reads; then each answer draws and may ask for more.
+  await nextFrame()
+  await nextFrame()
+  await hostQuiet(ROOM_QUIET_MS, until)
+  await nextFrame()
+  const box = document.querySelector(`[data-room="${room}"]`)
+  const first = [...(box?.querySelectorAll('img') ?? [])].filter(img => {
+    const at = img.getBoundingClientRect()
+    return at.width > 0 && at.bottom > 0 && at.top < window.innerHeight && at.right > 0 && at.left < window.innerWidth
+  }).slice(0, 48)
+  // A lazy picture out of sight never starts loading: on the first screen it loads now, so it's there when the room is.
+  for (const img of first) if (img.loading === 'lazy') img.loading = 'eager'
+  await Promise.race([Promise.allSettled(first.map(img => img.decode())), wait(until - performance.now())])
 }
 
 const NO_FOLDERS: LibraryFolder[] = []
@@ -140,11 +178,12 @@ function useLibraryFolders(
   return [folders, save, hidden, saveHidden] as const
 }
 
-/** The splash always plays in full (the mark lands, then holds a beat), however fast Exo is ready. The page's thread
- * is idle through it, so a longer hold is only waiting: 2.2 s left the Library usable at 2.9 s with its data in at 0.3 s. */
-const MIN_BOOT_SPLASH_MS = 1400
-/** Exo's own rooms start loading once the mark has landed (the intro's beat and settle). */
-const BOOT_PRELOAD_AFTER_MS = 800
+/** The splash always plays in full (the mark lands by 0.76 s, then holds a beat), however fast Exo is ready. The page's
+ * thread is idle through it, so a longer hold is only waiting: 2.2 s left the Library usable at 2.9 s with its data in at
+ * 0.3 s, and 1.4 s at 2.1 s once only the Library, Settings and Devices loaded behind it. */
+const MIN_BOOT_SPLASH_MS = 900
+/** Settings and Devices start loading as the mark settles; they are light now that the other rooms wait to be opened. */
+const BOOT_PRELOAD_AFTER_MS = 450
 /** The most the splash waits for Exo's own rooms; a slow one finishes behind the library. */
 const BOOT_PRELOAD_CAP_MS = 2500
 /** How long the preloaded rooms stay live after the splash, so slower reads (Discord, a store) land. */
@@ -346,6 +385,12 @@ export function LauncherApp() {
   const [activateKeyOpen, setActivateKeyOpen] = useState(false)
   const addingFolder = useRef(false)
   const [openedRooms, setOpenedRooms] = useState<ReadonlySet<View>>(() => new Set<View>(['library']))
+  const openedRef = useRef(openedRooms)
+  openedRef.current = openedRooms
+  // The room being built for its first showing (roomReady): its tab says so, and it runs out of sight meanwhile.
+  const [opening, setOpening] = useState<View | null>(null)
+  const openingRef = useRef<View | null>(null)
+  const goToViewRef = useRef<(next: View, morph?: Morph, alongside?: () => void) => Promise<void>>(() => Promise.resolve())
   const [settings, setSettings] = useState<LauncherSettings | null>(null)
   /** Launch order from the latest library read; Sort > Last launched follows it. */
   const [recent, setRecent] = useState<string[] | undefined>()
@@ -436,16 +481,32 @@ export function LauncherApp() {
     })
   }, [closeGamePage])
   const viewRequestedAt = useRef(0)
-  const goToView = useCallback((next: View, morph?: Morph, alongside?: () => void) => {
+  const goToView = useCallback((next: View, morph?: Morph, alongside?: () => void): Promise<void> => {
     viewRequestedAt.current = performance.now()
     closeGamePage()
     if (next === view) return Promise.resolve()
+    // A room opened the first time is built out of sight and shows once it's whole; asking for another room meanwhile
+    // goes there instead.
+    if (LAZY_ROOMS.has(next) && !openedRef.current.has(next)) {
+      openingRef.current = next
+      setOpening(next)
+      setOpenedRooms(current => new Set<View>([...current, next]))
+      return roomReady(next).then(() => {
+        if (openingRef.current !== next) return
+        openingRef.current = null
+        setOpening(null)
+        return goToViewRef.current(next, morph, alongside)
+      })
+    }
+    openingRef.current = null
+    setOpening(null)
     if (next === 'settings') settingsReturnView.current = view
     // Room to room slides toward the chosen tab. Settings floats in with its own entrance (a crossfade
     // over it would fade it twice, its words over the room's art) and leaves with a fade.
     const room = next !== 'settings' && view !== 'settings'
     return transition(() => { setView(next); alongside?.() }, { kind: room ? 'room' : next === 'settings' ? 'none' : 'fade', back: room && ROOM_ORDER.indexOf(next) < ROOM_ORDER.indexOf(view), morph })
   }, [closeGamePage, view])
+  goToViewRef.current = goToView
   // A game's Shaders opens the System room.
   const openGpu = useCallback(() => goToView('system'), [goToView])
   const openNowPlaying = useCallback(() => void goToView('music',
@@ -754,11 +815,7 @@ export function LauncherApp() {
     if (booting) return
     const rooms = window.setTimeout(() => {
       if (document.hidden) return
-      void Promise.allSettled([
-        host.prepareRooms(musicService),
-        import('./music/NativeMusicRoom'),
-        import('./FriendsRoomRoute'),
-      ])
+      void host.prepareRooms(musicService).catch(() => { })
     }, 100)
     return () => clearTimeout(rooms)
   }, [booting, musicService])
@@ -1331,6 +1388,22 @@ export function LauncherApp() {
   runCommandRef.current = runCommand
   const selectCommand = useCallback((command: Command) => runCommandRef.current(command), [])
   const keyStatus = useCallback((message: string, fail?: boolean) => setStatus(message, null, !!fail), [setStatus])
+  // Library › Select › Uninstall: each game as its page's Uninstall does it, one after another, then one line for all.
+  const uninstallGames = useCallback(async (picked: Game[]) => {
+    const [doing, done] = picked.every(game => game.store === 'local') ? ['Removing', 'Removed.'] : ['Uninstalling', 'Uninstalled.']
+    setStatus(`${doing} ${picked.length === 1 ? picked[0].title : `${picked.length} games`}…`, null)
+    let failed: string | null = null
+    let handoff = false
+    let queued = false
+    for (const game of picked) {
+      const r = await host.uninstall(game.id).catch((error: unknown) => ({ ok: false, message: error instanceof Error ? error.message : undefined, queued: false, handoffOnly: false }))
+      if (!r.ok) failed ??= r.message ?? `Could not uninstall ${game.title}.`
+      handoff ||= !!r.handoffOnly
+      queued ||= !!r.queued
+    }
+    setStatus(failed ?? (handoff ? 'Finish uninstalling in the store app.' : queued ? 'Queued.' : done), null, !!failed)
+    void loadLibrary(true, true)
+  }, [setStatus, loadLibrary])
 
   // This component is not compiled (it mirrors state into refs), so every
   // render would hand each room and sheet new elements and re-render them,
@@ -1350,6 +1423,7 @@ export function LauncherApp() {
   const titleBar = useMemo(() => (
     <TitleBar
       view={view}
+      opening={opening}
       onView={goToView}
       onNowPlaying={openNowPlaying}
       onToggleSettings={toggleSettings}
@@ -1358,7 +1432,7 @@ export function LauncherApp() {
       island={island}
       onSearch={openSearch}
     />
-  ), [view, goToView, openNowPlaying, toggleSettings, musicService, storeSales, island, openSearch])
+  ), [view, opening, goToView, openNowPlaying, toggleSettings, musicService, storeSales, island, openSearch])
   const settingsRoom = useMemo(() => settings && (
     <Room mounted={openedRooms.has('settings')} warm={warming} active={view === 'settings'} label="Settings" className="exo-set-room" onBackdrop={toggleSettings}>
       <SettingsPanel
@@ -1379,30 +1453,30 @@ export function LauncherApp() {
     </Room>
   ), [openedRooms, warming, view, settingsSection, settings, stores, update.busy, update.error, update.percent, update.status, update.available, update.install, checkUpdate, updateStores, toggleSettings])
   const friendsRoom = useMemo(() => (
-    <Room mounted={openedRooms.has('friends')} warm={warming} active={under === 'friends'} covered={view === 'settings'} label="Discord" className="relative z-10 flex min-h-0 flex-1 flex-col">
+    <Room name="friends" mounted={openedRooms.has('friends')} warm={warming || opening === 'friends'} active={under === 'friends'} covered={view === 'settings'} label="Discord" className="relative z-10 flex min-h-0 flex-1 flex-col">
       <FriendsRoom active={friendsActive} />
     </Room>
-  ), [under, view, openedRooms, warming, friendsActive])
+  ), [under, view, openedRooms, warming, opening, friendsActive])
   const musicRoom = useMemo(() => (
-    <Room mounted={openedRooms.has('music')} warm={warming} active={under === 'music'} covered={view === 'settings'} label="Music" className="relative z-10 flex min-h-0 flex-1 flex-col">
+    <Room name="music" mounted={openedRooms.has('music')} warm={warming || opening === 'music'} active={under === 'music'} covered={view === 'settings'} label="Music" className="relative z-10 flex min-h-0 flex-1 flex-col">
       <NativeMusicRoom key={musicService} service={musicService} active={musicActive} shown={view === 'music' && !booting} nowPlaying={nowPlaying} />
     </Room>
-  ), [under, openedRooms, warming, view, musicService, musicActive, booting, nowPlaying])
+  ), [under, openedRooms, warming, opening, view, musicService, musicActive, booting, nowPlaying])
   const storeRoom = useMemo(() => (
-    <Room mounted={openedRooms.has('store')} warm={warming} active={under === 'store'} covered={view === 'settings'} label="Store" className="relative z-10 flex min-h-0 flex-1 flex-col">
+    <Room name="store" mounted={openedRooms.has('store')} warm={warming || opening === 'store'} active={under === 'store'} covered={view === 'settings'} label="Store" className="relative z-10 flex min-h-0 flex-1 flex-col">
       <StoreRoom active={view === 'store'} games={games} onSale={storeSales} onOpenGame={openLibraryGameFromStore} />
     </Room>
-  ), [under, openedRooms, warming, view, games, storeSales, openLibraryGameFromStore])
+  ), [under, openedRooms, warming, opening, view, games, storeSales, openLibraryGameFromStore])
   const devicesRoom = useMemo(() => (
     <Room mounted={openedRooms.has('devices')} warm={warming} active={under === 'devices'} covered={view === 'settings'} label="Devices" className="relative z-10 flex min-h-0 flex-1 flex-col">
       <DevicesRoom active={devicesActive} />
     </Room>
   ), [under, view, openedRooms, warming, devicesActive])
   const systemRoom = useMemo(() => (
-    <Room mounted={openedRooms.has('system')} warm={warming} active={under === 'system'} covered={view === 'settings'} label="System" className="relative z-10 flex min-h-0 flex-1 flex-col">
+    <Room name="system" mounted={openedRooms.has('system')} warm={warming || opening === 'system'} active={under === 'system'} covered={view === 'settings'} label="System" className="relative z-10 flex min-h-0 flex-1 flex-col">
       <GpuHub active={view === 'system'} jump={gpuJump} games={games} settings={settings} onSave={saveSettings} />
     </Room>
-  ), [under, openedRooms, warming, view, gpuJump, games, settings, saveSettings])
+  ), [under, openedRooms, warming, opening, view, gpuJump, games, settings, saveSettings])
   const libraryRoom = useMemo(() => sortMode && (
     <Room mounted={openedRooms.has('library')} active={under === 'library'} covered={view === 'settings'} label="Library" className="exo-under-bar relative z-10 flex min-h-0 flex-1">
       <LibraryPane
@@ -1437,11 +1511,12 @@ export function LauncherApp() {
         onRefresh={refreshEverything}
         onRetry={retryLibrary}
         onStoreSettings={openStoreSettings}
+        onUninstall={uninstallGames}
       />
     </Room>
   ), [under, view, openedRooms, overlayOpen, emptyLibrary, libraryError, shelves, selectedId, activeGameId, queuedIds, sortMode, layout.reduceMotion,
     transferFor, openCard, playFromLibrary, playAs, startingId, openGameFolder, openProperties, sortLibrary, libraryFolders, saveFolders, hiddenGames, saveHiddenGames, addGameFromLibrary,
-    activateKey, refreshEverything, retryLibrary, openStoreSettings])
+    activateKey, refreshEverything, retryLibrary, openStoreSettings, uninstallGames])
   const activateKeySheet = useMemo(() => (
     <ActivateKeySheet open={activateKeyOpen} onClose={closeActivateKey} onStatus={keyStatus} />
   ), [activateKeyOpen, closeActivateKey, keyStatus])

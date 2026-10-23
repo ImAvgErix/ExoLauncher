@@ -1,4 +1,4 @@
-import { memo, useId, type ReactNode, type RefObject } from 'react'
+import { memo, useId, type MouseEvent, type ReactNode, type RefObject } from 'react'
 import type { Game, InstallProgress } from '../lib/host'
 import { WindowedGameGrid } from './WindowedGameGrid'
 import type { GameMenuAt } from './shell/GameMenu'
@@ -9,14 +9,17 @@ export type BrowseShelfProps = {
   selectedId: string | null
   activeGameId: string | null
   onActiveGameChange: (gameId: string) => void
-  onSelect: (game: Game) => void
+  onSelect: (game: Game, event?: MouseEvent) => void
   onMenu?: (at: GameMenuAt) => void
+  onMoveFolder?: (folderId: string, toId: string, after: boolean) => void
   transferFor?: (game: Game) => InstallProgress | null
   heading: string
   /** The count beside the heading, when it isn't the grid's cards (a folder is one card of several games). */
   count?: number
   actions?: ReactNode
   queuedIds?: string[]
+  /** Select mode: the picked games' ids; null outside it. */
+  pickedIds?: ReadonlySet<string> | null
   scrollRootRef: RefObject<HTMLElement | null>
   cardWidth: number | null
 }
@@ -28,11 +31,13 @@ export const BrowseShelf = memo(function BrowseShelf({
   onActiveGameChange,
   onSelect,
   onMenu,
+  onMoveFolder,
   transferFor,
   heading,
   count,
   actions,
   queuedIds = [],
+  pickedIds,
   scrollRootRef,
   cardWidth,
 }: BrowseShelfProps) {
@@ -53,8 +58,10 @@ export const BrowseShelf = memo(function BrowseShelf({
           onActiveGameChange={onActiveGameChange}
           onSelect={onSelect}
           onMenu={onMenu}
+          onMoveFolder={onMoveFolder}
           transferFor={transferFor}
           queuedIds={queuedIds}
+          pickedIds={pickedIds}
           layoutKey={heading}
           scrollRootRef={scrollRootRef}
           labelledBy={headingId}

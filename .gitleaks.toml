@@ -44,3 +44,8 @@ condition = "AND"
 paths = ['''^security/attacks/local/harness/Attack5_DataAtRest\.cs$''']
 regexTarget = "secret"
 regexes = ['''^0123456789ABCDEF0123456789ABCDEF01234567$''']
+
+[[allowlists]]
+description = "uBlock Origin Lite's own filter lists and scriptlets (public blocking patterns from its upstream release): host, cookie and parameter names the generic key rule takes for keys; not Exo credentials"
+targetRules = ["generic-api-key"]
+paths = ['''(^|/)Assets/Extensions/ublock-origin-lite/.*\.(json|js)$''']

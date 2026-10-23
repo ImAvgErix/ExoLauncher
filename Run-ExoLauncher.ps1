@@ -20,8 +20,8 @@ $Project = Join-Path $Root 'ExoLauncher\ExoLauncher.csproj'
 
 function Get-ExoLauncherExe {
     $tfms = @(
-        'net11.0-windows10.0.28000.0',
-        'net10.0-windows10.0.28000.0',
+        'net10.0-windows10.0.26100.0',
+        'net10.0-windows10.0.26100.0',
         'net10.0-windows10.0.26100.0',
         'net10.0-windows10.0.19041.0'
     )

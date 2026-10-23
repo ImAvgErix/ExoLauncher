@@ -48,10 +48,10 @@ public sealed partial class MainWindow
         _connectedPreloadLogged = true;
         if (milestone) LogStartupMilestone("connected-preload-start");
         var work = new List<Task> { PrewarmShaders(), PrewarmCapture(), Task.Run(Services.DiscordClient.DiscordSession.Start) };
-        // The chosen service's engine, started (or, a desktop app already running, adopted) now.
-        // (A desktop app is launched without pinning it awake, so it freezes when idle like an adopted one.)
-        if (musicService is "youtube" or "apple") work.Add(WebMusicStartAsync(musicService));
-        else if (IsDesktopMusic(musicService) && DesktopClients.For(musicService) is { } music && DesktopClients.Present(music))
+        // The music engine starts with the Music room (its adapter's start), so a PC that never opens Music never runs
+        // it (Spotify's eight processes took 570 MB at every start). A desktop app already running is adopted now: it
+        // costs nothing more, and the Bar's player shows its song at once.
+        if (IsDesktopMusic(musicService) && DesktopClients.For(musicService) is { } music && DesktopClients.Present(music) && Runs(music))
         {
             if (_musicWebService != musicService) SelectMusicService(musicService!);
             work.Add(MusicAppHost(musicService!).PrewarmAsync());
@@ -62,6 +62,17 @@ public sealed partial class MainWindow
     }
 
     private bool _connectedPreloadLogged;
+
+    private static bool Runs(DesktopClientSpec spec)
+    {
+        foreach (var name in spec.ProcessNames)
+        {
+            var found = System.Diagnostics.Process.GetProcessesByName(name);
+            foreach (var process in found) process.Dispose();
+            if (found.Length > 0) return true;
+        }
+        return false;
+    }
 
     private static async Task ResetPermissionGrantsAsync(CoreWebView2Profile profile)
     {

@@ -152,34 +152,47 @@ function MenuCheck({ label, on, onToggle }: { label: string; on: boolean; onTogg
  * deafen and disconnect, or Join Voice when you aren't in it. A DM's call (dm) is the same stage
  * above the conversation, under the DM's own header.
  */
-// The stream you watch outlives the call's page, as Discord's does: leave for another server and come back, and it
-// is still on (the host never stopped it). Cleared when the stream ends, you leave the call or you stop watching.
-let watchedStream: { channelId: string; userId: string } | null = null
+// The streams you watch outlive the call's page, as Discord's do: leave for another server and come back, and they
+// are still on (the host never stopped them). As in Discord you watch as many as you like: one is big above the call
+// (the last you started or clicked), the others are tiles among the people. Each stops when it ends, when you stop
+// watching it, or when you leave the call.
+type Watched = { channelId: string; userIds: string[]; focus: string | null }
+let watchedStreams: Watched | null = null
 const watchedListeners = new Set<() => void>()
 const subscribeWatched = (listener: () => void) => { watchedListeners.add(listener); return () => { watchedListeners.delete(listener) } }
-function setWatchedStream(next: typeof watchedStream) {
-  watchedStream = next
+function setWatchedStreams(next: Watched | null) {
+  watchedStreams = next
   watchedListeners.forEach(listener => listener())
 }
-function useWatchedStream(channelId: string) {
-  const current = useSyncExternalStore(subscribeWatched, () => watchedStream)
-  return current?.channelId === channelId ? current.userId : null
+// One stream no longer watched: the big one passes to the stream watched last.
+function dropWatched(userId: string) {
+  if (!watchedStreams) return
+  const userIds = watchedStreams.userIds.filter(id => id !== userId)
+  setWatchedStreams(userIds.length ? { ...watchedStreams, userIds, focus: watchedStreams.focus === userId ? userIds[userIds.length - 1] : watchedStreams.focus } : null)
 }
 
-// Whose stream you watch in this call, and Watch Stream and Stop Watching.
+// Whose streams you watch in this call, which one is big, and Watch Stream and Stop Watching.
 function useWatching(channelId: string, members: DiscordVoiceMember[], here: boolean) {
-  const watching = useWatchedStream(channelId)
-  const setWatching = (userId: string | null) => setWatchedStream(userId ? { channelId, userId } : null)
-  const watched = watching ? members.find(m => m.id === watching && m.stream) : undefined
-  // A stream that ended, or a call left, stops being watched (an empty list is one still loading on the way back).
-  const ended = members.length > 0 && !watched
-  useEffect(() => { if (watching && (!here || ended)) { setWatchedStream(null); void host.discordStream('stop').catch(() => { }) } }, [watching, here, ended])
+  const current = useSyncExternalStore(subscribeWatched, () => watchedStreams)
+  const mine = current?.channelId === channelId ? current : null
+  const watching = mine?.userIds ?? []
+  // A stream that ended stops being watched, and a call left stops them all (an empty list is one still loading on the way back).
+  const ended = members.length > 0 ? watching.filter(id => !members.some(m => m.id === id && m.stream)).join() : ''
+  useEffect(() => {
+    if (!watchedStreams || watchedStreams.channelId !== channelId) return
+    if (!here) { setWatchedStreams(null); void host.discordStream('stop').catch(() => { }); return }
+    for (const id of ended ? ended.split(',') : []) { dropWatched(id); void host.discordStream('stop', id).catch(() => { }) }
+  }, [channelId, here, ended])
   const watch = (userId: string) => {
-    setWatching(userId)
-    void host.discordStream('watch', userId).then(result => { if (!result.ok) setWatching(null) }).catch(() => setWatching(null))
+    const others = watchedStreams?.channelId === channelId ? watchedStreams.userIds.filter(id => id !== userId) : []
+    setWatchedStreams({ channelId, userIds: [...others, userId], focus: userId })
+    void host.discordStream('watch', userId).then(result => { if (!result.ok) dropWatched(userId) }).catch(() => dropWatched(userId))
   }
-  const stop = () => { setWatching(null); void host.discordStream('stop').catch(() => { }) }
-  return { watching, watched, watch, stop }
+  const stop = (userId: string) => { dropWatched(userId); void host.discordStream('stop', userId).catch(() => { }) }
+  const focus = (userId: string) => { if (watchedStreams) setWatchedStreams({ ...watchedStreams, focus: userId }) }
+  const big = mine?.focus ? members.find(m => m.id === mine.focus && m.stream) : undefined
+  const small = watching.filter(id => id !== big?.id).map(id => members.find(m => m.id === id && m.stream)).filter((m): m is DiscordVoiceMember => !!m)
+  return { watching, big, small, watch, stop, focus }
 }
 
 export function VoiceRoom({ channel, controls, meId, onJoin, dm = false, chat }: {
@@ -198,11 +211,11 @@ export function VoiceRoom({ channel, controls, meId, onJoin, dm = false, chat }:
   const [cameraError, setCameraError] = useState<string | null>(null)
   const notes = [error, cameraError, live.state === 'off' ? live.message : null].filter((note): note is string => !!note)
   const dismiss = () => { controls.dismissError(); setCameraError(null); clearGoLiveMessage() }
-  const { watching, watched, watch, stop } = useWatching(channel.id, members, here)
+  const { watching, big, small, watch, stop, focus } = useWatching(channel.id, members, here)
   // Discord's Hide Members while watching: the stream takes the room, the people strip folds away.
   const [membersHidden, setMembersHidden] = useState(false)
   const myStream = useStreamTile() && here
-  const [stage, tileWidth] = useTileWidth(members.length + (myStream ? 1 : 0))
+  const [stage, tileWidth] = useTileWidth(members.length + small.length + (myStream ? 1 : 0))
   // The call's bar is glass like the Bar's capsules and Music's player: its edge bends what passes under it.
   const bar = useRef<HTMLElement>(null)
   useLens(bar)
@@ -210,8 +223,8 @@ export function VoiceRoom({ channel, controls, meId, onJoin, dm = false, chat }:
   return (
     <section className={`exo-dc-chat exo-dc-voice-room${dm ? ' is-dm' : ''}`} aria-label={dm ? `Call with ${channel.name}` : channel.name}>
       {dm ? null : <VoiceHead channel={channel} chat={chat} />}
-      {watched ? <StreamStage member={watched} onStop={stop} onRetry={() => watch(watched.id)} membersHidden={membersHidden} onToggleMembers={() => setMembersHidden(h => !h)} /> : null}
-      <div ref={stage} className="exo-dc-voice-stage" hidden={!!watched && membersHidden} style={{ '--tile-w': `${tileWidth}px` } as CSSProperties}>
+      {big ? <StreamStage key={big.id} member={big} onStop={() => stop(big.id)} onRetry={() => watch(big.id)} membersHidden={membersHidden} onToggleMembers={() => setMembersHidden(h => !h)} /> : null}
+      <div ref={stage} className="exo-dc-voice-stage" hidden={!!big && membersHidden} style={{ '--tile-w': `${tileWidth}px` } as CSSProperties}>
         {members.length === 0 ? (
           <div className="exo-dc-voice-empty">
             <span className="exo-dc-voice-empty-icon" aria-hidden="true"><Icons.Voice size={28} /></span>
@@ -219,9 +232,10 @@ export function VoiceRoom({ channel, controls, meId, onJoin, dm = false, chat }:
             <span>{here ? 'Connecting…' : 'No one is here yet.'}</span>
           </div>
         ) : members.map(member => (
-          <VoiceTile key={member.id} member={member} me={member.id === meId} speaking={speaking.has(member.id) && !audio[member.id]?.muted} muted={member.mute || audio[member.id]?.muted === true} canWatch={here && member.stream === true && member.id !== watching && member.id !== meId}
+          <VoiceTile key={member.id} member={member} me={member.id === meId} speaking={speaking.has(member.id) && !audio[member.id]?.muted} muted={member.mute || audio[member.id]?.muted === true} canWatch={here && member.stream === true && !watching.includes(member.id) && member.id !== meId}
             onWatch={() => watch(member.id)} />
         ))}
+        {members.length > 0 ? small.map(member => <StreamTile key={`stream-${member.id}`} member={member} onFocus={() => focus(member.id)} onStop={() => stop(member.id)} />) : null}
         {myStream && members.length > 0 ? <MyStreamTile meId={meId} /> : null}
       </div>
       {notes.length ? (
@@ -320,8 +334,22 @@ function VoiceTile({ member, me, speaking, muted, canWatch, onWatch }: { member:
       {canWatch ? <button type="button" className="exo-dc-watch" onClick={onWatch}>Watch Stream</button> : null}
       <span className="exo-dc-voice-tile-name">
         {member.deaf ? <Icons.Deafened size={14} /> : muted ? <Icons.Muted size={14} /> : null}
-        {member.name}
+        <span className="exo-dc-voice-tile-label">{member.name}</span>
       </span>
+    </article>
+  )
+}
+
+/** A stream you watch beside the big one, as a tile among the people: click it to make it big; Stop Watching on it. */
+function StreamTile({ member, onFocus, onStop }: { member: DiscordVoiceMember; onFocus: () => void; onStop: () => void }) {
+  const stream = useVideoFeed('stream', member.id)
+  return (
+    <article className="exo-dc-voice-tile has-video exo-dc-stream-tile" data-dc-user={member.id} data-dc-name={member.name}>
+      <canvas ref={stream.ref} className="exo-dc-voice-video" hidden={!stream.live} />
+      <button type="button" className="exo-dc-stream-tile-focus" aria-label={`Focus ${member.name}'s stream`} onClick={onFocus} />
+      <span className="exo-dc-live">LIVE</span>
+      <button type="button" className="exo-dc-voice-btn is-hangup exo-dc-stream-tile-stop" aria-label="Stop Watching" onClick={onStop}><Icons.StopWatching size={16} /></button>
+      <span className="exo-dc-voice-tile-name"><span className="exo-dc-voice-tile-label">{member.name}</span></span>
     </article>
   )
 }

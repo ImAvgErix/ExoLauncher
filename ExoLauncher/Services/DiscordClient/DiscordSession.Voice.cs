@@ -22,7 +22,10 @@ internal sealed partial class DiscordSession
     internal void ReopenAudio(bool capture)
     {
         _voice?.ReopenAudio(capture);
-        if (!capture) _stream?.ReopenAudio(false);
+        if (capture) return;
+        List<VoiceConnection> watched;
+        lock (_voiceGate) watched = [.. WatchedConnections()];
+        foreach (var stream in watched) stream.ReopenAudio(false);
     }
     private string? _voiceGuild, _voiceChannel, _voiceSession, _voiceState, _voiceMessage;
     private bool _muted, _deafened, _e2ee, _camera, _micSilent;
@@ -44,6 +47,8 @@ internal sealed partial class DiscordSession
     {
         if (DaveSession.MaxVersion == 0) return "Voice isn't installed with this copy of Exo.";
         if (Cache.JoinRefusal(channelId) is { } refusal) return refusal;
+        // Noise suppression's model loads (half a second) while the call connects, so its first words are cleaned too.
+        if (NoiseSuppressionWanted && Voice.NoiseSuppressorDownload.Ready()) _ = Task.Run(() => Voice.NoiseSuppressor.Create()?.Dispose());
         int join;
         bool wasRinging;
         lock (_voiceGate)
@@ -121,7 +126,7 @@ internal sealed partial class DiscordSession
             if (muted is { } mute) { _muted = mute; if (!mute) _deafened = false; }
             if (_voice is not null) { _voice.Muted = _muted; _voice.Deafened = _deafened; }
             // Deafened hears nothing, a Go Live being watched included, as in Discord.
-            if (_stream is not null) _stream.Deafened = _deafened;
+            foreach (var stream in WatchedConnections()) stream.Deafened = _deafened;
         }
         ToggleSound(wasMuted, wasDeafened);
         if (_voiceChannel is not null) SendVoiceState();
@@ -296,10 +301,10 @@ internal sealed partial class DiscordSession
     // thread under the lock (closing waits for the sound's threads to stop).
     private Task TearDownVoice()
     {
-        var (voice, stream, live, capture, watched) = (_voice, _stream, _live, _liveCapture, _streamKey);
+        var (voice, live, capture) = (_voice, _live, _liveCapture);
+        List<Watch> watched = [.. _watches.Values];
+        _watches.Clear();
         _voice = null;
-        _stream = null;
-        _streamKey = null;
         _live = null;
         _liveCapture = null;
         _voiceTick?.Dispose();
@@ -308,12 +313,13 @@ internal sealed partial class DiscordSession
         if (_liveKey is not null) { _liveKey = null; Event?.Invoke("discord.golive", new { state = "off" }); }
         // The page closes the decoder of each camera and stream that was on.
         if (voice is not null) foreach (var user in voice.VideoUsers) Event?.Invoke("discord.video", new { source = "call", userId = user, active = false });
-        if (watched is not null) Event?.Invoke("discord.video", new { source = "stream", userId = UserOfKey(watched), active = false });
-        return Task.Run(() => CloseAsync(voice, stream, live, capture));
+        foreach (var watch in watched) Event?.Invoke("discord.video", new { source = "stream", userId = UserOfKey(watch.Key), active = false });
+        List<VoiceConnection> streams = [.. watched.Select(w => w.Connection).OfType<VoiceConnection>()];
+        return Task.Run(() => CloseAsync(voice, streams, live, capture));
 
-        static async Task CloseAsync(VoiceConnection? voice, VoiceConnection? stream, VoiceConnection? live, GoLiveCapture? capture)
+        static async Task CloseAsync(VoiceConnection? voice, List<VoiceConnection> streams, VoiceConnection? live, GoLiveCapture? capture)
         {
-            if (stream is not null) await stream.DisposeAsync().ConfigureAwait(false);
+            foreach (var stream in streams) await stream.DisposeAsync().ConfigureAwait(false);
             if (capture is not null) await capture.DisposeAsync().ConfigureAwait(false);
             if (live is not null) await live.DisposeAsync().ConfigureAwait(false);
             if (voice is not null) await voice.DisposeAsync().ConfigureAwait(false);
