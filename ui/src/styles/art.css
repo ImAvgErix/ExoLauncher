@@ -8,7 +8,8 @@
 .exo-action-progress {
   position: absolute;
   inset: 0;
-  background: #cbcbcb;
+  /* The primary a shade toward the page: #cbcbcb on Void's white primary, a lighter gray on Light's dark one. */
+  background: color-mix(in srgb, var(--color-primary) 80%, var(--color-bg));
   transform: scaleX(var(--progress));
   transform-origin: left center;
   transition: transform 90ms var(--ease-out);
@@ -17,7 +18,8 @@
 
 .exo-action-progress.is-unknown {
   transform: none;
-  background: linear-gradient(90deg, #f2f2f2 0%, #c4c4c4 45%, #f2f2f2 100%);
+  background: linear-gradient(90deg, color-mix(in srgb, var(--color-primary) 95%, var(--color-bg)) 0%,
+    color-mix(in srgb, var(--color-primary) 77%, var(--color-bg)) 45%, color-mix(in srgb, var(--color-primary) 95%, var(--color-bg)) 100%);
   background-size: 42% 100%;
   background-repeat: no-repeat;
   animation: exo-progress-unknown 0.7s var(--ease-out) infinite;
@@ -121,7 +123,7 @@
   align-items: center;
   justify-content: center;
   gap: 18px;
-  background: #000;
+  background: var(--color-bg);
 }
 
 /*
@@ -135,7 +137,7 @@
   content: '';
   position: absolute;
   inset: 0;
-  background: radial-gradient(42% 38% at 50% 50%, #161616 0%, #000 100%);
+  background: radial-gradient(42% 38% at 50% 50%, rgb(var(--exo-ink-rgb) / 0.086) 0%, var(--color-bg) 100%);
   pointer-events: none;
   opacity: 0;
   will-change: opacity;
@@ -178,7 +180,7 @@
   display: block;
   flex-shrink: 0;
   overflow: hidden;
-  background: #000;
+  background: var(--color-bg);
   border-radius: 10px;
 }
 
@@ -243,19 +245,16 @@
   background: transparent;
 }
 
-/* The sheet fades in from its first frame and out before it unmounts
-   (motion.tsx). An instant sheet, opened from the palette, skips both. */
+/* The sheet comes in under its own entrance (the page's cover, exo-enter) and fades out before it unmounts
+   (motion.tsx). It never fades in whole: its glass buttons would show their tint alone until the fade ended. An
+   instant sheet, opened from the palette, skips the fade out too. */
 .exo-game-overlay-presence {
   position: fixed;
   inset: 0;
   z-index: 30;
   pointer-events: none;
   opacity: 1;
-  transition: opacity 100ms var(--ease-out);
-
-  @starting-style {
-    opacity: 0;
-  }
+  transition: opacity var(--dur-quick) var(--ease-out);
 }
 
 .exo-game-overlay-presence.is-closing {
@@ -293,7 +292,7 @@
   min-width: 0;
   overflow: hidden;
   border-radius: 14px;
-  background: #000;
+  background: var(--color-bg);
   border: 1px solid var(--exo-float-line);
 }
 
@@ -303,7 +302,7 @@
   z-index: 0;
   border: 0;
   padding: 0;
-  background: rgba(0, 0, 0, .7);
+  background: rgb(0 0 0 / calc(.7 * var(--exo-scrim-k)));
   cursor: default;
 }
 
@@ -326,8 +325,10 @@
   inset: 0;
   z-index: 1;
   background:
-    linear-gradient(90deg, #0008 0%, #0005 50%, #0003 100%),
-    linear-gradient(0deg, #000 0%, #000c 32%, transparent 85%);
+    /* Deep enough under the info column that its secondary words keep 4.5:1 over the brightest art (measured from
+       the screen: the stats' labels were at 3.6:1 over a bright sky). */
+    linear-gradient(90deg, color-mix(in srgb, var(--color-bg) 55%, transparent) 0%, color-mix(in srgb, var(--color-bg) 50%, transparent) 50%, color-mix(in srgb, var(--color-bg) 45%, transparent) 100%),
+    linear-gradient(0deg, var(--color-bg) 0%, color-mix(in srgb, var(--color-bg) 85%, transparent) 40%, transparent 95%);
 }
 
 .exo-game-page-wash .exo-now-wash-img {
@@ -419,7 +420,7 @@
   aspect-ratio: 2 / 3;
   overflow: hidden;
   border-radius: 14px;
-  background: #000;
+  background: var(--color-bg);
 }
 
 .exo-game-detail-cover .exo-cover {
@@ -504,4 +505,10 @@
   gap: 8px;
   min-width: 0;
   overflow: visible;
+}
+
+/* A card whose game page is open (LauncherApp › setAway): its art has moved to the middle of the screen, so its
+   slot stays, empty, until the art flies back into it. */
+[data-exo-away] {
+  visibility: hidden;
 }

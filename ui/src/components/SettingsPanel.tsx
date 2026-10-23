@@ -326,7 +326,6 @@ export const SettingsPanel = memo(function SettingsPanel({
     <main className="exo-settings" aria-label="Settings">
       <span className="exo-glass is-panel exo-sheet-glass" aria-hidden="true" />
       <nav className="exo-settings-nav" aria-label="Settings sections">
-        <h1>Settings</h1>
         <ul ref={navGlide} className="exo-glide">
           {SECTIONS.map(section => (
             <li key={section.id}>

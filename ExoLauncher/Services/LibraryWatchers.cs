@@ -15,6 +15,10 @@ internal sealed class LibraryWatchers : IDisposable
     private CancellationTokenSource? _debounce;
     private readonly HashSet<StoreKind> _pendingStores = [];
     private bool _pendingUnknown;
+    // Files rewritten inside the window, and whether anything else (a file added, removed or renamed, a folder) changed.
+    private readonly HashSet<string> _pendingFiles = new(StringComparer.OrdinalIgnoreCase);
+    private bool _pendingOther;
+    private readonly Dictionary<string, byte[]> _contents = new(StringComparer.OrdinalIgnoreCase);
     private bool _disposed;
     private Timer? _rootRefresh;
     private readonly Func<IEnumerable<(string Path, StoreKind? Store)>> _candidateRoots;
@@ -187,6 +191,8 @@ internal sealed class LibraryWatchers : IDisposable
             // just the last one.
             if (store is { } known) _pendingStores.Add(known);
             else _pendingUnknown = true;
+            if (e.ChangeType == WatcherChangeTypes.Changed && e.FullPath.Length > 0) _pendingFiles.Add(e.FullPath);
+            else _pendingOther = true;
             try { _debounce?.Cancel(); } catch { }
             previous = _debounce;
             cts = new CancellationTokenSource();
@@ -215,15 +221,26 @@ internal sealed class LibraryWatchers : IDisposable
             }
             StoreKind[] stores;
             bool unknown;
+            string[] files;
+            bool other;
             lock (_gate)
             {
                 // A newer event restarted the window and will report these.
                 if (_disposed || !ReferenceEquals(_debounce, cts)) return;
                 stores = _pendingStores.ToArray();
                 unknown = _pendingUnknown;
+                files = _pendingFiles.ToArray();
+                other = _pendingOther;
                 _pendingStores.Clear();
                 _pendingUnknown = false;
+                _pendingFiles.Clear();
+                _pendingOther = false;
             }
+            // The Riot Client rewrites RiotClientInstalls.json with the same bytes every half minute or so while it
+            // runs, and each write was a full library scan (100-400 ms, a cache save and a push to the page), mid-game too.
+            var rewritten = 0;
+            foreach (var file in files) if (SameAsBefore(file)) rewritten++;
+            if (!other && rewritten == files.Length) return;
             AppLog.Info(string.IsNullOrWhiteSpace(name)
                 ? "Library watch fired."
                 : "Library watch fired: " + name);
@@ -247,6 +264,29 @@ internal sealed class LibraryWatchers : IDisposable
                     try { cts.Dispose(); } catch { /* already disposed */ }
                 }
             }
+        }
+    }
+
+    /// <summary>True when the file holds the bytes it held when last seen here; remembered either way. A file first
+    /// seen, too big to keep (256 KB) or unreadable counts as changed.</summary>
+    internal bool SameAsBefore(string path)
+    {
+        byte[] bytes;
+        try
+        {
+            var info = new FileInfo(path);
+            if (!info.Exists || info.Length > 256 * 1024) return false;
+            bytes = File.ReadAllBytes(path);
+        }
+        catch
+        {
+            return false;
+        }
+        lock (_gate)
+        {
+            var same = _contents.TryGetValue(path, out var last) && last.AsSpan().SequenceEqual(bytes);
+            _contents[path] = bytes;
+            return same;
         }
     }
 

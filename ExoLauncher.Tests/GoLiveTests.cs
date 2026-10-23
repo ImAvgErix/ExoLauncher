@@ -176,10 +176,11 @@ public sealed class GoLiveTests
         Assert.Equal("screen", stream.GetProperty("type").GetString());
         Assert.Equal("100", stream.GetProperty("rid").GetString());
 
+        // op 12 names the stream as the server's ready did ("video"), as Discord's client does.
         var on = System.Text.Json.JsonSerializer.SerializeToElement(
-            Services.DiscordClient.Voice.VoiceConnection.Video(1, 2, 3, "screen", 1920, 1080, 60, 12_000_000));
+            Services.DiscordClient.Voice.VoiceConnection.Video(1, 2, 3, "video", 1920, 1080, 60, 12_000_000));
         var sent = on.GetProperty("streams")[0];
-        Assert.Equal("screen", sent.GetProperty("type").GetString());
+        Assert.Equal("video", sent.GetProperty("type").GetString());
         Assert.Equal(2u, sent.GetProperty("ssrc").GetUInt32());
         Assert.Equal(3u, sent.GetProperty("rtx_ssrc").GetUInt32());
         Assert.True(sent.GetProperty("active").GetBoolean());
@@ -210,7 +211,7 @@ public sealed class GoLiveTests
         sent.KeyframeAsks = 2;
         Assert.Null(sent.Due(1_000)); // the clock starts at the first frame
         Assert.Null(sent.Due(10_999));
-        Assert.Equal("sent 3 frames in 30 packets, 0 not sent (DAVE didn't encrypt them); the server asked for 2 key frames and 0 lost packets (0 resent).", sent.Due(11_000));
+        Assert.Equal("sent 3 frames in 30 packets, 0 not sent (DAVE didn't encrypt them); the server asked for 2 key frames and 0 lost packets (0 resent), in 0 RTCP packets.", sent.Due(11_000));
         sent.Unsealed = 1;
         Assert.Null(sent.Due(70_999));
         Assert.StartsWith("sent 0 frames in 0 packets, 1 not sent", sent.Due(71_000));
@@ -223,5 +224,83 @@ public sealed class GoLiveTests
         byte[] frame = [0, 0, 0, 1, 0x67, 100, 0, 42, 0xAC, 0, 0, 0, 1, 0x68, 0xEE, 0x3C, 0x80, 0, 0, 1, 0x65, 0x88, 0x84];
         Assert.Equal("7:5 8:4 5:3, profile 100 level 42", Services.DiscordClient.Voice.H264Rtp.Describe(frame));
         Assert.Equal("1:2", Services.DiscordClient.Voice.H264Rtp.Describe([0, 0, 1, 0x41, 0x9A]));
+    }
+
+    // Discord's viewers (libwebrtc) rewrite an SPS that allows frame reordering as they depacketize it, after DAVE
+    // sealed the frame, so the key frame fails to decrypt. NVIDIA's encoder writes one they keep; one with no VUI, or
+    // a VUI without the restriction, is rewritten here as libwebrtc would, after which libwebrtc keeps it.
+    [Theory]
+    [InlineData("6764002aac2b403c0113f2a0")] // the same SPS without its VUI
+    [InlineData("6764002aac2b403c0113f2e022000007d00003a98008")] // its VUI without the bitstream restriction
+    public void KeyFramesCarryAnSpsDiscordsViewersKeep(string hex)
+    {
+        byte[] kept = Convert.FromHexString("6764002aac2b403c0113f2e022000007d00003a9801e385540"); // NVIDIA's, 1080p High
+        Assert.Null(Services.DiscordClient.Voice.H264Vui.Rewrite(kept));
+
+        var sps = Convert.FromHexString(hex);
+        var rewritten = Services.DiscordClient.Voice.H264Vui.Rewrite(sps);
+        Assert.NotNull(rewritten);
+        Assert.Null(Services.DiscordClient.Voice.H264Vui.Rewrite(rewritten));
+        Assert.Equal(sps[..11], rewritten[..11]); // everything before the VUI as it was
+
+        byte[] frame = [0, 0, 0, 1, 0x09, 0x10, 0, 0, 1, .. sps, 0, 0, 0, 1, 0x68, 0xEE, 0x3C, 0x80, 0, 0, 0, 1, 0x65, 0x88, 0x84];
+        var sent = Services.DiscordClient.Voice.H264Vui.NoReordering(frame);
+        Assert.Equal([0, 0, 0, 1, 0x09, 0x10, 0, 0, 0, 1, .. rewritten, 0, 0, 0, 1, 0x68, 0xEE, 0x3C, 0x80, 0, 0, 0, 1, 0x65, 0x88, 0x84], sent);
+        byte[] delta = [0, 0, 0, 1, 0x41, 0x9A];
+        Assert.Same(delta, Services.DiscordClient.Voice.H264Vui.NoReordering(delta));
+    }
+
+    [Fact]
+    public void TheStreamRateStaysUnderTheServersRembAndBacksOffLoss()
+    {
+        var rate = new Services.DiscordClient.Voice.StreamRate(8_000_000, 12_000_000);
+        rate.Remb(9_000_000);
+        rate.Loss(0);
+        Assert.Null(rate.Next(1_000)); // 8.64 capped at 8.1: under 5 % from 8
+        Assert.Null(rate.Next(1_500)); // once a second at most
+        rate.Loss(0.39); // a third lost: down by half of it, from 8.1
+        Assert.InRange(rate.Next(2_000) ?? 0, 6_520_000, 6_521_000);
+        Assert.Null(rate.Next(3_000)); // no new report, no change
+        rate.Loss(0.01);
+        Assert.InRange(rate.Next(4_000) ?? 0, 7_042_000, 7_043_000); // back up 8 %
+        rate.Remb(1_000_000);
+        rate.Loss(0.05);
+        Assert.Equal(900_000, rate.Next(5_000)); // the server takes less: under its REMB at once
+    }
+
+    [Fact]
+    public void ARembIsReadFromACompoundPacket()
+    {
+        byte[] report = [0x80, 201, 0, 1, 0, 0, 0, 1];
+        Assert.Equal(9_000_000L, Services.DiscordClient.Voice.Rtcp.RembBits([.. report, .. Services.DiscordClient.Voice.Rtcp.Remb(1, 9_000_000, [2])]));
+        Assert.Null(Services.DiscordClient.Voice.Rtcp.RembBits(report));
+    }
+
+    [Fact]
+    public void AnH265FrameSplitsIntoFragmentsAndComesBackWhole()
+    {
+        // VPS, SPS and PPS (types 32-34), then an IDR slice (19) far over one packet.
+        var idr = new byte[5000];
+        idr[0] = 19 << 1;
+        idr[1] = 1;
+        for (var i = 2; i < idr.Length; i++) idr[i] = (byte)(i * 7 + 1);
+        byte[] frame = [0, 0, 0, 1, 32 << 1, 1, 0xC, 0, 0, 0, 1, 33 << 1, 1, 0x1, 0, 0, 0, 1, 34 << 1, 1, 0xC1, 0, 0, 0, 1, .. idr];
+        var packets = Services.DiscordClient.Voice.H265Rtp.Packetize(frame);
+        Assert.Equal(3 + 5, packets.Count); // three alone, the slice in five fragmentation units
+        Assert.All(packets.Skip(3), p => Assert.Equal(49, (p[0] >> 1) & 0x3F));
+        Assert.Equal(0x80 | 19, packets[3][2]); // start, the slice's type
+        Assert.Equal(0x40 | 19, packets[^1][2]); // end
+        Assert.Equal(frame, Services.DiscordClient.Voice.H265Rtp.Build(packets));
+        Assert.True(Services.DiscordClient.Voice.H265Rtp.IsKeyframe(frame));
+        Assert.False(Services.DiscordClient.Voice.H265Rtp.IsKeyframe([0, 0, 0, 1, 1 << 1, 1, 0xAA])); // a trailing picture
+        Assert.Equal("32:3 33:3 34:3 19:5000", Services.DiscordClient.Voice.H265Rtp.Describe(frame));
+    }
+
+    [Fact]
+    public void AnH265AggregationPacketOpensIntoItsNalUnits()
+    {
+        byte[] packet = [48 << 1, 1, 0, 3, 32 << 1, 1, 0xC, 0, 3, 33 << 1, 1, 0x1];
+        Assert.Equal(new byte[] { 0, 0, 0, 1, 32 << 1, 1, 0xC, 0, 0, 0, 1, 33 << 1, 1, 0x1 }, Services.DiscordClient.Voice.H265Rtp.Build([packet]));
+        Assert.Null(Services.DiscordClient.Voice.H265Rtp.Build([[48 << 1, 1, 0, 9, 1]])); // a size past the end
     }
 }

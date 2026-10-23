@@ -81,12 +81,14 @@
   display: none;
 }
 
+/* A field in use: the 2px ring inside its edge (DESIGN.md › Hover), never a bigger outline around it pressed against the
+   pane it sits in. */
 .exo-store-search:has(input:focus-visible),
 .exo-music-search:has(input:focus-visible),
 .exo-field:focus-visible,
 .exo-menu-find:focus-visible {
   outline: 2px solid var(--color-fg);
-  outline-offset: 2px;
+  outline-offset: -2px;
 }
 
 /* Switches (iOS and macOS): a 40×24 track and a round 20px knob that slides; gray off, green on,
@@ -103,7 +105,7 @@
 }
 
 .switch:is(:hover, :active) .switch__control {
-  background-color: #343434;
+  background-color: rgb(var(--exo-ink-rgb) / 0.2);
 }
 
 .switch[aria-checked="true"]:is(:hover, :active) .switch__control {
@@ -115,7 +117,7 @@
   height: 20px;
   margin-inline-start: 2px;
   border-radius: 50%;
-  background-color: var(--color-fg);
+  background-color: #ffffff;
   box-shadow: 0 1px 3px rgb(0 0 0 / 0.35), 0 0 0 0.5px rgb(0 0 0 / 0.2);
 }
 
@@ -510,7 +512,10 @@
 /* Pressed (DESIGN.md › Controls): one fill for every raised or quiet control, the step past hover. */
 :is(.exo-set-btn:not(.is-primary), .exo-game-tool, .exo-ghost-btn:not(.is-primary), .exo-shelf-sort-trigger, .exo-pin-nav-btn,
   .exo-add-game-btn, .exo-game-close, .exo-set-chip, .exo-shelf-chip, .exo-music-sort, .exo-music-mini button,
-  .exo-dc-icon-btn, .exo-dc-tab:not(.is-add, .exo-dc-blurple), .button--secondary, .button--ghost):active:not(:disabled) {
+  .exo-dc-icon-btn, .exo-dc-tab:not(.is-add, .exo-dc-blurple), .button--secondary, .button--ghost, .exo-capture-btn, .exo-mouse-pill,
+  .exo-dc-item, .exo-dc-member, .exo-dc-server-name, .exo-dc-me-who, .exo-dc-input-btn, .exo-dc-new-bar-read,
+  .exo-music-row, .exo-music-recent-open, .exo-settings-nav button, .exo-dc-settings-nav button, .exo-dc-round-btn, .exo-dc-label-btn,
+  .exo-dc-active-card):active:not(:disabled) {
   background-color: var(--exo-pressed);
   box-shadow: var(--exo-rim-pressed);
 }
@@ -593,7 +598,8 @@
 :is(.exo-set-btn, .exo-game-tool, .exo-ghost-btn, .exo-shelf-sort-trigger, .exo-add-game-btn, .exo-continue-play,
   .exo-continue-more, .exo-friend-pill-go, .exo-bar-search, .exo-nav-btn, .exo-settings-btn, .exo-shelf-chip, .exo-cta,
   .exo-play, .exo-dc-tab, .exo-music-bar-play, .exo-island-btn, .exo-mini-play, .exo-game-close, .exo-dc-cv-button,
-  .exo-dc-voice-btn, .exo-dc-voice-join, .exo-dc-watch):active:not(:disabled) {
+  .exo-dc-voice-btn, .exo-dc-voice-join, .exo-dc-watch, .button, .exo-capture-btn, .exo-mouse-pill, .exo-dc-guild, .exo-dc-round-btn,
+  .exo-sgp-offer):active:not(:disabled) {
   scale: 0.97;
   transition-duration: var(--dur-press);
 }
@@ -711,7 +717,6 @@
 /* Art has no hairline. A line drawn under a picture shows only where the picture's own rounded
    corner is antialiased, as a ragged ring; Apple draws none on art. The edge is the art's own. */
 .exo-continue-card,
-.exo-music-recent-open,
 .exo-dc .exo-dc-guild:has(> img:not(.exo-company-logo)) {
   box-shadow: none;
 }
@@ -744,7 +749,7 @@
   display: grid;
   place-items: center;
   padding: 24px;
-  background: rgb(0 0 0 / 0.62);
+  background: rgb(0 0 0 / calc(0.62 * var(--exo-scrim-k)));
   animation: exo-scrim-in var(--dur-base) var(--ease-out) backwards;
 }
 
@@ -818,10 +823,11 @@
   overflow-y: auto;
 }
 
+/* On the title's center line and the controls' right edge. */
 .exo-dc-settings-close {
   position: absolute;
-  top: 20px;
-  right: 20px;
+  top: 24px;
+  right: 32px;
 }
 
 .exo-dc-settings-page {
@@ -890,8 +896,18 @@
    the hover gray under the pointer, and the current choice marked with a check on the right. */
 .exo-shelf-sort-menu,
 .exo-dc .exo-dc-menu {
-  padding: 5px;
+  padding: 6px;
   border-radius: var(--exo-card-radius);
+}
+
+/* Discord's own dark hairline sat over the glass's lit rim, so its menus, popovers, pickers, dialogs and
+   suggestions read flatter than Exo's. */
+.exo-dc .exo-dc-menu {
+  border: 0;
+}
+
+.exo-dc :is(.exo-dc-popover, .exo-dc-picker, .exo-dc-modal, .exo-dc-suggest) {
+  border-color: transparent;
 }
 
 .exo-menu-item,
@@ -908,10 +924,15 @@
 /* A menu row lights at once under the pointer or the arrow keys, as a desktop menu's does, so the row you
    are on is never half lit; the one you left lets go on the quick time. */
 .exo-menu-item:hover,
-.exo-menu-item:focus,
+:root[data-exo-input="key"] .exo-menu-item:focus,
 .exo-dc .exo-dc-menu > button:hover {
   background: var(--hover-fill);
   transition-duration: 0s;
+}
+
+.exo-menu-item:active:not([aria-disabled="true"]),
+.exo-dc .exo-dc-menu > button:active:not(:disabled) {
+  background: var(--exo-pressed);
 }
 
 .exo-shelf-sort-menu [role^="menuitem"][aria-checked="true"] {
@@ -922,7 +943,7 @@
   background: var(--hover-fill);
 }
 
-.exo-shelf-sort-menu [role="menuitemradio"][aria-checked="true"]::after {
+.exo-shelf-sort-menu :is([role="menuitemradio"], [role="menuitemcheckbox"])[aria-checked="true"]::after {
   content: "";
   flex: none;
   width: 14px;
@@ -933,8 +954,7 @@
   mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.15' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12l5 5l10 -10'/%3E%3C/svg%3E") center / contain no-repeat;
 }
 
-/* System: a slim header (your card and screen, the room's pages), then a page that fills the
-   window. Panels that hold more than fits scroll inside themselves; the room never does. */
+/* System: one page, a slim header (your card and screen) and every panel under it, scrolling as one. */
 .exo-system {
   display: flex;
   flex: 1;
@@ -942,6 +962,8 @@
   gap: 12px;
   min-height: 0;
   padding: 12px var(--exo-gutter) 16px;
+  overflow-y: auto;
+  scroll-padding-top: 12px;
 }
 
 .exo-system-head {
@@ -990,25 +1012,17 @@
   text-overflow: ellipsis;
 }
 
+/* Two columns of panels; panels side by side end level (a row's panels stretch to the taller one). */
 .exo-system-page {
   display: grid;
-  flex: 1;
+  flex: none;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  align-items: start;
+  align-items: stretch;
   gap: 12px;
-  min-height: 0;
-}
-
-.exo-system-page > * {
-  max-height: 100%;
 }
 
 .exo-system-page.is-one {
   grid-template-columns: minmax(0, 1fr);
-}
-
-.exo-system-page[hidden] {
-  display: none;
 }
 
 .exo-system-stack {
@@ -1041,15 +1055,20 @@
 
 .exo-system-panel-body {
   flex: 1;
-  min-height: 0;
   padding: 4px 0 8px;
-  overflow-y: auto;
 }
 
-/* Upscalers inside a System panel: the panel already insets its content, so the bar's action and the
-   cards line up with the panel's title and hairline instead of sitting a further 20px in. */
+/* Upscalers inside a System panel: its note and action sit on the panel's title line, at its right edge (as a
+   Devices panel's head), not on a line of their own under it. */
+.exo-system-panel:has(.exo-gpu-bar) {
+  position: relative;
+}
+
 .exo-system-panel .exo-gpu-bar {
-  margin: 8px 0 10px;
+  position: absolute;
+  top: 8px;
+  right: 24px;
+  margin: 0;
 }
 
 .exo-system-panel .exo-upscalers-risk {
@@ -1058,6 +1077,25 @@
 
 .exo-system-panel .exo-upscalers-body {
   padding: 6px 0 12px;
+}
+
+/* Nothing to update is one line in the room, not a block: the check beside its words. */
+.exo-system-panel .exo-upscalers-clear {
+  flex-direction: row;
+  justify-content: flex-start;
+  gap: 10px;
+  min-height: 0;
+  padding: 4px 0;
+}
+
+.exo-system-panel .exo-upscalers-clear-mark {
+  width: 24px;
+  height: 24px;
+  margin: 0;
+}
+
+.exo-shaders-posters:empty {
+  display: none;
 }
 
 /* Shaders: the bar (what is happening, Scan games, Compile or Pause and Stop), the live progress,
@@ -1111,15 +1149,14 @@
    edge posters, and the first row's ring while its poster lifts on hover (4px of ring and 3px of lift). */
 .exo-shaders-posters {
   display: grid;
-  flex: 1;
-  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  flex: none;
+  grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
   align-content: start;
   gap: 20px 16px;
   min-height: 0;
   margin: -6px -12px 0;
   padding: 12px 12px 24px;
   list-style: none;
-  overflow-y: auto;
 }
 
 /* Drag to reorder: the lifted poster dims in place and a white bar in the gap marks where it lands. */
@@ -1289,7 +1326,7 @@
 
 /* Content under the Bar (DESIGN.md › Glass): the Library runs to the window's top and scrolls beneath the
    Bar's glass, as content scrolls beneath a Liquid Glass toolbar; it stays sharp all the way, the glass
-   carries the separation (and turns light over bright art). At rest nothing is under the Bar: the top
+   carries the separation. At rest nothing is under the Bar: the top
    padding keeps it so. */
 .exo-under-bar {
   margin-top: calc(-1 * var(--exo-titlebar-h));
@@ -1300,9 +1337,9 @@
   scroll-padding-top: calc(var(--exo-titlebar-h) + 8px);
 }
 
-/* Discord: the sidebar fills its column. Your bar, with a call in progress over it, floats as one glass
-   dock across the foot of the server rail and the sidebar, as Discord's newer layout has it; the servers
-   and channels scroll under it and their ends stop above it. */
+/* Discord: your bar, with a call in progress over it, is one glass dock across the foot of the server rail and
+   the sidebar, as Discord's newer layout has it. The sidebar ends a gap above it (nothing scrolls under it to show
+   past its edges, and no two outlines meet); the servers scroll under it and their end stops above it. */
 .exo-dc-side-col {
   display: flex;
   flex-direction: column;
@@ -1313,6 +1350,7 @@
 .exo-dc-side-col > .exo-dc-side {
   flex: 1;
   min-height: 0;
+  margin-bottom: calc(var(--dc-dock-h) + 2px + var(--exo-gap));
 }
 
 .exo-dc {
@@ -1362,9 +1400,6 @@
   padding-bottom: calc(var(--dc-dock-h) + 2 * var(--exo-gap));
 }
 
-.exo-dc .exo-dc-side-list {
-  padding-bottom: calc(var(--dc-dock-h) + var(--exo-gap));
-}
 
 /* Direct messages has no selection pill; a count shows only when something waits. */
 .exo-dc .exo-dc-guild.is-home::before {
@@ -1375,7 +1410,7 @@
 html[data-exo-motion="reduce"] :is(.exo-set-btn, .exo-game-tool, .exo-ghost-btn, .exo-shelf-sort-trigger, .exo-add-game-btn, .exo-continue-play,
   .exo-continue-more, .exo-friend-pill-go, .exo-bar-search, .exo-nav-btn, .exo-settings-btn, .exo-shelf-chip, .exo-cta,
   .exo-play, .exo-dc-tab, .exo-music-bar-play, .exo-island-btn, .exo-mini-play, .exo-game-close, .exo-dc-voice-btn,
-  .exo-dc-voice-join, .exo-dc-watch, .exo-dc-cv-button):active:not(:disabled),
+  .exo-dc-voice-join, .exo-dc-watch, .exo-dc-cv-button, .exo-capture-btn, .exo-mouse-pill, .exo-dc-guild, .exo-dc-round-btn, .exo-sgp-offer):active:not(:disabled),
 html[data-exo-motion="reduce"] .exo-shaders-poster > button:is(:hover, :active) .exo-shaders-art {
   scale: none;
   transform: none;
@@ -1386,8 +1421,10 @@ html[data-exo-motion="reduce"] .exo-shaders-slot.is-after::after {
   animation: none;
 }
 
-/* Discord's Performance mode: nothing animates, fades or moves; hovers only change color, at once. */
-.exo-dc.is-performance *,
+/* Discord's Performance mode: nothing animates, fades or moves; hovers only change color, at once. The lists' edge
+   fade (exo-shell.css › Infinity pool) stays: it follows the scroll, it doesn't move, and without it rows were cut
+   flat by the pane's rim. */
+.exo-dc.is-performance *:not(.exo-dc-side-list, .exo-dc-members-list),
 .exo-dc.is-performance *::before,
 .exo-dc.is-performance *::after {
   animation: none !important;
@@ -1475,4 +1512,23 @@ html[data-exo-motion="reduce"] .exo-shaders-slot.is-after::after {
 
 .exo-dc-tune-finding.is-bad {
   color: var(--color-bad);
+}
+
+/* Discord's settings stay mounted while closed (DiscordSettings): hidden, nothing drawn or reached. */
+.exo-dc-settings-backdrop[hidden] {
+  display: none;
+}
+
+/* Windows' precompiled shaders under the Shaders bar: one quiet line. */
+.exo-shaders-delivery {
+  display: flex;
+  gap: 8px;
+  margin: -4px 0 0;
+  color: var(--color-muted);
+  font-size: calc(12px * var(--exo-scale, 1));
+}
+
+/* Keyboard focus where its control's list or capsule would cut the ring (lib/focusKeeper.ts): the ring sits inside. */
+:root:root [data-exo-ring="inside"]:focus-visible {
+  outline-offset: -2px;
 }

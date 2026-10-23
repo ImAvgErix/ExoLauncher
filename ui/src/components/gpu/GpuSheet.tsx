@@ -1,73 +1,69 @@
 import { useEffect, useRef, useState } from 'react'
 import { GraphicsCard } from '../../brand/icons'
 import { host, type DriverState, type Game, type GpuProfile, type HdrState, type LauncherSettings } from '../../lib/host'
-import { useGlide } from '../../lib/glide'
 import { useHdrState } from '../../lib/hdr'
 import { Row, State, SwitchRow } from '../settings/parts'
 import { ShadersBoard } from '../shaders/ShadersBoard'
 import { UpscalersTab } from '../upscalers/UpscalersSheet'
 import { DisplayTab } from './DisplayTab'
 import { ProfileTab } from './ProfileTab'
-import { pushPage } from '../../lib/viewTransition'
+import { InterruptRows } from './InterruptRows'
+import { ThisPcTab } from './ThisPcTab'
 
-/** The System room's pages. */
+/** A part of the System room a link can open it at (a game's page: its graphics, its shaders). */
 export type GpuTab = 'graphics' | 'display' | 'shaders'
 
-const PAGES: { id: GpuTab; label: string }[] = [
-  { id: 'graphics', label: 'Graphics' },
-  { id: 'display', label: 'Display' },
-  { id: 'shaders', label: 'Shaders' },
-]
-
 /**
- * The System room: one slim header with your card and screen and the room's pages, then a page
- * that fits the window without scrolling: Graphics (driver and Exo's profile, HDR, upscalers in
- * your games), Display, and Shaders (scan, compile, the live queue). Every page stays loaded.
+ * The System room, one page: a slim header with your card and screen, then the driver and
+ * Exo's profile, HDR, what to fix in this PC's setup and upscalers in your games, then the screen's settings, then the games whose shaders still need
+ * compiling.
+ * `jump` scrolls to a part when a link opens the room there.
  */
-export function GpuHub({ active, tab, onTab, games, settings, onSave }: {
+export function GpuHub({ active, jump, games, settings, onSave }: {
   active: boolean
-  tab: GpuTab
-  onTab: (tab: GpuTab) => void
+  jump: { tab: GpuTab } | null
   games: readonly Game[]
   settings: LauncherSettings | null
   onSave: (patch: Partial<LauncherSettings>) => Promise<boolean>
 }) {
   const { profile, driver } = useSystemState(active)
-  const glide = useGlide<HTMLDivElement>()
+  const room = useRef<HTMLElement>(null)
+  useEffect(() => {
+    if (!active || !jump) return
+    const part = room.current?.querySelector(`[data-system-part="${jump.tab}"]`)
+    if (jump.tab === 'graphics') room.current?.scrollTo({ top: 0 })
+    else part?.scrollIntoView({ block: 'start' })
+  }, [active, jump])
   return (
-    <section className="exo-system" aria-label="System">
+    <section ref={room} className="exo-system" aria-label="System">
       <header className="exo-system-head">
         <span className="exo-system-head-icon" aria-hidden="true"><GraphicsCard size={20} /></span>
         <span className="exo-system-head-id">
           <strong>{profile?.gpu || driver?.card || 'Graphics card'}</strong>
           <span>{[driver?.installed ? `Driver ${driver.installed}` : null, profile?.screen.name, profile?.screen.hz ? `${profile.screen.hz} Hz` : null, profile?.vendor === 'nvidia' ? (profile.screen.vrr ? 'G-SYNC' : 'Fixed refresh') : null].filter(Boolean).join(' · ')}</span>
         </span>
-        <div ref={glide} className="exo-shelf-chips exo-glide" role="tablist" aria-label="System">
-          {PAGES.map(page => (
-            <button key={page.id} type="button" role="tab" className="exo-shelf-chip" aria-selected={tab === page.id} aria-pressed={tab === page.id} onClick={() => void pushPage(() => onTab(page.id), '.exo-system-page:not([hidden])', '.exo-system-head [aria-selected="true"]')}>{page.label}</button>
-          ))}
-        </div>
       </header>
-      <div className="exo-system-page exo-motion-switch" hidden={tab !== 'graphics'}>
-        <div className="exo-system-stack">
-          <Panel title="Driver and profile"><ProfileTab active={active && tab === 'graphics'} /></Panel>
-          <Panel title="HDR"><HdrTab active={active && tab === 'graphics'} settings={settings} onSave={onSave} /></Panel>
+      <div className="exo-system-page">
+        <div className="exo-system-stack" data-system-part="graphics">
+          <Panel title="Driver and profile"><ProfileTab active={active} /></Panel>
+          <Panel title="HDR"><HdrTab active={active} settings={settings} onSave={onSave} /></Panel>
+          <Panel title="This PC"><ThisPcTab active={active} /><InterruptRows active={active} /></Panel>
         </div>
-        <Panel title="Upscalers"><UpscalersTab active={active && tab === 'graphics'} games={games} /></Panel>
+        <Panel title="Upscalers"><UpscalersTab active={active} games={games} /></Panel>
       </div>
-      <div className="exo-system-page is-one exo-motion-switch" hidden={tab !== 'display'}>
-        <Panel title="Display"><DisplayTab active={active && tab === 'display'} /></Panel>
+      <div className="exo-system-page is-one">
+        <Panel title="Display" part="display"><DisplayTab active={active} /></Panel>
       </div>
-      <div className="exo-system-page is-one exo-motion-switch" hidden={tab !== 'shaders'}>
-        <ShadersBoard active={active && tab === 'shaders'} games={games} />
+      <div className="exo-system-page is-one" data-system-part="shaders">
+        <Panel title="Shaders"><ShadersBoard active={active} games={games} /></Panel>
       </div>
     </section>
   )
 }
 
-function Panel({ title, children }: { title: string; children: React.ReactNode }) {
+function Panel({ title, part, children }: { title: string; part?: GpuTab; children: React.ReactNode }) {
   return (
-    <section className="exo-system-panel" aria-label={title}>
+    <section className="exo-system-panel" aria-label={title} data-system-part={part}>
       <h2>{title}</h2>
       <div className="exo-system-panel-body">{children}</div>
     </section>

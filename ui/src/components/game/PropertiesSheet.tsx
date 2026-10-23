@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { Close, Loader2 } from '../../brand/icons'
 import { host, type DlssRunResult, type DlssStatus, type Game, type GameProperties, type GamePropertyKey, type PropertyChoice } from '../../lib/host'
 import { useDialogFocus } from '../../lib/focusTrap'
+import { useDismiss } from '../../lib/dismiss'
 import { useGlide } from '../../lib/glide'
 import { invalidateUpscalerStatus } from '../../lib/upscalerCache'
 import { gateReason, upscalerView } from '../../lib/upscalers'
@@ -96,6 +97,7 @@ export function PropertiesSheet({ game, artwork, upscalers: upscalerStatus, onUp
 }) {
   const dialog = useRef<HTMLDivElement>(null)
   useDialogFocus(dialog)
+  useDismiss(dialog, onClose, { modal: true })
   const navGlide = useGlide<HTMLUListElement>()
   const [section, setSection] = useState<SectionId>('general')
   const [props, setProps] = useState<GameProperties | null>(null)
@@ -241,7 +243,7 @@ export function PropertiesSheet({ game, artwork, upscalers: upscalerStatus, onUp
   }
 
   return createPortal(
-    <div className="exo-props-back" onPointerDown={event => { if (event.target === event.currentTarget) onClose() }}>
+    <div className="exo-props-back">
       <div ref={dialog} className="exo-props" role="dialog" aria-modal="true" aria-labelledby="exo-props-title" tabIndex={-1}>
         <span className="exo-glass is-panel exo-sheet-glass" aria-hidden="true" />
         <nav className="exo-settings-nav exo-props-nav" aria-label="Properties sections">

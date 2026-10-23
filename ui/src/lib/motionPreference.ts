@@ -17,8 +17,19 @@ export function shouldReduceMotion(): boolean {
 export function installInputModality() {
   const root = document.documentElement
   const set = (input: 'key' | 'pointer') => { if (root.dataset.exoInput !== input) root.dataset.exoInput = input }
-  window.addEventListener('keydown', () => set('key'), { capture: true, passive: true })
-  window.addEventListener('pointerdown', () => set('pointer'), { capture: true, passive: true })
+  // Focus Exo moves itself (back to a card when its page closes, into a menu) shows its ring only once Tab or an
+  // arrow key has moved focus since the last pointer press: closing a page opened with the mouse by Escape left a white
+  // ring on the card, since Chromium counts any key.
+  let navigating = false
+  window.addEventListener('keydown', event => {
+    if (/^(Tab|Arrow|Home$|End$|Page)/.test(event.key)) navigating = true
+    set('key')
+  }, { capture: true, passive: true })
+  window.addEventListener('pointerdown', () => { navigating = false; set('pointer') }, { capture: true, passive: true })
+  const focus = HTMLElement.prototype.focus
+  HTMLElement.prototype.focus = function (this: HTMLElement, options?: FocusOptions) {
+    focus.call(this, navigating ? options : { ...options, focusVisible: false } as FocusOptions)
+  }
 }
 
 /** Whether the keyboard, not a pointer, did the last thing (installInputModality). */

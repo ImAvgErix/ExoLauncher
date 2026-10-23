@@ -48,6 +48,29 @@
   user-select: none;
 }
 
+/* A sheet's dim reaches over the Bar too, so the whole window steps back under it, not everything but the Bar.
+   The Bar still takes clicks (the dim passes them through). Anything hidden (Settings' room is always in the page) doesn't count. */
+.exo-titlebar::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  background: rgb(0 0 0 / calc(0.62 * var(--exo-scrim-k)));
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--dur-move) var(--ease-out);
+}
+
+:root:has(:is(.exo-game-overlay-scrim, .exo-dc-modal-back, .exo-set-room, .exo-props-back, .exo-folder-back, .exo-folder-sheet-back, .exo-whats-new-back, .exo-dc-settings-backdrop):not([hidden], [hidden] *, .is-backstage, .is-backstage *)) .exo-titlebar::after {
+  opacity: 1;
+}
+
+/* On Light the dim greys the Bar's white frost under its dark words: half of it keeps them at 4.5:1 (the full dim
+   left them at 3.4:1), and they stay words you click. */
+:root[data-exo-theme="light"] .exo-titlebar::after {
+  background: rgb(0 0 0 / calc(0.31 * var(--exo-scrim-k)));
+}
+
 .exo-brand-logo {
   width: var(--exo-logo);
   height: var(--exo-logo);
@@ -55,7 +78,7 @@
   display: block;
   overflow: hidden;
   flex-shrink: 0;
-  box-shadow: 0 0 0 1px #222;
+  box-shadow: 0 0 0 1px rgb(var(--exo-ink-rgb) / 0.133);
 }
 
 /* Right cluster */
@@ -86,7 +109,7 @@
   border: none;
   border-radius: 999px;
   background: var(--color-fg);
-  color: #0a0a0a;
+  color: var(--color-bg);
   font-family: var(--exo-font);
   font-size: calc(13px * var(--exo-scale, 1));
   font-weight: 600;
@@ -176,13 +199,18 @@
   overflow: hidden;
   border-color: var(--color-fg);
   background: var(--color-fg);
-  color: #0a0a0a;
+  color: var(--color-bg);
   font-weight: 600;
 }
 
-/* Danger: the same filled capsule with its words in Bad; no red hairline. */
+/* Danger: the same filled capsule with its words in Bad; no red hairline. On a dark theme the capsule's lift takes
+   Bad under 4.5:1 inside a panel (4.1:1 measured), so its words take a lighter step of it there. */
 :is(.exo-set-btn, .exo-game-tool).is-danger {
   color: var(--color-bad);
+}
+
+:root:not([data-exo-theme="light"]) :is(.exo-set-btn, .exo-game-tool).is-danger {
+  color: color-mix(in srgb, var(--color-bad) 82%, white);
 }
 
 :is(.exo-set-btn, .exo-game-tool, .exo-ghost-btn, .exo-shelf-sort-trigger, .exo-add-game-btn, .exo-game-close):disabled {
@@ -225,7 +253,7 @@
   position: absolute;
   inset: 0;
   z-index: 10;
-  background: #000;
+  background: var(--color-bg);
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
@@ -243,6 +271,18 @@
   }
 }
 
+/* A room warming behind the splash (Room, shell/BootGate.tsx): laid out at its own size under the Bar, never drawn,
+   reached or read out. Opacity as well as visibility, since a part that sets its own visibility (the cover below,
+   mid animation) would show through visibility alone; strict containment keeps its layout from the shown room's. */
+.exo-room.is-backstage {
+  position: fixed;
+  inset: var(--exo-titlebar-h, 52px) 0 0 0;
+  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
+  contain: strict;
+}
+
 /* A room comes up from black over 120ms the first time it shows, under a cover that fades away (the room itself
    never fades: a fading room hides the page from the glass in it, which then flicked on as the fade ended). Coming
    back, Room (shell/BootGate.tsx) finishes it with the room's other entrances. Under the Bar (z-index 40). Settings
@@ -252,7 +292,7 @@
   position: fixed;
   inset: 0;
   z-index: 30;
-  background: #000;
+  background: var(--color-bg);
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
@@ -276,10 +316,9 @@
   min-width: 17px;
   height: 17px;
   padding: 0 4px;
-  border: 1px solid #242424;
   border-radius: 999px;
-  background: #000;
-  color: var(--color-fg);
+  background: var(--color-fg);
+  color: var(--exo-ink-inverse, var(--color-bg));
   font-size: calc(12px * var(--exo-scale, 1));
   line-height: 1;
   font-variant-numeric: tabular-nums;
@@ -321,4 +360,41 @@ html[data-exo-motion="reduce"] :is(.exo-glass, .exo-shelf-sort-menu, .exo-key-po
 
 html[data-exo-motion="reduce"] .exo-dc-savebar.is-nudged {
   animation: exo-dc-nudge-red 900ms linear both !important;
+}
+
+/* Infinity pool: a list fades into its pane's edge where it scrolls on, top or bottom, instead of being cut off
+   hard by the pane's edge and corner; at either end of the list the fade is gone. Only an inner list, never a pane
+   that draws its own glass: a mask makes its element a backdrop root, and the pane's glass would see nothing. Never one
+   that holds its own menus or tips either (Discord's server rail): a mask clips everything drawn inside it. */
+@property --exo-pool-top {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+
+@property --exo-pool-bottom {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+
+@keyframes exo-pool-top {
+  from { --exo-pool-top: 0px; }
+  to { --exo-pool-top: 24px; }
+}
+
+@keyframes exo-pool-bottom {
+  from { --exo-pool-bottom: 40px; }
+  to { --exo-pool-bottom: 0px; }
+}
+
+/* Each ends at its pane's foot, so it clips to the pane's lower corners too: at the list's end the fade is gone, and a
+   row's art (a nameplate) would otherwise paint square across the pane's rounded corner and its rim. */
+:is(.exo-dc-side-list, .exo-dc-members-list, .exo-music-library) {
+  border-end-start-radius: inherit;
+  border-end-end-radius: inherit;
+  mask-image: linear-gradient(to bottom, transparent, #000 var(--exo-pool-top), #000 calc(100% - var(--exo-pool-bottom)), transparent);
+  animation: exo-pool-top linear both, exo-pool-bottom linear both;
+  animation-timeline: scroll(self), scroll(self);
+  animation-range: 0 32px, calc(100% - 32px) 100%;
 }

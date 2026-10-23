@@ -4,6 +4,7 @@ import { report } from '../../lib/report'
 import { trimStop } from '../../lib/utils'
 import { Choice } from '../settings/Choice'
 import { DriverRow } from './DriverRow'
+import { DriverProfile, type LatencyChoice } from './DriverProfile'
 import { Row, State } from '../settings/parts'
 
 type Preview = NonNullable<GpuImportAnswer['preview']>
@@ -16,8 +17,9 @@ const SYNC = [{ value: 'gsync', label: 'G-SYNC' }, { value: 'fixed', label: 'No 
  * driver says the main screen can do), one tap to use it and Undo. The driver
  * is read again when Exo's window comes back, so a driver update that moved a
  * setting shows with Re-apply. A Profile Inspector export can be imported to
- * the global profile instead, previewed before anything is written. AMD and
- * Intel show what to set: Exo reads their drivers but does not write them.
+ * the global profile instead, previewed before anything is written. A Radeon and an Intel GPU get their
+ * own profile through their driver; one Exo can't reach shows what to set by hand. The driver row (NVIDIA's,
+ * AMD's or Intel's newest driver for the card) leads on every vendor's page.
  */
 export function ProfileTab({ active }: { active: boolean }) {
   const [profile, setProfile] = useState<GpuProfile | null>(null)
@@ -37,12 +39,12 @@ export function ProfileTab({ active }: { active: boolean }) {
     return () => window.removeEventListener('focus', onFocus)
   }, [load, active])
 
-  const act = async (action: 'apply' | 'undo', gsync?: boolean) => {
+  const act = async (action: 'apply' | 'undo', gsync?: boolean, latency?: LatencyChoice) => {
     if (busy) return
     setBusy(true)
     setError(null)
     try {
-      const next = await host.gpuProfile(action, gsync)
+      const next = await host.gpuProfile(action, gsync, latency)
       setProfile(next)
       setChoice(null)
       if (!next.ok) setError(trimStop(next.message) || 'Not changed')
@@ -55,39 +57,45 @@ export function ProfileTab({ active }: { active: boolean }) {
   }
 
   if (!profile) return null
-  if (profile.status === 'none' && profile.ok) return <p className="exo-hub-sub">This PC has no graphics card Exo can tune.</p>
+  // The driver row leads on every vendor's page: NVIDIA's, AMD's or Intel's newest driver for the card.
+  const driver = <DriverRow active={active} />
+  if (profile.status === 'none' && profile.ok) return <>{driver}<p className="exo-hub-sub">This PC has no graphics card Exo can tune.</p></>
 
   const nvidia = profile.vendor === 'nvidia'
   const { screen } = profile
-  const screenLine = [
-    `${screen.name || 'Main screen'}${screen.hz ? ` at ${screen.hz} Hz` : ''}`,
-    nvidia ? (screen.vrr ? 'reports G-SYNC' : 'reports no variable refresh') : null,
-  ].filter(Boolean).join(', ')
   const series = profile.series ? `${profile.series} series` : null
   const gsync = choice ?? profile.gsync
-  const head = [series, screenLine].filter(Boolean).join(' · ')
-  if (!nvidia) return <ManualProfile profile={profile} head={head} />
+  const head = [series, screenLine(profile)].filter(Boolean).join(' · ')
+  if ((profile.vendor === 'amd' || profile.vendor === 'intel') && profile.status !== 'manual') {
+    return <>{driver}<DriverProfile active={active} profile={profile} head={head} busy={busy} error={error} onAct={(action, latency) => void act(action, undefined, latency)} /></>
+  }
+  if (!nvidia) return <>{driver}<ManualProfile profile={profile} head={head} /></>
 
   return (
     <>
-      <DriverRow active={active} />
-      <Row label={profile.gpu || 'Graphics card'} detail={head} error={error ?? (profile.ok ? null : trimStop(profile.message) || 'The driver did not answer')}>
-        {busy ? <State>Working…</State> : <ProfileAction profile={profile} gsync={gsync} onAct={action => void act(action, gsync)} />}
-      </Row>
-      <Row
-        label="Sync"
-        detail={gsync
-          ? `G-SYNC full screen and windowed, V-Sync on in the driver, frames capped just under the refresh rate. Turn V-Sync off in games.${screen.vrr ? '' : ' Your screen does not report variable refresh.'}`
-          : 'Fixed refresh: variable refresh off, and V-Sync and frame caps stay each game’s.'}
-      >
+      {driver}
+      {/* The profile's sync (G-SYNC or not) sits beside its Use, as the variant it applies; whether it is applied leads
+          the line under its name. */}
+      <Row label={profile.gpu || 'Graphics card'} detail={<>{profileStatus(profile, gsync)}{head}. {gsync
+        ? `G-SYNC, V-Sync in the driver, frames capped just under the refresh rate: turn V-Sync off in games${screen.vrr ? '' : ' (this screen reports no variable refresh)'}`
+        : 'Fixed refresh: V-Sync and frame caps stay each game’s'}</>}
+        error={error ?? (profile.ok ? null : trimStop(profile.message) || 'The driver did not answer')}>
         <Choice label="Sync" value={gsync ? 'gsync' : 'fixed'} choices={SYNC} disabled={busy} onChange={value => setChoice(value === 'gsync')} />
+        {busy ? <State>Working…</State> : <ProfileAction profile={profile} gsync={gsync} onAct={action => void act(action, gsync)} />}
       </Row>
       <ImportRow />
     </>
   )
 }
 
-/** AMD and Intel: what to set by hand, next to what their driver holds. */
+/** The main screen, its refresh rate, and its variable refresh as the driver reports it. */
+function screenLine({ vendor, screen }: GpuProfile) {
+  const sync = vendor === 'nvidia' ? (screen.vrr ? 'reports G-SYNC' : 'reports no variable refresh')
+    : screen.vrr ? (vendor === 'amd' ? 'FreeSync' : vendor === 'intel' ? 'Adaptive Sync' : null) : null
+  return [`${screen.name || 'Main screen'}${screen.hz ? ` at ${screen.hz} Hz` : ''}`, sync].filter(Boolean).join(', ')
+}
+
+/** A Radeon or an Intel GPU Exo can't reach: what to set by hand, next to what their driver holds. */
 function ManualProfile({ profile, head }: { profile: GpuProfile; head: string }) {
   const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase()
   return (
@@ -105,21 +113,21 @@ function ManualProfile({ profile, head }: { profile: GpuProfile; head: string })
   )
 }
 
-/** Use (or switch to) the picked variant, Applied or the change since, and Undo while Exo's backup is there. */
+/** Where Exo's profile stands, ahead of the row's line: Applied, or what changed since. */
+function profileStatus(profile: GpuProfile, gsync: boolean) {
+  if (gsync !== profile.gsync) return null
+  if (profile.status === 'applied') return <><State on>Applied</State> · </>
+  if (profile.status === 'changed') return <><State>{profile.driverUpdated ? 'Driver changed some settings' : 'Some settings changed'}</State> · </>
+  return null
+}
+
+/** Use (or switch to) the picked variant, Re-apply what changed since, and Undo while Exo's backup is there. */
 function ProfileAction({ profile, gsync, onAct }: { profile: GpuProfile; gsync: boolean; onAct: (action: 'apply' | 'undo') => void }) {
   const undo = profile.canUndo && <button type="button" className="exo-set-btn" onClick={() => onAct('undo')}>Undo</button>
   const use = <button type="button" className="exo-set-btn is-primary" onClick={() => onAct('apply')}>Use Exo&rsquo;s profile</button>
   if (profile.status === 'ready' || gsync !== profile.gsync) return <>{use}{undo}</>
-  if (profile.status === 'applied') return <><State on>Applied</State>{undo}</>
-  if (profile.status === 'changed') {
-    return (
-      <>
-        <State>{profile.driverUpdated ? 'Driver changed some settings' : 'Some settings changed'}</State>
-        <button type="button" className="exo-set-btn is-primary" onClick={() => onAct('apply')}>Re-apply</button>
-        {undo}
-      </>
-    )
-  }
+  if (profile.status === 'applied') return <>{undo}</>
+  if (profile.status === 'changed') return <><button type="button" className="exo-set-btn is-primary" onClick={() => onAct('apply')}>Re-apply</button>{undo}</>
   return null
 }
 

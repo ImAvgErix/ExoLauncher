@@ -83,7 +83,7 @@ function NoticeBanner({ banner, onOpen, onClose }: { banner: Banner; onOpen: () 
   const where = banner.place ? banner.server ? `${banner.place} · ${banner.server}` : banner.place : banner.server
   return (
     <div className={`exo-dc-notice-slot${banner.leaving ? ' is-leaving' : ''}`} inert={banner.leaving}>
-      <div className="exo-dc-notice">
+      <div className="exo-dc-notice exo-glass is-panel">
         <button type="button" className="exo-dc-notice-main" onClick={onOpen}
           aria-label={`${banner.author}${where ? `, ${where}` : ''}: ${banner.body}. Open the conversation.`}>
           <Avatar src={banner.avatar} name={banner.author} status={null} size={36} />

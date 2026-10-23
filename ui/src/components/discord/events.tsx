@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import { Close } from '../../brand/icons'
 import { host } from '../../lib/host'
 import type { DiscordChannels, DiscordEvent } from '../../lib/discord'
@@ -8,6 +8,8 @@ import { useServer } from './serverPages'
 import { useAccountSettings } from '../../lib/discordPrefs'
 import { useLayer } from './admin'
 import { SubContext, Submenu } from './UserMenu'
+import { ModalBack } from './SettingsLayer'
+import { useDismiss } from '../../lib/dismiss'
 
 type Item = { event: DiscordEvent; interested: boolean }
 
@@ -21,7 +23,7 @@ export function EventsDialog({ guildId, list, onClose }: { guildId: string; list
   const box = useRef<HTMLDivElement>(null)
   useLayer(box, onClose)
   return (
-    <div className="exo-dc-modal-back" onClick={onClose}>
+    <ModalBack onClose={onClose}>
       <div ref={box} className="exo-dc-modal exo-dc-events" role="dialog" aria-modal="true" aria-label="Events" tabIndex={-1} onClick={event => event.stopPropagation()}>
         <div className="exo-dc-events-head">
           <Icons.Events size={20} />
@@ -35,7 +37,7 @@ export function EventsDialog({ guildId, list, onClose }: { guildId: string; list
         {events?.map(item => <EventCard key={item.event.id} item={item} guildId={guildId} list={list} onChanged={again} onEdit={() => setEditing(item.event)} />)}
       </div>
       {editing ? <EventEditor guildId={guildId} list={list} event={editing === 'new' ? null : editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); again() }} /> : null}
-    </div>
+    </ModalBack>
   )
 }
 
@@ -99,12 +101,7 @@ function EventMenu({ event, guildId, canManage, run, onEdit }: {
   const close = () => { setMenu(false); setSub(null); setConfirm(false) }
   const anchor = useRef<HTMLSpanElement>(null)
   // A click anywhere else closes it, as Discord's menus do.
-  useEffect(() => {
-    if (!menu) return
-    const away = (e: PointerEvent) => { if (!anchor.current?.contains(e.target as Node)) { setMenu(false); setSub(null); setConfirm(false) } }
-    document.addEventListener('pointerdown', away, true)
-    return () => document.removeEventListener('pointerdown', away, true)
-  }, [menu])
+  useDismiss(anchor, close, { on: menu })
   const status = (s: 2 | 3 | 4) => { close(); run(host.discordServer('eventStatus', { guildId, eventId: event.id, status: s })) }
   const copy = (text: string) => { void navigator.clipboard.writeText(text).catch(() => { }); close() }
   return (
@@ -178,7 +175,7 @@ function EventEditor({ guildId, list, event, onClose, onSaved }: { guildId: stri
     } catch { setError('Discord did not save that event.') } finally { setBusy(false) }
   }
   return (
-    <div className="exo-dc-modal-back is-top" onClick={onClose}>
+    <ModalBack top onClose={onClose}>
       <div ref={box} className="exo-dc-modal" role="dialog" aria-modal="true" aria-label={event ? 'Edit Event' : 'Create Event'} tabIndex={-1} onClick={e => e.stopPropagation()}>
         <strong>{event ? 'Edit Event' : 'Create Event'}</strong>
         <Where voices={voices} where={where} location={location} onWhere={setWhere} onLocation={setLocation} />
@@ -194,7 +191,7 @@ function EventEditor({ guildId, list, event, onClose, onSaved }: { guildId: stri
           <button type="button" className="button button--primary" disabled={!ready || busy} onClick={() => void save()}>{event ? 'Save Event' : 'Create Event'}</button>
         </div>
       </div>
-    </div>
+    </ModalBack>
   )
 }
 

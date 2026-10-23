@@ -43,9 +43,9 @@
   flex-wrap: wrap;
   gap: 2px;
   padding: 3px;
-  border: 1px solid #242424;
+  border: 1px solid rgb(var(--exo-ink-rgb) / 0.14);
   border-radius: 999px;
-  background: #000;
+  background: var(--color-bg);
 }
 
 .exo-shelf-chip {
@@ -120,7 +120,7 @@
   display: grid;
   place-items: center;
   padding: 24px;
-  background: rgb(0 0 0 / 0.62);
+  background: rgb(0 0 0 / calc(0.62 * var(--exo-scrim-k)));
   animation: exo-scrim-in var(--dur-base) var(--ease-out) backwards;
 }
 
@@ -134,8 +134,9 @@
 }
 
 /* A sheet or dialog settles in from the middle, where it stays (DESIGN.md › Motion › Appear). */
+/* By its size alone: a dialog fading whole would hide the room from the glass on its buttons until it landed. */
 @keyframes exo-float-in {
-  from { opacity: 0; scale: 0.98; }
+  from { scale: 0.98; }
 }
 
 /* A glass sheet settles in by its size alone while its glass and its words fade (glass.css › Sheets): a sheet
@@ -178,7 +179,7 @@
   display: grid;
   place-items: center;
   padding: var(--exo-gap);
-  background: rgb(0 0 0 / 0.6);
+  background: rgb(0 0 0 / calc(0.6 * var(--exo-scrim-k)));
   animation: exo-scrim-in var(--dur-base) var(--ease-out) backwards;
 }
 

@@ -11,18 +11,19 @@
     "postinstall": "node scripts/patch-protocol.mjs"
   },
   "dependencies": {
-    "@openmouse/protocol": "0.42.2",
-    "react": "19.3.0",
-    "react-dom": "19.3.0"
+    "@openmouse/protocol": "0.45.2",
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
   },
   "devDependencies": {
-    "@types/react": "^19.3.0",
-    "@types/react-dom": "^19.3.0",
-    "@vitejs/plugin-react": "6.1.1",
-    "eslint": "10.11.0",
-    "postcss": "8.5.28",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@typescript/native": "npm:typescript@7.1.0-dev.20261022.1",
+    "@vitejs/plugin-react": "6.1.2",
+    "eslint": "10.13.0",
+    "postcss": "8.5.31",
     "typescript": "npm:@typescript/typescript6@6.0.2",
-    "typescript-eslint": "8.70.0",
-    "vite": "8.3.4"
+    "typescript-eslint": "8.72.1-alpha.7",
+    "vite": "8.3.5"
   }
 }

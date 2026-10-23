@@ -1,25 +1,44 @@
-import { openToggle } from './openToggle'
 import { LottieSticker } from './LottieSticker'
 import { FavoriteMenu } from './EmojiPicker'
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { host } from '../../lib/host'
 import { report } from '../../lib/report'
 import { requestDiscordSettings, type DiscordStickerGroup, type DiscordUser } from '../../lib/discord'
 import { Icons } from './icons'
 import { openUserMenu } from './UserMenu'
 import { StrangerConfirm } from './admin'
-import { AboutMe, ActivityCard, MemberSince, MutualLine, NoteField, ProfileBanner, ProfileEffectOf, ProfileFace, profileName, profileTheme, ProfileWho, RoleList, showFullProfile, useProfile, type Loaded, type ProfileTab } from './profileParts'
+import { AboutMe, ActivityCard, loadProfile, MemberSince, MutualLine, NoteField, ProfileBanner, ProfileEffectOf, ProfileFace, profileLoaded, profileName, profileTheme, ProfileWho, RoleList, showFullProfile, useProfile, type Loaded, type ProfileTab } from './profileParts'
 import { onScreen, pressedArt, transition, visible } from '../../lib/viewTransition'
-
-/** What a person's picture can be, where it is pressed. */
-const FACES = '.exo-dc-avatar, .exo-dc-avatar-wrap, .exo-dc-pf-face'
+import { shouldReduceMotion } from '../../lib/motionPreference'
+import { ModalBack } from './SettingsLayer'
+import { useDismiss } from '../../lib/dismiss'
 
 // The room's overlays are asked for by event, so any message or list can open them. The person as the
 // message or list shows them stands in when Discord doesn't send their profile.
 // The picture pressed flies into the popout's.
+/**
+ * Discord's profile popout where you clicked, at once: one card settling in on the spring (discord.css ›
+ * exo-dc-pf-in) with what is known of them, growing smoothly to its full size when the rest of the profile lands
+ * (already there when a pointer resting on them read it ahead).
+ */
 export function showProfile(userId: string, guildId: string | null, x: number, y: number, user?: DiscordUser) {
-  void transition(() => window.dispatchEvent(new CustomEvent('exo-dc-profile', { detail: { userId, guildId, x, y, user } })),
-    { kind: 'morph', morph: { name: 'exo-dc-face', from: pressedArt(FACES), to: () => visible('.exo-dc-profile .exo-dc-pf-face') } })
+  window.dispatchEvent(new CustomEvent('exo-dc-profile', { detail: { userId, guildId, x, y, user } }))
+}
+
+/** A pointer resting on someone (their face or name in a list or message) reads their profile ahead, for their card. */
+export function useProfileReadAhead(guildId: string | null) {
+  useEffect(() => {
+    let timer = 0
+    const over = (event: PointerEvent) => {
+      const who = (event.target as Element | null)?.closest?.<HTMLElement>('[data-dc-user]')
+      window.clearTimeout(timer)
+      if (!who?.dataset.dcUser) return
+      const userId = who.dataset.dcUser
+      timer = window.setTimeout(() => { if (!profileLoaded(userId, guildId)) void loadProfile(userId, guildId).catch(() => null) }, 250)
+    }
+    document.addEventListener('pointerover', over)
+    return () => { document.removeEventListener('pointerover', over); window.clearTimeout(timer) }
+  }, [guildId])
 }
 
 /** The picture opened in the viewer, where it flies back to on close. */
@@ -61,6 +80,20 @@ export function ProfileHost({ meId, onMessage }: { meId: string | null; onMessag
   return <ProfilePopout key={`${at.userId}:${at.x}:${at.y}`} at={at} meId={meId} onClose={close} onMessage={id => { close(); onMessage(id) }} />
 }
 
+/** A card whose contents change size (a profile landing over what was known) grows or shrinks to it smoothly. */
+function useGrow(box: React.RefObject<HTMLElement | null>, key: unknown) {
+  const was = useRef<number | null>(null)
+  useLayoutEffect(() => {
+    const el = box.current
+    if (!el) return
+    const now = el.getBoundingClientRect().height
+    const from = was.current
+    was.current = now
+    if (from === null || Math.abs(from - now) < 2 || shouldReduceMotion()) return
+    el.animate([{ height: `${from}px`, overflow: 'clip' }, { height: `${now}px`, overflow: 'clip' }], { duration: 260, easing: 'cubic-bezier(0.2, 0.9, 0.25, 1)' })
+  }, [box, key])
+}
+
 /**
  * The popout, as Discord's: banner with the friend button and More (the person menu: friend, Ignore, Block and what a
  * moderator may do), picture with its decoration and status, names, badges, mutuals, what they're doing, About Me,
@@ -69,11 +102,8 @@ export function ProfileHost({ meId, onMessage }: { meId: string | null; onMessag
 function ProfilePopout({ at, meId, onClose, onMessage }: { at: ProfileAt; meId: string | null; onClose: () => void; onMessage: (userId: string) => void }) {
   const { data, failed } = useProfile(at.userId, at.guildId, at.user)
   const box = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    const away = (event: PointerEvent) => { if (box.current && !box.current.contains(event.target as Node) && !openToggle(event.target)) onClose() }
-    document.addEventListener('pointerdown', away, true)
-    return () => document.removeEventListener('pointerdown', away, true)
-  }, [onClose])
+  useGrow(box, data)
+  useDismiss(box, onClose)
   useEscape(onClose)
   const user = data?.profile.user
   const name = data ? profileName(data) : at.user?.global_name ?? at.user?.username ?? 'Profile'
@@ -95,7 +125,7 @@ function ProfilePopout({ at, meId, onClose, onMessage }: { at: ProfileAt; meId: 
           <div className="exo-dc-pf-body">
             <ProfileWho data={data} guildId={at.guildId} onName={() => full()} />
             {friendError ? <p className="exo-dc-note is-bad" role="alert">{friendError}</p> : null}
-            <MutualLine data={data} onFriends={() => full('friends')} onServers={() => full('servers')} />
+            <MutualLine data={data} mine={user.id === meId} onFriends={() => full('friends')} onServers={() => full('servers')} />
             <ActivityCard data={data} />
             <AboutMe data={data} guildId={at.guildId} />
             <MemberSince data={data} guildId={at.guildId} />
@@ -181,7 +211,7 @@ export function AddServer({ refused, onJoined, onClose }: { refused: boolean | {
     } finally { setBusy(false) }
   }
   return (
-    <div className="exo-dc-modal-back" onClick={onClose}>
+    <ModalBack onClose={onClose}>
       <div className="exo-dc-modal" role="dialog" aria-label="Join a server" onClick={event => event.stopPropagation()}>
         <strong>Join a Server</strong>
         <p>Enter an invite below to join an existing server.</p>
@@ -194,7 +224,7 @@ export function AddServer({ refused, onJoined, onClose }: { refused: boolean | {
           <button type="button" className="button button--primary" disabled={!invite.trim() || busy} onClick={() => void join()}>Join Server</button>
         </div>
       </div>
-    </div>
+    </ModalBack>
   )
 }
 
@@ -213,11 +243,7 @@ export function StickerPicker({ guildId, tabs, onPick, onClose }: { guildId: str
   useEffect(() => {
     host.discordStickers(guildId).then(result => { setGroups(result.groups ?? []); setFavorites(result.favorites ?? []) }).catch(() => setGroups([]))
   }, [guildId])
-  useEffect(() => {
-    const away = (event: PointerEvent) => { if (box.current && !box.current.contains(event.target as Node) && !openToggle(event.target)) onClose() }
-    document.addEventListener('pointerdown', away, true)
-    return () => document.removeEventListener('pointerdown', away, true)
-  }, [onClose])
+  useDismiss(box, onClose)
   useEscape(menu ? () => setMenu(null) : onClose)
   const setFavorite = (id: string, add: boolean) => {
     setMenu(null)

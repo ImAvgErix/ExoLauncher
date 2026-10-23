@@ -10,6 +10,7 @@ import { Avatar } from './presence'
 import { effectSkuOf, lookOf, Nameplate, primeEffect, StyledName } from './collectibles'
 import { ProfileCard, profileName, profileOf, useProfile, type Loaded } from './profileParts'
 import { AddCard, useConfirmPayment } from './payFrame'
+import { ModalBack } from './SettingsLayer'
 
 /**
  * Discord's Shop in the Discord room: its catalog by category, one kind of collectible, or what you own, each
@@ -356,7 +357,7 @@ function ProductDialog({ product, mine, nitro, owned, worn, onClose, onWorn, onB
   }
   const yours = owned || step === 'bought'
   return (
-    <div className="exo-dc-modal-back" onClick={onClose}>
+    <ModalBack onClose={onClose}>
       <div ref={box} className="exo-dc-modal exo-dc-shop-dialog" role="dialog" aria-modal="true" aria-label={product.name} tabIndex={-1} onClick={event => event.stopPropagation()}>
         <div className="exo-dc-shop-dialog-preview" style={stage(product)}>
           <ProfileCard data={dressed} />
@@ -383,7 +384,7 @@ function ProductDialog({ product, mine, nitro, owned, worn, onClose, onWorn, onB
           )}
         </div>
       </div>
-    </div>
+    </ModalBack>
   )
 }
 

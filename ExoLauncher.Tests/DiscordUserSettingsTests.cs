@@ -236,14 +236,14 @@ public sealed class DiscordUserSettingsTests
         Assert.Equal("*******1234", WebHostBridge.MaskPhone("+1 (555) 501-1234"));
 
     [Fact]
-    public void ManualSensitivityOpensAboveTheThresholdAndHolds300Ms()
+    public void ManualSensitivityOpensAboveTheThresholdAndHolds500Ms()
     {
         var gate = new VoiceGate();
         var quiet = Enumerable.Repeat(0.001f, 1920).ToArray(); // -60 dBFS
         var loud = Enumerable.Repeat(0.1f, 1920).ToArray(); // -20 dBFS
         Assert.False(gate.Voiced(quiet, automatic: false, threshold: -40));
         Assert.True(gate.Voiced(loud, automatic: false, threshold: -40));
-        for (var i = 0; i < 15; i++) Assert.True(gate.Voiced(quiet, false, -40));
+        for (var i = 0; i < 25; i++) Assert.True(gate.Voiced(quiet, false, -40));
         Assert.False(gate.Voiced(quiet, false, -40));
         Assert.InRange(gate.Level, -61f, -59f);
     }

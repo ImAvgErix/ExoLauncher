@@ -78,6 +78,8 @@ float ScaleOf(HMONITOR monitor)
 
 // ---------------------------------------------------------------- shared drawing
 
+constexpr float ToastText = 12.5f;
+
 struct Ui::Impl
 {
     com_ptr<ID2D1Factory> d2d;
@@ -156,6 +158,17 @@ struct Ui::Impl
         return format;
     }
 
+    /// The width of a line of text at this size (DIPs), for windows that fit their words.
+    float Measure(const std::wstring& text, float size)
+    {
+        auto format = Text(size);
+        com_ptr<IDWriteTextLayout> layout;
+        if (!format || FAILED(dwrite->CreateTextLayout(text.c_str(), static_cast<UINT32>(text.size()), format.get(), 4000, 100, layout.put()))) return 240;
+        DWRITE_TEXT_METRICS metrics{};
+        layout->GetMetrics(&metrics);
+        return metrics.widthIncludingTrailingWhitespace;
+    }
+
     com_ptr<ID2D1HwndRenderTarget> Target(HWND hwnd, float scale)
     {
         RECT rc;
@@ -173,15 +186,16 @@ struct Ui::Impl
 
 namespace
 {
+// One line in a small capsule: a dot (green, or red when something failed) and the words.
 struct ToastWin : Win
 {
     Ui::Impl* ui;
-    std::wstring title, detail;
+    std::wstring line;
     bool good;
     float scale;
     com_ptr<ID2D1HwndRenderTarget> target;
 
-    ToastWin(Ui::Impl* impl, std::wstring t, std::wstring d, bool g, float s) : ui(impl), title(std::move(t)), detail(std::move(d)), good(g), scale(s) {}
+    ToastWin(Ui::Impl* impl, std::wstring l, bool g, float s) : ui(impl), line(std::move(l)), good(g), scale(s) {}
 
     LRESULT Handle(UINT msg, WPARAM wp, LPARAM lp) override
     {
@@ -201,22 +215,12 @@ struct ToastWin : Win
                 target->Clear(Black);
                 com_ptr<ID2D1SolidColorBrush> brush;
                 target->CreateSolidColorBrush(Hairline, brush.put());
-                target->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(0.5f, 0.5f, w - 0.5f, h - 0.5f), 14, 14), brush.get(), 1);
+                target->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(0.5f, 0.5f, w - 0.5f, h - 0.5f), 8, 8), brush.get(), 1);
                 brush->SetColor(good ? Good : Bad);
-                target->FillEllipse(D2D1::Ellipse(D2D1::Point2F(22, h / 2), 4, 4), brush.get());
+                target->FillEllipse(D2D1::Ellipse(D2D1::Point2F(15, h / 2), 3.5f, 3.5f), brush.get());
                 brush->SetColor(Ink);
-                auto titleFormat = ui->Text(13);
-                auto detailFormat = ui->Text(12);
-                bool two = !detail.empty();
-                if (titleFormat)
-                    target->DrawText(title.c_str(), static_cast<UINT32>(title.size()), titleFormat.get(),
-                        D2D1::RectF(36, two ? 10 : 0, w - 14, two ? h / 2 + 1 : h), brush.get());
-                if (two && detailFormat)
-                {
-                    brush->SetColor(Muted);
-                    target->DrawText(detail.c_str(), static_cast<UINT32>(detail.size()), detailFormat.get(),
-                        D2D1::RectF(36, h / 2 - 1, w - 14, h - 10), brush.get());
-                }
+                if (auto format = ui->Text(ToastText))
+                    target->DrawText(line.c_str(), static_cast<UINT32>(line.size()), format.get(), D2D1::RectF(26, 0, w - 12, h), brush.get());
                 if (target->EndDraw() == D2DERR_RECREATE_TARGET) target = nullptr;
             }
             EndPaint(hwnd, &ps);
@@ -611,6 +615,9 @@ bool Ui::SetHotkey(int id, const Hotkey& key)
     return ok;
 }
 
+// A small one-line capsule at the top middle of the game's screen, there for a moment: the old card sat in the top-right
+// corner, over a shooter's minimap or kill feed, for nearly three seconds. Done goes after 1.5 s; a failure stays 3.5 s to
+// be read. Clicks go through it and it never takes focus.
 void Ui::Toast(const std::wstring& title, const std::wstring& detail, HMONITOR monitor, bool good)
 {
     Post([=] {
@@ -618,15 +625,16 @@ void Ui::Toast(const std::wstring& title, const std::wstring& detail, HMONITOR m
         if (m->toast) DestroyWindow(m->toast->hwnd);
         float scale = ScaleOf(monitor ? monitor : MonitorFromPoint({ 0, 0 }, MONITOR_DEFAULTTOPRIMARY));
         RECT work = WorkArea(monitor);
-        int w = static_cast<int>(300 * scale), h = static_cast<int>((detail.empty() ? 44 : 58) * scale);
-        int margin = static_cast<int>(16 * scale);
-        auto* win = new ToastWin(m.get(), title, detail, good, scale);
-        HWND hwnd = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, L"ExoCapturePopup", L"Exo Capture",
-            WS_POPUP, work.right - w - margin, work.top + margin, w, h, nullptr, nullptr, GetModuleHandleW(nullptr), win);
+        std::wstring line = detail.empty() ? title : title + L" \u00B7 " + detail;
+        float text = std::min(m->Measure(line, ToastText), 420.f);
+        int w = static_cast<int>((26 + text + 12) * scale + 1), h = static_cast<int>(28 * scale);
+        auto* win = new ToastWin(m.get(), line, good, scale);
+        HWND hwnd = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_TRANSPARENT, L"ExoCapturePopup", L"Exo Capture",
+            WS_POPUP, (work.left + work.right - w) / 2, work.top + static_cast<int>(10 * scale), w, h, nullptr, nullptr, GetModuleHandleW(nullptr), win);
         if (!hwnd) { delete win; return; }
         m->toast = win;
         Rounded(hwnd);
-        SetTimer(hwnd, 1, 2600, nullptr);
+        SetTimer(hwnd, 1, good ? 1500 : 3500, nullptr);
         ShowWindow(hwnd, SW_SHOWNOACTIVATE);
     });
 }

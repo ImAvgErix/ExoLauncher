@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Bookmark, Check, CHECK_PATH, Close, ExternalLink, Library, Loader2, Play } from '../../brand/icons'
 import { host, type StoreGame, type StoreOffer, type StoreTile } from '../../lib/host'
 import { report } from '../../lib/report'
-import { useGlassTone, useLens } from '../../lib/glass'
+import { useLens } from '../../lib/glass'
 import { Price, SteamImage } from './StoreCard'
 import { artSources, ggDealsUrl, loadGame, loadOffers, peekGame, peekOffers, reviewText, steamArt, useDone } from './storeData'
 import { TrailerPlayer } from './TrailerPlayer'
@@ -44,10 +44,12 @@ export function StoreGamePage({ seed, onScreen, owned, wished, onWish, onOpenLib
   const data = game.data
   const close = useRef<HTMLButtonElement>(null)
   useLens(close)
-  useGlassTone(close, 'store-close')
   return (
     <section className="exo-sgp" aria-labelledby="exo-sgp-title" tabIndex={-1} data-autofocus>
       <button ref={close} type="button" className="exo-game-close exo-glass" aria-label="Close" onClick={onClose}><Close size={16} /></button>
+      <div className="exo-sgp-backdrop" aria-hidden="true">
+        <SteamImage key={hero[0]?.src} eager sources={hero} />
+      </div>
       <header className="exo-sgp-hero">
         <SteamImage key={hero[0]?.src} eager sources={hero} className="exo-motion-switch" />
       </header>

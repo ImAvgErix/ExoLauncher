@@ -78,6 +78,8 @@ export function useMouse() {
   const [state, setState] = useState<MouseState>({ phase: 'looking', candidates: [], current: null, brand: '', status: null, error: null, busy: false, readAt: 0 })
   const client = useRef<SupportedClient | null>(null)
   const writing = useRef(0)
+  /** The open mouse was opened again since its last good read. */
+  const reopened = useRef(false)
   // Hidden until the room says otherwise: Exo starts this frame behind a closed room, and
   // its first visibility message can land before this listener exists.
   const [visible, setVisible] = useState(false)
@@ -130,6 +132,7 @@ export function useMouse() {
         const status = await next.readStatus()
         if (!live) { await next.close().catch(() => undefined); return }
         client.current = next
+        reopened.current = false
         setState({ phase: 'ready', candidates, current: pick, brand: drivers.deviceBrand(next), status, error: null, busy: false, readAt: Date.now() })
       } catch (e) {
         await next.close().catch(() => undefined)
@@ -144,9 +147,16 @@ export function useMouse() {
     if (!c || writing.current > 0) return
     try {
       const status = await c.readStatus()
+      reopened.current = false
       if (client.current === c && writing.current === 0) setState(s => ({ ...s, status, readAt: Date.now() }))
     } catch {
-      // A wireless mouse asleep or out of range: the last status stays.
+      // A wireless mouse asleep or out of range: the last status stays. After the PC sleeps, or a replug
+      // quicker than Exo saw it leave, the mouse is back but its handles are dead, so it is opened again
+      // once per run of failed reads (as OpenMouse Bridge does after a resume); the next read uses that.
+      if (reopened.current || client.current !== c) return
+      reopened.current = true
+      await c.close().catch(() => undefined)
+      await (can(c, 'open') ? invoke(c, 'open', []) : c.device.open()).catch(() => undefined)
     }
   }, [])
 

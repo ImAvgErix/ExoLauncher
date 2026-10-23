@@ -8,7 +8,8 @@ namespace ExoLauncher.Services;
 /// Settings > Downloads, applied: downloads wait while a game runs and
 /// outside the download hours (<see cref="LaunchOrchestrator.Hold"/>), and
 /// games from the stores Exo downloads itself (Epic, GOG, Amazon) update by
-/// themselves once the PC has been idle for ten minutes with no game running.
+/// themselves once the PC has been idle for ten minutes with no game running,
+/// and so does AMD's or Intel's chipset driver (<see cref="ChipsetUpdate"/>).
 /// Steam updates and pauses its own downloads.
 /// </summary>
 internal sealed class DownloadPolicy : IDisposable
@@ -61,6 +62,7 @@ internal sealed class DownloadPolicy : IDisposable
             if (!_services.Launcher.AnyGameRunning) _services.Launcher.Release(Playing);
             ApplyHours(settings);
             if (settings.AutoUpdateGames) SweepUpdates();
+            if (settings.AutoUpdateChipset) UpdateChipset();
         }
         catch (Exception ex)
         {
@@ -106,6 +108,16 @@ internal sealed class DownloadPolicy : IDisposable
                 try { await launcher.UpdateAsync(game).ConfigureAwait(false); }
                 catch (Exception ex) { AppLog.Info($"Auto-update of {game.Title} failed: {ex.Message}"); }
             });
+    }
+
+    /// <summary>AMD's or Intel's chipset driver, in the same idle window as games (<see cref="ChipsetUpdate"/> adds its own gates).</summary>
+    private static void UpdateChipset()
+    {
+        var idle = IdleFor();
+        if (idle < ChipsetUpdate.IdleBefore || ChipsetUpdate.ThisPc is not { } chipset || chipset.Installed() is null) return;
+        // The maker's page at most every 12 hours; this tick uses the answer once it's in.
+        var latest = chipset.LatestAsync();
+        if (latest.IsCompletedSuccessfully) chipset.Tick(true, idle, latest.Result, ChipsetUpdate.BootedAt());
     }
 
     [StructLayout(LayoutKind.Sequential)]

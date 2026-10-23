@@ -48,7 +48,7 @@
 
 .exo-hub-sub {
   margin: 4px 0 0;
-  color: var(--color-faint);
+  color: var(--color-muted);
   font-size: calc(12px * var(--exo-scale, 1));
 }
 
@@ -115,11 +115,16 @@
   overflow: hidden;
 }
 
+/* A fill slides in from the left inside its rounded track (transform only: no layout each frame, so it stays smooth
+   while the page is busy; its rounded end keeps its shape, as a scale would not). */
 .exo-upscalers-progress > span {
   display: block;
+  width: 100%;
   height: 100%;
+  border-radius: inherit;
   background: var(--color-fg);
-  transition: width 120ms linear;
+  transform: translateX(calc(var(--fill, 0) * 100% - 100%));
+  transition: transform 120ms linear;
 }
 
 /* Games: one poster per game, like the Shaders grid, its cover the picture. */
@@ -165,7 +170,7 @@
   border: 0;
   border-radius: 999px;
   background: var(--color-fg);
-  color: #0a0a0a;
+  color: var(--color-primary-fg);
   font: inherit;
   font-size: calc(12px * var(--exo-scale, 1));
   font-weight: 600;
@@ -239,7 +244,7 @@
   flex: none;
   min-width: 42px;
   padding: 1px 8px;
-  border: 1px solid #242424;
+  border: 1px solid rgb(var(--exo-ink-rgb) / 0.14);
   border-radius: 999px;
   text-align: center;
   font-size: calc(12px * var(--exo-scale, 1));
@@ -266,7 +271,7 @@
 
 .exo-upscalers-to {
   color: var(--color-fg);
-  transition: color 240ms var(--ease-out);
+  transition: color var(--dur-base) var(--ease-out);
 }
 
 .exo-upscalers-card.is-done .exo-upscalers-to {
@@ -303,7 +308,7 @@
 }
 
 .exo-upscalers-clear-mark circle {
-  stroke: #242424;
+  stroke: rgb(var(--exo-ink-rgb) / 0.14);
   stroke-width: 0.75;
   stroke-dasharray: 1;
   stroke-dashoffset: 1;
@@ -328,7 +333,7 @@
 .exo-upscalers .exo-upscaler-btn.is-primary {
   border-color: var(--color-fg);
   background: var(--color-fg);
-  color: #0a0a0a;
+  color: var(--color-primary-fg);
 }
 
 .exo-upscalers .exo-upscaler-btn.is-primary:disabled {

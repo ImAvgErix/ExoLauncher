@@ -33,7 +33,7 @@ export function ShaderPrecompile({ gameId, onOpenShaders }: ShaderPrecompileProp
 function wordFor(status: ShaderStatus | null): LineWord | null {
   if (!status) return { text: 'Checking…' }
   switch (status.state) {
-    case 'warmed': return { text: 'Compiled', good: true }
+    case 'warmed': return { text: 'Compiled' }
     case 'stale': return { text: status.reason ?? 'Compile again' }
     case 'ready': case 'record': return { text: 'Not compiled' }
     case 'unsupported': return { text: 'Not supported' }

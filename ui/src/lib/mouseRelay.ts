@@ -62,10 +62,13 @@ const EXO: Record<string, (p: Record<string, unknown>) => Promise<unknown>> = {
   'exo.textScale': () => Promise.resolve({ ok: true, data: String(textScale()) }),
   // Exo's motion ('reduce' or 'full'), so the module stops the moves Exo stops.
   'exo.motion': () => Promise.resolve({ ok: true, data: motion() }),
+  // Exo's Appearance (light, dark or void), so the module is drawn in it.
+  'exo.theme': () => Promise.resolve({ ok: true, data: theme() }),
 }
 
 /** Exo's motion setting as the shell writes it on the root (useShellLayout). */
 const motion = () => document.documentElement.dataset.exoMotion === 'reduce' ? 'reduce' : 'full'
+const theme = () => document.documentElement.dataset.exoTheme ?? 'void'
 
 type Request = {
   exo?: string; id?: number; method?: string; params?: Record<string, unknown>
@@ -125,6 +128,8 @@ export function startMouseRelay() {
   onTextScale(scale => postToMouse({ event: 'exo.textScale', data: { scale } }))
   new MutationObserver(() => postToMouse({ event: 'exo.motion', data: { motion: motion() } }))
     .observe(document.documentElement, { attributes: true, attributeFilter: ['data-exo-motion'] })
+  new MutationObserver(() => postToMouse({ event: 'exo.theme', data: { theme: theme() } }))
+    .observe(document.documentElement, { attributes: true, attributeFilter: ['data-exo-theme'] })
   onHostEvent('hid.input', data => postToMouse({ event: 'hid.input', data }))
   onHostEvent('hid.changed', data => postToMouse({ event: 'hid.changed', data }))
   // In order: a stop never overtakes the start it follows while a library read is pending.

@@ -6,9 +6,11 @@ import { goLivePreview, goLiveSources, startGoLive, stopGoLive, useGoLive, type 
 import { host, type GoLiveSource } from '../../lib/host'
 import { useVideoFeed } from '../../lib/discordVideo'
 import { useDialogFocus } from '../../lib/focusTrap'
-import { usePageActive } from '../../lib/pageActivity'
+import { usePageActive, usePageVisible } from '../../lib/pageActivity'
 import { Switch } from '../Switch'
 import { Icons } from './icons'
+import { ModalBack } from './SettingsLayer'
+import { useDismiss } from '../../lib/dismiss'
 
 type Quality = { height: number; fps: number; sound: boolean }
 type Option = { key: number; label: string; note: string }
@@ -55,7 +57,7 @@ function saveQuality(quality: Quality) {
 /** Polls a picture (a source's, or the live stream's with no source) while mounted and Exo is in use; null until the first. */
 function usePicture(source: string | null, width: number, every: number, first: string | null = null) {
   const [picture, setPicture] = useState<string | null>(first)
-  const active = usePageActive()
+  const active = usePageVisible()
   useEffect(() => {
     if (!active) return
     let alive = true
@@ -85,7 +87,7 @@ function useEscape(onEscape: () => void) {
 
 // The rate shown is the stream's ceiling: a still picture sends almost nothing, which is no measure of its quality.
 const formatStats = (stats: GoLiveStats) =>
-  `${stats.width}×${stats.height} · ${stats.fps} fps · ${stats.max ? `up to ${(stats.max / 1_000_000).toFixed(1)}` : (stats.bitrate / 1_000_000).toFixed(1)} Mbps`
+  `${stats.width}×${stats.height} · ${stats.fps} fps · ${stats.codec ? `${stats.codec} · ` : ''}${stats.max ? `up to ${(stats.max / 1_000_000).toFixed(1)}` : (stats.bitrate / 1_000_000).toFixed(1)} Mbps`
 
 // Whether your own stream shows as a tile in the call (Discord's Hide Preview), kept on this PC.
 const PREVIEW = 'exo.discord.goLivePreview'
@@ -118,12 +120,7 @@ export function ShareScreen() {
   const shown = useStreamTile()
   const box = useRef<HTMLSpanElement>(null)
   const on = live.state !== 'off'
-  useEffect(() => {
-    if (!menu) return
-    const away = (event: PointerEvent) => { if (box.current && !box.current.contains(event.target as Node)) setMenu(false) }
-    document.addEventListener('pointerdown', away, true)
-    return () => document.removeEventListener('pointerdown', away, true)
-  }, [menu])
+  useDismiss(box, () => setMenu(false), { on: menu })
   useEscape(() => setMenu(false))
   return (
     <span ref={box} className="exo-dc-share">
@@ -153,8 +150,9 @@ export function MyStreamTile({ meId }: { meId: string | null }) {
   const live = useGoLive()
   const feed = useVideoFeed('self', meId)
   const picture = usePicture(null, 960, feed.live ? 60_000 : 500)
-  // Your stream's own frames come only while you're in Exo to see them (a game in front, or Exo minimized, needs none).
-  const active = usePageActive()
+  // Your stream's own frames come while Exo is on screen to see them, focused or not (Exo beside the game on another
+  // screen shows it live); minimized or hidden, none.
+  const active = usePageVisible()
   useEffect(() => {
     if (!active) return
     void host.discordGoLive('self', { on: true }).catch(() => { })
@@ -180,14 +178,14 @@ function GoLiveDialog({ onClose, onLive }: { onClose: () => void; onLive: () => 
   useDialogFocus(dialog)
   useEscape(onClose)
   return (
-    <div className="exo-dc-modal-back" onClick={onClose}>
+    <ModalBack onClose={onClose}>
       <div ref={dialog} className={`exo-dc-modal exo-dc-golive${chosen ? '' : ' is-picking'}`} role="dialog" aria-modal="true" aria-label="Share your screen" tabIndex={-1}
         onClick={event => event.stopPropagation()}>
         {chosen
           ? <GoLiveSettings source={chosen} onBack={() => setChosen(null)} onClose={onClose} onLive={onLive} />
           : <SourcePicker onPick={setChosen} onClose={onClose} />}
       </div>
-    </div>
+    </ModalBack>
   )
 }
 

@@ -52,11 +52,7 @@ textarea.exo-dc-field {
   margin: 24px 0 0;
   padding: 8px 8px 8px 20px;
   border-radius: 999px;
-  background: var(--exo-float);
-  box-shadow: inset 0 0 0 1px var(--exo-float-line);
-  color: var(--color-fg);
   font-size: calc(13px * var(--exo-scale, 1));
-  animation: exo-switch var(--dur-base) var(--ease-out) backwards;
 }
 
 .exo-dc-savebar > span {
@@ -360,7 +356,7 @@ button.exo-dc-grip:hover {
 }
 
 .exo-dc-swatch[aria-checked="true"] {
-  box-shadow: 0 0 0 2px #000, 0 0 0 4px var(--color-fg);
+  box-shadow: 0 0 0 2px var(--color-bg), 0 0 0 4px var(--color-fg);
 }
 
 .exo-dc-swatch.is-custom {

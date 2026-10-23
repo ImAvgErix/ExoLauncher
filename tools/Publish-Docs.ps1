@@ -1,6 +1,6 @@
 # Release docs (github.com/ImAvgErix/ExoLauncher).
 #   pwsh -File tools\Publish-Docs.ps1
-# 1. Writes docs\RELEASE_<v>.md from the top CHANGELOG section (never hand-copy it).
+# 1. Writes docs\RELEASE_<v>.md, the release page: date and download, no notes (What's New carries them).
 # 2. Checks: VERSION == README title == top CHANGELOG heading == release file
 #    (.github\scripts\Test-DocsVersion.ps1, which the Docs workflow also runs);
 #    every top-section entry ends with its verification; every docs\media image
@@ -23,7 +23,7 @@ Get-ChildItem -LiteralPath (Join-Path $githubRoot '.github') -Recurse -File -For
     $publicFiles[[IO.Path]::GetRelativePath($githubRoot, $_.FullName).Replace('\', '/')] = $_.FullName
 }
 
-# 1. docs/RELEASE_<v>.md from the top CHANGELOG section.
+# 1. docs/RELEASE_<v>.md: its date from the top CHANGELOG section.
 $changelog = (Get-Content (Join-Path $repo 'CHANGELOG.md') -Raw -Encoding utf8) -replace "`r`n", "`n"
 $sections = [regex]::Matches($changelog, '(?ms)^## (\d+\.\d+\.\d+) — ([^\n]+)\n(.*?)(?=^## |\z)')
 if (-not $sections.Count) { throw 'CHANGELOG.md has no "## X.Y.Z — Month D, YYYY" section.' }
@@ -36,17 +36,18 @@ if (-not [datetime]::TryParseExact($date, 'MMMM d, yyyy', $inv, 'None', [ref]$pa
 if ($topVersion -ne $version) { throw "VERSION is $version but the top CHANGELOG section is $topVersion. Write the $version entry first." }
 
 foreach ($line in $body -split "`n" | Where-Object { $_ -match '^\s*- ' }) {
-    if ($line -notmatch '_(Verified: on screen|Verified: end-to-end|Checked in code only)\._$') {
+    # "Checked in code only; needs a Radeon." names the hardware it still needs.
+    if ($line -notmatch '_(Verified: on screen|Verified: end-to-end|Checked in code only(; needs an? [^._]+)?)\._$') {
         $problems.Add("$version entry without its verification: $($line.Substring(0, [Math]::Min(80, $line.Length)))")
     }
 }
 
 $base = 'https://github.com/ImAvgErix/ExoLauncher'
+# The release page carries no notes: what changed is Exo's own What's New sheet (ui/src/lib/whatsNew.ts).
 $release = @(
     "# Exo Launcher $version", '',
     "_$($date)_", '',
-    $body, '',
-    "[Download ExoLauncher-Setup.exe]($base/releases/download/v$version/ExoLauncher-Setup.exe) · [Full changelog]($base/blob/main/CHANGELOG.md) · [Privacy policy]($base/blob/main/PRIVACY.md)", ''
+    "[Download ExoLauncher-Setup.exe]($base/releases/download/v$version/ExoLauncher-Setup.exe) · [Privacy policy]($base/blob/main/PRIVACY.md)", ''
 ) -join "`r`n"
 $release = $release -replace "(?<!`r)`n", "`r`n"
 $releaseName = "docs/RELEASE_$version.md"

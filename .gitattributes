@@ -13,3 +13,4 @@
 # Vendored extensions are hash-pinned byte for byte (WebExtensions.Entries);
 # checkout must never rewrite their line endings.
 ExoLauncher/Assets/Extensions/** -text
+*.gz binary

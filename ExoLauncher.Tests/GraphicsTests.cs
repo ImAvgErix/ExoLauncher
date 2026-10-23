@@ -15,7 +15,9 @@ namespace ExoLauncher.Tests;
 /// - Undo does not put back exactly what was there (a value, or the default);
 /// - a game's profile is imported to every game (the global profile), or a
 ///   file with several global profiles is guessed at;
-/// - the wrong vendor is talked to.
+/// - the wrong vendor is talked to;
+/// - the DLSS override check misreads the driver's answer (a refused override logged as taken, a game
+///   without DLSS logged at all), or its structure is the wrong size and the driver refuses every ask.
 /// </summary>
 public sealed class GraphicsTests
 {
@@ -160,5 +162,29 @@ public sealed class GraphicsTests
         Assert.Equal("intel", GraphicsService.ActiveVendor(["nvidia", "intel"], nvapi: false, adlx: false, igcl: true));
         Assert.Null(GraphicsService.ActiveVendor(["amd"], nvapi: false, adlx: false, igcl: false));
         Assert.Null(GraphicsService.ActiveVendor([], nvapi: true, adlx: true, igcl: true));
+    }
+
+    [Fact]
+    public void TheDlssOverrideCheckSaysWhatTook()
+    {
+        const ulong created = 1 << 9, enabled = 1 << 1, selected = 1 << 4, denied = 1 << 17;
+        var none = new NvidiaProfiles.NgxState(0, 0, 0, 0, 0, 0, 0, 0, 0);
+        Assert.False(NvidiaProfiles.RunsDlss(none));
+        var taken = none with { Sr = created | enabled | selected, Preset = 11, Ratio = 0.5f, Mode = 0 };
+        Assert.True(NvidiaProfiles.RunsDlss(taken));
+        Assert.Equal("Super Resolution overridden; Preset K, mode 0, scale 0.5", NvidiaProfiles.Describe(taken));
+        var refused = none with { Sr = created | denied, Fg = created, FgPreset = 3, FgCount = 1, FgMode = 2 };
+        Assert.Equal("Super Resolution the game's own (override refused, 0x20200); Frame Generation the game's own; Driver default, mode 0, scale 0; frame generation Preset C, count 1, mode 2",
+            NvidiaProfiles.Describe(refused));
+    }
+
+    // The driver answers for a process with no DLSS (this one): asked right (96-byte V2 structure), it has no data (not a refusal), read as nothing running.
+    [Fact]
+    public void TheDriverAnswersTheDlssOverrideAsk()
+    {
+        Assert.SkipUnless(NvidiaProfiles.Available, "no NVIDIA driver on this PC");
+        var state = NvidiaProfiles.DlssState(Environment.ProcessId);
+        Assert.NotNull(state);
+        Assert.False(NvidiaProfiles.RunsDlss(state!.Value));
     }
 }

@@ -9,14 +9,6 @@ type TextSize = 'small' | 'normal' | 'large'
 
 const STORAGE_KEY = 'exo.textTheme'
 
-// Exo's white ink on AMOLED black (DESIGN.md › Tokens) and its neutral grays; 'grey' is the softer ink.
-const TEXT_COLOURS: Record<TextColour, string> = {
-  white: '#ffffff',
-  grey: '#b8b8b8',
-}
-const MUTED = '#9d9d9d'
-const FAINT = '#747474'
-
 const TEXT_SCALES: Record<TextSize, number> = {
   small: 0.9,
   normal: 1,
@@ -63,15 +55,9 @@ export function onTextScale(listener: (scale: number) => void) {
 
 export function applyTextTheme(theme: TextTheme) {
   const root = document.documentElement
-  const ink = TEXT_COLOURS[theme.textColour] ?? TEXT_COLOURS.white
   const scale = TEXT_SCALES[theme.textSize] ?? 1
-  root.style.setProperty('--exo-text', ink)
+  // Ink comes from the Appearance (tokens.css), never set here: an inline color would beat every theme.
   root.style.setProperty('--exo-scale', String(scale))
-  root.style.setProperty('--color-fg', ink)
-  root.style.setProperty('--color-muted', MUTED)
-  root.style.setProperty('--color-faint', FAINT)
-  root.style.setProperty('--exo-secondary', MUTED)
-  root.style.setProperty('--exo-muted', FAINT)
   root.style.removeProperty('--exo-ui-zoom')
   root.style.zoom = '1'
   root.dataset.exoTextColour = theme.textColour

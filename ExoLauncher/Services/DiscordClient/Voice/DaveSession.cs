@@ -54,6 +54,9 @@ internal sealed unsafe class DaveSession : IDisposable
 
     internal bool Active => _latestVersion != Disabled;
 
+    /// <summary>This client's own frames are now sealed under new keys (or none).</summary>
+    internal event Action? OwnKeysChanged;
+
     /// <summary>Each step of the group (commits, welcomes, transitions) goes to app.log: on for Go Live's own connection.</summary>
     internal bool Verbose { get; init; }
 
@@ -272,6 +275,7 @@ internal sealed unsafe class DaveSession : IDisposable
             _selfRatchet = ratchet;
             Dave.EncryptorSetPassthrough(_encryptor, ratchet == 0);
             if (ratchet != 0) Dave.EncryptorSetKeyRatchet(_encryptor, ratchet);
+            OwnKeysChanged?.Invoke();
             return;
         }
         if (!_decryptors.TryGetValue(userId, out var decryptor)) _decryptors[userId] = decryptor = Dave.DecryptorCreate();

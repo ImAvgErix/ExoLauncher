@@ -227,7 +227,7 @@ export function UpscalersTab({ active, games }: { active: boolean; games: readon
           <>
             {needs === null ? (
               <div className="exo-upscalers-progress" role="progressbar" aria-valuemin={0} aria-valuemax={total} aria-valuenow={checked}>
-                <span style={{ width: `${total ? (checked / total) * 100 : 0}%` }} />
+                <span style={{ '--fill': total ? checked / total : 0 } as CSSProperties} />
               </div>
             ) : listed.length === 0 ? (
               <AllCurrent />

@@ -1,4 +1,4 @@
-import { AddCircle, Apps, At, Award, BadgeCheck, Bell, BellOff, Book, Burst, Calendar, Car, Check, ChevronDown, ChevronRight, ChevronUp, Clock, Close, Copy, Disc, Download, ExitFullScreen, ExternalLink, Eye, EyeOff, FileIcon, Flag, Folder, Forum, Forward, FriendAccepted, FullScreen, Gamepad, Grip, Hash, HashLock, Headphones, HeadphonesOff, Headset, HeadsetLock, Hourglass, Id, Inbox, Leaf, Leave, Lightbulb, LinkIcon, ListSearch, Live, Lock, Megaphone, Members, MessageCircle, MessagePlus, Mic, MicOff, More, Nitro, Pencil, Person, Phone, PhoneDown, Pin, Pizza, Plus, Poll, Reply, Rules, SaveImage, Search, Settings, Shop, Smile, SmilePlus, Smiley, Soundboard, Star, Symbols, Threads, Trash, Trophy, Tv, Unread, Upload, UserCircle, UserPlus, Users, Video, ViewReactions, Volume, VolumeOff } from '../../brand/icons'
+import { AddCircle, Apps, At, Award, BadgeCheck, Bell, BellOff, Book, Burst, Calendar, Car, Check, ChevronDown, ChevronRight, ChevronUp, Clock, Close, Copy, Disc, Download, ExitFullScreen, ExternalLink, Eye, EyeOff, FileIcon, Flag, Folder, Forum, Forward, FriendAccepted, FullScreen, Gamepad, Grip, Hash, HashLock, Headphones, HeadphonesOff, Hourglass, Id, Inbox, Leaf, Leave, Lightbulb, LinkIcon, ListSearch, Live, Lock, Megaphone, Members, MessageCircle, MessagePlus, Mic, MicOff, More, Nitro, Pencil, Person, Phone, PhoneDown, Pin, Pizza, Plus, Poll, Reply, Rules, SaveImage, Search, Settings, Shop, Smile, SmilePlus, Smiley, Soundboard, Star, Symbols, Threads, Trash, Trophy, Tv, Unread, Upload, UserCircle, UserPlus, Users, Video, ViewReactions, Volume, VolumeLock, VolumeOff } from '../../brand/icons'
 
 /** The Discord room's glyphs, in the places Discord's own client puts them, drawn in Exo's set: one glyph per meaning. */
 export const Icons = {
@@ -46,8 +46,9 @@ export const Icons = {
   Profile: UserCircle,
   Events: Calendar,
   Browse: ListSearch,
-  Voice: Headset,
-  VoiceLock: HeadsetLock,
+  // A voice channel is Discord's speaker.
+  Voice: Volume,
+  VoiceLock: VolumeLock,
   HashLock,
   Lock,
   Chat: MessageCircle,

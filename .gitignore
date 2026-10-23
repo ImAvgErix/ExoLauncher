@@ -36,17 +36,6 @@ work/
 .tmp-exo-*.jpg
 .verify-*.jpg
 
-# NVIDIA FDD helper is rebuilt on every ExoLauncher build into OutDir and
-# (optionally) this kit folder. Never pin the binary in git.
-ExoLauncher.Optimize/Scripts/Nvidia/tools/
-
-# Discord Social SDK binaries and headers. Drop the official C++ archive
-# into third_party/discord-social-sdk (see README there). Never commit it.
-third_party/discord-social-sdk/**
-!third_party/discord-social-sdk/README.md
-ExoLauncher.DiscordSocial/bin/
-ExoLauncher.DiscordSocial/obj/
-
 # App logs
 *.log
 
@@ -71,7 +60,7 @@ ExoLauncher/wwwroot/
 /docs/audit-*
 /docs/ui-repairs*
 
-# End-to-end run artifacts (tools/e2e/Invoke-ExoE2E.ps1)
+# End-to-end run artifacts (tools/e2e/run.mjs)
 /e2e-reports/
 
 # Exo Capture build output

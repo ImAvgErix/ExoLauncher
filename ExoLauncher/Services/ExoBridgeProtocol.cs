@@ -30,9 +30,13 @@ internal static class ExoBridgeProtocol
     /// <summary>capture.saveImage carries a whole PNG as base64 (CaptureSaveImageAsync takes up to 90,000,000).</summary>
     internal const int MaxImageRequestCharacters = 90_000_000 + 4096;
 
+    /// <summary>library.folderArt carries a folder's picture as base64: 15 MB (FolderArtStore.MaxBytes) and its request.</summary>
+    internal const int MaxFolderArtCharacters = (int)(FolderArtStore.MaxBytes + 2) / 3 * 4;
+
     internal static int MaxCharactersFor(string method) =>
         method == "capture.saveImage" ? MaxImageRequestCharacters
             : method == "discord.camera" ? MaxVideoFrameCharacters // a camera keyframe, base64
+            : method == "library.folderArt" ? MaxFolderArtCharacters + 4096
             : MaxRequestCharacters;
 
     internal const int MaxVideoFrameCharacters = 8 * 1024 * 1024;

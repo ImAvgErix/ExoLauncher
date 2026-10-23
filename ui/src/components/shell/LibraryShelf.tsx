@@ -1,28 +1,30 @@
 import { Button } from '../ui/Button'
 import { Menu } from '../ui/Menu'
-import { CHECK_PATH, ChevronDown, FolderOpen, FolderPlus, Gamepad, Key, Plus, Refresh, Settings } from '../../brand/icons'
+import { CHECK_PATH, ChevronDown, FolderPlus, Gamepad, Key, Plus, Refresh, Settings } from '../../brand/icons'
 import type { SortMode } from '../../lib/host'
 import { SORT_LABELS, SORT_OPTIONS } from '../../lib/library'
 
-const SORT_ITEMS = SORT_OPTIONS.map((mode) => ({ id: mode, label: SORT_LABELS[mode] }))
+const SORT_ITEMS = SORT_OPTIONS.map((mode) => ({ id: mode, label: SORT_LABELS[mode], section: 'Sort by' }))
 const ADD_ITEMS = [
   { id: 'new-folder', label: 'New folder', icon: <FolderPlus size={16} /> },
   { id: 'game', label: 'Add a game', icon: <Gamepad size={16} /> },
-  { id: 'folder', label: 'Find a game in a folder', icon: <FolderOpen size={16} /> },
   { id: 'key', label: 'Activate key', icon: <Key size={16} /> },
 ]
 
-/** Related library tools stay together; adding never leaves the current shelf. */
-export function LibraryTools({ sort, onSort, onActivateKey, onNewFolder, onAddGame, onAddFolder, refresh, onRefresh }: {
+/**
+ * Related library tools stay together; adding never leaves the current shelf. The sort menu's Show section is what
+ * the grid lists: All games, or Hidden games (only the games you hid).
+ */
+export function LibraryTools({ sort, onSort, hidden, onHidden, onActivateKey, onNewFolder, onAddGame, refresh, onRefresh }: {
   sort: SortMode
   onSort: (mode: SortMode) => void
+  hidden: boolean
+  onHidden: (hidden: boolean) => void
   onActivateKey: () => void
   /** A Library folder: its name, color and games (FolderSheet). */
   onNewFolder: () => void
   /** A game's own .exe. */
   onAddGame: () => void
-  /** A game's folder, its .exe found in it. */
-  onAddFolder: () => void
   refresh: RefreshState
   onRefresh: () => void
 }) {
@@ -34,9 +36,12 @@ export function LibraryTools({ sort, onSort, onActivateKey, onNewFolder, onAddGa
         offset={4}
         triggerClassName="exo-shelf-sort-trigger"
         trigger={<>{SORT_LABELS[sort]}<ChevronDown size={12} /></>}
-        items={SORT_ITEMS}
-        checked={sort}
-        onAction={(id) => onSort(id as SortMode)}
+        items={[
+          ...SORT_ITEMS.map(item => ({ ...item, on: item.id === sort })),
+          { id: 'all', label: 'All games', section: 'Show', on: !hidden },
+          { id: 'hidden', label: 'Hidden games', section: 'Show', on: hidden },
+        ]}
+        onAction={(id) => id === 'all' || id === 'hidden' ? onHidden(id === 'hidden') : onSort(id as SortMode)}
       />
       <RefreshLibrary state={refresh} onRun={onRefresh} />
       <Menu
@@ -46,7 +51,7 @@ export function LibraryTools({ sort, onSort, onActivateKey, onNewFolder, onAddGa
         triggerClassName="exo-add-game-btn exo-library-add"
         trigger={<Plus size={16} />}
         items={ADD_ITEMS}
-        onAction={(id) => id === 'key' ? onActivateKey() : id === 'new-folder' ? onNewFolder() : id === 'game' ? onAddGame() : onAddFolder()}
+        onAction={(id) => id === 'key' ? onActivateKey() : id === 'new-folder' ? onNewFolder() : onAddGame()}
       />
     </div>
   )
@@ -75,10 +80,10 @@ function RefreshLibrary({ state, onRun }: { state: RefreshState; onRun: () => vo
 }
 
 /** The shelf with nothing on it: a load failure, or no games from any store yet. */
-export function LibraryEmpty({ error, onRetry, onAddFolder, onActivateKey, onStoreSettings }: {
+export function LibraryEmpty({ error, onRetry, onAddGame, onActivateKey, onStoreSettings }: {
   error: string | null
   onRetry: () => void
-  onAddFolder: () => void
+  onAddGame: () => void
   onActivateKey: () => void
   onStoreSettings: () => void
 }) {
@@ -96,15 +101,15 @@ export function LibraryEmpty({ error, onRetry, onAddFolder, onActivateKey, onSto
   return (
     <div className="exo-empty">
       <h2>No games yet</h2>
-      <p>Sign in to a store in Settings, or add a folder of games.</p>
+      <p>Sign in to a store in Settings, or add a game.</p>
       <div className="exo-empty-actions">
         <button type="button" className="exo-ghost-btn" onClick={onStoreSettings}>
           <Settings size={14} />
           Store settings
         </button>
-        <button type="button" className="exo-ghost-btn" onClick={onAddFolder}>
-          <FolderPlus size={14} />
-          Add a folder
+        <button type="button" className="exo-ghost-btn" onClick={onAddGame}>
+          <Gamepad size={14} />
+          Add a game
         </button>
         <button type="button" className="exo-ghost-btn" onClick={onActivateKey}>
           <Key size={14} />

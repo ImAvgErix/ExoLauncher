@@ -16,18 +16,18 @@ namespace ExoLauncher.Services;
 /// Generated lazily off the UI thread; stored beside the covers, where the
 /// normal cover-cache maintenance ages and evicts them.
 ///
-/// The UI asks for twice the card's device pixels, so Chromium finishes with a
-/// clean halving; the scale here is Lanczos-3 and the JPEG keeps full-resolution
-/// color (4:4:4) at quality 95. WIC's Fant filter with 4:2:0 chroma at 1.3×
-/// the card left covers visibly softer than the original drawn at card size.
+/// The UI asks for the card's own device pixels (8 px steps), so the one
+/// resample is this Lanczos-3 and Chromium draws it about 1:1; the JPEG keeps
+/// full-resolution color (4:4:4) at quality 95. Twice the card, halved again by
+/// Chromium's mipmaps, drew grid covers softer than the game page's.
 /// </summary>
 public static partial class CoverArtService
 {
     public const string ThumbnailHost = "thumbs.exo-launcher.local";
     private const string ThumbnailPrefix = "thumb-";
 
-    /// <summary>Widths the UI may ask for: 120 px steps up to the widest card at any DPR worth scaling.</summary>
-    internal static bool IsThumbnailWidth(int width) => width is >= 240 and <= 720 && width % 120 == 0;
+    /// <summary>Widths the UI may ask for: 8 px steps up to the widest card at any DPR worth scaling.</summary>
+    internal static bool IsThumbnailWidth(int width) => width is >= 120 and <= 720 && width % 8 == 0;
 
     private static readonly ConcurrentDictionary<string, Lazy<Task<string?>>> ThumbnailWork = new(StringComparer.OrdinalIgnoreCase);
     // Thumbnail names carry the source stamp, so "keep the original" is a stable answer.

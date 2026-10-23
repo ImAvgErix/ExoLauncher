@@ -10,7 +10,7 @@ namespace ExoLauncher.Services.DiscordClient.Voice;
 /// The microphone's thread only cuts its sound into 20 ms frames and hands each on (a ring of four), so it
 /// never falls behind; Exo's voice thread runs what is done with them (<see cref="Captured"/>: noise
 /// suppression, Voice Focus, Opus, DAVE, the socket). What the speakers play is the mix of every speaker's
-/// decoded frames, each through a small jitter buffer. A call (both sides open) takes the echo of what it plays out of
+/// decoded frames, each evened out to one speaking level (<see cref="VoiceLeveling"/>) and through a small jitter buffer. A call (both sides open) takes the echo of what it plays out of
 /// the microphone (<see cref="EchoCanceller"/>) before the voice thread hands a frame on, when Echo Cancellation is on
 /// and the speakers aren't on your head. While it runs, <see cref="LiveAudio"/> keeps Exo fit for real time.
 /// </summary>
@@ -91,6 +91,7 @@ internal sealed unsafe partial class VoiceAudio : IDisposable
     // The voice thread: each frame the microphone's thread cut, in order, through Captured.
     private void Hand()
     {
+        using var mmcss = MmcssTask.Join();
         WaitHandle[] waits = [_cut, _stop.Token.WaitHandle];
         while (!_stop.IsCancellationRequested)
         {
@@ -180,12 +181,29 @@ internal sealed unsafe partial class VoiceAudio : IDisposable
         lock (_mixGate) return _spare.TryPop(out var frame) ? frame : new float[FrameFloats];
     }
 
-    /// <summary>A speaker's decoded 20 ms frame (from <see cref="Rent"/>), queued for the mix at their User Volume (gain).</summary>
+    /// <summary>Whether each speaker's voice is evened out (<see cref="VoiceLeveling"/>, when Even Out Voices is on): a call's, never a watched stream's sound.</summary>
+    internal bool EvensVoices { get; init; }
+
+    private readonly VoiceLeveling _leveling = new();
+    private bool _evenSaid;
+
+    /// <summary>
+    /// A speaker's decoded 20 ms frame (from <see cref="Rent"/>), queued for the mix: evened out to everyone's speaking
+    /// level where Even Out Voices is on, then at their User Volume (gain).
+    /// </summary>
     internal void Play(uint ssrc, float[] frame, float gain = 1f)
     {
-        if (gain != 1f) for (var i = 0; i < frame.Length; i++) frame[i] *= gain;
+        var even = EvensVoices && App.Services.Settings.Shared.DiscordEvenVoices;
+        // Under the lock: a speaker's frames come from the receive thread or their own cleaner's, one leveler each.
         lock (_mixGate)
         {
+            if (even)
+            {
+                _leveling.Process(ssrc, frame);
+                if (!_evenSaid) AppLog.Info("Discord voice: evening out each voice toward one speaking level (Even Out Voices).");
+                _evenSaid = true;
+            }
+            if (gain != 1f) for (var i = 0; i < frame.Length; i++) frame[i] *= gain;
             if (!_streams.TryGetValue(ssrc, out var queue)) _streams[ssrc] = queue = new Queue<float[]>();
             queue.Enqueue(frame);
             while (queue.Count > MaxBufferedFrames) Spare(queue.Dequeue());
@@ -200,7 +218,7 @@ internal sealed unsafe partial class VoiceAudio : IDisposable
 
     internal void Forget(uint ssrc)
     {
-        lock (_mixGate) { _streams.Remove(ssrc); _playing.Remove(ssrc); }
+        lock (_mixGate) { _streams.Remove(ssrc); _playing.Remove(ssrc); _leveling.Forget(ssrc); }
     }
 
     // AUDCLNT_E_DEVICE_INVALIDATED: the device went away (a headset unplugged) or Windows reset it.
@@ -209,6 +227,7 @@ internal sealed unsafe partial class VoiceAudio : IDisposable
     private void Run(bool captureSide, CancellationToken side)
     {
         CoInitializeEx(0, 0); // MTA for this thread
+        using var mmcss = MmcssTask.Join();
         // A device that goes away mid-call is followed: the side opens again on what Windows uses now, every half second
         // at first and then every 2 s for as long as the call lasts (it gave up after 10 s, and the call stayed silent
         // until it was left and joined again).
@@ -244,14 +263,14 @@ internal sealed unsafe partial class VoiceAudio : IDisposable
             var client = (IAudioClient)clientObject;
             var format = Format();
             var processing = VoiceProcessing.Current;
-            // Exo's noise suppression, when it can run; when it can't (its library not fetched yet), Windows' own takes over.
-            var exoCleans = processing.NoiseSuppression && NoiseSuppressorDownload.Ready();
+            // Exo's noise suppression, when it can run; when it can't (its model not fetched yet), Windows' own takes over.
+            var exoCleans = processing.NoiseSuppression && (NoiseSuppressorDownload.Ready());
             // The microphone raw: no Windows or driver "enhancements" and nothing an Equalizer APO chain (Lucid Voice) adds,
             // so Exo's noise suppression gets the voice as it is. A mic that can't give raw sound comes as Windows has it.
             // Not while Windows' noise suppression stands in: a raw stream skips it.
             if (captureSide && (exoCleans || !processing.NoiseSuppression)) RawStream(clientObject);
             Marshal.ThrowExceptionForHR(client.Initialize(0, EventCallback | AutoConvert, BufferHns, 0, ref format, 0));
-            if (captureSide) Effects(client, processing.AutoGain, processing.NoiseSuppression && !exoCleans);
+            if (captureSide) Effects(client, processing.NoiseSuppression && !exoCleans);
             using var ready = new AutoResetEvent(false);
             Marshal.ThrowExceptionForHR(client.SetEventHandle(ready.SafeWaitHandle.DangerousGetHandle()));
             Marshal.ThrowExceptionForHR(client.GetBufferSize(out var bufferFrames));
@@ -283,14 +302,16 @@ internal sealed unsafe partial class VoiceAudio : IDisposable
         if (two.SetClientProperties(ref properties) != 0) AppLog.Info("Discord voice: this microphone has no raw mode; its sound comes as Windows processes it.");
     }
 
-    // AUDIO_EFFECT_TYPE_ACOUSTIC_ECHO_CANCELLATION, _NOISE_SUPPRESSION and _AUTOMATIC_GAIN_CONTROL (ksmedia.h).
+    // AUDIO_EFFECT_TYPE_ACOUSTIC_ECHO_CANCELLATION, _NOISE_SUPPRESSION, _AUTOMATIC_GAIN_CONTROL and (Windows 11 24H2)
+    // _DEEP_NOISE_SUPPRESSION, Windows' AI one, on any vendor's PC (ksmedia.h).
     private static readonly Guid EchoEffect = new("6f64adbe-8211-11e2-8c70-2c27d7f001fa"),
-        NoiseEffect = new("6f64adbf-8211-11e2-8c70-2c27d7f001fa"), GainEffect = new("6f64adc0-8211-11e2-8c70-2c27d7f001fa");
+        NoiseEffect = new("6f64adbf-8211-11e2-8c70-2c27d7f001fa"), GainEffect = new("6f64adc0-8211-11e2-8c70-2c27d7f001fa"),
+        DeepNoiseEffect = new("6f64add0-8211-11e2-8c70-2c27d7f001fa");
 
     // Windows 11's own processing on this stream, all off: echo cancellation, gain control and noise suppression (Exo's
     // own do all three); Windows' noise suppression on instead when Exo's can't run. Older Windows has no effects
     // manager: nothing to set.
-    private void Effects(IAudioClient client, bool autoGain, bool windowsCleans)
+    private void Effects(IAudioClient client, bool windowsCleans)
     {
         SystemGain = false;
         var iid = typeof(IAudioEffectsManager).GUID;
@@ -299,32 +320,43 @@ internal sealed unsafe partial class VoiceAudio : IDisposable
             Release(service);
             return;
         }
-        try { SetEffects(manager, autoGain, windowsCleans); }
+        try { SetEffects(manager, windowsCleans); }
         finally { Release(manager); }
     }
 
-    private void SetEffects(IAudioEffectsManager manager, bool autoGain, bool windowsCleans)
+    private void SetEffects(IAudioEffectsManager manager, bool windowsCleans)
     {
         if (manager.GetAudioEffects(out var list, out var count) != 0) return;
-        bool echo = false, gain = false;
+        bool echo = false, gain = false, deep = false;
         try
         {
             var size = Marshal.SizeOf<AudioEffect>();
+            // When Windows cleans (Exo's own can't run), its AI Deep Noise Suppression where the microphone offers it, the
+            // simple one only where it doesn't: never both on one voice.
+            var deepOffered = false;
+            for (var i = 0; i < count; i++)
+            {
+                var effect = Marshal.PtrToStructure<AudioEffect>(list + i * size);
+                deepOffered |= effect.Id == DeepNoiseEffect && effect.CanSetState != 0;
+            }
             for (var i = 0; i < count; i++)
             {
                 var effect = Marshal.PtrToStructure<AudioEffect>(list + i * size);
                 // Windows' own echo cancellation, gain control and noise suppression all off: Exo does them itself.
-                bool? want = effect.Id == NoiseEffect ? windowsCleans : effect.Id == EchoEffect || effect.Id == GainEffect ? false : null;
+                bool? want = effect.Id == DeepNoiseEffect ? windowsCleans
+                    : effect.Id == NoiseEffect ? windowsCleans && !deepOffered
+                    : effect.Id == EchoEffect || effect.Id == GainEffect ? false : null;
                 if (want is not { } on) continue;
                 var set = effect.CanSetState != 0 && manager.SetAudioEffectState(effect.Id, on ? 1 : 0) == 0;
                 var now = set ? on : effect.State != 0;
                 if (effect.Id == EchoEffect) echo = now;
                 if (effect.Id == GainEffect) gain = now;
+                if (effect.Id == DeepNoiseEffect) deep = now;
             }
         }
         finally { Marshal.FreeCoTaskMem(list); }
         SystemGain = gain;
-        AppLog.Info($"Discord voice: Windows' echo cancellation {(echo ? "on" : "off")}, gain control {(gain ? "Windows" : autoGain ? "Exo" : "off")}.");
+        AppLog.Info($"Discord voice: Windows' echo cancellation {(echo ? "on" : "off")}, gain control {(gain ? "Windows" : "off")}{(deep ? ", AI noise suppression on" : "")}.");
     }
 
     /// <summary>The CPU time this thread has used, in 100 ns units.</summary>
@@ -596,4 +628,36 @@ internal sealed unsafe partial class VoiceAudio : IDisposable
         [PreserveSig] int GetBuffer(uint frames, out nint data);
         [PreserveSig] int ReleaseBuffer(uint frames, uint flags);
     }
+}
+
+/// <summary>
+/// Even Out Voices (Voice & Video, on by default): each person in a call brought toward one speaking level, so one
+/// friend's hot mic isn't louder than everyone else, by a <see cref="SpeechLeveler"/> of their own (12 dB either way at
+/// most, over about 1.5 s of their talking) on their decoded frames, before their User Volume, which still applies on
+/// top. It learns only from their voice: frames at -50 dBFS and up and 10 dB over their own quiet (<see cref="QuietFloor"/>:
+/// what their mic sends between words, the room or their gate's tail; until it has heard some, nothing is learned), and
+/// not a knock or a click (<see cref="KnockDetector"/>), so the noise they send never moves it, nor does a pause (Discord
+/// sends nothing then). Per SSRC; nothing is allocated per frame
+/// once a speaker has one.
+/// </summary>
+internal sealed class VoiceLeveling
+{
+    private readonly Dictionary<uint, (SpeechLeveler Leveler, QuietFloor Quiet, KnockDetector Knock)> _voices = [];
+
+    /// <summary>Levels one of their decoded 20 ms stereo frames in place.</summary>
+    internal void Process(uint ssrc, float[] frame)
+    {
+        if (!_voices.TryGetValue(ssrc, out var voice)) _voices[ssrc] = voice = (new SpeechLeveler(), new QuietFloor(), new KnockDetector());
+        var db = SpeechLeveler.Level(frame);
+        var quiet = voice.Quiet.Db;
+        voice.Quiet.Add(db);
+        var knock = voice.Knock.Hit(frame);
+        voice.Leveler.Process(frame, db > -50f && db > quiet + 10f && !knock);
+    }
+
+    /// <summary>Their gain now, in dB (0 before they have talked).</summary>
+    internal float GainDb(uint ssrc) => _voices.TryGetValue(ssrc, out var voice) ? voice.Leveler.GainDb : 0f;
+
+    /// <summary>They left: the next to get their SSRC starts afresh.</summary>
+    internal void Forget(uint ssrc) => _voices.Remove(ssrc);
 }

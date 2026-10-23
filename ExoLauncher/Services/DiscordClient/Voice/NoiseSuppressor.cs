@@ -55,7 +55,7 @@ internal static class NoiseSuppressorDownload
 /// <summary>
 /// Noise suppression for the microphone and, with Noise Suppression for Others, for each voice heard: DeepFilterNet 3's
 /// low-latency model (Rikorose/DeepFilterNet v0.5.6, MIT/Apache-2.0) through its own C interface, built by Exo from that
-/// release's source (voice\build-deepfilter.ps1) with three entry points of Exo's added (the built-in model, the stage
+/// release's source (voice\build.ps1) with three entry points of Exo's added (the built-in model, the stage
 /// thresholds, and a frame call that never unwinds into Exo). Fetched once from Exo's GitHub release (pinned size and
 /// SHA-256, <see cref="VerifiedGitHubReleaseDownloader"/>) when Exo's Discord client starts, so its 50 MB stays out of
 /// the installer for everyone who never uses it. A 20 ms stereo frame is mixed to mono, cleaned as DeepFilterNet's two
@@ -69,11 +69,24 @@ internal static class NoiseSuppressorDownload
 /// post-filter off. Its delay is DeepFilterNet's 10 ms STFT hop (the low-latency model has no lookahead), measured
 /// from the sound by <see cref="DelaySamples"/>. Each hop's local SNR estimate (<see cref="SpeechDb"/>) is its own
 /// judgment of how much voice the frame holds, which the gate reads as Discord's reads Krisp's.
+/// As Krisp runs its own DeepFilterNet-type model, the sound goes in at the level the model knows (<see cref="ModelDb"/>,
+/// the mic's level over about the last 3 s brought there) and comes out at its own level again, so a quiet or a hot mic
+/// is cleaned as well as one at the model's level; chosen by ear over the plain model.
 /// </summary>
 internal sealed unsafe class NoiseSuppressor : IDisposable
 {
-    /// <summary>How far noise suppression turns noise down (dB): DeepFilterNet's own default, all the way.</summary>
-    internal const int GentleDb = 100, MostDb = 100;
+    /// <summary>
+    /// How far noise suppression may turn noise down (DeepFilterNet's attenuation limit, dB): 70, at most 80 (Voice Tune,
+    /// a noisy room). The limit isn't the noise taken off, about 31 dB more: on white noise 50 takes 19 dB (a fan stayed
+    /// audible under the voice), 70 takes 39 and 100 (its own default, used before) everything, which took words with the
+    /// noise: voices came out robotic and the gate held whole words shut (-26 dBFS frames in a real call's log).
+    /// </summary>
+    internal const int GentleDb = 70, MostDb = 80;
+
+    /// <summary>The level (dBFS) the sound goes into the model at: Krisp's (its trainVolume 2000 of int16).</summary>
+    internal const float ModelDb = -24f;
+    private const float LevelSeconds = 3f, LevelFrom = -70f, MostLiftDb = 40f, MostCutDb = 20f;
+    private float _levelDb = float.NaN;
 
     private const int Hop = 480, WarmSamples = Opus.SampleRate / 2;
 
@@ -160,8 +173,11 @@ internal sealed unsafe class NoiseSuppressor : IDisposable
         lock (Idle) Idle.TryPop(out idle);
         if (idle is not null)
         {
+            // Warmed as a new one is, at full strength: silence alone left the last user's noise in the model's running
+            // statistics (3 s of loud noise let a fan through the next call's gate, measured in the voice chain test).
             idle._inUse = 1;
-            idle.Flush();
+            if (idle._light) { idle._light = false; _thresholds(idle._state, MinDb, MaxErbDb, FullDf); }
+            idle.WarmUp();
             return idle;
         }
         try
@@ -194,7 +210,13 @@ internal sealed unsafe class NoiseSuppressor : IDisposable
         if (limit != _limit) { _attenuation(_state, limit); _limit = limit; }
         if (Load.Light != _light) { _light = Load.Light; _thresholds(_state, MinDb, MaxErbDb, _light ? LightDf : FullDf); }
         var frame = stereo.Length / 2;
-        for (var i = 0; i < frame; i++) _input[i] = (stereo[i * 2] + stereo[i * 2 + 1]) * 0.5f;
+        double power = 0;
+        for (var i = 0; i < frame; i++) { var s = _input[i] = (stereo[i * 2] + stereo[i * 2 + 1]) * 0.5f; power += s * (double)s; }
+        // The mic's level over about the last 3 s (frames under -70 dBFS are silence, not a level), and the gain to the model's.
+        var db = 10 * MathF.Log10((float)(power / frame) + 1e-12f);
+        if (db > LevelFrom && SpeechDb > VoiceGate.SpeechDb) _levelDb = float.IsNaN(_levelDb) ? db : _levelDb + (db - _levelDb) * frame / (LevelSeconds * Opus.SampleRate);
+        var gain = float.IsNaN(_levelDb) ? 1f : MathF.Pow(10, Math.Clamp(ModelDb - _levelDb, -MostCutDb, MostLiftDb) / 20);
+        if (gain != 1f) for (var i = 0; i < frame; i++) _input[i] *= gain;
         var started = Stopwatch.GetTimestamp();
         float speech = float.NegativeInfinity;
         var ok = true;
@@ -214,6 +236,8 @@ internal sealed unsafe class NoiseSuppressor : IDisposable
             return;
         }
         SpeechDb = speech;
+        if (gain != 1f)
+            for (var i = 0; i < frame; i++) { _input[i] /= gain; _output[i] /= gain; }
         _delay.Add(new ReadOnlySpan<float>(_input, frame), new ReadOnlySpan<float>(_output, frame));
         for (var i = 0; i < frame; i++) stereo[i * 2] = stereo[i * 2 + 1] = _output[i];
     }
@@ -238,6 +262,7 @@ internal sealed unsafe class NoiseSuppressor : IDisposable
         _delay.Reset();
         Load.Reset();
         SpeechDb = null;
+        _levelDb = float.NaN;
     }
 
     /// <summary>Lets go of it for the next user (see <see cref="Idle"/>); a second call does nothing.</summary>

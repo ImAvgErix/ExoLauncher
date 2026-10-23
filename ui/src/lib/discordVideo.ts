@@ -5,7 +5,7 @@ import { report } from './report'
 
 /**
  * Discord video in the page (docs/architecture/discord-video.md): the host hands over whole H.264
- * frames (Annex B, already decrypted) per person, and each feed decodes them with WebCodecs
+ * or H.265 frames (Annex B, already decrypted) per person, and each feed decodes them with WebCodecs
  * (hardware where the PC has it) and draws the newest picture into whichever canvas shows that
  * person. A feed starts at a keyframe and starts over at the next one after a decoding error.
  * Nothing is decoded while no canvas shows a feed or Exo is off screen, and the host sends call
@@ -14,7 +14,15 @@ import { report } from './report'
 /** A camera in the call, a stream being watched, or your own stream (its tile, the frames viewers get). */
 export type VideoSource = 'call' | 'stream' | 'self'
 // rotation: quarter turns clockwise that show the sender's picture upright, flip: mirrored first (their video-orientation).
-type FrameEvent = { source: VideoSource; userId: string; timestamp: number; keyframe: boolean; data: string; rotation?: number; flip?: boolean }
+type FrameEvent = { source: VideoSource; userId: string; timestamp: number; keyframe: boolean; bytes?: Uint8Array; data?: string; rotation?: number; flip?: boolean; codec?: 'h264' | 'h265' }
+
+// H.265 Main up to level 5.1 (4K 60), Annex B as the host sends it. Discord's apps offer to receive H.265 only where it
+// decodes in hardware, and so does Exo: the host hears once whether this PC can.
+const HEVC = 'hvc1.1.6.L153.B0'
+if (typeof VideoDecoder !== 'undefined')
+  void VideoDecoder.isConfigSupported({ codec: HEVC, hardwareAcceleration: 'prefer-hardware' })
+    .then(result => host.discordVideoDecode(result.supported === true))
+    .catch(() => { })
 
 const key = (source: VideoSource, userId: string) => `${source}:${userId}`
 
@@ -27,8 +35,24 @@ function decode(base64: string): Uint8Array {
   return bytes
 }
 
+// Each canvas's size on screen in device pixels, and whether it covers its box or fits in it (object-fit), kept current:
+// a frame is drawn at that size, never above its own.
+const onScreen = new WeakMap<HTMLCanvasElement, { width: number; height: number; cover: boolean }>()
+const sizes = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(entries => {
+  for (const entry of entries) {
+    const canvas = entry.target as HTMLCanvasElement
+    const box = entry.devicePixelContentBoxSize?.[0]
+    onScreen.set(canvas, {
+      width: box ? box.inlineSize : entry.contentRect.width * devicePixelRatio,
+      height: box ? box.blockSize : entry.contentRect.height * devicePixelRatio,
+      cover: getComputedStyle(canvas).objectFit === 'cover',
+    })
+  }
+})
+
 class Feed {
   private decoder: VideoDecoder | null = null
+  private codec: 'h264' | 'h265' = 'h264'
   private waiting = true
   // Hardware first; a graphics card that can't take this stream (an older one, or a size or level it lacks) fails
   // before its first picture, and the feed then decodes in software instead of starting over the same way forever.
@@ -45,8 +69,9 @@ class Feed {
 
   attach(canvas: HTMLCanvasElement) {
     this.canvases.add(canvas)
+    try { sizes?.observe(canvas, { box: 'device-pixel-content-box' }) } catch { sizes?.observe(canvas) }
     wantFrames()
-    return () => { this.canvases.delete(canvas); wantFrames() }
+    return () => { this.canvases.delete(canvas); sizes?.unobserve(canvas); wantFrames() }
   }
   get shown() { return this.canvases.size > 0 }
   subscribe(listener: () => void) { this.listeners.add(listener); return () => { this.listeners.delete(listener) } }
@@ -55,13 +80,16 @@ class Feed {
   push(event: FrameEvent) {
     // Nowhere to draw it, or Exo off screen: skipped, and the feed starts again at the next keyframe.
     if (!this.shown || !pageIsVisible()) { this.waiting = true; return }
+    // The server moved this sender to the other codec: a decoder for it, from its next keyframe.
+    const codec = event.codec ?? 'h264'
+    if (codec !== this.codec) { this.reset(); this.codec = codec }
     if (this.waiting && !event.keyframe) return
     const decoder = this.decoder ?? this.open()
     if (!decoder) return
     this.waiting = false
     if (this.ended) { this.ended = false; this.changed() }
     this.turn = { rotation: event.rotation ?? 0, flip: event.flip ?? false }
-    const bytes = decode(event.data)
+    const bytes = event.bytes ?? decode(event.data ?? '')
     try {
       // RTP's 90 kHz clock in microseconds, as WebCodecs counts.
       decoder.decode(new EncodedVideoChunk({ type: event.keyframe ? 'key' : 'delta', timestamp: Math.round(event.timestamp / 0.09), data: bytes }))
@@ -79,14 +107,20 @@ class Feed {
         const w = frame.displayWidth, h = frame.displayHeight
         const [width, height] = rotation % 2 ? [h, w] : [w, h]
         for (const canvas of this.canvases) {
-          if (canvas.width !== width || canvas.height !== height) {
-            canvas.width = width
-            canvas.height = height
+          // At the size it shows, never above the picture's own: a 1440p stream drawn full size into a canvas shown
+          // 1500 wide cost the page and the GPU process almost three times the pixels, on every frame.
+          const box = onScreen.get(canvas)
+          const fit = box && box.width > 0 && box.height > 0 ? (box.cover ? Math.max : Math.min)(box.width / width, box.height / height) : 1
+          const scale = Math.min(1, fit)
+          const cw = Math.max(1, Math.round(width * scale)), ch = Math.max(1, Math.round(height * scale))
+          if (canvas.width !== cw || canvas.height !== ch) {
+            canvas.width = cw
+            canvas.height = ch
           }
           const draw = canvas.getContext('2d')
           if (!draw) continue
-          // Upright: about the canvas's center, turned clockwise and mirrored as the sender says.
-          draw.setTransform(1, 0, 0, 1, width / 2, height / 2)
+          // Upright: about the canvas's center, scaled to it, turned clockwise and mirrored as the sender says.
+          draw.setTransform(scale, 0, 0, scale, cw / 2, ch / 2)
           draw.rotate(rotation * Math.PI / 2)
           if (flip) draw.scale(-1, 1)
           draw.drawImage(frame, -w / 2, -h / 2)
@@ -104,7 +138,9 @@ class Feed {
     this.drew = false
     try {
       // Annex B with its parameter sets in the stream, so no description is needed.
-      decoder.configure({ codec: 'avc1.640034', hardwareAcceleration: this.hardware ? 'prefer-hardware' : 'no-preference', optimizeForLatency: true })
+      decoder.configure(this.codec === 'h265'
+        ? { codec: HEVC, hardwareAcceleration: 'prefer-hardware', optimizeForLatency: true }
+        : { codec: 'avc1.640034', hardwareAcceleration: this.hardware ? 'prefer-hardware' : 'no-preference', optimizeForLatency: true })
     } catch (error) {
       report(error, 'DiscordVideo.configure', { level: 'warn' })
       this.hardware = false

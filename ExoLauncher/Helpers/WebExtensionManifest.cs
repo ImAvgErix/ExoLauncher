@@ -11,7 +11,7 @@ internal static class WebExtensionManifest
     // documentation files excluded. The rest of the tree must match the
     // recorded download exactly.
     private static readonly HashSet<string> HashExcluded = new(StringComparer.Ordinal)
-        { "SOURCE.txt" };
+        { "SOURCE.txt", "LICENSE.txt" }; // Exo's notes and the license text, not the extension's code
 
     internal static string ComputeManifestHash(string folder)
     {

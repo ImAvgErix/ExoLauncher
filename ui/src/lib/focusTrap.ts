@@ -41,8 +41,10 @@ export function trapTab(container: HTMLElement, event: KeyboardEvent) {
  * Shift+Tab go round inside it, and it goes back where it was when the dialog closes. Focus in another layer (a menu
  * or dialog opened over this one) is left alone.
  */
-export function useDialogFocus(ref: RefObject<HTMLElement | null>) {
+export function useDialogFocus(ref: RefObject<HTMLElement | null>, active = true) {
   useEffect(() => {
+    // A dialog kept mounted while closed (Discord's settings) holds focus only while it shows.
+    if (!active) return
     const before = document.activeElement instanceof HTMLElement ? document.activeElement : null
     const frame = requestAnimationFrame(() => {
       const dialog = ref.current
@@ -69,5 +71,5 @@ export function useDialogFocus(ref: RefObject<HTMLElement | null>) {
       document.removeEventListener('keydown', tab)
       if (before?.isConnected) before.focus({ preventScroll: true })
     }
-  }, [ref])
+  }, [ref, active])
 }

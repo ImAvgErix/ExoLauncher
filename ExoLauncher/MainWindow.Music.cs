@@ -290,7 +290,8 @@ public sealed partial class MainWindow
     /// the control never greys out or snaps back because of the app's state.
     internal async Task<object> MusicVolumeAsync(double? level, bool? muted)
     {
-        if (level is not null || muted is not null)
+        var change = level is not null || muted is not null;
+        if (change)
         {
             _musicApp?.Wake("volume");
             if (MusicWebPolicy.IsWeb(_musicWebService)) WakeMusicWeb();
@@ -305,9 +306,10 @@ public sealed partial class MainWindow
             var target = muted == true ? 0 : level;
             var appLevel = target is { } wanted ? await app.WriteAsync(wanted) : await app.ReadAsync();
             // An idle Spotify is frozen until Wake thaws it; its page needs a
-            // moment to answer again, so the call is retried instead of
-            // falling back to the Windows session volume.
-            for (var attempt = 0; appLevel is null && attempt < 6 && ReferenceEquals(app, _musicAppVolume); attempt++)
+            // moment to answer again, so a change is retried instead of
+            // falling back to the Windows session volume. A read thawed
+            // nothing: it answers at once below, and the shell asks again.
+            for (var attempt = 0; change && appLevel is null && attempt < 6 && ReferenceEquals(app, _musicAppVolume); attempt++)
             {
                 await Task.Delay(500);
                 appLevel = target is { } retry ? await app.WriteAsync(retry) : await app.ReadAsync();
@@ -612,7 +614,7 @@ public sealed partial class MainWindow
         _embeddedRenderers = Array.Empty<EmbeddedRendererInfo>();
         ApplyWebViewMemoryTarget(WindowIsHiddenOrMinimized());
         if (previous is null) return;
-        try { WebAdBlocker.Detach(previous.CoreWebView2); WebExtensions.Detach(previous.CoreWebView2); previous.Close(); } catch { }
+        try { WebExtensions.Detach(previous.CoreWebView2); previous.Close(); } catch { }
         ContentHost.Children.Remove(previous);
     }
 
@@ -779,7 +781,6 @@ public sealed partial class MainWindow
         var core = view.CoreWebView2;
         // Installed extensions apply to the profile regardless of bookkeeping;
         // attach in parallel so the first navigation is never blocked by it.
-        _ = WebAdBlocker.AttachAsync(core, MusicWebPolicy.Label(service), WinRT.Interop.WindowNative.GetWindowHandle(this));
         _ = WebExtensions.AttachAsync(core, MusicWebPolicy.Label(service), WinRT.Interop.WindowNative.GetWindowHandle(this));
         await ResetPermissionGrantsAsync(core.Profile);
         var permissionsMs = initTimer.ElapsedMilliseconds;
@@ -925,14 +926,13 @@ public sealed partial class MainWindow
                     popupDismissed = true;
                     _musicPopouts.Remove(view);
                     ApplyWebViewMemoryTarget(WindowIsHiddenOrMinimized());
-                    try { WebAdBlocker.Detach(view.CoreWebView2); WebExtensions.Detach(view.CoreWebView2); view.Close(); } catch { }
+                    try { WebExtensions.Detach(view.CoreWebView2); view.Close(); } catch { }
                 };
                 window.AppWindow.Resize(new SizeInt32(960, 720));
                 window.Activate();
                 await view.EnsureCoreWebView2Async(environment, WebViewEnvironmentFactory.EmbeddedControllerOptions(environment));
                 var ensureMs = popupTimer.ElapsedMilliseconds;
                 if (_musicWebClosed || _musicWebService != service || generation != _musicWebGeneration) { window.Close(); return; }
-                _ = WebAdBlocker.AttachAsync(view.CoreWebView2, MusicWebPolicy.Label(service), WinRT.Interop.WindowNative.GetWindowHandle(window));
                 _ = WebExtensions.AttachAsync(view.CoreWebView2, MusicWebPolicy.Label(service), WinRT.Interop.WindowNative.GetWindowHandle(window));
                 if (popupDismissed || _musicWebClosed || _musicWebService != service || generation != _musicWebGeneration) { window.Close(); return; }
                 await SetMusicMotionPreferenceAsync(view.CoreWebView2);

@@ -52,6 +52,9 @@ internal sealed class VoiceConnection : IAsyncDisposable
     private int _gateFrames;
     private nint _encoder;
     private uint _ssrc, _videoSsrc, _rtxSsrc;
+    // The video stream's type as the server's ready names it ("video", even for Go Live's "screen"): op 12 echoes it,
+    // as Discord's client does (initializeStreamParameters keeps READY's type).
+    private string? _streamType;
     private ushort _videoSequence;
     private readonly bool _listening, _screen;
     private readonly int _bitrate;
@@ -59,6 +62,7 @@ internal sealed class VoiceConnection : IAsyncDisposable
     private bool _acked = true;
     private bool _speaking;
     private int _silence;
+    private readonly MicSilence _micSilence = new();
     private readonly PushToTalkGate _ptt = new();
     internal bool Muted { get; set; }
     // Kept here too: the sound opens only once Discord's session description comes, and starts deafened if the user is.
@@ -109,7 +113,14 @@ internal sealed class VoiceConnection : IAsyncDisposable
         {
             Changed?.Invoke("state", new { state = "connecting" });
             var began = Environment.TickCount64;
-            var outcome = await ConnectOnceAsync(resume).ConfigureAwait(false);
+            string outcome;
+            try { outcome = await ConnectOnceAsync(resume).ConfigureAwait(false); }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                // Anything a connection didn't expect ended it without a word (a stream that never came up said nothing).
+                AppLog.Info($"Discord {(_screen ? "video: your stream's" : _listening ? "video: the watched stream's" : "voice:")} connection failed ({ex.GetType().Name}: {ex.Message}).");
+                outcome = "retry";
+            }
             if (outcome == "ended" || _stop.IsCancellationRequested) break;
             // A drop after a minute or more of call is a fresh blip: the budget of five tries starts over.
             if (Environment.TickCount64 - began > 60_000) attempt = -1;
@@ -129,6 +140,7 @@ internal sealed class VoiceConnection : IAsyncDisposable
         try
         {
             await ws.ConnectAsync(new Uri($"wss://{_endpoint.Replace(":443", "", StringComparison.Ordinal)}/?v=8"), connection.Token).ConfigureAwait(false);
+            if (_screen) AppLog.Info("Discord video: your stream's connection reached its server.");
             while (ws.State == WebSocketState.Open)
             {
                 var (text, binary) = await ReceiveAsync(ws, connection.Token).ConfigureAwait(false);
@@ -174,6 +186,7 @@ internal sealed class VoiceConnection : IAsyncDisposable
             case 6: _acked = true; break;
             case 2: await OnReadyAsync(d, ct).ConfigureAwait(false); break;
             case 4: OnSessionDescription(d); break;
+            case 14: UseCodec(d); break;
             case 9: Changed?.Invoke("state", new { state = "connected" }); break;
             case 5:
                 if (d.TryGetProperty("user_id", out var su) && d.TryGetProperty("ssrc", out var ss))
@@ -221,6 +234,7 @@ internal sealed class VoiceConnection : IAsyncDisposable
             var stream = streams[0];
             _videoSsrc = stream.TryGetProperty("ssrc", out var vs) ? vs.GetUInt32() : 0;
             _rtxSsrc = stream.TryGetProperty("rtx_ssrc", out var rs) ? rs.GetUInt32() : 0;
+            _streamType = stream.TryGetProperty("type", out var st) && st.ValueKind == JsonValueKind.String ? st.GetString() : null;
         }
         if (_screen) AppLog.Info("Discord video: your stream's connection is ready (streams " + (d.TryGetProperty("streams", out var announced) ? announced.GetRawText() : "none") + ").");
         var modes = d.GetProperty("modes").EnumerateArray().Select(m => m.GetString()).ToList();
@@ -231,9 +245,14 @@ internal sealed class VoiceConnection : IAsyncDisposable
         _transport.RtcpReceived += OnRtcp;
         _videoTimer ??= new Timer(_ => PollVideo(), null, 20, 20);
         var (address, port) = await _transport.DiscoverAsync(ct).ConfigureAwait(false);
-        _dave ??= new DaveSession(_userId, _groupId, (op, payload) => _ = SendBinaryAsync(op, payload), (op, body) => _ = SendJsonAsync(op, body)) { Verbose = _screen };
+        if (_dave is null)
+        {
+            _dave = new DaveSession(_userId, _groupId, (op, payload) => _ = SendBinaryAsync(op, payload), (op, body) => _ = SendJsonAsync(op, body)) { Verbose = _screen || _listening };
+            // New keys (a viewer joined or left): a key frame under them at once, as viewers can't decode the frames before.
+            if (_screen) _dave.OwnKeysChanged += () => KeyframeRequested?.Invoke();
+        }
         _dave.AssignSsrc(_ssrc);
-        if (_videoSsrc != 0) _dave.AssignSsrc(_videoSsrc, Dave.CodecH264);
+        if (_videoSsrc != 0) _dave.AssignSsrc(_videoSsrc, _hevc ? Dave.CodecH265 : Dave.CodecH264);
         await SendJsonAsync(1, new
         {
             protocol = "udp",
@@ -241,7 +260,10 @@ internal sealed class VoiceConnection : IAsyncDisposable
             codecs = new object[]
             {
                 new { name = "opus", type = "audio", priority = 1000, payload_type = 120 },
-                new { name = "H264", type = "video", priority = 1000, payload_type = H264Rtp.PayloadType, rtx_payload_type = H264Rtp.RtxPayloadType, encode = true, decode = true },
+                // H.265 ahead of H.264, as Discord's apps list them: the server picks it when everyone can play it. Exo sends
+                // it only on Go Live (Exo Capture's HEVC; the camera is H.264) and plays it where its page decodes it in hardware.
+                new { name = "H265", type = "video", priority = 1000, payload_type = H265Rtp.PayloadType, rtx_payload_type = H265Rtp.RtxPayloadType, encode = _screen && EncodesH265, decode = DecodesH265 },
+                new { name = "H264", type = "video", priority = 2000, payload_type = H264Rtp.PayloadType, rtx_payload_type = H264Rtp.RtxPayloadType, encode = true, decode = true },
             },
         }).ConfigureAwait(false);
     }
@@ -251,15 +273,18 @@ internal sealed class VoiceConnection : IAsyncDisposable
         var key = d.GetProperty("secret_key").EnumerateArray().Select(b => (byte)b.GetInt32()).ToArray();
         _transport!.Start(d.GetProperty("mode").GetString() ?? VoiceTransport.Aes, key);
         var version = d.TryGetProperty("dave_protocol_version", out var v) && v.ValueKind == JsonValueKind.Number ? v.GetUInt16() : (ushort)0;
-        if (_screen)
-            AppLog.Info($"Discord video: your stream's connection is up (video codec {(d.TryGetProperty("video_codec", out var codec) ? codec.GetString() : "none")}, DAVE {version}).");
+        if (_screen || _listening)
+            AppLog.Info($"Discord video: {(_screen ? "your stream's" : "the watched stream's")} connection is up (video codec {(d.TryGetProperty("video_codec", out var codec) ? codec.GetString() : "none")}, DAVE {version}).");
+        UseCodec(d);
         _dave!.OnSessionDescription(version);
         if (_audio is null)
         {
             _encoder = Opus.NewEncoder(_bitrate);
-            _audio = new VoiceAudio { Deafened = _deafened };
+            _audio = new VoiceAudio { Deafened = _deafened, EvensVoices = !_listening };
             if (!_listening) _audio.Captured += SendCaptured;
             _audio.Start(capture: !_listening);
+            // A recording or replay running now takes its voice from this call's chain instead of cleaning the mic again.
+            if (!_listening && _audio is { } callAudio) RecordedVoice.Call(_chain, () => callAudio.FrameAt);
         }
         // All the video in the call, at full quality (Discord's media sink wants).
         _ = SendJsonAsync(15, new { any = 100 });
@@ -276,7 +301,16 @@ internal sealed class VoiceConnection : IAsyncDisposable
         var started = VoiceAudio.QpcNow();
         var processing = VoiceProcessing.Current;
         bool voiced;
-        if (Muted) { _chain.Mute(); voiced = false; }
+        // The microphone as it came, before anything cleans or levels it: a mic that sends nothing (unplugged in all but
+        // name, muted on its own button, its gain knob all the way down) is said in the voice panel, as Discord does.
+        if (_micSilence.Hear(frame, Muted) is { } silent) Changed?.Invoke("micSilent", new { silent });
+        if (Muted)
+        {
+            // A recording that takes its voice from this chain (RecordedVoice) keeps hearing it while Discord doesn't.
+            if (_chain.Cleaned is not null) _chain.Process(frame, processing, audio.MicId, audio.SystemGain);
+            _chain.Mute();
+            voiced = false;
+        }
         else
         {
             voiced = Transmit(_chain.Process(frame, processing, audio.MicId, audio.SystemGain), processing);
@@ -312,12 +346,20 @@ internal sealed class VoiceConnection : IAsyncDisposable
             Changed?.Invoke("speaking", new { userId = _userId, speaking = true });
         }
         if (_lossWanted != _lossSet) Opus.SetExpectedLoss(_encoder, _lossSet = _lossWanted);
+        // The gate just opened: the 100 ms before it go first, as Discord's client sends them.
+        foreach (var lead in _chain.TakeLead()) Encode(lead);
+        if (Encode(frame)) MeasureSend(audio, started, processed);
+    }
+
+    // A frame of the microphone through Opus and out; whether it went.
+    private unsafe bool Encode(float[] frame)
+    {
         Span<byte> opus = stackalloc byte[1275];
         int length;
         fixed (float* pcm = frame)
         fixed (byte* o = opus)
             length = Opus.EncodeFloat(_encoder, pcm, Opus.FrameSamples, o, opus.Length);
-        if (length > 0 && SendFrame(opus[..length])) MeasureSend(audio, started, processed);
+        return length > 0 && SendFrame(opus[..length]);
     }
 
     // A frame of Opus through DAVE onto the socket; whether it went.
@@ -402,11 +444,19 @@ internal sealed class VoiceConnection : IAsyncDisposable
 
     // ---- receiving ----
 
+    // Watching a stream: each kind of packet the first time it arrives, so a stream that never shows says why.
+    private readonly HashSet<int> _seenTypes = [];
+
     private void OnPacket(VoiceTransport.Packet packet)
     {
+        if (_listening)
+            lock (_seenTypes)
+                if (_seenTypes.Add(packet.PayloadType))
+                    AppLog.Info($"Discord video: the watched stream's first packet of type {packet.PayloadType}{packet.PayloadType switch { H264Rtp.PayloadType => " (H.264 video)", H265Rtp.PayloadType => " (H.265 video)", 120 => " (Opus sound)", H264Rtp.RtxPayloadType or H265Rtp.RtxPayloadType => " (resent video)", _ => " (not one Exo takes)" }}" +
+                        $" on SSRC {packet.Ssrc}, {packet.Payload.Length} bytes, marker {packet.Marker}, extensions {VoiceTransport.Elements(packet.Extension.Span)}.");
         if (packet.TransportSequence >= 0) Arrived(packet);
-        if (packet.PayloadType == H264Rtp.PayloadType) OnVideoPacket(packet.Ssrc, packet.Sequence, packet);
-        else if (packet.PayloadType == H264Rtp.RtxPayloadType) OnResent(packet);
+        if (packet.PayloadType is H264Rtp.PayloadType or H265Rtp.PayloadType) OnVideoPacket(packet.Ssrc, packet.Sequence, packet, hevc: packet.PayloadType == H265Rtp.PayloadType);
+        else if (packet.PayloadType is H264Rtp.RtxPayloadType or H265Rtp.RtxPayloadType) OnResent(packet);
         else if (packet.PayloadType == 120) OnAudio(packet.Ssrc, packet.Payload, packet.Sequence);
     }
 
@@ -489,6 +539,7 @@ internal sealed class VoiceConnection : IAsyncDisposable
     /// <summary>(op 12) Who sends video on which SSRC; no streams (or SSRC 0) means their video stopped.</summary>
     private void OnVideo(JsonElement d)
     {
+        if (_listening) AppLog.Info("Discord video: the watched stream announces " + d.GetRawText() + ".");
         if (d.TryGetProperty("user_id", out var u) is false || u.GetString() is not { } user) return;
         var ssrc = d.TryGetProperty("video_ssrc", out var vs) && vs.ValueKind == JsonValueKind.Number ? vs.GetUInt32() : 0;
         var active = ssrc != 0 && (!d.TryGetProperty("streams", out var streams) || streams.ValueKind != JsonValueKind.Array ||
@@ -510,13 +561,14 @@ internal sealed class VoiceConnection : IAsyncDisposable
     }
 
     // One video packet (or a resent one, with its original sequence number) into its sender's jitter buffer.
-    private void OnVideoPacket(uint ssrc, ushort sequence, VoiceTransport.Packet packet, int skip = 0)
+    private void OnVideoPacket(uint ssrc, ushort sequence, VoiceTransport.Packet packet, int skip = 0, bool hevc = false)
     {
         H264Rtp.H264Receiver? receiver;
         lock (_gate)
         {
             if (!_videoUsers.TryGetValue(ssrc, out var user)) return;
-            if (!_receivers.TryGetValue(ssrc, out receiver)) _receivers[ssrc] = receiver = NewReceiver(ssrc, user);
+            // A new sender, or one the server moved to the other codec: a buffer for what it sends now.
+            if (!_receivers.TryGetValue(ssrc, out receiver) || receiver.Hevc != hevc) _receivers[ssrc] = receiver = NewReceiver(ssrc, user, hevc);
             // Sent on a keyframe's last packet and whenever it changes (a phone turned): kept until the next.
             if (packet.Orientation >= 0) _orientation[ssrc] = packet.Orientation;
             receiver.Add(sequence, packet.Timestamp, packet.Marker, packet.Payload.Span[skip..], Environment.TickCount64);
@@ -529,26 +581,36 @@ internal sealed class VoiceConnection : IAsyncDisposable
         uint ssrc;
         lock (_gate) if (!_rtxOf.TryGetValue(packet.Ssrc, out ssrc)) return;
         if (packet.Payload.Length < 3) return;
-        OnVideoPacket(ssrc, BinaryPrimitives.ReadUInt16BigEndian(packet.Payload.Span), packet, skip: 2);
+        OnVideoPacket(ssrc, BinaryPrimitives.ReadUInt16BigEndian(packet.Payload.Span), packet, skip: 2, hevc: packet.PayloadType == H265Rtp.RtxPayloadType);
     }
 
-    private H264Rtp.H264Receiver NewReceiver(uint ssrc, string user)
+    private H264Rtp.H264Receiver NewReceiver(uint ssrc, string user, bool hevc)
     {
-        var receiver = new H264Rtp.H264Receiver();
+        var receiver = new H264Rtp.H264Receiver(hevc);
         receiver.Nack += lost => _transport?.SendRtcp(Rtcp.Nack(_ssrc, ssrc, lost));
         receiver.KeyframeNeeded += () => _transport?.SendRtcp(Rtcp.Pli(_ssrc, ssrc));
         receiver.Frame += (timestamp, frame) =>
         {
+            Interlocked.Increment(ref _assembled);
             if (_dave is null) return;
             var plain = new byte[frame.Length + 64];
             var length = _dave.DecryptFrame(user, frame, plain, video: true);
             // Not decrypted (a key change under way): the frames after it can't be shown until a keyframe, which is
             // asked for at most twice a second, not on every frame that fails.
-            if (length <= 0) { receiver.Lost(Environment.TickCount64); return; }
+            if (length <= 0) { Interlocked.Increment(ref _undecrypted); receiver.Lost(Environment.TickCount64); return; }
+            Interlocked.Increment(ref _decrypted);
             var data = plain.AsSpan(0, length).ToArray();
+            var key = hevc ? H265Rtp.IsKeyframe(data) : H264Rtp.IsKeyframe(data);
+            if (_listening && !_describedWatched && key)
+            {
+                _describedWatched = true;
+                AppLog.Info(hevc
+                    ? $"Discord video: the watched stream's first key frame (H.265): sealed {H265Rtp.Describe(frame)}, open {H265Rtp.Describe(data)}."
+                    : $"Discord video: the watched stream's first key frame: sealed {H264Rtp.Describe(frame)}, open {H264Rtp.Describe(data)}, SPS {H264Rtp.SpsHex(data)}.");
+            }
             int orientation;
             lock (_gate) orientation = _orientation.GetValueOrDefault(ssrc);
-            Frame?.Invoke(user, timestamp, H264Rtp.IsKeyframe(data), data, orientation);
+            Frame?.Invoke(user, timestamp, key, data, orientation, hevc);
         };
         return receiver;
     }
@@ -579,7 +641,7 @@ internal sealed class VoiceConnection : IAsyncDisposable
             if (sequence > _lastTransport) _lastTransport = sequence;
             if (_nextReported < 0) _nextReported = sequence;
             if (sequence >= _nextReported) _arrivals.TryAdd(sequence, micros);
-            if (packet.PayloadType == H264Rtp.PayloadType) _media = packet.Ssrc;
+            if (packet.PayloadType is H264Rtp.PayloadType or H265Rtp.PayloadType) _media = packet.Ssrc;
             _received += packet.Payload.Length + 40;
         }
     }
@@ -617,10 +679,24 @@ internal sealed class VoiceConnection : IAsyncDisposable
     }
 
     // On a timer thread, which has no handler of its own.
+    // A watched stream's frames through each stage (assembled from packets, decrypted), told at 5 s and every 30 s after:
+    // a stream that arrives but never shows says where its frames stop.
+    private int _assembled, _decrypted, _undecrypted;
+    private long _stagesAt;
+
     private void PollVideo()
     {
         var now = Environment.TickCount64;
-        if (_sent.Due(now) is { } line) AppLog.Info("Discord video: " + line);
+        if (_listening && _media != 0)
+        {
+            if (_stagesAt == 0) _stagesAt = now + 5000;
+            else if (now >= _stagesAt)
+            {
+                _stagesAt = now + 30_000;
+                AppLog.Info($"Discord video: the watched stream: {_assembled} frames from its packets, {_decrypted} decrypted, {_undecrypted} not.");
+            }
+        }
+        if (_sent.Due(now) is { } line) AppLog.Info("Discord video: " + line + (_rate is { } rate ? $" Sending at {rate.Rate / 1000} kbit/s." : ""));
         try { ReportArrivals(now); }
         catch (Exception ex) when (ex is not OutOfMemoryException) { AppLog.Debug("Discord video: arrival report failed (" + ex.GetType().Name + ")."); }
         try { lock (_gate) foreach (var receiver in _receivers.Values) receiver.Poll(now); }
@@ -656,18 +732,99 @@ internal sealed class VoiceConnection : IAsyncDisposable
             _lossWanted = target >= _lossWanted ? target : _lossWanted - 1;
         }
         if (_videoSsrc == 0 || _transport is null) return;
+        // What the server says of your stream's video, early and then now and then: whether its packets reach it at all.
+        if (Interlocked.Increment(ref _sent.Rtcp) is var seen && _screen && (seen <= 6 || seen % 50 == 0))
+            AppLog.Info($"Discord video: the server's RTCP on your stream ({(ushort)(_videoSequence - 1)} last sent): {Rtcp.Describe(packet, _videoSsrc)}.");
         var (lost, keyframe) = Rtcp.Read(packet, _videoSsrc);
         // Under the send lock: the history is written as frames go out, and a half-written entry would resend the wrong packet.
         Interlocked.Add(ref _sent.Nacked, lost.Count);
         if (lost.Count > 0 && _rtxSsrc != 0)
+        {
+            var now = Environment.TickCount64;
             lock (_videoSendGate)
                 foreach (var sequence in lost)
-                    if (_sent.Resend(sequence) is { } resend)
+                    if (_sent.Resend(sequence, now) is { } resend)
                     {
-                        _transport.SendVideo(_rtxSsrc, H264Rtp.RtxPayloadType, resend.Marker, _rtxSequence++, resend.Timestamp, resend.Payload);
+                        Pace(new(_rtxSsrc, _hevc ? H265Rtp.RtxPayloadType : H264Rtp.RtxPayloadType, resend.Marker, _rtxSequence++, resend.Timestamp, resend.Payload), resend: true);
                         Interlocked.Increment(ref _sent.Resent);
                     }
+        }
         if (keyframe) { Interlocked.Increment(ref _sent.KeyframeAsks); KeyframeRequested?.Invoke(); }
+        if (_rate is { } rate)
+        {
+            if (Rtcp.RembBits(packet) is { } remb) rate.Remb(remb);
+            if (Rtcp.LossFor(packet, _videoSsrc) is { } loss) rate.Loss(loss / 100);
+            if (rate.Next(Environment.TickCount64) is { } next)
+            {
+                _paceRate = next;
+                RateWanted?.Invoke(next);
+            }
+        }
+    }
+
+    // ---- sending video: paced, as libwebrtc's pacer sends it ----
+
+    // A key frame is a hundred packets and more. Sent back to back they overran the uplink and Discord's server (a third
+    // of the stream lost once a viewer joined); the pacer sends them over a few milliseconds each, at 2.5 times the
+    // stream's rate as libwebrtc's does, resends ahead of new video. Calls raise Windows' timer to 1 ms (LiveAudio), so
+    // its 1 ms naps are about that.
+    private readonly record struct Outgoing(uint Ssrc, int Type, bool Marker, ushort Sequence, uint Timestamp, byte[] Payload);
+    private readonly Lock _paceGate = new();
+    private readonly Queue<Outgoing> _video = new(), _resends = new();
+    private readonly AutoResetEvent _paceWake = new(false);
+    private Thread? _pacer;
+    private volatile int _paceRate = 8_000_000;
+    private StreamRate? _rate;
+
+    /// <summary>Go Live: from now on the stream's rate follows what Discord's server reports (start, at most most).</summary>
+    internal void FollowServer(int start, int most)
+    {
+        _rate = new StreamRate(start, most);
+        _paceRate = start;
+    }
+
+    /// <summary>The encoder should change rate (bits per second): the server takes less, or more again.</summary>
+    internal event Action<int>? RateWanted;
+
+    private void Pace(Outgoing packet, bool resend = false)
+    {
+        lock (_paceGate)
+        {
+            (resend ? _resends : _video).Enqueue(packet);
+            if (_pacer is null)
+            {
+                _pacer = new Thread(PaceLoop) { IsBackground = true, Name = "Exo video pacer", Priority = ThreadPriority.AboveNormal };
+                _pacer.Start();
+            }
+        }
+        _paceWake.Set();
+    }
+
+    private void PaceLoop()
+    {
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        var last = clock.Elapsed;
+        double budget = 0;
+        while (!_stop.IsCancellationRequested)
+        {
+            Outgoing packet;
+            bool resend, any;
+            lock (_paceGate)
+            {
+                resend = _resends.TryPeek(out packet);
+                any = resend || _video.TryPeek(out packet);
+            }
+            var now = clock.Elapsed;
+            var perSecond = Math.Max(_paceRate, 500_000) * 2.5 / 8;
+            // At most 20 ms of sending saved up while backlogged (a late nap); none while idle, so a new key frame starts paced.
+            budget = Math.Min(budget + (now - last).TotalSeconds * perSecond, any ? perSecond * 0.02 : 2400);
+            last = now;
+            if (!any) { _paceWake.WaitOne(20); continue; }
+            if (budget <= 0) { Thread.Sleep(1); continue; }
+            lock (_paceGate) (resend ? _resends : _video).Dequeue();
+            _transport?.SendVideo(packet.Ssrc, packet.Type, packet.Marker, packet.Sequence, packet.Timestamp, packet.Payload);
+            budget -= packet.Payload.Length + 44; // RTP, extension, tag and nonce, UDP and IP
+        }
     }
 
     /// <summary>The server wants a keyframe of this client's video (someone started watching, or lost one).</summary>
@@ -675,11 +832,11 @@ internal sealed class VoiceConnection : IAsyncDisposable
 
     /// <summary>A whole, decrypted H.264 frame (Annex B) from a user: (userId, RTP timestamp, keyframe, data).</summary>
     /// <summary>(user, RTP time, keyframe, Annex B frame, video-orientation byte: bit 2 flip, bits 0-1 quarter turns).</summary>
-    internal event Action<string, uint, bool, byte[], int>? Frame;
+    internal event Action<string, uint, bool, byte[], int, bool>? Frame;
 
     /// <summary>Turns this client's own video on (with its size, frame rate and top bit rate) or off (op 12).</summary>
     internal Task SetVideoAsync(int width, int height, int fps, int maxBitrate = 8_000_000) =>
-        SendJsonAsync(12, Video(_ssrc, _videoSsrc, _rtxSsrc, _videoType, width, height, fps, maxBitrate));
+        SendJsonAsync(12, Video(_ssrc, _videoSsrc, _rtxSsrc, _streamType ?? _videoType, width, height, fps, maxBitrate));
 
     /// <summary>op 0 IDENTIFY as Discord's client sends it (RTCControlSocket.identify): with the channel, and the video's type.</summary>
     internal static object Identify(string serverId, string channelId, string userId, string sessionId, string token, string videoType, ushort daveVersion) => new
@@ -706,20 +863,27 @@ internal sealed class VoiceConnection : IAsyncDisposable
             },
         };
 
-    /// <summary>Sends one of this client's H.264 frames (Annex B): DAVE, then RTP packets on the video SSRC.</summary>
-    internal void SendVideoFrame(byte[] frame, uint timestamp)
+    /// <summary>Sends one of this client's frames (Annex B, H.265 when hevc): DAVE, then RTP packets on the video SSRC.</summary>
+    internal void SendVideoFrame(byte[] frame, uint timestamp, bool hevc = false)
     {
         if (_transport is not { Started: true } || _dave is null || _videoSsrc == 0) return;
-        var sealedFrame = new byte[frame.Length + 256];
-        var length = _dave.EncryptFrame(_videoSsrc, frame, sealedFrame, video: true);
+        // Frames in the codec the server no longer wants (Exo Capture is starting over in the new one) can't be played.
+        if (hevc != _hevc) return;
+        // The SPS as viewers' libwebrtc keeps it, or it rewrites it under DAVE's tag and no key frame decrypts (H.264 only).
+        var sent = hevc ? frame : H264Vui.NoReordering(frame);
+        var sealedFrame = new byte[sent.Length + 256];
+        var length = _dave.EncryptFrame(_videoSsrc, sent, sealedFrame, video: true);
         if (length <= 0) { Interlocked.Increment(ref _sent.Unsealed); return; }
-        var packets = H264Rtp.Packetize(sealedFrame[..length]);
+        var packets = hevc ? H265Rtp.Packetize(sealedFrame[..length]) : H264Rtp.Packetize(sealedFrame[..length]);
         Interlocked.Increment(ref _sent.Frames);
         Interlocked.Add(ref _sent.Packets, packets.Count);
-        if (_screen && !_describedKeyframe && H264Rtp.IsKeyframe(frame))
+        if (_screen && !_describedKeyframe && (hevc ? H265Rtp.IsKeyframe(frame) : H264Rtp.IsKeyframe(frame)))
         {
             _describedKeyframe = true;
-            AppLog.Info("Discord video: your stream's first key frame: " + H264Rtp.Describe(frame) + $", {length - frame.Length:+0;-0} bytes from DAVE.");
+            AppLog.Info(hevc
+                ? $"Discord video: your stream's first key frame (H.265): {H265Rtp.Describe(frame)}, {length - sent.Length:+0;-0} bytes from DAVE."
+                : "Discord video: your stream's first key frame: " + H264Rtp.Describe(frame) + (ReferenceEquals(sent, frame) ? "" : $", SPS rewritten to {H264Rtp.Describe(sent)}") +
+                  $", {length - sent.Length:+0;-0} bytes from DAVE, SPS {H264Rtp.SpsHex(sent)}.");
         }
         // One frame at a time: frames arrive on several threads, and a frame's packets must not interleave with another's.
         lock (_videoSendGate)
@@ -728,11 +892,38 @@ internal sealed class VoiceConnection : IAsyncDisposable
             var marker = i == packets.Count - 1;
             var sequence = _videoSequence++;
             _sent.Remember(sequence, timestamp, marker, packets[i]);
-            _transport.SendVideo(_videoSsrc, H264Rtp.PayloadType, marker, sequence, timestamp, packets[i]);
+            Pace(new(_videoSsrc, hevc ? H265Rtp.PayloadType : H264Rtp.PayloadType, marker, sequence, timestamp, packets[i]));
         }
     }
 
-    private bool _describedKeyframe;
+    private bool _describedKeyframe, _describedWatched;
+
+    /// <summary>Exo's page decodes H.265 in hardware (WebCodecs; the page says so once it loads): connections offer to receive it.</summary>
+    internal static volatile bool DecodesH265;
+
+    /// <summary>Go Live: Exo Capture can encode HEVC, so the stream's connection offers to send H.265. Set before Start.</summary>
+    internal bool EncodesH265 { get; set; }
+
+    // The codec the server picked for this client's video (SESSION_DESCRIPTION, then SESSION_UPDATE when a viewer changes
+    // what everyone can play): true for H.265. Only Go Live follows it; a call's camera is always H.264.
+    private volatile bool _hevc;
+
+    /// <summary>Go Live: the server picked the stream's codec (true: H.265), at the start and whenever it changes it.</summary>
+    internal event Action<bool>? CodecChosen;
+
+    private void UseCodec(JsonElement d)
+    {
+        if (!_screen || !d.TryGetProperty("video_codec", out var codec) || codec.ValueKind != JsonValueKind.String) return;
+        var hevc = codec.GetString() == "H265" && EncodesH265;
+        if (hevc != _hevc)
+        {
+            _hevc = hevc;
+            _describedKeyframe = false;
+            if (_videoSsrc != 0) _dave?.AssignSsrc(_videoSsrc, hevc ? Dave.CodecH265 : Dave.CodecH264);
+        }
+        AppLog.Info($"Discord video: your stream's codec is {(hevc ? "H.265" : "H.264")} (the server says {codec.GetString()}).");
+        CodecChosen?.Invoke(hevc);
+    }
 
     private StreamAudio? _soundshare;
     private nint _musicEncoder;
@@ -765,7 +956,13 @@ internal sealed class VoiceConnection : IAsyncDisposable
     private void Play(uint ssrc, float[] frame, float gain)
     {
         var audio = _audio!;
-        if (_listening || gain == 0 || !App.Services.Settings.Shared.DiscordOthersNoiseSuppression) { audio.Play(ssrc, frame, gain); return; }
+        // While a game runs it steps aside: a model per voice (a quarter of a core each) beside the game starved the
+        // microphone's own thread, and your voice went out late, choppy or not at all.
+        if (_listening || gain == 0 || !App.Services.Settings.Shared.DiscordOthersNoiseSuppression || GameRunning.Now)
+        {
+            audio.Play(ssrc, frame, gain);
+            return;
+        }
         if (!_cleaners.TryGetValue(ssrc, out var cleaner))
         {
             _cleaners[ssrc] = cleaner = new InboundCleaner((cleaned, g) => audio.Play(ssrc, cleaned, g), audio.Rent);
@@ -872,6 +1069,7 @@ internal sealed class VoiceConnection : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         await _stop.CancelAsync().ConfigureAwait(false);
+        _paceWake.Set();
         _videoTimer?.Dispose();
         _soundshare?.Dispose();
         _ws?.Abort();
@@ -881,6 +1079,7 @@ internal sealed class VoiceConnection : IAsyncDisposable
             _cleaners.Clear();
         }
         _audio?.Dispose();
+        if (!_listening) RecordedVoice.Ended(_chain);
         _chain.Dispose();
         _transport?.Dispose();
         _dave?.Dispose();
@@ -891,5 +1090,35 @@ internal sealed class VoiceConnection : IAsyncDisposable
         }
         if (_encoder != 0) { Opus.EncoderDestroy(_encoder); _encoder = 0; }
         if (_musicEncoder != 0) { Opus.EncoderDestroy(_musicEncoder); _musicEncoder = 0; }
+    }
+}
+
+/// <summary>
+/// Whether a game is running, Exo's launch or one started anywhere else from the Library's folders (as the driver's
+/// update checks), read off the audio threads: a background read at most every 5 s, the last answer meanwhile.
+/// </summary>
+internal static class GameRunning
+{
+    private static volatile bool _now;
+    private static long _at = long.MinValue / 2;
+    private static int _reading;
+
+    internal static bool Now
+    {
+        get
+        {
+            var tick = Environment.TickCount64;
+            if (tick - Interlocked.Read(ref _at) > 5000 && Interlocked.Exchange(ref _reading, 1) == 0)
+            {
+                Interlocked.Exchange(ref _at, tick);
+                _ = Task.Run(() =>
+                {
+                    try { _now = App.Services.Launcher.AnyGameRunning || MainWindow.RunningLibraryGames().Count > 0; }
+                    catch { /* the last answer stands */ }
+                    finally { Volatile.Write(ref _reading, 0); }
+                });
+            }
+            return _now;
+        }
     }
 }

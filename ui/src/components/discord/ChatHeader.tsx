@@ -262,7 +262,7 @@ function Bell({ channel }: { channel: DiscordChannel }) {
           ))}
         </BellMenu>
       ) : null}
-      {error ? <span className="exo-dc-head-error" role="alert">{error}</span> : null}
+      {error ? <span className="exo-dc-head-error exo-glass" role="alert">{error}</span> : null}
     </span>
   )
 }

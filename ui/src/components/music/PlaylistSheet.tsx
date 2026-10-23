@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { ImageUpload } from '../../brand/icons'
 import { Art } from './Art'
 import { runActionFor, usePlayer, type PlaylistEdit } from './playerContext'
+import { useDismiss } from '../../lib/dismiss'
 
 /** A playlist's privacy, where the service has one (YouTube Music). */
 const PRIVACY = [['PUBLIC', 'Public'], ['UNLISTED', 'Unlisted'], ['PRIVATE', 'Private']] as const
@@ -42,6 +43,8 @@ export function PlaylistSheet({ edit, onClose }: { edit: PlaylistEdit; onClose: 
     const box = dialog.current
     if (box && !box.open) box.showModal()
   }, [])
+  // A press on the dimmed backdrop (the dialog element, outside its box) closes it.
+  useDismiss(dialog, () => dialog.current?.close(), { modal: true })
 
   async function pick(file: File | undefined) {
     if (!file) return
@@ -67,8 +70,8 @@ export function PlaylistSheet({ edit, onClose }: { edit: PlaylistEdit; onClose: 
   }
 
   return (
-    <dialog ref={dialog} className="exo-music-sheet" aria-label={creating ? 'New playlist' : 'Edit details'}
-      onClose={onClose} onClick={event => { if (event.target === dialog.current) dialog.current?.close() }}>
+    <dialog ref={dialog} className="exo-music-sheet exo-glass is-panel" aria-label={creating ? 'New playlist' : 'Edit details'}
+      onClose={onClose}>
       <form className="exo-music-sheet-body" onSubmit={event => { event.preventDefault(); void save() }}>
         <h2>{creating ? 'New playlist' : 'Edit details'}</h2>
         {has('cover') ? (

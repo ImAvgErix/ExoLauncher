@@ -171,14 +171,14 @@ function Haptics({ status, client, apply, busy }: Section) {
       </Row>
     ),
     intensity != null && can(client, 'setHapticIntensity') && (
-      <Row key="strength" label="Strength" value={preset ? undefined : `${intensity} of 100`}>
-        <Segmented label="Strength" options={HAPTIC_PRESETS.map(p => ({ value: p, label: p }))} value={preset}
+      <Row key="strength" label="Intensity" value={preset ? undefined : `${intensity} of 100`}>
+        <Segmented label="Intensity" options={HAPTIC_PRESETS.map(p => ({ value: p, label: p }))} value={preset}
           onChange={p => void apply('setHapticIntensity', LOGITECH_HAPTIC_PRESETS[p])} disabled={busy || status.hapticEnabled !== true} />
       </Row>
     ),
     status.hapticBatterySaving != null && can(client, 'setHapticBatterySaving') && (
-      <Row key="save" label="Battery saving">
-        <Switch label="Battery saving" checked={status.hapticBatterySaving} onChange={v => void apply('setHapticBatterySaving', v)} disabled={busy} />
+      <Row key="save" label="Battery saving mode">
+        <Switch label="Battery saving mode" checked={status.hapticBatterySaving} onChange={v => void apply('setHapticBatterySaving', v)} disabled={busy} />
       </Row>
     ),
   ].filter(Boolean)
@@ -206,8 +206,8 @@ function Sensor({ status, client, apply, busy }: Section) {
   const surfaceOff = !!status.ui?.lodRequiresSurface && status.gamingSurfaceMode === 'Off'
   const rows = [
     status.gamingSurfaceMode != null && can(client, 'setGamingSurfaceMode') && (
-      <Row key="surface" label="Gaming surface">
-        <Segmented label="Gaming surface" options={SURFACE} value={status.gamingSurfaceMode}
+      <Row key="surface" label="Gaming surface mode">
+        <Segmented label="Gaming surface mode" options={SURFACE} value={status.gamingSurfaceMode}
           onChange={v => void apply('setGamingSurfaceMode', v)} disabled={busy} />
       </Row>
     ),
@@ -218,14 +218,14 @@ function Sensor({ status, client, apply, busy }: Section) {
       </Row>
     ),
     status.lightforceSwitchMode != null && can(client, 'setLightforceSwitchMode') && (
-      <Row key="lf" label="LightForce switches">
-        <Segmented label="LightForce switches" options={LIGHTFORCE} value={status.lightforceSwitchMode}
+      <Row key="lf" label="LIGHTFORCE switches">
+        <Segmented label="LIGHTFORCE switches" options={LIGHTFORCE} value={status.lightforceSwitchMode}
           onChange={v => void apply('setLightforceSwitchMode', v)} disabled={busy} />
       </Row>
     ),
     status.sensorScanningMode != null && can(client, 'setSensorScanningMode') && (
-      <Row key="scan" label="Sensor scanning">
-        <Segmented label="Sensor scanning" options={SCANNING} value={status.sensorScanningMode}
+      <Row key="scan" label="Sensor scanning mode">
+        <Segmented label="Sensor scanning mode" options={SCANNING} value={status.sensorScanningMode}
           onChange={v => void apply('setSensorScanningMode', v)} disabled={busy} />
       </Row>
     ),
@@ -251,8 +251,8 @@ function Acceleration({ status, client, apply, busy }: Section) {
         <Switch label="DPI acceleration" checked={enabled} onChange={v => void apply('setDynamicSensitivityEnabled', v)} disabled={busy} />
       </Row>
       {status.dynamicSensitivityMode != null && can(client, 'setDynamicSensitivityMode') ? (
-        <Row label="Curve">
-          <Segmented label="Curve" options={CURVES} value={status.dynamicSensitivityMode}
+        <Row label="Sensitivity curve">
+          <Segmented label="Sensitivity curve" options={CURVES} value={status.dynamicSensitivityMode}
             onChange={v => void apply('setDynamicSensitivityMode', v)} disabled={busy || !enabled} />
         </Row>
       ) : null}
@@ -338,17 +338,17 @@ function OnboardMemory({ status, client, apply, applyAll, busy }: Section) {
     ),
     bunny != null && (
       writable ? (
-        <Row key="bunny" label="Bunny hop" value={bunny ? undefined : 'Off'}>
+        <Row key="bunny" label="BHOP mode" value={bunny ? undefined : 'Off'}>
           <span className="lg-pair">
             {bunny ? (
-              <NumberField label="Bunny hop" min={BUNNY_HOP_LIMITS.minMs} max={BUNNY_HOP_LIMITS.maxMs} step={BUNNY_HOP_LIMITS.stepMs}
+              <NumberField label="BHOP mode" min={BUNNY_HOP_LIMITS.minMs} max={BUNNY_HOP_LIMITS.maxMs} step={BUNNY_HOP_LIMITS.stepMs}
                 value={bunny} suffix="ms" onCommit={v => void writeProfile({ bunnyHoppingMs: v })} disabled={busy} />
             ) : null}
-            <Switch label="Bunny hop" checked={bunny !== 0} onChange={on => void writeProfile({ bunnyHoppingMs: on ? BUNNY_HOP_LIMITS.minMs : 0 })} disabled={busy} />
+            <Switch label="BHOP mode" checked={bunny !== 0} onChange={on => void writeProfile({ bunnyHoppingMs: on ? BUNNY_HOP_LIMITS.minMs : 0 })} disabled={busy} />
           </span>
         </Row>
       ) : (
-        <Row key="bunny" label="Bunny hop">
+        <Row key="bunny" label="BHOP mode">
           <span className="m-state">{bunny ? `${bunny} ms` : 'Off'}</span>
         </Row>
       )

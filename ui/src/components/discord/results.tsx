@@ -1,21 +1,17 @@
 import { useEffect, useRef } from 'react'
-import { openToggle } from './openToggle'
 import { avatarUrl, displayName, jumpToMessage, type DiscordMessage, type DiscordPlace } from '../../lib/discord'
 import { Icons } from './icons'
 import { Markdown, type MarkdownContext } from './markdown'
+import { useDismiss } from '../../lib/dismiss'
 
 /** A popover's box: a press outside it, or Escape, closes it. */
 export function useOutside(onClose: () => void) {
   const box = useRef<HTMLDivElement>(null)
+  useDismiss(box, onClose)
   useEffect(() => {
-    // A press in a question the popover asked (Unpin) isn't outside it.
-    const away = (event: PointerEvent) => {
-      if (box.current && !box.current.contains(event.target as Node) && !openToggle(event.target) && !(event.target as Element).closest?.('.exo-dc-modal-back')) onClose()
-    }
     const escape = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose() }
-    document.addEventListener('pointerdown', away, true)
     document.addEventListener('keydown', escape)
-    return () => { document.removeEventListener('pointerdown', away, true); document.removeEventListener('keydown', escape) }
+    return () => document.removeEventListener('keydown', escape)
   }, [onClose])
   return box
 }

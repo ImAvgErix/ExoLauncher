@@ -20,6 +20,7 @@ public sealed partial class WebHostBridge
     private readonly DispatcherQueue _queue;
     private CoreWebView2? _web;
     private readonly DlssSwapService _dlss = new();
+    private readonly FolderArtStore _folderArt = new();
     private readonly CancellationTokenSource _bridgeLifetime = new();
     private readonly BridgeRequestRegistry _rpcRequests = new();
     private bool _detached;
@@ -146,7 +147,11 @@ public sealed partial class WebHostBridge
         _services.Library.LibraryUpdated -= FollowSteamTransfers;
         _services.Library.LibraryUpdated -= SteamOverlaySoon;
         InstalledSizeCache.MeasurementUpdated -= OnLibraryUpdated;
-        if (Volatile.Read(ref _driverEvents) is { } driverEvents) NvidiaDriverService.Changed -= driverEvents;
+        if (Volatile.Read(ref _driverEvents) is { } driverEvents)
+        {
+            NvidiaDriverService.Changed -= driverEvents;
+            GpuDriverUpdate.Changed -= driverEvents;
+        }
         if (Volatile.Read(ref _hidWired) == 1)
         {
             _services.Hid.Input -= OnHidInput;
@@ -418,6 +423,7 @@ public sealed partial class WebHostBridge
                 "art.replace" => await ArtworkReplaceAsync(paramsEl, hasParams).ConfigureAwait(true),
                 "art.reset" => await ArtworkResetAsync(paramsEl, hasParams).ConfigureAwait(true),
                 "art.refetch" => await ArtworkRefetchAsync(paramsEl, hasParams).ConfigureAwait(true),
+                "library.folderArt" => await LibraryFolderArtAsync(paramsEl, hasParams).ConfigureAwait(true),
                 "library.refreshAll" => await LibraryRefreshAllAsync(_bridgeLifetime.Token).ConfigureAwait(true),
                 "game.cancelInstall" => _services.Launcher.Cancel(ReadString(paramsEl, hasParams, "id")),
                 "game.pauseInstall" => _services.Launcher.Pause(ReadString(paramsEl, hasParams, "id") ?? ""),
@@ -543,6 +549,10 @@ public sealed partial class WebHostBridge
                 "settings.get" => BuildSettings(),
                 "settings.set" => SetSettings(paramsEl, hasParams),
                 "accounts.list" => await Task.Run(AccountsList).ConfigureAwait(true),
+                "gifts.list" => GiftsList(ReadBool(paramsEl, hasParams, "force") == true),
+                "gifts.answer" => await GiftsAnswerAsync(paramsEl, hasParams, requestToken).ConfigureAwait(true),
+                "gifts.steamSignIn" => await GiftsSteamSignInAsync(requestToken).ConfigureAwait(true),
+                "gifts.steamSignOut" => await GiftsSteamSignOutAsync(requestToken).ConfigureAwait(true),
                 "accounts.switch" => await AccountsSwitchAsync(paramsEl, hasParams, requestToken).ConfigureAwait(true),
                 "accounts.add" => await AccountsAddAsync(paramsEl, hasParams, requestToken).ConfigureAwait(true),
                 "accounts.remove" => await AccountsRemoveAsync(paramsEl, hasParams, requestToken).ConfigureAwait(true),
@@ -635,6 +645,7 @@ public sealed partial class WebHostBridge
                 "discord.font" => await DiscordFontAsync(paramsEl, hasParams).ConfigureAwait(true),
                 "discord.clientSettings" => DiscordClientSettings(paramsEl, hasParams),
                 "discord.micTest" => DiscordMicTest(paramsEl, hasParams),
+                "discord.myVoice" => await DiscordMyVoiceAsync(paramsEl, hasParams, requestToken).ConfigureAwait(true),
                 "discord.voiceTune" => await DiscordVoiceTuneAsync(paramsEl, hasParams, requestToken).ConfigureAwait(true),
                 "lucid" => await Task.Run(() => LucidAsync(paramsEl, hasParams)).ConfigureAwait(true),
                 "lucid.headphones" => await Task.Run(LucidHeadphones).ConfigureAwait(true),
@@ -643,7 +654,11 @@ public sealed partial class WebHostBridge
                 "discord.sound" => DiscordSound(paramsEl, hasParams),
                 "gpu.driver" => await GpuDeadlineAsync(Task.Run(() => GpuDriverAsync(paramsEl, hasParams, requestToken), requestToken), TimeSpan.FromSeconds(55), requestToken).ConfigureAwait(true),
                 "gpu.profile" => await GpuDeadlineAsync(GpuProfileAsync(paramsEl, hasParams, requestToken), TimeSpan.FromSeconds(25), requestToken).ConfigureAwait(true),
+                "gpu.sensors" => await GpuDeadlineAsync(GpuSensorsAsync(requestToken), TimeSpan.FromSeconds(10), requestToken).ConfigureAwait(true),
+                "gpu.game" => await GpuDeadlineAsync(GpuGameAsync(paramsEl, hasParams, requestToken), TimeSpan.FromSeconds(25), requestToken).ConfigureAwait(true),
                 "gpu.import" => await GpuImportAsync(paramsEl, hasParams, requestToken).ConfigureAwait(true),
+                "system.health" => await GpuDeadlineAsync(SystemHealthAsync(paramsEl, hasParams, requestToken), TimeSpan.FromSeconds(30), requestToken).ConfigureAwait(true),
+                "system.interrupts" => await SystemInterruptsAsync(paramsEl, hasParams, requestToken).ConfigureAwait(true),
                 "store.home" => await StoreHomeAsync(paramsEl, hasParams, requestToken).ConfigureAwait(true),
                 "store.search" => await StoreSearchAsync(paramsEl, hasParams, requestToken).ConfigureAwait(true),
                 "store.game" => await StoreGameAsync(paramsEl, hasParams, requestToken).ConfigureAwait(true),
@@ -1383,6 +1398,23 @@ public sealed partial class WebHostBridge
         return MapArtworkMutation(await _services.Artwork.RefetchAsync(gameId).ConfigureAwait(true));
     }
 
+    /// <summary>
+    /// library.folderArt: the folder sheet's cropped picture (base64), stored for the folder's id; the sheet's Save then
+    /// names it in the folder. Any picture no folder holds (one picked before and cancelled) goes.
+    /// </summary>
+    private async Task<object> LibraryFolderArtAsync(JsonElement p, bool hasParams)
+    {
+        var image = ReadString(p, hasParams, "image") ?? "";
+        if (image.Length > ExoBridgeProtocol.MaxFolderArtCharacters) return new { ok = false, message = "Pictures have to be under 15 MB." };
+        byte[] bytes;
+        try { bytes = Convert.FromBase64String(image); }
+        catch (FormatException) { return new { ok = false, message = "That file isn't a picture." }; }
+        var saved = await _folderArt.SaveAsync(ReadString(p, hasParams, "folderId"), bytes).ConfigureAwait(true);
+        if (!saved.Ok) return new { ok = false, message = saved.Message };
+        _folderArt.DeleteUnreferenced([.. _services.Settings.Current.LibraryFolders.Select(folder => folder.Art), saved.FileName]);
+        return new { ok = true, art = _folderArt.ResolveUrl(saved.FileName) };
+    }
+
     private object MapArtworkMutation(GameArtworkService.MutationResult result) => new
     {
         result.Ok,
@@ -1664,12 +1696,14 @@ public sealed partial class WebHostBridge
         return new
         {
             appVersion = _services.AppVersion,
+            whatsNewSeen = s.WhatsNewSeen,
             reduceMotion = s.ReduceMotion,
             framelessPinTop = s.FramelessPinTop,
             framelessPinSide = s.FramelessPinSide,
             textColour = s.TextColour,
             textSize = s.TextSize,
             glass = s.Glass,
+            appearance = s.Appearance,
             sortMode = s.SortMode,
             defaultInstallRoot = s.DefaultInstallRoot,
             preferredGameSources = s.PreferredGameSources,
@@ -1690,9 +1724,12 @@ public sealed partial class WebHostBridge
             downloadHoursStart = s.DownloadHoursStart,
             downloadHoursEnd = s.DownloadHoursEnd,
             autoUpdateGames = s.AutoUpdateGames,
+            autoUpdateChipset = s.AutoUpdateChipset,
+            chipset = ChipsetUpdate.ThisPc is { } update && update.Installed() is not null ? update.Vendor : null,
             steamOverlayDefaultOn = s.SteamOverlayDefaultOn,
             quietStoreApps = s.QuietStoreApps,
-            libraryFolders = s.LibraryFolders.Select(folder => new { id = folder.Id, name = folder.Name, color = folder.Color, games = folder.Games }),
+            libraryFolders = s.LibraryFolders.Select(folder => new { id = folder.Id, name = folder.Name, color = folder.Color, sort = folder.Sort, art = _folderArt.ResolveUrl(folder.Art), games = folder.Games }),
+            hiddenGames = s.HiddenGames,
 
             igdbTwitchClientIdSet = CatalogApiKeyStore.HasTwitchClientId(),
             igdbTwitchClientSecretSet = CatalogApiKeyStore.HasTwitchClientSecret(),
@@ -1715,7 +1752,7 @@ public sealed partial class WebHostBridge
         bool? reduceMotion = null;
         bool? framelessPinTop = null, framelessPinSide = null;
         bool? showLibraryTools = null;
-        string? textColour = null, textSize = null, glass = null;
+        string? textColour = null, textSize = null, glass = null, appearance = null;
         string? sort = null, root = null;
         Dictionary<string, string>? preferredGameSources = null;
 
@@ -1780,6 +1817,9 @@ public sealed partial class WebHostBridge
             textSize = tsz.GetString();
         if (p.TryGetProperty("glass", out var gl) && gl.ValueKind == JsonValueKind.String)
             glass = gl.GetString();
+        if (p.TryGetProperty("appearance", out var ap) && ap.ValueKind == JsonValueKind.String)
+            appearance = ap.GetString();
+        string? whatsNewSeen = p.TryGetProperty("whatsNewSeen", out var wn) && wn.ValueKind == JsonValueKind.String ? wn.GetString() : null;
         var previousShowLibraryTools = _services.Settings.Current.ShowLibraryTools;
         var previousCountHours = _services.Settings.Current.CountHoursAcrossAccounts;
         // Settings validate and commit first; a rejected patch must not leave
@@ -1792,6 +1832,7 @@ public sealed partial class WebHostBridge
             textColour: textColour,
             textSize: textSize,
             glass: glass,
+            appearance: appearance,
             framelessPinTop: framelessPinTop,
             framelessPinSide: framelessPinSide,
             showLibraryTools: showLibraryTools,
@@ -1800,8 +1841,10 @@ public sealed partial class WebHostBridge
             hdrForGames: hdrForGames,
             hdrSdrGamma: hdrSdrGamma,
             discordNoiseSuppression: discordNoiseSuppression,
-            discordQuietWhilePlaying: discordQuietWhilePlaying);
+            discordQuietWhilePlaying: discordQuietWhilePlaying,
+            whatsNewSeen: whatsNewSeen);
         if (hdrForGames is not null || hdrSdrGamma is not null) App.MainAppWindow?.SyncHdrSoon();
+        if (appearance is not null && App.MainAppWindow is { } themed) themed.DispatcherQueue.TryEnqueue(themed.ApplyAppearance);
         if (showLibraryTools is { } tools && tools != previousShowLibraryTools)
             RefreshLibraryAfterToolsToggle();
         else if (countHoursAcrossAccounts is { } all && all != previousCountHours)
@@ -1812,15 +1855,25 @@ public sealed partial class WebHostBridge
         ApplyDownloadSettings(p);
         ApplySteamOverlaySettings(p);
         if (p.TryGetProperty("libraryFolders", out var folders) && folders.ValueKind == JsonValueKind.Array)
-            _services.Settings.SetLibraryFolders(folders.EnumerateArray().Where(folder => folder.ValueKind == JsonValueKind.Object).Select(folder => new LibraryFolder
+        {
+            static string? Text(JsonElement folder, string key) =>
+                folder.TryGetProperty(key, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
+            var kept = _services.Settings.SetLibraryFolders(folders.EnumerateArray().Where(folder => folder.ValueKind == JsonValueKind.Object).Select(folder => new LibraryFolder
             {
-                Id = folder.TryGetProperty("id", out var id) && id.ValueKind == JsonValueKind.String ? id.GetString()! : "",
-                Name = folder.TryGetProperty("name", out var name) && name.ValueKind == JsonValueKind.String ? name.GetString()! : "",
-                Color = folder.TryGetProperty("color", out var color) && color.ValueKind == JsonValueKind.String ? color.GetString()! : "gray",
+                Id = Text(folder, "id") ?? "",
+                Name = Text(folder, "name") ?? "",
+                Color = Text(folder, "color") ?? "gray",
+                Sort = Text(folder, "sort") ?? "folder",
+                Art = Text(folder, "art"),
                 Games = folder.TryGetProperty("games", out var list) && list.ValueKind == JsonValueKind.Array
                     ? list.EnumerateArray().Where(game => game.ValueKind == JsonValueKind.String).Select(game => game.GetString()!).ToList()
                     : [],
             }).ToList());
+            // A deleted folder's picture, and a removed or replaced one, goes with it.
+            _folderArt.DeleteUnreferenced(kept.Select(folder => folder.Art));
+        }
+        if (p.TryGetProperty("hiddenGames", out var hidden) && hidden.ValueKind == JsonValueKind.Array)
+            _services.Settings.SetHiddenGames(hidden.EnumerateArray().Where(id => id.ValueKind == JsonValueKind.String).Select(id => id.GetString()));
 
         if (p.TryGetProperty("riotId", out var riotId) && riotId.ValueKind == JsonValueKind.String)
         {

@@ -8,7 +8,7 @@ using ExoLauncher.Helpers;
 namespace ExoLauncher.Services.DiscordClient;
 
 /// <summary>
-/// Exo's own Discord client (Settings > Music and Discord, off by default): one gateway
+/// Exo's own Discord client (the Discord room): one gateway
 /// connection (gateway.discord.gg, v9, JSON) that identifies as Discord's web client
 /// (<see cref="DiscordRest.Properties"/>), keeps <see cref="DiscordCache"/> current and passes
 /// what the user may see to the UI as discord.* events. Heartbeats as the gateway asks,
@@ -21,6 +21,9 @@ internal sealed partial class DiscordSession
     private const string GatewayUrl = "wss://gateway.discord.gg";
 
     internal static event Action<string, object?>? Event;
+
+    /// <summary>A video frame for the page: its note (discord.video.frame's fields but the picture) and the frame itself.</summary>
+    internal static event Action<object, byte[]>? VideoFrame;
 
     private static readonly Lock StartGate = new();
     private static DiscordSession? _current;
@@ -66,6 +69,13 @@ internal sealed partial class DiscordSession
                 _ = Voice.NoiseSuppressorDownload.EnsureAsync(CancellationToken.None)
                     .ContinueWith(_ => Voice.NoiseSuppressor.Create()?.Dispose(), TaskScheduler.Default);
             _ = Task.Run(() => session.RunAsync()).ContinueWith(run => session.Ended(run.Exception), TaskScheduler.Default);
+            // NVIDIA's noise removal is gone from Exo: its runtime, fetched by earlier versions, goes too (800 MB and more).
+            _ = Task.Run(() =>
+            {
+                var nvafx = Path.Combine(PathHelper.AppDataDir, "voice", "nvafx");
+                try { if (Directory.Exists(nvafx)) Directory.Delete(nvafx, true); }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { AppLog.Debug("Discord voice: NVIDIA's old runtime stays for now: " + ex.Message); }
+            });
         }
     }
 
@@ -153,15 +163,17 @@ internal sealed partial class DiscordSession
         Subscribe(guildId, channelId, [(0, 99)]);
     }
 
-    /// <summary>The member list scrolled to its end: the next hundred rows, as Discord's client asks (the first range and two more).</summary>
-    internal void MoreMembers(string guildId)
+    /// <summary>
+    /// The member list scrolled to row <paramref name="at"/>: the hundred rows there and the next hundred, with the first
+    /// hundred kept, as Discord's client asks for the ranges in view.
+    /// </summary>
+    internal void MembersAt(string guildId, int at)
     {
         string? channelId;
         lock (_listChannel) channelId = _listChannel.GetValueOrDefault(guildId);
         if (channelId is null) return;
-        var next = Cache.MemberRows(guildId) / 100 * 100;
-        if (next == 0) return;
-        Subscribe(guildId, channelId, next >= 200 ? [(0, 99), (next - 100, next - 1), (next, next + 99)] : [(0, 99), (next, next + 99)]);
+        var from = Math.Max(0, at) / 100 * 100;
+        Subscribe(guildId, channelId, from == 0 ? [(0, 99), (100, 199)] : [(0, 99), (from, from + 99), (from + 100, from + 199)]);
     }
 
     // The channel whose member list each server shows (the one last opened there).

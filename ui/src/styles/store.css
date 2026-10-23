@@ -7,7 +7,7 @@
   flex-direction: column;
   min-width: 0;
   min-height: 0;
-  background: #000;
+  background: var(--color-bg);
 }
 
 .exo-store-top {
@@ -144,7 +144,7 @@
   padding: 0;
   border: 1px solid var(--exo-float-line);
   border-radius: 14px;
-  background: #000;
+  background: var(--color-bg);
   color: inherit;
   cursor: pointer;
 }
@@ -158,15 +158,14 @@
 /* The art fades into the black toward the copy (a mask, not a dark layer over it: two layers under one rounded clip
    antialias its corner twice, and the art shows through as a light rim). One mask over every layer, so a game fading
    in covers the last one whole instead of both showing through the faded edge. */
+/* The banner's art is shown whole: the game's logo carries its own shadow and See the game is a solid control. */
 .exo-store-hero-arts {
   position: absolute;
   inset: 0;
-  mask-image: linear-gradient(90deg, rgb(0 0 0 / 0.25), #000 55%), linear-gradient(0deg, rgb(0 0 0 / 0.45), #000 40%);
-  mask-composite: intersect;
 }
 
 .exo-store-hero-art {
-  background: #000;
+  background: var(--color-bg);
 }
 
 /* The next game waits unseen until its picture is in, then fades in on the move time (StoreRoom.tsx › HeroArt). */
@@ -216,20 +215,26 @@
   filter: drop-shadow(0 4px 18px rgba(0, 0, 0, 0.6));
 }
 
+/* A game without a logo: its name on a plate of small glass, as Continue's titles. */
+/* Every title plate over art (this, Continue's, Free on Epic's) rounds 12px: at 16 a one-line plate read as a pill. */
 .exo-store-hero-name {
+  padding: 7px 14px 8px;
+  border-radius: 12px;
   font-size: calc(20px * var(--exo-scale, 1));
   font-weight: 600;
   text-align: left;
 }
 
+/* The banner's primary, the size and weight of Continue's Play over its art. */
 .exo-store-hero-cta {
   display: inline-flex;
   align-items: center;
-  height: 32px;
-  padding: 0 16px;
+  height: 40px;
+  padding: 0 20px;
+  font-weight: 500;
   border-radius: 999px;
   background: var(--color-fg);
-  color: #000;
+  color: var(--color-bg);
   font-size: calc(13px * var(--exo-scale, 1));
 }
 
@@ -287,7 +292,7 @@
   aspect-ratio: 616 / 353;
   overflow: hidden;
   border-radius: 8px;
-  background: #000;
+  background: var(--color-bg);
 }
 
 .exo-store-hero-pick-name {
@@ -320,6 +325,11 @@
   opacity: 0.3;
 }
 
+/* A shelf that fits whole has nothing to page: no arrows, rather than two dead ones. */
+.exo-store-arrows:not(:has(button:enabled)) {
+  visibility: hidden;
+}
+
 .exo-store-track {
   display: grid;
   grid-auto-flow: column;
@@ -332,8 +342,9 @@
   scroll-snap-type: x proximity;
 }
 
+/* Wide cards (Free on Epic): four across the row at least 300px each, so a short shelf fills it. */
 .exo-store-track.is-wide {
-  grid-auto-columns: 300px;
+  grid-auto-columns: max(300px, calc((100% - 3 * 16px) / 4));
 }
 
 .exo-store-track > * {
@@ -367,7 +378,7 @@
   margin-bottom: 4px;
   overflow: hidden;
   border-radius: 14px;
-  background: #000;
+  background: var(--color-bg);
 }
 
 /* No art from Steam: the name on black, never an empty hole. */
@@ -503,7 +514,7 @@
   padding: 0;
   border: 1px solid var(--exo-float-line);
   border-radius: 14px;
-  background: #000;
+  background: var(--color-bg);
   color: inherit;
   text-align: left;
   cursor: pointer;
@@ -515,18 +526,17 @@
   inset: 0;
 }
 
-/* Fades into the black under the words (a mask, as the hero's). */
-.exo-store-free-art {
-  mask-image: linear-gradient(0deg, rgb(0 0 0 / 0.08), #000 50%);
-}
-
+/* The art is shown whole; the words sit on a plate of small glass in its corner. */
 .exo-store-free-text {
   position: absolute;
-  inset: auto 0 0;
+  left: 10px;
+  bottom: 10px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  padding: 32px 12px 12px;
+  gap: 2px;
+  max-width: calc(100% - 20px);
+  padding: 7px 12px 8px;
+  border-radius: 12px;
 }
 
 .exo-store-free-when {
@@ -541,10 +551,23 @@
   color: var(--color-fg);
 }
 
+/* Nothing to show (no results, an empty wishlist, the store out of reach): one line in the middle of the room with
+   what to do next under it, as Ctrl+K says it. */
 .exo-store-empty {
-  margin: 24px var(--exo-gutter);
-  color: var(--color-muted);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  margin: 0;
+  padding: 96px var(--exo-gutter);
+  color: var(--color-fg);
   font-size: calc(13px * var(--exo-scale, 1));
+  font-weight: 500;
+  text-align: center;
+}
+
+.exo-store-empty p {
+  margin: 0;
 }
 
 /* A game's page: the media with Details under it, and beside it the logo and tags, buying, About and the
@@ -596,6 +619,29 @@ html[data-exo-motion="reduce"] .exo-game-overlay-stage:has(> .exo-sgp) {
   max-height: 100%;
   overflow: hidden;
   mask-image: linear-gradient(180deg, rgb(0 0 0 / 0.88), rgb(0 0 0 / 0.7) 45%, rgb(0 0 0 / 0.18) 80%, transparent);
+}
+
+/* Under the banner, the page to its foot: the same art blurred and dimmed, so the banner fades into it, not into black. */
+.exo-sgp-backdrop {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.exo-sgp-backdrop .exo-store-img {
+  filter: blur(48px) saturate(1.2) brightness(0.42);
+  transform: scale(1.15);
+}
+
+/* Under the side column (title, tags, buying) the banner washes into the page, so its words keep 4.5:1 over the
+   brightest art (measured from the screen: "Only on Steam" was at 2.4:1 over a sunset). */
+.exo-sgp-hero::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent 52%, color-mix(in srgb, var(--color-bg) 72%, transparent) 68%, color-mix(in srgb, var(--color-bg) 80%, transparent) 100%);
+  pointer-events: none;
 }
 
 .exo-sgp-hero .exo-store-img {
@@ -695,7 +741,7 @@ html[data-exo-motion="reduce"] .exo-game-overlay-stage:has(> .exo-sgp) {
 
 .exo-sgp-pill {
   padding: 4px 12px;
-  border: 1px solid #242424;
+  border: 1px solid rgb(var(--exo-ink-rgb) / 0.14);
   border-radius: 999px;
   background: var(--exo-fill);
   color: var(--color-fg);
@@ -738,7 +784,7 @@ html[data-exo-motion="reduce"] .exo-game-overlay-stage:has(> .exo-sgp) {
   aspect-ratio: 16 / 9;
   overflow: hidden;
   border-radius: var(--exo-card-radius);
-  background: #000;
+  background: var(--color-bg);
   box-shadow: inset 0 0 0 1px var(--exo-float-line);
 }
 
@@ -746,7 +792,17 @@ html[data-exo-motion="reduce"] .exo-game-overlay-stage:has(> .exo-sgp) {
   display: block;
   width: 100%;
   height: 100%;
-  background: #000;
+  background: var(--color-bg);
+}
+
+/* The player takes the keyboard (its own controls): the stage, which clips it, carries its ring outside. */
+.exo-store-video:focus-visible {
+  outline: none;
+}
+
+.exo-sgp-stage:has(.exo-store-video:focus-visible) {
+  outline: 2px solid var(--color-fg);
+  outline-offset: 2px;
 }
 
 /* The trailer's poster over the player until it plays, then fading out; clicks reach the player under it. */
@@ -754,7 +810,7 @@ html[data-exo-motion="reduce"] .exo-game-overlay-stage:has(> .exo-sgp) {
   position: absolute;
   inset: 0;
   pointer-events: none;
-  transition: opacity 240ms var(--ease-out);
+  transition: opacity var(--dur-base) var(--ease-out);
 }
 
 .exo-trailer-cover.is-gone {
@@ -785,7 +841,7 @@ html[data-exo-motion="reduce"] .exo-game-overlay-stage:has(> .exo-sgp) {
   padding: 0;
   border: 0;
   border-radius: 8px;
-  background: #000;
+  background: var(--color-bg);
   cursor: pointer;
 }
 
@@ -845,7 +901,9 @@ button.exo-sgp-thumb::after {
 }
 
 .exo-store-empty.exo-store-error {
-  margin: 24px var(--exo-gutter);
+  flex-direction: column;
+  gap: 16px;
+  margin: 0;
 }
 
 .exo-store-error p {
@@ -904,14 +962,15 @@ button.exo-sgp-thumb::after {
   gap: 12px;
   min-height: 36px;
   padding: 0 16px;
-  border: 1px solid #242424;
+  border: 1px solid rgb(var(--exo-ink-rgb) / 0.14);
   border-radius: 999px;
   background: var(--exo-fill);
   color: var(--color-fg);
   font-size: calc(13px * var(--exo-scale, 1));
   text-align: left;
   cursor: pointer;
-  transition: background-color 120ms var(--ease-out), box-shadow 120ms var(--ease-out), opacity 120ms var(--ease-out);
+  transition: background-color var(--dur-quick) var(--ease-out), box-shadow var(--dur-quick) var(--ease-out), opacity var(--dur-quick) var(--ease-out),
+    scale var(--dur-quick) var(--ease-out);
 }
 
 .exo-sgp-offer:disabled {
@@ -927,11 +986,11 @@ button.exo-sgp-thumb::after {
 .exo-sgp-offer.is-primary {
   border-color: var(--color-fg);
   background: var(--color-fg);
-  color: #000;
+  color: var(--color-bg);
 }
 
 .exo-sgp-offer.is-primary :is(.exo-store-now, .exo-store-was) {
-  color: #000;
+  color: var(--color-bg);
 }
 
 .exo-sgp-offer.is-loading {

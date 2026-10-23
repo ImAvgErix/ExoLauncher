@@ -173,8 +173,11 @@ function ChannelMention({ id, ctx }: { id: string; ctx: MarkdownContext }) {
 const DISCORD_LINK = /^https:\/\/(?:(?:ptb|canary)\.)?discord(?:app)?\.com\/channels\/(@me|\d{5,20})\/(\d{5,20})(?:\/(\d{5,20}))?\/?$/
 const INVITE_LINK = /^https?:\/\/(?:www\.)?(?:discord\.gg|(?:(?:ptb|canary)\.)?discord(?:app)?\.com\/invite)\/([\w-]{2,32})\/?(?:[?#].*)?$/i
 
+/** An invite link's code; null for any other link. */
+export const inviteCode = (url: string) => INVITE_LINK.exec(url)?.[1] ?? null
+
 function follow(url: string) {
-  const invite = INVITE_LINK.exec(url)?.[1]
+  const invite = inviteCode(url)
   if (invite) return void window.dispatchEvent(new CustomEvent('exo-dc-invite', { detail: invite }))
   const [, place, channelId, messageId] = DISCORD_LINK.exec(url) ?? []
   const guildId = place === '@me' ? null : place

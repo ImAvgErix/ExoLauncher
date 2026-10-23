@@ -14,6 +14,9 @@ internal static class VoiceCheck
     private const int Rate = Opus.SampleRate, Frame = Opus.FrameSamples;
     private static int _running;
 
+    /// <summary>The last take, cleaned, and which frames the gate let through: Only My Voice learns from it (memory only).</summary>
+    internal static (float[] Cleaned, bool[] Voiced)? LastTake { get; private set; }
+
     internal static async Task<object> RecordAsync(int seconds, CancellationToken ct)
     {
         seconds = Math.Clamp(seconds, 3, 10);
@@ -26,6 +29,7 @@ internal static class VoiceCheck
             var sent = new float[frames * Frame];
             var quiet = new float[frames * Frame];
             var voiced = new bool[frames];
+            var gated = new bool[frames];
             var done = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             // The call's own chain: the kept tuning for this mic, and its own noise suppression standing in where it does.
             using var chain = new VoiceChain();
@@ -44,10 +48,19 @@ internal static class VoiceCheck
                     Mono(frame, quiet, at);
                     if (open)
                     {
+                        // The lead-in the call sends ahead of an opening, at its own place.
+                        var lead = chain.TakeLead().ToArray();
+                        for (var i = 0; i < lead.Length; i++)
+                        {
+                            if (at - (lead.Length - i) * Frame < 0) continue;
+                            codec.Through(lead[i]);
+                            Mono(lead[i], sent, at - (lead.Length - i) * Frame);
+                        }
                         codec.Through(frame);
                         Mono(frame, sent, at);
                     }
                     voiced[count] = open;
+                    gated[count] = chain.Voiced;
                     if (++count == frames) done.TrySetResult();
                 };
                 audio.Start(capture: true, render: false);
@@ -56,6 +69,7 @@ internal static class VoiceCheck
             }
             finally { audio.Dispose(); }
 
+            LastTake = (quiet, gated);
             var peak = raw.Max(MathF.Abs);
             return new
             {

@@ -69,6 +69,9 @@ internal static class H264Rtp
         return sps.Count >= 4 ? $"{text}, profile {sps[1]} level {sps[3]}" : text;
     }
 
+    /// <summary>An Annex B frame's SPS in hex, for app.log ("" without one).</summary>
+    internal static string SpsHex(byte[] frame) => Nals(frame).FirstOrDefault(n => n.Count > 0 && (n[0] & 0x1F) == 7) is { Count: > 0 } sps ? Convert.ToHexString(sps) : "";
+
     /// <summary>Rebuilds one frame's RTP payloads (single NAL, STAP-A, FU-A) as Annex B; null when malformed.</summary>
     internal static byte[]? Build(IEnumerable<byte[]> payloads)
     {
@@ -117,8 +120,11 @@ internal static class H264Rtp
     /// which <see cref="Add"/> takes with their original sequence numbers. Only when a gap can't be
     /// filled are its frames given up, and then everything until a keyframe, which is asked for (PLI).
     /// </summary>
-    internal sealed class H264Receiver
+    internal sealed class H264Receiver(bool hevc = false)
     {
+        /// <summary>The frames are H.265 (RFC 7798), not H.264: how payloads are rebuilt and keyframes known.</summary>
+        internal bool Hevc => hevc;
+
         private const long NackEveryMs = 40, GiveUpMs = 300;
         private const int MaxNacks = 6, MaxHeld = 2000;
 
@@ -257,9 +263,9 @@ internal static class H264Rtp
                 if (last is null || !last.Marker) return;
                 for (var s = _next; s <= seq; s++) _held.Remove(s);
                 _next = seq + 1;
-                var frame = Build(payloads);
+                var frame = hevc ? H265Rtp.Build(payloads) : Build(payloads);
                 if (frame is null) { Lost(now); continue; }
-                if (_broken && !IsKeyframe(frame)) { RequestKeyframe(now); continue; }
+                if (_broken && !(hevc ? H265Rtp.IsKeyframe(frame) : IsKeyframe(frame))) { RequestKeyframe(now); continue; }
                 _broken = false;
                 Frame?.Invoke(last.Timestamp, frame);
             }
@@ -273,11 +279,11 @@ internal static class H264Rtp
     internal sealed class SentHistory
     {
         private const int Size = 1024;
-        private readonly (ushort Sequence, uint Timestamp, bool Marker, byte[]? Payload)[] _ring = new (ushort, uint, bool, byte[]?)[Size];
+        private readonly (ushort Sequence, uint Timestamp, bool Marker, byte[]? Payload, long ResentAt)[] _ring = new (ushort, uint, bool, byte[]?, long)[Size];
 
         // What went out and what the server asked for since the last report (Interlocked: frames, RTCP and the timer
         // are on different threads), so a stream nobody can see shows in app.log where it stops.
-        internal int Frames, Packets, Unsealed, Nacked, Resent, KeyframeAsks;
+        internal int Frames, Packets, Unsealed, Nacked, Resent, KeyframeAsks, Rtcp;
         private long _reportAt;
 
         /// <summary>The report line ten seconds after the first frame, then each minute; null when nothing is due or nothing was sent.</summary>
@@ -289,21 +295,63 @@ internal static class H264Rtp
             _reportAt = now + 60_000;
             return $"sent {Interlocked.Exchange(ref Frames, 0)} frames in {Interlocked.Exchange(ref Packets, 0)} packets, " +
                 $"{Interlocked.Exchange(ref Unsealed, 0)} not sent (DAVE didn't encrypt them); the server asked for " +
-                $"{Interlocked.Exchange(ref KeyframeAsks, 0)} key frames and {Interlocked.Exchange(ref Nacked, 0)} lost packets ({Interlocked.Exchange(ref Resent, 0)} resent).";
+                $"{Interlocked.Exchange(ref KeyframeAsks, 0)} key frames and {Interlocked.Exchange(ref Nacked, 0)} lost packets ({Interlocked.Exchange(ref Resent, 0)} resent), " +
+                $"in {Interlocked.Exchange(ref Rtcp, 0)} RTCP packets.";
         }
 
-        internal void Remember(ushort sequence, uint timestamp, bool marker, byte[] payload) => _ring[sequence % Size] = (sequence, timestamp, marker, payload);
+        internal void Remember(ushort sequence, uint timestamp, bool marker, byte[] payload) => _ring[sequence % Size] = (sequence, timestamp, marker, payload, 0);
 
-        /// <summary>The RTX payload for a lost packet, with its timestamp and marker; null when it's no longer kept.</summary>
-        internal (byte[] Payload, uint Timestamp, bool Marker)? Resend(ushort sequence)
+        /// <summary>
+        /// The RTX payload for a lost packet, with its timestamp and marker; null when it's no longer kept, or was resent
+        /// in the last 150 ms (about a round trip: the server asks again while the first resend is still on its way, and
+        /// answering each ask doubled a lossy stream until it carried more resends than video).
+        /// </summary>
+        internal (byte[] Payload, uint Timestamp, bool Marker)? Resend(ushort sequence, long now)
         {
-            var entry = _ring[sequence % Size];
+            ref var entry = ref _ring[sequence % Size];
             if (entry.Payload is null || entry.Sequence != sequence) return null;
+            if (entry.ResentAt != 0 && now - entry.ResentAt < 150) return null;
+            entry.ResentAt = now;
             var rtx = new byte[entry.Payload.Length + 2];
             BinaryPrimitives.WriteUInt16BigEndian(rtx, sequence);
             entry.Payload.CopyTo(rtx, 2);
             return (rtx, entry.Timestamp, entry.Marker);
         }
+    }
+}
+
+/// <summary>
+/// Go Live's bit rate, steered as libwebrtc's sender steers it: never over what Discord's server says it takes (its REMB,
+/// less a tenth for the sound, resends and headers), down by half the loss the server reports once it passes 10 %, up 8 %
+/// a second while it stays under 2 %, between 0.5 Mbit/s and the plan's rate. Exo sent its plan's 12 Mbit/s into a 9 Mbit/s
+/// REMB and lost a third of the stream. Fed and asked from the connection's receive thread only.
+/// </summary>
+internal sealed class StreamRate(int start, int most)
+{
+    private const int Least = 500_000;
+    private long _remb = long.MaxValue, _decidedAt;
+    private double _loss = -1, _rate = start;
+
+    /// <summary>The rate the encoder was last asked for.</summary>
+    internal int Rate { get; private set; } = start;
+
+    internal void Remb(long bitsPerSecond) => _remb = bitsPerSecond;
+
+    /// <summary>The share of the video the server's last receiver report lost (0 to 1).</summary>
+    internal void Loss(double share) => _loss = share;
+
+    /// <summary>The rate to ask the encoder for, at most once a second and only when it moved 5 % or more; else null.</summary>
+    internal int? Next(long now)
+    {
+        if (_decidedAt != 0 && now - _decidedAt < 1000) return null;
+        _decidedAt = now;
+        if (_loss > 0.10) _rate *= 1 - 0.5 * _loss;
+        else if (_loss is >= 0 and < 0.02) _rate *= 1.08;
+        _loss = -1; // each report counts once: no report, no change
+        _rate = Math.Clamp(Math.Min(_rate, _remb * 0.9), Least, Math.Max(Least, most));
+        if (Math.Abs(_rate - Rate) < Rate * 0.05) return null;
+        Rate = (int)_rate;
+        return Rate;
     }
 }
 
@@ -364,6 +412,56 @@ internal static class Rtcp
             BinaryPrimitives.WriteUInt16BigEndian(packet.AsSpan(14 + i * 4), fci[i].Blp);
         }
         return packet;
+    }
+
+    /// <summary>A compound packet's parts for app.log ("RR video lost 0/256 total 0 seq 1234, PSFB/15 REMB 2500 kbit/s").</summary>
+    internal static string Describe(ReadOnlySpan<byte> packet, uint video)
+    {
+        var parts = new List<string>();
+        for (var at = 0; at + 8 <= packet.Length;)
+        {
+            var size = (BinaryPrimitives.ReadUInt16BigEndian(packet[(at + 2)..]) + 1) * 4;
+            if (at + size > packet.Length) break;
+            int type = packet[at + 1], count = packet[at] & 31;
+            var part = type switch { SenderReport => "SR", ReceiverReport => "RR", RtpFeedback => $"RTPFB/{count}", PayloadFeedback => $"PSFB/{count}", _ => type.ToString() };
+            if (type is SenderReport or ReceiverReport)
+            {
+                var blocks = new List<string>();
+                var block = at + (type == SenderReport ? 28 : 8);
+                for (var k = 0; k < count && block + 24 <= at + size; k++, block += 24)
+                {
+                    var source = BinaryPrimitives.ReadUInt32BigEndian(packet[block..]);
+                    var total = packet[block + 5] << 16 | packet[block + 6] << 8 | packet[block + 7];
+                    var highest = BinaryPrimitives.ReadUInt32BigEndian(packet[(block + 8)..]) & 0xFFFF;
+                    blocks.Add($"{(source == video ? "video" : source.ToString())} lost {packet[block + 4]}/256 total {total} seq {highest}");
+                }
+                part += blocks.Count == 0 ? " (no blocks)" : " " + string.Join("; ", blocks);
+            }
+            else if (RembBits(packet.Slice(at, size)) is { } remb)
+                part += $" REMB {remb / 1000} kbit/s";
+            else if (size >= 12)
+            {
+                var media = BinaryPrimitives.ReadUInt32BigEndian(packet[(at + 8)..]);
+                part += $" for {(media == video ? "video" : media.ToString())}";
+            }
+            parts.Add(part);
+            at += size;
+        }
+        return string.Join(", ", parts);
+    }
+
+    /// <summary>The most a REMB in a compound packet lets this sender send, in bits per second; null without one.</summary>
+    internal static long? RembBits(ReadOnlySpan<byte> packet)
+    {
+        for (var at = 0; at + 8 <= packet.Length;)
+        {
+            var size = (BinaryPrimitives.ReadUInt16BigEndian(packet[(at + 2)..]) + 1) * 4;
+            if (at + size > packet.Length) return null;
+            if (packet[at + 1] == PayloadFeedback && (packet[at] & 31) == 15 && size >= 20 && packet.Slice(at + 12, 4).SequenceEqual("REMB"u8))
+                return (long)((packet[at + 17] & 3) << 16 | packet[at + 18] << 8 | packet[at + 19]) << (packet[at + 17] >> 2);
+            at += size;
+        }
+        return null;
     }
 
     /// <summary>A Picture Loss Indication (PSFB, FMT 1): send a keyframe.</summary>

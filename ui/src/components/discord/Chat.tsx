@@ -99,7 +99,8 @@ export function Chat({ channel, guildId, meId, me, hidden, channelName, roles, a
     if (!el) return
     newBar.check()
     const bottom = el.scrollHeight - el.scrollTop - el.clientHeight < 48
-    pinned.current = bottom && !newer
+    // Exo's own scroll to the bottom keeps it pinned; only the reader's scrolling unpins it.
+    if (Math.abs(el.scrollTop - history.selfTop.current) >= 2) pinned.current = bottom && !newer
     if (el.scrollTop < 400) void history.loadOlder()
     if (newer && el.scrollHeight - el.scrollTop - el.clientHeight < 400) void history.loadNewer()
     ackIfSeen()
@@ -372,6 +373,9 @@ function useHistory(channelId: string, meId: string | null, scroller: React.RefO
   // The newest message read when the channel opened: Discord's red NEW line sits after it.
   const [lastRead, setLastRead] = useState<string | null>(kept?.lastRead ?? null)
   const pinned = useRef(true)
+  // Where Exo itself last scrolled the list: the scroll event that follows is its own, not the reader's, and must not
+  // unpin it (a picture growing in between made it read as "scrolled up" and the chat stopped short of the bottom).
+  const selfTop = useRef(-1)
   const keepFromBottom = useRef<number | null>(null)
   const scrollTo = useRef<string | null>(null)
   const busy = useRef(false)
@@ -479,6 +483,7 @@ function useHistory(channelId: string, meId: string | null, scroller: React.RefO
       el.scrollTop = el.scrollHeight - keepFromBottom.current
       keepFromBottom.current = null
     } else if (pinned.current) el.scrollTop = el.scrollHeight
+    selfTop.current = el.scrollTop
   }, [messages, scroller])
 
   // The room hidden and shown again (display: none drops an element's scroll position) or the messages growing under
@@ -491,6 +496,7 @@ function useHistory(channelId: string, meId: string | null, scroller: React.RefO
     const settle = () => {
       if (el.clientHeight === 0) return
       el.scrollTop = pinned.current ? el.scrollHeight : el.scrollHeight - el.clientHeight - fromBottom
+      selfTop.current = el.scrollTop
     }
     const watch = new ResizeObserver(settle)
     watch.observe(el)
@@ -507,7 +513,7 @@ function useHistory(channelId: string, meId: string | null, scroller: React.RefO
   const compact = useAccountSettings().messageDisplayCompact
   useLayoutEffect(() => {
     const el = scroller.current
-    if (el && pinned.current) el.scrollTop = el.scrollHeight
+    if (el && pinned.current) { el.scrollTop = el.scrollHeight; selfTop.current = el.scrollTop }
   }, [fontSize, groupSpacing, compact, scroller])
 
   const loadEdge = useCallback(async (where: 'older' | 'newer', retry: boolean) => {
@@ -542,7 +548,7 @@ function useHistory(channelId: string, meId: string | null, scroller: React.RefO
 
   const toPresent = useCallback(() => loadPage(null), [loadPage])
   return {
-    messages, setMessages, load, older, newer, edge, lastRead, setLastRead, pinned, toPresent,
+    messages, setMessages, load, older, newer, edge, lastRead, setLastRead, pinned, selfTop, toPresent,
     loadOlder: (retry = false) => loadEdge('older', retry),
     loadNewer: (retry = false) => loadEdge('newer', retry),
   }

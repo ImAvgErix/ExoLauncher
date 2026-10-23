@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react'
 import { host } from '../../../lib/host'
 import { report } from '../../../lib/report'
 import { changeAccountSettings, type AccountSettings, type DiscordClientSettings } from '../../../lib/discordPrefs'
@@ -121,12 +121,23 @@ export function LinkRow({ label, detail, button, url, danger }: { label: string;
 /** Discord's settings page for the web, where what Exo's client can't do is done. */
 export const DISCORD_SETTINGS_URL = 'https://discord.com/settings/account'
 
+// What each settings page last read, by what it is: a section opens at once with it (they mount as you switch to
+// them) and reads again behind it, never showing Loading for what it has shown before.
+const lastRead = new Map<string, unknown>()
+
+/** A page's state that starts from what was last read under key, and is kept there for the next time. */
+export function useRemembered<T>(key: string): [T | null, Dispatch<SetStateAction<T | null>>] {
+  const [value, setValue] = useState<T | null>(() => (lastRead.get(key) as T | undefined) ?? null)
+  useEffect(() => { if (value !== null) lastRead.set(key, value) }, [key, value])
+  return [value, setValue]
+}
+
 /**
  * The settings Exo keeps for its Discord client: null until read (error says why it wasn't, reload tries again); save
  * shows a change at once, then takes what was saved, or puts it back with why.
  */
 export function useClientSettings() {
-  const [settings, setSettings] = useState<DiscordClientSettings | null>(null)
+  const [settings, setSettings] = useRemembered<DiscordClientSettings>('client')
   const [error, setError] = useState<string | null>(null)
   const [round, setRound] = useState(0)
   useEffect(() => {
@@ -134,7 +145,7 @@ export function useClientSettings() {
     host.discordClientSettings().then(read => { if (live) { setSettings(read); setError(null) } })
       .catch((err: unknown) => { report(err, 'DiscordSettings.client'); if (live) setError("Exo couldn't read these settings.") })
     return () => { live = false }
-  }, [round])
+  }, [round, setSettings])
   const save = (change: Partial<DiscordClientSettings>) => {
     // Only this change's own settings go back if it fails, never another one's made meanwhile.
     const before = settings && Object.fromEntries(Object.keys(change).map(key => [key, settings[key as keyof DiscordClientSettings]])) as Partial<DiscordClientSettings>
@@ -163,19 +174,22 @@ export function Preview({ sound }: { sound: string }) {
   return <button type="button" className="exo-dc-settings-link" onClick={() => void host.discordSound(sound, true).catch(() => { })}>Preview Sound</button>
 }
 
-/** Loads something for a page once; null until it arrives, with the error line if it didn't. A failed reload keeps what the page had. */
-export function useLoad<T>(load: () => Promise<{ ok: boolean; message?: string | null; data?: unknown }>, map: (data: unknown) => T) {
-  const [state, setState] = useState<{ value: T | null; error: string | null; loading: boolean }>({ value: null, error: null, loading: true })
+/**
+ * Loads something for a page (key: what it is); null until it first arrives, with the error line if it didn't. It
+ * shows what was last read at once and reads again behind it; a failed read keeps what the page had.
+ */
+export function useLoad<T>(key: string, load: () => Promise<{ ok: boolean; message?: string | null; data?: unknown }>, map: (data: unknown) => T) {
+  const [value, setValue] = useRemembered<T>(key)
+  const [error, setError] = useState<string | null>(null)
   const [round, setRound] = useState(0)
   useEffect(() => {
     let live = true
-    const fail = (error: string) => setState(s => ({ value: s.value, error, loading: false }))
     load().then(result => {
       if (!live) return
-      if (result.ok) setState({ value: map(result.data), error: null, loading: false })
-      else fail(result.message ?? "Discord didn't answer. Try again.")
-    }).catch(() => { if (live) fail("Discord didn't answer. Try again.") })
+      if (result.ok) { setValue(map(result.data)); setError(null) }
+      else setError(result.message ?? "Discord didn't answer. Try again.")
+    }).catch(() => { if (live) setError("Discord didn't answer. Try again.") })
     return () => { live = false }
   }, [round]) // eslint-disable-line react-hooks/exhaustive-deps -- load and map are the page's own, fixed per page
-  return { ...state, reload: () => setRound(r => r + 1) }
+  return { value, error, loading: value === null && error === null, reload: () => setRound(r => r + 1) }
 }

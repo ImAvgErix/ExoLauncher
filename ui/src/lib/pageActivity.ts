@@ -41,3 +41,8 @@ export function usePageClock(ms: number, read: () => number): number {
 export function usePageActive(): boolean {
   return useSyncExternalStore(onPageActivityChanged, pageIsActive)
 }
+
+/** Whether Exo is on screen, focused or not, kept current: for what the user watches beside a game on another screen. */
+export function usePageVisible(): boolean {
+  return useSyncExternalStore(onPageActivityChanged, pageIsVisible)
+}

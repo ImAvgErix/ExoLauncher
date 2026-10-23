@@ -258,11 +258,15 @@ public sealed partial class MainWindow
             case "ready":
             case "state":
                 _captureState = data;
+                // Recording or keeping a replay: its microphone track takes Exo's cleaned voice.
+                if (CaptureAddon is { } voiceAddon)
+                    Services.DiscordClient.Voice.RecordedVoice.Set(voiceAddon, data?["buffering"]?.GetValue<bool>() == true || data?["recording"]?.GetValue<bool>() == true);
                 _bridge?.PostCaptureEvent("capture.state", CaptureStateDto());
                 if (name == "ready" && Interlocked.Exchange(ref _captureReconfigure, 0) == 1) _ = ConfigureCaptureAsync();
                 break;
             case "exited":
                 _captureGameId = null;
+                if (CaptureAddon is { } goneAddon) Services.DiscordClient.Voice.RecordedVoice.Set(goneAddon, false);
                 Interlocked.Exchange(ref _captureReconfigure, 1);
                 _captureState = null;
                 _bridge?.PostCaptureEvent("capture.state", CaptureStateDto());

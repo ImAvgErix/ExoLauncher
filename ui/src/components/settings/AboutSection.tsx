@@ -2,11 +2,13 @@ import { memo, useRef, useState, type CSSProperties } from 'react'
 import { host, type DependencyItem } from '../../lib/host'
 import { invalidateUpscalerStatus } from '../../lib/upscalerCache'
 import { formatTransferPercent } from '../../lib/utils'
+import { WHATS_NEW } from '../../lib/whatsNew'
 import { Row, Section, State } from './parts'
 
+/** What's new opens the sheet of this version's notes (LauncherApp); the rest open in the browser. */
 const LINKS = [
   { label: 'Report a problem', url: 'https://github.com/ImAvgErix/ExoLauncher/issues' },
-  { label: 'Release notes', url: 'https://github.com/ImAvgErix/ExoLauncher/releases/latest' },
+  { label: "What's new", url: null },
   { label: 'Privacy', url: 'https://github.com/ImAvgErix/ExoLauncher/blob/main/PRIVACY.md' },
   { label: 'Support Exo', url: 'https://www.buymeacoffee.com/UhhErix' },
 ] as const
@@ -181,8 +183,8 @@ export const AboutSection = memo(function AboutSection(props: {
       <div className="exo-set-item">
         <ul className="exo-set-links">
           {LINKS.map(link => (
-            <li key={link.url}>
-              <button type="button" className="exo-set-link" onClick={() => void host.openUrl(link.url)}>{link.label}</button>
+            <li key={link.label}>
+              <button type="button" className="exo-set-link" onClick={() => link.url ? void host.openUrl(link.url) : window.dispatchEvent(new Event(WHATS_NEW))}>{link.label}</button>
             </li>
           ))}
         </ul>

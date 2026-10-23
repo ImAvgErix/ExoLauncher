@@ -14,7 +14,11 @@ namespace
 {
 constexpr int Rate = 48000;
 constexpr int Block = 480;            // 10 ms
-constexpr int64_t MixDelay = 1'000'000; // mix what arrived up to 100 ms ago
+// Mix what arrived up to 250 ms ago: Exo's cleaned voice comes as late as its chain holds it (NVIDIA's model 70 ms)
+// plus a frame and the pipe, stamped with when it was spoken.
+constexpr int64_t MixDelay = 2'500'000;
+// Exo fed the microphone track this recently: the raw microphone stays out of it.
+constexpr int64_t FedFresh = 3'000'000;
 constexpr int64_t RingFrames = Rate * 2;
 
 WAVEFORMATEX Pcm48()
@@ -53,22 +57,37 @@ struct ActivateHandler : winrt::implements<ActivateHandler, IActivateAudioInterf
 
 // ---------------------------------------------------------------- one WASAPI stream
 
+class AudioSource;
+namespace
+{
+// The microphone track's source while a capture runs, for Exo's voice feed; and when Exo last fed it.
+std::mutex g_micLock;
+AudioSource* g_mic = nullptr;
+std::atomic<int64_t> g_fedAt{ 0 };
+}
+
 class AudioSource
 {
 public:
-    /// Discord: Discord's process tree, looked for again while it is not running (or after it closed).
+    /// Discord: the voice of a call, Discord's process tree or, without the Discord app, Exo's (its own Discord
+    /// client plays calls itself), looked for again while neither is running (or after it closed).
     enum class Kind { System, ProcessInclude, ProcessExclude, Discord, Microphone };
 
     AudioSource(Kind kind, DWORD pid, int64_t origin) : m_kind(kind), m_pid(pid), m_origin(origin), m_ring(RingFrames * 2)
     {
+        if (m_kind == Kind::Microphone) { std::lock_guard lock(g_micLock); g_mic = this; }
         m_thread = std::thread([this] { Run(); });
     }
 
     ~AudioSource()
     {
+        if (m_kind == Kind::Microphone) { std::lock_guard lock(g_micLock); if (g_mic == this) g_mic = nullptr; }
         m_stop = true;
         if (m_thread.joinable()) m_thread.join();
     }
+
+    /// Exo's cleaned voice, in place of the raw microphone (StartVoiceFeed).
+    void Feed(int64_t qpc, const int16_t* samples, UINT32 frames) { Write(qpc, samples, frames); }
 
     /// Frames [frame, frame + count) as 16-bit stereo; silence where nothing arrived.
     void Read(int64_t frame, int16_t* out, int count)
@@ -97,6 +116,7 @@ private:
         {
             m_pid = FindDiscord();
             if (!m_pid) throw Failure(S_FALSE, "Discord is not running");
+            Log("Sound: the voice track follows process " + std::to_string(m_pid));
             m_process = winrt::handle(OpenProcess(SYNCHRONIZE, FALSE, m_pid));
         }
         if (m_kind != Kind::System && m_kind != Kind::Microphone)
@@ -162,7 +182,9 @@ private:
                         UINT64 position = 0, qpc = 0;
                         Check(capture->GetBuffer(&data, &frames, &flags, &position, &qpc), "sound buffer");
                         int64_t at = qpc ? static_cast<int64_t>(qpc) : Now100ns() - static_cast<int64_t>(frames) * 10'000'000 / Rate;
-                        Write(at, (flags & AUDCLNT_BUFFERFLAGS_SILENT) ? nullptr : reinterpret_cast<const int16_t*>(data), frames);
+                        // While Exo feeds its cleaned voice, the raw microphone is only read and let go.
+                        if (m_kind != Kind::Microphone || Now100ns() - g_fedAt.load() > FedFresh)
+                            Write(at, (flags & AUDCLNT_BUFFERFLAGS_SILENT) ? nullptr : reinterpret_cast<const int16_t*>(data), frames);
                         capture->ReleaseBuffer(frames);
                         Check(capture->GetNextPacketSize(&packet), "sound read");
                     }
@@ -388,6 +410,41 @@ void AudioCapture::Mix()
     }
 }
 
+void StartVoiceFeed(HANDLE pipe)
+{
+    if (!pipe || pipe == INVALID_HANDLE_VALUE) return;
+    std::thread([pipe] {
+        Log("Sound: the microphone track takes Exo's cleaned voice");
+        struct Header { int64_t at; int32_t frames; int32_t channels; } header{};
+        std::vector<int16_t> samples;
+        auto readAll = [pipe](void* to, DWORD bytes) {
+            auto* p = static_cast<BYTE*>(to);
+            while (bytes)
+            {
+                DWORD got = 0;
+                if (!ReadFile(pipe, p, bytes, &got, nullptr) || !got) return false;
+                p += got;
+                bytes -= got;
+            }
+            return true;
+        };
+        while (readAll(&header, sizeof(header)))
+        {
+            // Exo's frames are 960 stereo samples; anything else is not a frame of its voice.
+            if (header.channels != 2 || header.frames <= 0 || header.frames > Rate) break;
+            samples.resize(static_cast<size_t>(header.frames) * 2);
+            if (!readAll(samples.data(), static_cast<DWORD>(samples.size() * sizeof(int16_t)))) break;
+            g_fedAt = Now100ns();
+            std::lock_guard lock(g_micLock);
+            if (g_mic) g_mic->Feed(header.at, samples.data(), static_cast<UINT32>(header.frames));
+        }
+        // Exo stopped feeding (the capture stopped, or Exo closed): the raw microphone comes back at once.
+        g_fedAt = 0;
+        CloseHandle(pipe);
+        Log("Sound: Exo's voice feed ended");
+    }).detach();
+}
+
 DWORD FindDiscord()
 {
     HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
@@ -397,15 +454,20 @@ DWORD FindDiscord()
     for (BOOL ok = Process32FirstW(snapshot, &entry); ok; ok = Process32NextW(snapshot, &entry))
         processes[entry.th32ProcessID] = { entry.th32ParentProcessID, entry.szExeFile };
     CloseHandle(snapshot);
-    auto isDiscord = [](const std::wstring& name) {
+    // The root of a tree of these names: the Discord app's, else Exo's, whose own Discord client plays a call from
+    // Exo itself (with no Discord app the voices were on no track, and missing from the mix of a game's capture).
+    auto rootOf = [&](auto matches) -> DWORD {
+        for (auto& [pid, info] : processes)
+        {
+            if (!matches(info.second)) continue;
+            auto parent = processes.find(info.first);
+            if (parent == processes.end() || !matches(parent->second.second)) return pid;
+        }
+        return 0;
+    };
+    if (DWORD discord = rootOf([](const std::wstring& name) {
         return _wcsicmp(name.c_str(), L"Discord.exe") == 0 || _wcsicmp(name.c_str(), L"DiscordPTB.exe") == 0 ||
             _wcsicmp(name.c_str(), L"DiscordCanary.exe") == 0;
-    };
-    for (auto& [pid, info] : processes)
-    {
-        if (!isDiscord(info.second)) continue;
-        auto parent = processes.find(info.first);
-        if (parent == processes.end() || !isDiscord(parent->second.second)) return pid;
-    }
-    return 0;
+    })) return discord;
+    return rootOf([](const std::wstring& name) { return _wcsicmp(name.c_str(), L"ExoLauncher.exe") == 0; });
 }

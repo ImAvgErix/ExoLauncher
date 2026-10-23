@@ -2,7 +2,9 @@
 
 ## Status
 
-Accepted — 2026-09-02
+Accepted — 2026-09-02. Still in force for Exo's own developer apps, which today is only Twitch for IGDB: its paste rows show in Debug or with `EXO_SHOW_DEV_KEYS=1`, and no client id ships (`Services/ExoAppCredentials.cs`, `settings/KeysSection.tsx`).
+
+Since then: the MusicKit, Spotify SDK and Discord Social SDK paths were deleted (CHANGELOG 3.2.4) and the GG.deals key with Discover (3.2.7). Music drives each service's own app or page and Discord signs in by QR code, so neither needs a developer app. Your own Steam Web API, itch.io and SteamGridDB keys are personal keys, shown in shipped Settings › Optional keys since 3.3.0, not behind Your own app.
 
 ## Context
 

@@ -9,8 +9,8 @@ import './atk-misc.css'
  * The smaller brands' own settings, adapted from OpenMouse (AGPL-3.0):
  * ATK / VXE (onboard bank, stored buttons, F1 Ultimate sensor mode,
  * scroll anti-mistouch, receiver and its light, R1 SE+ pairing), LunaFury
- * (Lightning trigger, per-button latency, wheel guard), Ninjutso (system mode,
- * optical engine, HyperClick, Slam-click), Incott (receiver light, rapid fire)
+ * (Flash trigger, per-button latency, wheel guard), Ninjutso (system mode,
+ * optical engine, HyperClick, Slam-Click), Incott (receiver light, rapid fire)
  * and K-snake (scroll direction, onboard macros). Every row shows only when
  * the mouse reported the value and its driver has the setter.
  */
@@ -44,7 +44,8 @@ const ms = (v: number) => `${v} ms`
 /** The VXE R1 SE+ receiver, the one receiver whose pairing OpenMouse verified (CID 02, MID 20). */
 const SE_PLUS_RECEIVER = { vendorId: 0x3554, productId: 0xf58e, cid: 0x02, mid: 0x20 } as const
 
-const ATK_SENSOR = ['Basic', 'Shard', 'Shard max'] as const
+// ATK's firmware names ("ApexShark Esports Firmware MAX"); its hub's English mistranslates them as Shard.
+const ATK_SENSOR = ['Basic', 'ApexShark', 'ApexShark MAX'] as const
 const ATK_DONGLE_LIGHT = [
   { value: 0, label: 'Off' },
   { value: 1, label: 'Polling rate' },
@@ -173,17 +174,18 @@ function AtkReceiver({ status, client, apply, busy }: Section) {
 
 // ------------------------------------------------------------------ LunaFury
 
+// LunaFury's Flash trigger: which button wins when both are pressed.
 const LIGHTNING = [
-  { value: 1, label: 'Left priority' },
+  { value: 1, label: 'Left' },
   { value: 0, label: 'Off' },
-  { value: 2, label: 'Right priority' },
+  { value: 2, label: 'Right' },
 ] as const
 
 type LunaButton = 'left' | 'right' | 'middle'
 const LUNA_BUTTONS: readonly { button: LunaButton; label: string; min: number; max: number }[] = [
   { button: 'left', label: 'Left button latency', min: 0, max: 15 },
   { button: 'right', label: 'Right button latency', min: 0, max: 15 },
-  { button: 'middle', label: 'Middle button latency', min: 1, max: 30 },
+  { button: 'middle', label: 'Middle button debounce', min: 1, max: 30 },
 ]
 
 function LunaFuryPanels({ status, client, apply, busy }: Section) {
@@ -194,8 +196,8 @@ function LunaFuryPanels({ status, client, apply, busy }: Section) {
   const guard = luna.wheelGuard
   const buttons = [
     lightning != null && can(client, 'setLunaFuryLightningMode') && (
-      <Row key="lt" label="Lightning trigger">
-        <Segmented label="Lightning trigger" options={LIGHTNING} value={lightning}
+      <Row key="lt" label="Flash trigger">
+        <Segmented label="Flash trigger" options={LIGHTNING} value={lightning}
           onChange={v => void apply('setLunaFuryLightningMode', v)} disabled={busy} />
       </Row>
     ),
@@ -205,7 +207,7 @@ function LunaFuryPanels({ status, client, apply, busy }: Section) {
       // A side given Lightning priority runs at the trigger's own timing.
       const held = (button === 'left' && lightning === 1) || (button === 'right' && lightning === 2)
       return (
-        <Row key={button} label={label} value={held ? 'Set by Lightning trigger' : undefined}>
+        <Row key={button} label={label} value={held ? 'Set by Flash trigger' : undefined}>
           {held ? <span className="m-state">{ms(v)}</span> : (
             <Slider label={label} min={min} max={max} step={1} value={v} format={ms}
               onCommit={next => void apply('setLunaFuryButtonDebounce', button, next)} disabled={busy} />
@@ -272,8 +274,8 @@ function NinjutsoPanels({ status, client, apply, busy }: Section) {
       </Row>
     ),
     status.ninjutsoSlamClick != null && can(client, 'setNinjutsoSlamClick') && (
-      <Row key="slam" label="Slam-click">
-        <Segmented label="Slam-click" options={SLAM} value={status.ninjutsoSlamClick}
+      <Row key="slam" label="Slam-Click">
+        <Segmented label="Slam-Click" options={SLAM} value={status.ninjutsoSlamClick}
           onChange={v => void apply('setNinjutsoSlamClick', v)} disabled={busy} />
       </Row>
     ),

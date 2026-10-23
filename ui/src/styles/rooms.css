@@ -22,6 +22,13 @@
   font-size: calc(12px * var(--exo-scale, 1));
 }
 
+/* Under an empty grid: no hidden games yet, or every game hidden. */
+.exo-library-note {
+  margin: 8px var(--exo-gutter);
+  color: var(--color-muted);
+  font-size: calc(13px * var(--exo-scale, 1));
+}
+
 /* A native popover in the top layer, anchored under its trigger (components/ui/Menu.tsx): above it when there is
    no room below, from its left edge when there is no room on the left. */
 .exo-shelf-sort-menu {
@@ -163,9 +170,10 @@
   cursor: default;
 }
 
+/* Inside the control, as on all glass: outside, the capsule's edge cut the ring flat at its top and foot. */
 .exo-music-mini :is(button, input):focus-visible {
   outline: 2px solid var(--color-fg);
-  outline-offset: 2px;
+  outline-offset: -2px;
 }
 
 /* Art, one line of title and artist, and the seek line under them. */
@@ -216,9 +224,9 @@
 .exo-mini-art {
   display: grid;
   place-items: center;
-  background: #000;
+  background: var(--color-bg);
   /* design-disable-next-line exo/art-edge -- the song with no cover: a note in an empty frame, no picture under it */
-  box-shadow: inset 0 0 0 1px #242424;
+  box-shadow: inset 0 0 0 1px rgb(var(--exo-ink-rgb) / 0.14);
   color: var(--color-faint);
 }
 
@@ -294,7 +302,7 @@
   padding: 10px 12px;
   border: 1px solid color-mix(in srgb, var(--color-bad) 34%, transparent);
   border-radius: 10px;
-  background: #000;
+  background: var(--color-bg);
   color: var(--color-bad);
   font-size: calc(12px * var(--exo-scale, 1));
   white-space: normal;

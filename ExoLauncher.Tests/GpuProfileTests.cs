@@ -19,7 +19,7 @@ namespace ExoLauncher.Tests;
 /// - "Applied" shows while the driver holds something else, or a re-apply or
 ///   a switch of variant overwrites the first backup so Undo cannot get back
 ///   to the start;
-/// - AMD or Intel get a write.
+/// - a Radeon or Intel GPU Exo can't reach is told to set Anti-Lag everywhere, or a frame cap without its fps.
 /// </summary>
 public sealed class GpuProfileTests
 {
@@ -208,24 +208,27 @@ public sealed class GpuProfileTests
     [Fact]
     public void ReapplyAndVariantSwitchKeepTheFirstBackup()
     {
-        var first = GpuProfile.MergeBackup(null, new Dictionary<uint, uint?> { [1] = 60, [2] = null }, [1, 2]);
+        var first = GpuProfile.MergeBackup(null, new Dictionary<uint, uint?> { [1] = 60, [2] = null }, [1u, 2u]);
         Assert.Equal(new Dictionary<uint, uint?> { [1] = 60, [2] = null }, first);
         // After apply the driver holds Exo's values; a re-apply with one new id keeps the originals.
-        var again = GpuProfile.MergeBackup(first, new Dictionary<uint, uint?> { [1] = 157, [2] = 1, [3] = 7 }, [1, 2, 3]);
+        var again = GpuProfile.MergeBackup(first, new Dictionary<uint, uint?> { [1] = 157, [2] = 1, [3] = 7 }, [1u, 2u, 3u]);
         Assert.Equal(new Dictionary<uint, uint?> { [1] = 60, [2] = null, [3] = 7 }, again);
     }
 
     [Fact]
-    public void AmdAndIntelAreShownNotWritten()
+    public void AmdAndIntelOutOfReachAreShownNotWritten()
     {
         var screen = new GpuProfile.Screen("Screen", 144, false);
-        var amd = GpuProfile.Amd(screen, [("Anti-Lag", "Off"), ("Radeon Chill", "On")]);
-        var intel = GpuProfile.Intel(screen, [("Low latency mode", "On")]);
+        var amd = GpuProfile.Amd(screen, [("Anti-Lag", "Off"), ("Radeon Chill", "On"), ("Wait for Vertical Refresh", "Always on")]);
+        var intel = GpuProfile.Intel(screen);
         Assert.Equal("Off", amd.Single(item => item.Key == "antiLag").Current);
-        Assert.Equal("On", amd.Single(item => item.Key == "antiLag").Value);
+        Assert.Equal("On in each game", amd.Single(item => item.Key == "antiLag").Value);
         Assert.Equal("138 fps", amd.Single(item => item.Key == "frameCap").Value);
-        Assert.Equal("On", intel.Single(item => item.Key == "lowLatency").Current);
-        Assert.Null(intel.Single(item => item.Key == "vrr").Current);
+        Assert.Equal("Off, unless application specifies", amd.Single(item => item.Key == "vsync").Value);
+        Assert.Equal("Always on", amd.Single(item => item.Key == "vsync").Current);
+        Assert.Equal("138 fps", intel.Single(item => item.Key == "frameCap").Value);
+        Assert.Equal("Off", intel.Single(item => item.Key == "endurance").Value);
+        Assert.All(intel, item => Assert.Null(item.Current));
     }
 
     [Theory]

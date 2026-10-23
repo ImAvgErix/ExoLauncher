@@ -115,11 +115,11 @@ public sealed class DiscordCacheTests
         cache.Apply("GUILD_MEMBER_LIST_UPDATE", first.RootElement);
         using var later = JsonDocument.Parse($$"""{ "guild_id": "1", "ops": [ { "op": "SYNC", "range": [100, 199], "items": [ {{Member("8")}} ] }, { "op": "INVALIDATE", "range": [0, 99] } ] }""");
         cache.Apply("GUILD_MEMBER_LIST_UPDATE", later.RootElement);
-        Assert.Equal(101, cache.MemberRows("1"));
         var items = JsonSerializer.SerializeToElement(cache.MemberList("1")).GetProperty("items").EnumerateArray().ToList();
-        Assert.Equal(3, items.Count);
+        Assert.Equal(101, items.Count);
         Assert.Equal("7", items[1].GetProperty("id").GetString());
-        Assert.Equal("8", items[2].GetProperty("id").GetString());
+        Assert.Equal(JsonValueKind.Null, items[2].ValueKind); // not sent yet: a placeholder in its place
+        Assert.Equal("8", items[100].GetProperty("id").GetString());
     }
 
     // A server update (a new icon, a boost) rebuilds the server; the subscribed member list and its counts stay,
@@ -155,6 +155,9 @@ public sealed class DiscordCacheTests
         Apply("GUILD_MEMBER_LIST_UPDATE", Update("everyone", """{ "op": "UPDATE", "index": 1, "item": { "member": { "user": { "id": "7", "username": "u7" }, "roles": [] } } }"""));
         Assert.Equal(4, Rows());
         Apply("GUILD_MEMBER_LIST_UPDATE", Update("staff", Sync("7")));
+        Assert.Equal(2, Rows());
+        // A late change to the list shown before doesn't replace the new one.
+        Apply("GUILD_MEMBER_LIST_UPDATE", Update("everyone", """{ "op": "INSERT", "index": 1, "item": { "member": { "user": { "id": "9", "username": "u9" }, "roles": [] } } }"""));
         Assert.Equal(2, Rows());
     }
 

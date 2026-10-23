@@ -13,6 +13,19 @@ public sealed class DisplayOutputTests
 {
     private static OutputColor C(string format, int bpc, bool full = false) => new(format, bpc, full);
 
+    // The main screen runs at its highest rate; any other at 60 Hz (or the rate it has closest to it), never higher.
+    [Fact]
+    public void OnlyTheMainScreenTakesItsHighestRefresh()
+    {
+        int[] rates = [60, 100, 120, 144, 165];
+        Assert.Equal(165, DisplayOutput.BestRefresh(main: true, rates, 60));
+        Assert.Equal(60, DisplayOutput.BestRefresh(main: false, rates, 165));
+        Assert.Equal(60, DisplayOutput.BestRefresh(main: false, [59, 60, 75], 75));
+        Assert.Equal(59, DisplayOutput.BestRefresh(main: false, [50, 59, 144], 144));
+        Assert.Equal(75, DisplayOutput.BestRefresh(main: false, [75, 144], 144));
+        Assert.Equal(144, DisplayOutput.BestRefresh(main: false, [], 144));
+    }
+
     // What an RTX 3070 reported for a 1080p 144 Hz DisplayPort screen.
     private static readonly OutputColor[] DisplayPort =
     [

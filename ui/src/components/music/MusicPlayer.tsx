@@ -7,7 +7,7 @@ import type { MusicAdapter } from '../../lib/musicAdapters'
 import type { PlayerCard, PlayerOption, PlayerState, PlayerView, PlayerViewData, PlayerViewOptions } from '../../lib/player'
 import { ChevronLeft, Devices, Equalizer, Explore, Heart, Home, Jam, More, Movie, New, Next, NowPlaying, Pause, Pin, Play, Plus, Previous, Queue, Radio, Repeat, RepeatOne, Search, Shuffle, Songs, ThumbsDown, Users } from '../../brand/icons'
 import { Menu, type MenuItem } from '../ui/Menu'
-import { useGlassTone, useLens } from '../../lib/glass'
+import { useLens } from '../../lib/glass'
 import { Art, isLikedCard } from './Art'
 import { DiscographyPage } from './artist'
 import { Confirm, copyLink, createFolder, NameField, newPlaylist, shareLink, useFlash } from './manage'
@@ -570,7 +570,6 @@ function PlayerBar({ playback, player, panel, onPanel, onChanged }: {
   }
   const glass = useRef<HTMLElement>(null)
   useLens(glass)
-  useGlassTone(glass, 'music')
   return (
     <footer ref={glass} className="exo-glass exo-music-bar">
       <div className="exo-music-bar-song">

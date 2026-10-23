@@ -3,7 +3,7 @@
  * CTA strings (Play | Install | Update) and cancelInstall live via GamePage + host.
  */
 import { lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { AppUpdate, Chats, Close, Download, FolderPlus, Gamepad, Gpu, Key, Library, Minus, Mouse, MusicNotes, Play, Refresh, Settings, StoreBag } from '../brand/icons'
+import { AppUpdate, Chats, Close, Download, Gamepad, Gpu, Key, Library, Minus, Mouse, MusicNotes, Play, Refresh, Settings, StoreBag } from '../brand/icons'
 import {
   host,
   onHostEvent,
@@ -50,6 +50,8 @@ import CommandMenu, { type Command } from './blocks/command-menu-1'
 import { runPaletteExtra, usePaletteExtras } from './shell/paletteExtras'
 import { ExoIsland } from './shell/ExoIsland'
 import { ActivateKeySheet } from './ActivateKeySheet'
+import { WhatsNewSheet } from './shell/WhatsNewSheet'
+import { useWhatsNew } from './shell/useWhatsNew'
 import { bootGate, BootSplash, Room } from './shell/BootGate'
 import { ErrorBoundary } from './shell/ErrorBoundary'
 import { GameSheet } from './shell/GameSheet'
@@ -116,26 +118,33 @@ function useBootPreload(booting: boolean, settings: LauncherSettings | null, mus
   return { preloaded, warming }
 }
 
-/** The splash always plays in full (the mark lands, then holds), however fast Exo is ready. */
 const NO_FOLDERS: LibraryFolder[] = []
+const NO_IDS: string[] = []
 
-/** The Library's folders, from settings: a change shows at once, then is saved. */
+/** The Library's folders and hidden games, from settings: a change shows at once, then is saved. */
 function useLibraryFolders(
   settings: LauncherSettings | null,
   setSettings: (update: (current: LauncherSettings | null) => LauncherSettings | null) => void,
   persist: (patch: Partial<LauncherSettings>) => void,
 ) {
   const folders = settings?.libraryFolders ?? NO_FOLDERS
+  const hidden = settings?.hiddenGames ?? NO_IDS
   const save = useCallback((next: LibraryFolder[]) => {
     setSettings(current => current ? { ...current, libraryFolders: next } : current)
     persist({ libraryFolders: next })
   }, [setSettings, persist])
-  return [folders, save] as const
+  const saveHidden = useCallback((next: string[]) => {
+    setSettings(current => current ? { ...current, hiddenGames: next } : current)
+    persist({ hiddenGames: next })
+  }, [setSettings, persist])
+  return [folders, save, hidden, saveHidden] as const
 }
 
-const MIN_BOOT_SPLASH_MS = 2200
-/** Exo's own rooms start loading once the mark has landed (intro settle + tile + bars). */
-const BOOT_PRELOAD_AFTER_MS = 1300
+/** The splash always plays in full (the mark lands, then holds a beat), however fast Exo is ready. The page's thread
+ * is idle through it, so a longer hold is only waiting: 2.2 s left the Library usable at 2.9 s with its data in at 0.3 s. */
+const MIN_BOOT_SPLASH_MS = 1400
+/** Exo's own rooms start loading once the mark has landed (the intro's beat and settle). */
+const BOOT_PRELOAD_AFTER_MS = 800
 /** The most the splash waits for Exo's own rooms; a slow one finishes behind the library. */
 const BOOT_PRELOAD_CAP_MS = 2500
 /** How long the preloaded rooms stay live after the splash, so slower reads (Discord, a store) land. */
@@ -273,6 +282,16 @@ function notifyAway(p: InstallProgress, games: Game[]) {
   void host.appNotify(title, line).catch(() => { })
 }
 
+
+/** A Continue banner (landscape art): it flies as its whole card, title plate included. */
+const isBanner = (art: Element | null | undefined) => !!art?.closest('.exo-continue-card')
+
+/** A card whose game page is open keeps its slot, empty, while its art is on the page (styles/art.css › away). */
+function setAway(art: Element | null | undefined, away: boolean) {
+  const card = art?.closest('.exo-continue-card') ?? art
+  card?.toggleAttribute('data-exo-away', away)
+}
+
 export function LauncherApp() {
   const [games, setGames] = useState<Game[]>([])
   const storeSales = useWishlistSaleCount(games)
@@ -344,7 +363,7 @@ export function LauncherApp() {
   const [activeGameId, setActiveGameId] = useState<string | null>(null)
   const [libraryPane, setLibraryPane] = useState<'shelf' | 'game'>('shelf')
   /** System: profile, display, HDR, upscalers and shaders over the shelves, on its last tab. */
-  const [gpuTab, setGpuTab] = useState<GpuTab>('graphics')
+  const [gpuJump, setGpuJump] = useState<{ tab: GpuTab } | null>(null)
   const [overlayMotion, setOverlayMotion] = useState<'pointer' | 'instant'>('pointer')
   const overlayOpenedAtRef = useRef(0)
   // Tracked handle for the post-launch busy unlock: an orphaned timer firing
@@ -393,15 +412,16 @@ export function LauncherApp() {
     setSelectedVariantId(null)
   }, [])
 
+  /** The art a game sheet opened from, where it flies back to on close; its slot stays empty meanwhile (away). */
+  const gameArtFrom = useRef<Element | null>(null)
   /** The one way out of the details overlay. Every close path goes through here
    * so the shelf can never stay inert behind an overlay that already unmounted. */
   const closeGamePage = useCallback(() => {
     setLibraryPane('shelf')
     selectCard(null)
+    setAway(gameArtFrom.current, false)
   }, [selectCard])
 
-  /** The art a game sheet opened from, where it flies back to on close. */
-  const gameArtFrom = useRef<Element | null>(null)
   const closeGameSheet = useCallback(() => {
     const id = selectedIdRef.current
     const card = gameArtFrom.current
@@ -798,9 +818,10 @@ export function LauncherApp() {
     [selectedCard, selectedVariantId, settings],
   )
 
+  // Ctrl+K finds hidden games too, so one can still be opened and played.
   const commandPaletteGames = useMemo(
-    () => sortGames(shelves.library, 'name', []),
-    [shelves.library],
+    () => sortGames([...shelves.library, ...shelves.hidden], 'name', []),
+    [shelves.library, shelves.hidden],
   )
 
   const paletteExtras = usePaletteExtras(commandOpen)
@@ -829,7 +850,6 @@ export function LauncherApp() {
     })
     const actions: Command[] = [
       { id: 'act-add-game', group: 'Actions', title: 'Add a game', icon: Gamepad },
-      { id: 'act-add-folder', group: 'Actions', title: 'Find a game in a folder', icon: FolderPlus },
       { id: 'act-activate-key', group: 'Actions', title: 'Activate a key', icon: Key },
       { id: 'act-refresh', group: 'Actions', title: 'Refresh library', icon: Refresh },
       { id: 'act-update', group: 'Actions', title: 'Check for updates', icon: AppUpdate },
@@ -856,7 +876,6 @@ export function LauncherApp() {
 
   const ACTION_COMMANDS: Record<string, () => void> = {
     'act-add-game': () => void addGameFromLibrary(),
-    'act-add-folder': () => void addFolderFromLibrary(),
     // The key popover sits under the Library's Add button, and a refresh reports in the Library.
     'act-activate-key': () => void goToView('library').then(() => setActivateKeyOpen(true)),
     'act-refresh': () => { goToView('library'); void loadLibrary(true) },
@@ -1213,7 +1232,7 @@ export function LauncherApp() {
   // The top bar's busy line is for work the user started (and app updates), never the boot behind the splash.
   // One predicate (useShelves) decides what the library shows, so an empty
   // library never claims there are owned games somewhere else.
-  const emptyLibrary = !booting && !loading && shelves.library.length === 0
+  const emptyLibrary = !booting && !loading && shelves.library.length + shelves.hidden.length === 0
   const displayedGame = selected
   // Inert only while a stage is actually on screen. A pane that went inert for
   // an overlay with nothing to show left the room unresponsive.
@@ -1222,10 +1241,16 @@ export function LauncherApp() {
   /** Keep the active card selected while its fixed-size details panel opens. */
   const openCard = useCallback((game: Game) => {
     setActiveGameId(game.id)
-    // The card's art (a Continue card's, a grid tile's) flies into the sheet's cover, and back on close.
-    const from = pressedArt()
+    // The card's art moves to the middle of the screen and back on close, its slot left empty meanwhile: a grid
+    // tile's cover flies into the page's cover, a Continue banner opens out into the whole sheet.
+    // A Continue banner flies as its whole card, its title plate and buttons with it (named apart from its art they
+    // stayed behind, covered by the flying picture), into the page's cover as a grid card does. Flying into the whole
+    // sheet cross-faded the card's glass with the sheet's, which flickered; the sheet comes up under its own cover.
+    const art = pressedArt()
+    const from = isBanner(art) ? art?.closest('.exo-continue-card') ?? art : art
+    setAway(gameArtFrom.current, false)
     gameArtFrom.current = from
-    void transition(() => openGamePage(game.id, 'pointer', { game }), {
+    void transition(() => { openGamePage(game.id, 'pointer', { game }); setAway(from, true) }, {
       kind: 'morph',
       morph: { name: 'exo-game-art', from, to: () => visible('.exo-game-detail-cover') },
     })
@@ -1273,9 +1298,8 @@ export function LauncherApp() {
     } finally { addingFolder.current = false }
   }, [loadLibrary, setStatus])
   const addGameFromLibrary = useCallback(() => addFromLibrary(addPortableProgram), [addFromLibrary])
-  const addFolderFromLibrary = useCallback(() => addFromLibrary(addPortableFolder), [addFromLibrary])
 
-  const [libraryFolders, saveFolders] = useLibraryFolders(settings, setSettings, persistSettings)
+  const [libraryFolders, saveFolders, hiddenGames, saveHiddenGames] = useLibraryFolders(settings, setSettings, persistSettings)
 
   const sortLibrary = useCallback((next: Parameters<typeof librarySortMode>[0]) => persistSettings({ sortMode: librarySortMode(next) }), [persistSettings])
   const activateKey = useCallback(() => setActivateKeyOpen(true), [])
@@ -1291,6 +1315,8 @@ export function LauncherApp() {
     window.addEventListener('exo-discord-settings', open)
     return () => window.removeEventListener('exo-discord-settings', open)
   }, [goToView])
+  // What's New, once after an update over a ready Library with nothing else open.
+  const [whatsNew, closeWhatsNew] = useWhatsNew(settings, [booting, view !== 'library', overlayOpen, commandOpen, activateKeyOpen, !!depPrompt], persistSettings)
   // A Spotify link opened elsewhere (Discord) shows in the Music room, which takes it from there.
   useEffect(() => {
     const open = () => goToView('music')
@@ -1353,39 +1379,42 @@ export function LauncherApp() {
     </Room>
   ), [openedRooms, warming, view, settingsSection, settings, stores, update.busy, update.error, update.percent, update.status, update.available, update.install, checkUpdate, updateStores, toggleSettings])
   const friendsRoom = useMemo(() => (
-    <Room mounted={openedRooms.has('friends')} warm={warming} active={under === 'friends'} label="Discord" className="relative z-10 flex min-h-0 flex-1 flex-col">
+    <Room mounted={openedRooms.has('friends')} warm={warming} active={under === 'friends'} covered={view === 'settings'} label="Discord" className="relative z-10 flex min-h-0 flex-1 flex-col">
       <FriendsRoom active={friendsActive} />
     </Room>
-  ), [under, openedRooms, warming, friendsActive])
+  ), [under, view, openedRooms, warming, friendsActive])
   const musicRoom = useMemo(() => (
-    <Room mounted={openedRooms.has('music')} warm={warming} active={under === 'music'} label="Music" className="relative z-10 flex min-h-0 flex-1 flex-col">
+    <Room mounted={openedRooms.has('music')} warm={warming} active={under === 'music'} covered={view === 'settings'} label="Music" className="relative z-10 flex min-h-0 flex-1 flex-col">
       <NativeMusicRoom key={musicService} service={musicService} active={musicActive} shown={view === 'music' && !booting} nowPlaying={nowPlaying} />
     </Room>
   ), [under, openedRooms, warming, view, musicService, musicActive, booting, nowPlaying])
   const storeRoom = useMemo(() => (
-    <Room mounted={openedRooms.has('store')} warm={warming} active={under === 'store'} label="Store" className="relative z-10 flex min-h-0 flex-1 flex-col">
+    <Room mounted={openedRooms.has('store')} warm={warming} active={under === 'store'} covered={view === 'settings'} label="Store" className="relative z-10 flex min-h-0 flex-1 flex-col">
       <StoreRoom active={view === 'store'} games={games} onSale={storeSales} onOpenGame={openLibraryGameFromStore} />
     </Room>
   ), [under, openedRooms, warming, view, games, storeSales, openLibraryGameFromStore])
   const devicesRoom = useMemo(() => (
-    <Room mounted={openedRooms.has('devices')} warm={warming} active={under === 'devices'} label="Devices" className="relative z-10 flex min-h-0 flex-1 flex-col">
+    <Room mounted={openedRooms.has('devices')} warm={warming} active={under === 'devices'} covered={view === 'settings'} label="Devices" className="relative z-10 flex min-h-0 flex-1 flex-col">
       <DevicesRoom active={devicesActive} />
     </Room>
-  ), [under, openedRooms, warming, devicesActive])
+  ), [under, view, openedRooms, warming, devicesActive])
   const systemRoom = useMemo(() => (
-    <Room mounted={openedRooms.has('system')} warm={warming} active={under === 'system'} label="System" className="relative z-10 flex min-h-0 flex-1 flex-col">
-      <GpuHub active={view === 'system'} tab={gpuTab} onTab={setGpuTab} games={games} settings={settings} onSave={saveSettings} />
+    <Room mounted={openedRooms.has('system')} warm={warming} active={under === 'system'} covered={view === 'settings'} label="System" className="relative z-10 flex min-h-0 flex-1 flex-col">
+      <GpuHub active={view === 'system'} jump={gpuJump} games={games} settings={settings} onSave={saveSettings} />
     </Room>
-  ), [under, openedRooms, warming, view, gpuTab, games, settings, saveSettings])
+  ), [under, openedRooms, warming, view, gpuJump, games, settings, saveSettings])
   const libraryRoom = useMemo(() => sortMode && (
-    <Room mounted={openedRooms.has('library')} active={under === 'library'} label="Library" className="exo-under-bar relative z-10 flex min-h-0 flex-1">
+    <Room mounted={openedRooms.has('library')} active={under === 'library'} covered={view === 'settings'} label="Library" className="exo-under-bar relative z-10 flex min-h-0 flex-1">
       <LibraryPane
         mainRef={libraryMainRef}
-        active={view === 'library'}
+        active={under === 'library'}
         overlayOpen={overlayOpen}
         empty={emptyLibrary}
         error={libraryError}
         games={shelves.library}
+        hidden={shelves.hidden}
+        hiddenIds={hiddenGames}
+        onHidden={saveHiddenGames}
         playing={shelves.playing}
         selectedId={selectedId}
         activeGameId={activeGameId}
@@ -1404,16 +1433,15 @@ export function LauncherApp() {
         folders={libraryFolders}
         onFolders={saveFolders}
         onAddGame={addGameFromLibrary}
-        onAddFolder={addFolderFromLibrary}
         onActivateKey={activateKey}
         onRefresh={refreshEverything}
         onRetry={retryLibrary}
         onStoreSettings={openStoreSettings}
       />
     </Room>
-  ), [under, openedRooms, view, overlayOpen, emptyLibrary, libraryError, shelves, selectedId, activeGameId, queuedIds, sortMode, layout.reduceMotion,
-    transferFor, openCard, playFromLibrary, playAs, startingId, openGameFolder, openProperties, sortLibrary, libraryFolders, saveFolders, addGameFromLibrary,
-    addFolderFromLibrary, activateKey, refreshEverything, retryLibrary, openStoreSettings])
+  ), [under, view, openedRooms, overlayOpen, emptyLibrary, libraryError, shelves, selectedId, activeGameId, queuedIds, sortMode, layout.reduceMotion,
+    transferFor, openCard, playFromLibrary, playAs, startingId, openGameFolder, openProperties, sortLibrary, libraryFolders, saveFolders, hiddenGames, saveHiddenGames, addGameFromLibrary,
+    activateKey, refreshEverything, retryLibrary, openStoreSettings])
   const activateKeySheet = useMemo(() => (
     <ActivateKeySheet open={activateKeyOpen} onClose={closeActivateKey} onStatus={keyStatus} />
   ), [activateKeyOpen, closeActivateKey, keyStatus])
@@ -1501,7 +1529,7 @@ export function LauncherApp() {
           onOpenSystem={(page) => {
             if (busy || !displayedGame) return
             closeGamePage()
-            setGpuTab(page)
+            setGpuJump({ tab: page })
             openGpu()
           }}
           onDequeue={() => void onDequeue()}
@@ -1521,6 +1549,7 @@ export function LauncherApp() {
       <CapturesOverlay games={games} onDiscord={sendToDiscord} />
       {activateKeySheet}
       {commandMenu}
+      <WhatsNewSheet release={whatsNew} onClose={closeWhatsNew} />
     </div>
   )
 }

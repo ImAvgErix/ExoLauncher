@@ -95,28 +95,54 @@ function Centered({ title, line, working = false, children }: { title: string; l
   )
 }
 
-/** Every version the mouse reports, one per line ("Mouse 1.1.1", "Receiver RF 1.1.1"); the room calls the dongle the receiver. */
-function firmwareLines(status: MouseStatus): string[] {
-  return (status.firmware ?? []).map(v => v.trim().replace(/^Dongle\b/i, 'Receiver')).filter(Boolean)
+/**
+ * The mouse's firmware and its receiver's, as versions alone ("Mouse 1.1.1-5289564" reads 1.1.1; the build after it
+ * says nothing to a person). A driver that names neither is the mouse.
+ */
+function firmwareVersions(status: MouseStatus): { mouse: string | null; receiver: string | null } {
+  let mouse: string | null = null, receiver: string | null = null
+  for (const line of status.firmware ?? []) {
+    const version = line.match(/\d+(?:\.\d+)+/)?.[0] ?? line.trim()
+    if (!version) continue
+    if (/^(receiver|dongle)\b/i.test(line.trim())) receiver ??= version
+    else mouse ??= version
+  }
+  return { mouse, receiver }
 }
 
 /** A received-signal figure some drivers put in the link line ("2.4 GHz receiver · -42 dBm"); the hero shows it with the signal. */
 const DBM = /\s*[·,-]?\s*(-\d+)\s*dBm/
 
-/** How the mouse is linked, once: the driver's own words without the dBm, or Wired/Wireless when it gives none. */
+/** Driver jargon in a link line: protocol names, ids, report numbers and sensor parts say nothing to a person. */
+const LINK_JARGON = /protocol|^(PID|CID|MID|Type)\b|report \d|interface|-speed$|^[A-Z0-9]{6,}$/i
+
+/** Brands' own names for their wireless, where the driver gives a generic one. */
+function brandLink(part: string, status: MouseStatus): string {
+  if (/^HyperSpeed receiver$/i.test(part)) return 'HyperSpeed Wireless'
+  if (/^SLIPSTREAM WIRELESS/i.test(part)) return 'SLIPSTREAM WIRELESS'
+  if (status.brand === 'SteelSeries' && /^2\.4 GHz dongle$/i.test(part)) return 'Quantum 2.0 Wireless'
+  if (/Harpe Ace/i.test(status.name) && /^2\.4 GHz receiver$/i.test(part)) return 'ROG SpeedNova'
+  if (/^USB cable$/i.test(part)) return 'Wired USB'
+  return part
+}
+
+/** How the mouse is linked, once: the driver's own words without the dBm or its jargon, in the brand's name for its wireless. */
 function linkLine(status: MouseStatus): string | null {
-  return status.connectionDetail?.replace(DBM, '').trim() || status.connectionType || null
+  const parts = (status.connectionDetail?.replace(DBM, '') ?? '').split(/\s+[·-]\s+/).map(p => p.trim()).filter(p => p && !LINK_JARGON.test(p))
+  return parts.map(p => brandLink(p, status)).join(' · ') || status.connectionType || null
 }
 
 /**
- * The polling rate as a fact, when it is not a choice: the mouse fixes it
- * (the Starlight X's PerfectPolling) and no brand panel draws it. A rate the
- * user can pick stays in Performance.
+ * The polling rate as a fact, when Exo can't set it and no brand panel draws it. A rate the user can pick stays in
+ * Performance.
  */
-function fixedPollingRate(status: MouseStatus): number | null {
+function readOnlyPollingRate(status: MouseStatus): number | null {
   const fixed = !!status.ui?.pollingReadOnly || status.supportedPollingRates?.length === 0
   return fixed && status.eggGlassMode !== true && status.pollingRateHz > 0 ? status.pollingRateHz : null
 }
+
+/** Fixed by the hardware itself, not only out of Exo's reach (most read-only rates are set in the brand's own app). */
+const hardwareFixedRate = (status: MouseStatus) => status.brand === 'Microsoft' && !/pro/i.test(status.name)
 
 /** A read older than this (the room reads every few seconds) says when it was, so an asleep mouse's figures are not taken for live ones. */
 const STALE_MS = 30_000
@@ -176,8 +202,8 @@ function Device({ status, brand, readAt, busy, error, children }: { status: Mous
   const stale = useStale(readAt)
   const shown = image && missing !== image ? image : null
   const meta = [status.name.toLowerCase().includes(brand.toLowerCase()) ? null : brand, linkLine(status), stale].filter(Boolean).join(' · ')
-  const firmware = firmwareLines(status)
-  const polling = fixedPollingRate(status)
+  const firmware = firmwareVersions(status)
+  const polling = readOnlyPollingRate(status)
   return (
     <aside className="m-hero m-arrive" style={{ '--i': 0 } as CSSProperties}>
       {children ? <div className="m-hero-pick">{children}</div> : null}
@@ -202,16 +228,33 @@ function Device({ status, brand, readAt, busy, error, children }: { status: Mous
       <div className="m-stats">
         <Battery status={status} />
         <Signal status={status} />
-        {polling ? (
+        {status.finalmouseIsSlx ? (
+          // Finalmouse's own name for it, as xpanel's Overview shows it: 8,000 Hz latency on 1,000 Hz battery life,
+          // so the 1K the mouse reports would undersell it.
+          <div className="m-stat is-word">
+            <span className="m-stat-label">Polling</span>
+            <span className="m-stat-figure">PerfectPolling</span>
+          </div>
+        ) : polling ? (
           <div className="m-stat">
-            <span className="m-stat-label">Polling rate<span className="m-stat-detail">Fixed</span></span>
+            <span className="m-stat-label">Polling rate{hardwareFixedRate(status) ? <span className="m-stat-detail">Fixed</span> : null}</span>
             <span className="m-stat-figure">{polling >= 1000 ? `${polling / 1000}K` : polling}<span className="m-stat-unit">Hz</span></span>
           </div>
         ) : null}
-        {firmware.length ? (
-          <div className="m-stat">
-            <span className="m-stat-label">Firmware</span>
-            {firmware.map(line => <span key={line} className="m-stat-line">{line}</span>)}
+        {firmware.mouse ?? firmware.receiver ? (
+          <div className="m-stat-row">
+            {firmware.mouse ? (
+              <div className="m-stat">
+                <span className="m-stat-label">Mouse firmware</span>
+                <span className="m-stat-figure">{firmware.mouse}</span>
+              </div>
+            ) : null}
+            {firmware.receiver ? (
+              <div className="m-stat">
+                <span className="m-stat-label">Receiver firmware</span>
+                <span className="m-stat-figure">{firmware.receiver}</span>
+              </div>
+            ) : null}
           </div>
         ) : null}
       </div>
@@ -238,7 +281,7 @@ function Battery({ status }: { status: MouseStatus }) {
       <span className="m-stat-label">Battery{detail}</span>
       <span className="m-stat-figure">{battery}<span className="m-stat-unit">%</span></span>
       <span className="m-gauge" aria-hidden="true">
-        <span className="m-gauge-fill" style={{ width: `${Math.max(2, Math.min(100, battery))}%` }} />
+        <span className="m-gauge-fill" style={{ '--fill': Math.max(2, Math.min(100, battery)) / 100 } as CSSProperties} />
       </span>
     </div>
   )
@@ -370,8 +413,8 @@ function Performance(section: Section) {
       </Row>
     ),
     status.powerModes?.length && can(client, 'setPowerMode') && (
-      <Row key="pm" label="Power mode">
-        <Segmented label="Power mode" options={status.powerModes.map(v => ({ value: v, label: v }))} value={status.powerMode}
+      <Row key="pm" label={status.brand === 'MCHOSE' ? 'Mode' : 'Power mode'}>
+        <Segmented label={status.brand === 'MCHOSE' ? 'Mode' : 'Power mode'} options={status.powerModes.map(v => ({ value: v, label: v }))} value={status.powerMode}
           onChange={v => void apply('setPowerMode', v)} disabled={busy} />
       </Row>
     ),

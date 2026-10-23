@@ -64,6 +64,9 @@ export const mockMessages: DiscordMessage[] = [
   msg(11, ada, 'crosshair spots', 1, { attachments: [{ id: '700000000000000001', filename: 'clip1.png', url: 'https://cdn.discordapp.com/embed/avatars/1.png', size: 48213, width: 640, height: 360, content_type: 'image/png' }, { id: '700000000000000002', filename: 'clip2.png', url: 'https://cdn.discordapp.com/embed/avatars/2.png', size: 48213, width: 640, height: 360, content_type: 'image/png' }, { id: '700000000000000003', filename: 'clip3.png', url: 'https://cdn.discordapp.com/embed/avatars/3.png', size: 48213, width: 640, height: 360, content_type: 'image/png' }, { id: '700000000000000004', filename: 'clip4.png', url: 'https://cdn.discordapp.com/embed/avatars/4.png', size: 48213, width: 640, height: 360, content_type: 'image/png' }, { id: '700000000000000005', filename: 'clip5.png', url: 'https://cdn.discordapp.com/embed/avatars/5.png', size: 48213, width: 640, height: 360, content_type: 'image/png', description: 'The A site from heaven' }],
     reactions: [{ count: 4, me: false, emoji: { id: null, name: '🔥' }, count_details: { normal: 2, burst: 2 }, me_burst: false, burst_colors: ['#ff7a1a', '#ffd23f'] }, { count: 1, me: true, emoji: { id: null, name: '👀' } }] }),
   msg(13, kai, 'https://spotify.link/VmIbCrLn56b', 0.5),
+  msg(15, ada, 'https://discord.gg/exo', 0.4),
+  msg(16, kai, 'come scrim with us https://discord.gg/valorant', 0.3),
+  msg(17, me, 'https://discord.gg/expired', 0.2),
   msg(12, me, 'my config', 0, { attachments: [
     { id: '710000000000000001', filename: 'autoexec.cfg', url: 'https://cdn.discordapp.com/attachments/1/2/autoexec.cfg', size: 2311, content_type: 'text/plain' },
     { id: '710000000000000002', filename: 'patch-notes.pdf', url: 'https://cdn.discordapp.com/attachments/1/2/patch-notes.pdf', size: 1843200, content_type: 'application/pdf' },

@@ -1,6 +1,6 @@
 # NVIDIA Control Panel: how each setting is read and written
 
-Research map for System > Display. It covers what every NVIDIA Control Panel (NVCP) page calls, so Exo can offer the same settings itself. Nothing here was written to the driver: every live value below came from a getter or a registry read on the dev PC (RTX 3070, driver 617.42, two 1080p DisplayPort screens, `\\.\DISPLAY1` = displayId `0x80061080`, `\\.\DISPLAY2` = `0x80061081`).
+Research map for System > Display. It covers what every NVIDIA Control Panel (NVCP) page calls, so Exo can offer the same settings itself. Every live value below came from a getter or a registry read on the dev PC (RTX 3070, driver 617.42, two 1080p DisplayPort screens, `\\.\DISPLAY1` = displayId `0x80061080`, `\\.\DISPLAY2` = `0x80061081`). Exo wrote to the driver only where it says so: the scaling override and the last section.
 
 ## Sources and method
 
@@ -18,7 +18,7 @@ The driver store folder is `nv_dispi.inf_amd64_feedb8c0271ca811` (617.42). Its `
 
 How the IDs were found, using dumpbin `/disasm` and a string dump, with no REA:
 
-- `nvxdapix.dll` and `nvcpl.dll` statically link NVIDIA's `nvapi64.lib`. Each NvAPI function is a stub of the form `mov ecx,<id>; call [nvapi_QueryInterface]`, and the linker lays the stubs out **in ASCII name order**. nvxdapix has 302 stubs. 144 of them are named in NVIDIA's public `nvapi_interface.h`, `falahati/NvAPIWrapper` or `arcnmx/nvapi-rs`. The unknown stubs sit between named neighbours, which limits what their names can be.
+- `nvxdapix.dll` and `nvcpl.dll` statically link NVIDIA's `nvapi64.lib`. Each NvAPI function is a stub of the form `mov ecx,<id>; call [nvapi_QueryInterface]`, and the linker lays the stubs out **in ASCII name order**. nvxdapix has 302 stubs. 144 of them are named in NVIDIA's public `nvapi_interface.h`, `falahati/NvAPIWrapper` or `arcnmx/nvapi-rs`. The unknown stubs sit between named neighbors, which limits what their names can be.
 - Every NvAPI call in nvxdapix goes through a logging wrapper. The wrapper loads the function's name as a string (for example `"NvAPI_DISP_SetScalingCapsOverride"`), and its caller passes the stub address. Pairing the two gives a name for each stub ID: **216 pairs, all consistent with the alphabetical order, with one known alias** (`GetUsages` = `GPU_GetDynamicPstatesInfo`). Every private ID below marked "confirmed" was found this way.
 - Each NvAPI name string is grouped with the `*.cpp` name it sits next to in `.rdata` (`DesktopColor.cpp`, `UnderscanWrapper.cpp`, `VideoSettings.cpp`, ...). That tells which feature owns each call.
 
@@ -47,7 +47,7 @@ ColorControl only accepts format, bpc and range while the policy is USER. The "d
 | Setting | Choices | Mechanism | Admin / restart / scope | Confirmed? |
 | --- | --- | --- | --- | --- |
 | Scaling mode + Perform scaling on | Aspect ratio / Full-screen / No scaling / Integer scaling × GPU / Display | `NvAPI_DISP_SetDisplayConfig` 0x5D8CF8DE (public). Each target's `NV_DISPLAYCONFIG_PATH_ADVANCED_TARGET_INFO_V1` (128 B, ver 0x10080) has `scaling` at +8. GPU: 2 Full-screen, 3 No scaling, 5 Aspect, 8 Integer. Display: 1 Full-screen, 7 No scaling, 6 Aspect (the "Balanced" values). Integer is GPU only | per display; a mode set (blink), no admin | **C** for the API and field. Live via `NvAPI_DISP_GetDisplayConfig` 0x11ABCCF8: both targets `scaling=3` (No scaling on GPU). **I** for the label ↔ value table, taken from `nvapi.h` comments ("Force GPU" / "Balanced") |
-| Override the scaling mode set by games and programs | checkbox | `NvAPI_DISP_SetScalingCapsOverride` **0xC89D5384**, read with `NvAPI_DISP_GetScalingCapsOverride` **0x0BB06808**. Caps: `NvAPI_DISP_GetScalingCaps` **0xF17985ED**. Re-applied at logon by the startup task `ApplyScalingOverride` | per display; no restart | **C** for the IDs (`SetDisplayConfigWrapper::EnableOverrideScaling`, ScalingSupportWrapper.cpp). **?** for the struct layout (not decoded) |
+| Override the scaling mode set by games and programs | checkbox | `NvAPI_DISP_SetScalingCapsOverride` **0xC89D5384**, read with `NvAPI_DISP_GetScalingCapsOverride` **0x0BB06808**. Caps: `NvAPI_DISP_GetScalingCaps` **0xF17985ED**. Re-applied at logon by the startup task `ApplyScalingOverride` | per display; no restart | **C** for the IDs (`SetDisplayConfigWrapper::EnableOverrideScaling`, ScalingSupportWrapper.cpp). Layout decoded by writing each shape on one screen and reading it back (`Helpers/NvidiaScaling.cs`): 32 bytes, version 32 \| 2 << 16, the switch at +16, the scaling it holds at +28; the SET takes a third argument 0, and off also sets the flags at +4, +8, +12 (1) and +20 (7) |
 | Size tab: Enable desktop resizing / Resize | width/height underscan | `NvAPI_QueryUnderscanCap` 0x61D7B624, `EnumUnderscanConfig` 0x4144111A, `SetUnderscanConfig` 0x3EFADA1D, `DeleteUnderscanConfig` 0xF98854C8, plus private `NvAPI_DISP_EnableUnderscanConfig` **0xF8A3A0A1** / `NvAPI_DISP_DisableUnderscanConfig` **0x1123ACB1** | per display and per timing; mode set | **C** (UnderscanWrapper.cpp, call sites at 0x602291D8 / 0x602292AB). Structs not decoded |
 | Position tab (analog/TV) | x/y offset | `NvAPI_GetDisplayPosition` 0x6BB1EE5D / `SetDisplayPosition` 0x57D9060F (AnalogOffset.cpp) | per display, analog only | **C** |
 | Pan & scan (TV) | — | `NvAPI_DISP_SetPanScanInfo` **0xCBC7C82A**, `DISP_Get/SetViewPortInfo` **0x69CCCD08 / 0xF183FFEA** | TV only | **C** |
@@ -97,7 +97,7 @@ Same functions and structs as section 4.
 | Deinterlacing: Use inverse telecine | checkbox | 14 (`Cadence`, nvxdapix calls it with `mov r9d,0Eh`; class `VideoSettingInverseTelecine`) | flags 3, enable 1, algo 4 (registry `XALG_Cadence = 04…`) | **C** |
 | RTX video enhancement: Super resolution | on/off + Quality Auto/1–4 | 29 (0x1D, class `VideoSettingSuperResolution`; status from `NvAPI_Video_GetVideoStateInfo` **0xC9116276**, "IsSuperResolutionActive") | 0..5, 6 steps, now 0 | **C** for component and API. **I** for 0 = off, 1–4 quality, 5 = Auto |
 | RTX video enhancement: High dynamic range (RTX Video HDR) | on/off | 30 (0x1E, `VideoSettingTrueHDR`, "IsTrueHDRActive") | 0..7, now 0 | **C** for component. **?** for the meaning of 1..7 |
-| (not in NVCP) | — | 31–36: 0..200 def 100 (×2), 10..100 def 50, 400..2000 def 650, 0..65535, 0..2 | — | **I**: RTX Video HDR tuning as the NVIDIA app shows it (contrast, saturation, middle grey, peak nits) |
+| (not in NVCP) | — | 31–36: 0..200 def 100 (×2), 10..100 def 50, 400..2000 def 650, 0..65535, 0..2 | — | **I**: RTX Video HDR tuning as the NVIDIA app shows it (contrast, saturation, middle gray, peak nits) |
 
 Components 29/30 ignore the device index, so they are global. The others are per display handle.
 
@@ -161,25 +161,28 @@ The full list (216 pairs) can be regenerated in a few minutes: dump nvxdapix wit
 
 | Exo already does | Exo could add |
 | --- | --- |
-| Output color format / bpc / range with policy USER (`NvidiaDisplay.cs`) | "Use default color settings": one ColorControl SET with policy BEST_QUALITY, so the driver picks and the user doesn't have to |
-| Digital vibrance, hue | Desktop color depth: SDR 30-bit (`depth = 2`) when the screen supports 10 bpc |
-| Brightness / contrast / gamma ramp, re-applied on start (`NvidiaColor.cs`, `WindowsHdr.cs`) | Scaling: mode, GPU/Display, integer scaling (public DISP_SetDisplayConfig `scaling`), plus the "override games" switch once its struct is decoded |
-| Resolution / refresh (`DisplayOutput.cs`) | Content type (ITC) for HDMI TVs: "Full-screen gaming" lets the TV pick its game mode (public InfoFrameControl) |
-| HDR on/off (`WindowsHdr.cs`) | Per-display G-SYNC on/off (public DISP_SetAdaptiveSyncData) |
-| G-SYNC global mode, indicators, texture quality, AA/AF defaults (`GpuProfile.cs`) | RTX Video Super Resolution / RTX Video HDR (SetVideoStateEx components 29/30) on RTX cards |
-| | Video color/image (components 0–16): niche, see below |
+| Output color format / bpc / range with policy USER, or "Use default color settings" (policy BEST_QUALITY) (`NvidiaDisplay.cs`) | Video color/image (components 0–16): niche, see below |
+| Digital vibrance, hue | |
+| Brightness / contrast / gamma ramp, re-applied on start, none while HDR is on (`NvidiaColor.cs`, `WindowsHdr.cs`) | |
+| Scaling: mode, GPU/Display, integer, and the "override games" switch (`NvidiaScaling.cs`) | |
+| Refresh rate (`DisplayOutput.cs`) | |
+| HDR on/off (`WindowsHdr.cs`) | |
+| RTX Video Super Resolution / RTX Video HDR (components 29/30, `NvidiaVideo.cs`) | |
+| G-SYNC global mode, indicators, texture quality, AA/AF defaults (`GpuProfile.cs`) | |
+
+Desktop color depth 30-bit, content type for TVs and per-display G-SYNC were tried and left out (last section).
 
 ## Recommendation for System > Display
 
 Goal: the best image and feel by default, and only controls the screen or card can actually use.
 
-1. **Output (already there):** keep format/bpc/range. Add a "Driver picks" choice that writes policy BEST_QUALITY, and make it the default for anyone who hasn't changed anything. List bpc and formats only from `IS_SUPPORTED_COLOR` / `GetColorSupportedCombinations`, as Exo does now.
-2. **Desktop color depth:** show "30-bit (SDR)" only when ColorControl reports 10 bpc support and HDR is off. Leave the 16/8-bit GDI modes out.
-3. **Scaling:** one control with Aspect ratio / Full-screen / No scaling / Integer (Integer only on GPU scaling and Turing+). Default to GPU + Aspect ratio for non-native modes, so games never stretch. Show "Display" only when the target reports monitor scaling.
-4. **G-SYNC per screen:** a toggle next to the screen, shown only when `GetAdaptiveSyncData` succeeds (VRR-capable target). The global mode stays in the profile.
-5. **Content type:** a "Game mode on the TV" toggle (ITC = Full-screen gaming), shown only on HDMI targets that advertise ITC.
-6. **RTX Video:** Super Resolution (with quality) and RTX Video HDR toggles, shown only when components 29/30 report `bIsSupported` (RTX 30+).
-7. **Color (already there):** keep vibrance / hue / ramp. NVCP itself re-applies the ramp at logon, so Exo's re-apply on start is the right model.
+1. **Output (built):** format/bpc/range, plus "Use default color settings" (policy BEST_QUALITY) as a choice. Best for this screen writes USER, not the driver's pick: NVIDIA's default picks Limited on HDMI CEA timings (`display-best-settings.md` 2c/2d). Formats and depths come from `IS_SUPPORTED_COLOR`, less what the screen's EDID rules out.
+2. **Desktop color depth:** tried, not supported on GeForce (last section). Leave the 16/8-bit GDI modes out.
+3. **Scaling (built):** one control with Aspect ratio / Full-screen / No scaling / Integer, Perform scaling on GPU or Display, and the override switch. Best for this screen writes No scaling on the GPU with the override on. Not done: Integer only on Turing+, and "Display" only when the target reports monitor scaling.
+4. **G-SYNC per screen:** tried, unverifiable here (last section); the global mode stays in the profile.
+5. **Content type:** tried, did not work (last section).
+6. **RTX Video (built):** Super Resolution (with quality) and RTX Video HDR, shown only where the card has them.
+7. **Color (built):** vibrance / hue / ramp. NVCP itself re-applies the ramp at logon, so Exo's re-apply on start is the right model.
 
 ## What to leave out
 
@@ -194,7 +197,7 @@ Goal: the best image and feel by default, and only controls the screen or card c
 
 ## Open questions
 
-- Struct layouts for `DISP_SetScalingCapsOverride`, `DISP_SetTargetGammaCorrection` (ramp format), underscan configs, audio streams, and the hyper-sampling (DSR) settings.
+- Struct layouts for `DISP_SetTargetGammaCorrection` (ramp format), underscan configs, audio streams, and the hyper-sampling (DSR) settings.
 - `NV_DISP_COLOR_ACCURACY_MODE` value ↔ label (live value is 3).
 - The "player vs NVIDIA" bit semantics for components 0-16 (`enable` vs `bIsTopPriority` vs registry `XEN` 0x80000001). Settled for 29/30 (2026-10-17, set in the panel and read back): Super resolution 0 off, 1-4 quality, 5 Auto; RTX Video HDR 0 off, 5 on; the panel writes off as value 0 with enable set (`Helpers/NvidiaVideo.cs`).
 - How the `NVTweak\Devices\<n>-<m>` monitor key is computed.

@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Slider } from '../ui/Slider'
-import { host, onHostEvent, type ColorControl, type DisplayChange, type DisplayScreen, type DisplayState, type OutputColor, type ScalingMode } from '../../lib/host'
-import { shouldReduceMotion } from '../../lib/motionPreference'
+import { host, type ColorControl, type DisplayChange, type DisplayScreen, type DisplayState, type OutputColor, type ScalingMode } from '../../lib/host'
 import { report } from '../../lib/report'
 import { GraphicsControl } from '../graphics/GraphicsControl'
 import { Row, State, SwitchRow } from '../settings/parts'
@@ -22,25 +21,23 @@ function describe(color: OutputColor) {
 
 /**
  * System > Display: per screen, the refresh rate and what the cable carries (format, depth,
- * range), with "Best for this screen" (on NVIDIA also No scaling on the GPU, over games). Every change runs 15 seconds on trial: the host puts it
- * back unless Keep is pressed, so a blank screen fixes itself.
+ * range), with "Best for this screen" (on NVIDIA also No scaling on the GPU, over games). A change applies and keeps
+ * itself, so the next can follow at once: Exo offers only the modes the screen reports it takes.
  */
 export function DisplayTab({ active }: { active: boolean }) {
   const [state, setState] = useState<DisplayState | null>(null)
   const [selected, setSelected] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<{ key: string; text: string } | null>(null)
-  const [left, setLeft] = useState(0)
   const busyRef = useRef(false)
   busyRef.current = busy
 
   /** Runs one action; the line it failed with (also shown under the row keyed by key), or null. */
-  const run = useCallback(async (action: 'state' | 'set' | 'keep' | 'revert' | 'adjust' | 'video' | 'override', change?: DisplayChange, key = 'pending') => {
+  const run = useCallback(async (action: 'state' | 'set' | 'adjust' | 'video' | 'override', change?: DisplayChange, key = 'state') => {
     setBusy(true)
     try {
       const next = await host.gpuDisplay(action, change)
       setState(next)
-      setLeft(next.pending?.seconds ?? 0)
       const text = next.ok ? null : (next.message ?? 'Not changed').replace(/\.$/, '')
       setError(text === null ? null : { key, text })
       return text
@@ -53,33 +50,14 @@ export function DisplayTab({ active }: { active: boolean }) {
     }
   }, [])
 
-  useEffect(() => onHostEvent('gpu.display.reverted', () => {
-    void run('state').then(() => setError({ key: 'best', text: 'The old settings are back' }))
-  }), [run])
-
   // Read again each time the tab is shown: a screen may have changed since.
   useEffect(() => {
     if (!busyRef.current) void run('state')
   }, [run, active])
 
-  const counting = !!state?.pending
-  // The countdown's Keep is the one thing that matters now: bring it into view and onto the keyboard.
-  const keep = useRef<HTMLButtonElement>(null)
-  useEffect(() => {
-    if (!counting || !keep.current) return
-    keep.current.scrollIntoView({ block: 'nearest', behavior: shouldReduceMotion() ? 'auto' : 'smooth' })
-    keep.current.focus({ preventScroll: true })
-  }, [counting])
-  useEffect(() => {
-    if (!counting) return
-    const tick = window.setInterval(() => setLeft(seconds => Math.max(0, seconds - 1)), 1000)
-    return () => window.clearInterval(tick)
-  }, [counting])
-
   if (!state) return null
   if (state.displays.length === 0) return <p className="exo-hub-sub">Windows did not list any screen.</p>
   const screen = state.displays.find(item => item.id === selected) ?? state.displays.find(item => item.main) ?? state.displays[0]
-  const pending = state.pending
   const set = (key: string, change: Omit<DisplayChange, 'display'>) => {
     if (!busy) void run('set', { display: screen.id, ...change }, key)
   }
@@ -96,23 +74,8 @@ export function DisplayTab({ active }: { active: boolean }) {
           />
         </Row>
       )}
-      {pending && (
-        <Row
-          label="Keep these settings?"
-          detail={`If the screen went dark, wait: the old settings come back in ${left} s.${pending.display !== screen.id ? ` (${state.displays.find(item => item.id === pending.display)?.name ?? pending.display})` : ''}`}
-          error={error?.key === 'pending' ? error.text : null}
-        >
-          <button ref={keep} type="button" className="exo-set-btn is-primary" disabled={busy} onClick={() => void run('keep')}>Keep</button>
-          <button type="button" className="exo-set-btn" disabled={busy} onClick={() => void run('revert')}>Undo</button>
-        </Row>
-      )}
-      <ScreenRows screen={screen} busy={busy || !!pending} error={error} onSet={set} />
-      </div>
-      <div>
-      {screen.scaling && (
-        <ScalingRows scaling={screen.scaling} busy={busy || !!pending} errorFor={key => (error?.key === key ? error.text : null)} onSet={set}
-          onOverride={on => busy ? Promise.resolve(null) : run('override', { display: screen.id, override: on }, 'override')} />
-      )}
+      <ScreenRows screen={screen} busy={busy} error={error} onSet={set} />
+      {/* Video sits under the screen's own rows, so the two columns come out about even. */}
       {state.video && (
         <VideoRows
           video={state.video}
@@ -120,6 +83,12 @@ export function DisplayTab({ active }: { active: boolean }) {
           error={error}
           onVideo={(key, change) => { if (!busy) void run('video', { display: screen.id, ...change }, key) }}
         />
+      )}
+      </div>
+      <div>
+      {screen.scaling && (
+        <ScalingRows scaling={screen.scaling} busy={busy} errorFor={key => (error?.key === key ? error.text : null)} onSet={set}
+          onOverride={on => busy ? Promise.resolve(null) : run('override', { display: screen.id, override: on }, 'override')} />
       )}
       {screen.adjust && (
         <ColorRows

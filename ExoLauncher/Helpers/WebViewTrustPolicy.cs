@@ -52,13 +52,16 @@ internal static class WebViewTrustPolicy
     /// <summary>
     /// Bridge messages come from the shell document only. Exo Mouse runs on its own host
     /// (MouseHost) and talks to the shell through mouseRelay's allow-list; its files are
-    /// also under the app host's /mouse/, and a message from there is refused too.
+    /// also under the app host's /mouse/, and a message from there is refused too. So is one
+    /// from the app host's /pay/, Discord's checkout page with Stripe's script in it (served
+    /// on its own pay host; this copy must never carry the bridge).
     /// </summary>
     internal static bool IsTrustedBridgeSource(string? value) =>
         IsTrustedAppUri(value)
         && Uri.TryCreate(value, UriKind.Absolute, out var uri)
-        && !Uri.UnescapeDataString(uri.AbsolutePath).Replace('\\', '/')
-            .StartsWith("/mouse/", StringComparison.OrdinalIgnoreCase);
+        && Uri.UnescapeDataString(uri.AbsolutePath).Replace('\\', '/') is var path
+        && !path.StartsWith("/mouse/", StringComparison.OrdinalIgnoreCase)
+        && !path.StartsWith("/pay/", StringComparison.OrdinalIgnoreCase);
 
     private static bool IsLoopbackDev(Uri uri) =>
         string.Equals(uri.Scheme, Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase)

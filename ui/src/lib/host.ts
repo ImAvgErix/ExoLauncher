@@ -3,7 +3,7 @@ import type { AppUpdateResponse } from './hostWire'
 import { report } from './report'
 import type { MusicPlayback, MusicService, MusicAction } from './music'
 import type { PlayerAction, PlayerActOptions, PlayerRoomState, PlayerView, PlayerViewData, PlayerViewOptions } from './player'
-import type { DiscordChannels, DiscordPlace, DiscordEvent, DiscordGuide, DiscordMemberSearch, DiscordResource, DiscordRole, DiscordUser, DiscordEmojis, DiscordFriend, DiscordGif, DiscordFavoriteGif, DiscordMemberList, DiscordProfile, DiscordProfileExtras, DiscordStickerGroup, DiscordThread, DiscordPresence, DiscordHome, DiscordReactionEvent, DiscordVoice, DiscordMessage, DiscordMessageEvent, DiscordSignInStep, DiscordState, DiscordStatus, DiscordUnread, DiscordNotice, DiscordForumTag, DiscordForYouItem, DiscordUnreadChannel, DiscordSearchFilters, DiscordShopCatalog, DiscordShopProduct, DiscordPaymentChoice, DiscordShopPrice, DiscordRailItem } from './discord'
+import type { DiscordChannels, DiscordPlace, DiscordEvent, DiscordGuide, DiscordInvite, DiscordMemberSearch, DiscordResource, DiscordRole, DiscordUser, DiscordEmojis, DiscordFriend, DiscordGif, DiscordFavoriteGif, DiscordMemberList, DiscordProfile, DiscordProfileExtras, DiscordStickerGroup, DiscordThread, DiscordPresence, DiscordHome, DiscordReactionEvent, DiscordVoice, DiscordMessage, DiscordMessageEvent, DiscordSignInStep, DiscordState, DiscordStatus, DiscordUnread, DiscordNotice, DiscordForumTag, DiscordForYouItem, DiscordUnreadChannel, DiscordSearchFilters, DiscordShopCatalog, DiscordShopProduct, DiscordPaymentChoice, DiscordShopPrice, DiscordRailItem } from './discord'
 import type { CaptureExport, CaptureItem, CaptureSettings, CaptureState } from './capture'
 import type { AccountSettings, DiscordAccount, DiscordAccountAction, DiscordClientSettings } from './discordPrefs'
 import type { AppCommand, AppInfo, InteractionEvent } from './discordApps'
@@ -148,12 +148,13 @@ export type VoiceTuneResult = {
 /** What the microphone's chain ran on the sound just now (see VoiceStages in the host). */
 export type VoiceStages = {
   profile: 'exo' | 'custom'
-  suppression: 'on' | 'light' | 'mic' | 'loading' | 'missing' | 'off'; suppressionLimitDb: number
-  focus: boolean; gain: 'exo' | 'windows' | 'off'
+  suppression: 'standard' | 'on' | 'light' | 'mic' | 'loading' | 'missing' | 'off'; suppressionLimitDb: number
+  focus: boolean; gain: 'windows' | 'off'
   /** Echo cancellation as a call on the chosen speakers runs it: on, not run on headphones or a headset, or off. */
   echo: 'on' | 'head' | 'off'
   tuned: boolean
 }
+/** NVIDIA's noise removal on this PC: none (no RTX card, or its driver is too old), fetching it, or ready. */
 /** The live microphone: its level, the level the gate judged (after noise suppression), what was sent, and whether the gate is open. */
 export type MicLevel = { level: number; gateLevel: number; after: number; voiced: boolean; stages: VoiceStages }
 
@@ -276,22 +277,26 @@ export type ScalingMode = 'aspect' | 'full' | 'none' | 'integer'
 /** One color slider: gamma is x100 (100 = 1.00); normal is the driver's default. */
 export type ColorControl = { key: string; label: string; value: number; min: number; max: number; step: number; normal: number; unit: string }
 
-/** System > Display; pending is a change the host puts back when seconds run out unless kept. */
-/** An NVIDIA driver update's progress. */
+/** System > Display: a change applies and keeps itself. */
+/** A graphics driver update's progress. */
 export type DriverProgress = { stage: 'idle' | 'downloading' | 'unpacking' | 'waiting' | 'installing' | 'done' | 'failed'; percent: number; message: string | null }
 
-/** System > Graphics > Driver and profile's driver row: the installed NVIDIA driver and the newest Game Ready one for this card. */
+/**
+ * System > Graphics > Driver and profile's driver row: the installed driver and the newest one for this card, from the
+ * vendor whose GPU Exo talks to (null: none it can update). NVIDIA's is Game Ready or Studio; AMD's is AMD Software:
+ * Adrenalin Edition, recommended or optional; Intel's is its graphics driver.
+ */
 export type DriverState = {
   ok: boolean
   message?: string | null
-  nvidia: boolean
+  vendor: 'nvidia' | 'amd' | 'intel' | null
   card?: string | null
   installed?: string | null
   /** An NVIDIA RTX / Quadro card: NVIDIA's RTX Enterprise driver, no Game Ready or Studio choice. */
   workstation?: boolean
-  latest?: { version: string; size: number; released: string | null; kind: 'game' | 'studio' | 'hotfix' | 'security' | 'workstation' } | null
+  latest?: { version: string; size: number; released: string | null; kind: 'game' | 'studio' | 'hotfix' | 'security' | 'workstation' | 'recommended' | 'optional' | 'intel'; page?: string | null } | null
   update?: boolean
-  /** Why an update can't start now (a game runs, Exo Shaders compiles), or null. */
+  /** Why an update can't start now (a game runs, a Discord call is on, Exo Shaders compiles), or null. */
   blocked?: string | null
   progress?: DriverProgress
 }
@@ -302,7 +307,6 @@ export type DisplayState = {
   displays: DisplayScreen[]
   /** RTX Video on the NVIDIA card (null without one; a null field: the card or driver has none). Super resolution 0 off, 1-4 quality, 5 Auto; HDR 0 off, 5 on. */
   video: { superResolution: number | null; hdr: number | null } | null
-  pending: { display: string; seconds: number } | null
 }
 
 export type DisplayChange = {
@@ -335,13 +339,14 @@ export type GraphicsRow = {
   choices: { id: string; label: string }[]
 }
 
-/** One AMD or Intel setting to set by hand, in plain words, next to what their driver holds. */
+/** One AMD or Intel setting to set by hand, in plain words, next to what their driver holds (only when Exo can't reach their driver). */
 export type GpuProfileItem = { key: string; label: string; value: string; why: string; current?: string | null }
 
 /**
- * System > Graphics > Driver and profile: Exo's global profile for this PC's GeForce series, G-SYNC or No G-SYNC.
+ * System > Graphics > Driver and profile: Exo's global profile for this PC's GeForce series, G-SYNC or No G-SYNC,
+ * for its Radeon, with an Anti-Lag choice, or for its Intel GPU, with a Low latency choice.
  * status: applied (the driver holds it all), changed (applied before, something
- * moved since), ready (not applied), manual (AMD or Intel: set by hand), none (no GPU Exo can tune).
+ * moved since), ready (not applied), manual (AMD or Intel when Exo can't reach their driver: set by hand), none (no GPU Exo can tune).
  */
 export type GpuProfile = {
   ok: boolean
@@ -350,7 +355,7 @@ export type GpuProfile = {
   gpu?: string | null
   /** GeForce series: 10, 16, 20, 30, 40, 50; 0 when not NVIDIA. */
   series: number
-  /** The main screen; vrr only as NVIDIA's driver reports it. */
+  /** The main screen; vrr as NVIDIA's driver reports G-SYNC, AMD's FreeSync, or Intel's driver reports Adaptive Sync. */
   screen: { name?: string | null; hz: number; vrr: boolean }
   status: 'applied' | 'changed' | 'ready' | 'manual' | 'none'
   /** The variant status compares with: the applied one, else what the screen reports. */
@@ -358,8 +363,46 @@ export type GpuProfile = {
   canUndo: boolean
   /** Changed since a driver update (the driver's version moved since Exo applied it). */
   driverUpdated: boolean
-  /** AMD and Intel only. */
+  /** Set by hand (manual) only. */
   items: GpuProfileItem[]
+  /** Radeon: Anti-Lag while a game Exo launched runs (games), always, or off. */
+  antiLag?: RadeonAntiLag | null
+  /** Intel: Low latency mode on, on with boost, or off. */
+  lowLatency?: IntelLowLatency | null
+  /** Radeon and Intel: what the profile does, in one line. */
+  summary?: string | null
+}
+
+export type RadeonAntiLag = 'games' | 'always' | 'off'
+export type IntelLowLatency = 'on' | 'boost' | 'off'
+/** XeSS frame generation for one game: the game's own choice, or the driver's 2x, 3x or 4x override. */
+export type IntelFrameGen = 'game' | '2x' | '3x' | '4x'
+
+/** System > Graphics: what the GPU reports right now (a Radeon's, through AMD's driver); ok false when nothing to show. */
+export type GpuSensors = {
+  ok: boolean
+  temperature?: number | null
+  hotspot?: number | null
+  watts?: number | null
+  clock?: number | null
+  vramUsed?: number | null
+  vramTotal?: number | null
+  fan?: number | null
+  usage?: number | null
+}
+
+/**
+ * Game sheet > driver frame generation: whether this PC has it; on a Radeon, Fluid Motion Frames on for the game and whether
+ * AMD Software runs; on Intel, the game's XeSS frame generation.
+ */
+export type GpuGame = {
+  ok: boolean
+  message?: string | null
+  vendor?: 'amd' | 'intel'
+  supported?: boolean
+  afmf?: boolean
+  amdSoftware?: boolean
+  frameGen?: IntelFrameGen
 }
 
 /** A Profile Inspector import. pick: the file's settings in plain words (nothing written yet). undo: the last import Undo puts back. */
@@ -370,6 +413,37 @@ export type GpuImportAnswer = {
   preview?: { profile: string; items: { label: string; value: string }[]; unknown: number; leftOut: number } | null
   undo?: { profile: string; count: number } | null
 }
+
+/** System > This PC: one row per setup problem (none when all is well); power switches to Exo's plan for cpu, with Undo; chipset Exo updates (busy while it installs, applied while it waits for a restart, url only after a failed install). */
+export type PcHealthItem = {
+  key: 'ram' | 'rebar' | 'power' | 'chipset' | 'gamemode'
+  label: string
+  detail: string
+  url?: string | null
+  applied?: boolean
+  canUndo?: boolean
+  busy?: boolean
+  /** The processor Exo's plan is tuned for ("Ryzen 5 5600X"), on the power row. */
+  cpu?: string | null
+  /** Nothing to do, said so: the chipset driver on its maker's newest. */
+  current?: boolean
+}
+export type PcHealth = { ok: boolean; message?: string | null; items: PcHealthItem[] }
+
+/** System > This PC > Interrupts: one PCI device, its interrupt now (msi, line, or none when it isn't running) and what Optimize does to it. */
+export type InterruptDevice = {
+  id: string
+  name: string
+  kind: string
+  mode: 'msi' | 'line' | 'none'
+  /** change: Optimize switches it; done: already MSI; keep: it can't or its driver won't; skip: Exo leaves it alone; restart: waits on a restart. */
+  plan: 'change' | 'done' | 'keep' | 'skip' | 'restart'
+  reason: string
+  /** Exo switched it and can put it back. */
+  changed: boolean
+}
+/** restart: Exo changed something since Windows started. result: after the restart, what took. */
+export type Interrupts = { ok: boolean; message?: string | null; restart: boolean; result?: string | null; canUndo: boolean; devices: InterruptDevice[] }
 
 /** One exact store entry represented by a grouped library card. */
 export interface GameVariant {
@@ -393,7 +467,10 @@ export interface GameVariant {
 }
 
 /** A folder of games on the Library's grid, made by the player; a game is in one folder at most. */
-export type LibraryFolder = { id: string; name: string; color?: string; games: string[] }
+/** How a folder orders its games: its own order ('folder', the default) or one of the Library's sorts. */
+export type FolderSort = 'folder' | SortMode
+/** art: its own picture's address (on Exo's covers host), shown in place of its games' covers. */
+export type LibraryFolder = { id: string; name: string; color?: string; sort?: FolderSort; art?: string | null; games: string[] }
 
 export interface Game {
   id: string
@@ -471,6 +548,23 @@ export interface DependencyItem {
  * Who each store Exo signs into is signed in as. Display names only; `key` is a
  * one-way tag the host maps back to an account. Null when the store is not on this PC.
  */
+/** A gift waiting on Steam or Epic for this account (gifts.list); image is the store's wide art. */
+export interface StoreGift {
+  store: 'steam' | 'epic'
+  id: string
+  title: string
+  image?: string | null
+  sender?: string | null
+  message?: string | null
+}
+
+export interface StoreGifts {
+  ok: boolean
+  /** Exo is signed in to Steam (Settings > Game stores > Steam's Sign in), so Steam's gifts can be read. */
+  steamSignedIn: boolean
+  gifts: StoreGift[]
+}
+
 export interface StoreAccounts {
   ok: boolean
   /** `remembered`: Steam keeps the sign-in; otherwise switching opens Steam's sign-in once. */
@@ -500,12 +594,16 @@ export type SwitchStore = 'steam' | 'riot'
 
 export interface LauncherSettings {
   appVersion: string
+  /** The last version whose What's New was shown (lib/whatsNew.ts); a new install starts at its own version. */
+  whatsNewSeen?: string | null
   /** Motion is off when this or Windows' reduce-animations setting is on. */
   reduceMotion?: boolean
   textColour?: 'white' | 'grey' | string
   textSize?: 'small' | 'normal' | 'large' | string
   /** Liquid Glass (Settings › General › Glass): how much shows through it. */
-  glass?: 'clear' | 'tinted' | 'solid' | string
+  glass?: 'clear' | 'solid' | string
+  /** Settings › General › Appearance (lib/appearance.ts). */
+  appearance?: 'system' | 'light' | 'dark' | 'void' | string
   sortMode?: SortMode | string
   defaultInstallRoot?: string | null
   /** Canonical game key -> preferred exact store source. settings.set merges supplied entries; empty removes one. */
@@ -538,12 +636,18 @@ export interface LauncherSettings {
   downloadHoursEnd?: number | null
   /** Epic, GOG and Amazon games update by themselves while the PC is idle. */
   autoUpdateGames?: boolean
+  /** This PC's chipset driver (AMD's or Intel's) updates by itself while the PC is idle (default on). */
+  autoUpdateChipset?: boolean
+  /** Whose chipset driver this PC has and Exo updates: AMD's on a Ryzen, Intel's on an Intel processor (read-only: shows Keep the AMD or Intel chipset driver up to date). */
+  chipset?: 'amd' | 'intel' | null
   /** Steam overlay for a Steam game Exo has not set yet (default off); Properties sets one game. */
   steamOverlayDefaultOn?: boolean
   /** Steam's and Epic's own pop-ups and sounds kept off (Settings > Game stores > Notifications and sounds). */
   quietStoreApps?: boolean
   /** The Library's folders, in their order on the grid. */
   libraryFolders?: LibraryFolder[]
+  /** Games hidden from the Library (card ids); its Hidden view lists them. */
+  hiddenGames?: string[]
 
   /** Debug builds or EXO_SHOW_DEV_KEYS=1: show Exo's own developer-app paste fields. */
   developerKeysVisible?: boolean
@@ -819,8 +923,20 @@ export function initHostBridge() {
     pending.clear()
   })
   const wv = (window as unknown as {
-    chrome: { webview: { addEventListener: (t: string, fn: (e: MessageEvent) => void) => void } }
+    chrome: { webview: { addEventListener: (t: string, fn: (e: MessageEvent) => void) => void; releaseBuffer: (buffer: ArrayBuffer) => void } }
   }).chrome.webview
+  // Bulk data (Discord video frames) comes as shared memory with a JSON note naming its event: handed on as bytes, and
+  // released at once, as handlers copy what they keep.
+  wv.addEventListener('sharedbufferreceived', (e: MessageEvent) => {
+    const shared = e as unknown as { additionalData?: { event?: string }; getBuffer: () => ArrayBuffer }
+    const buffer = shared.getBuffer()
+    try {
+      const note = shared.additionalData
+      if (note?.event) emitHostEvent(note.event as keyof HostEventMap, { ...note, bytes: new Uint8Array(buffer) } as never)
+    } finally {
+      wv.releaseBuffer(buffer)
+    }
+  })
   wv.addEventListener('message', (e: MessageEvent) => {
     let data: HostResponse | HostEvent | null
     try {
@@ -865,6 +981,8 @@ export interface HostEventMap {
   'store.changed': { what: 'home' | 'wishlist' }
   /** A step of a Steam or Riot account change ("Closing Steam…"), for the row that started it. */
   'accounts.progress': { store: SwitchStore; line: string }
+  /** Steam and Epic were read for gifts again, or one was accepted or declined. */
+  'gifts.changed': StoreGifts
   /** A wishlisted game went on sale on Steam (or got cheaper); price is Steam's text for final in the region's currency ("19,99€"). */
   'store.sale': { appId: string; name: string; final?: number | null; discount: number; currency?: string | null; price?: string | null }
   /** An input report from an open HID device; data is base64 without the ID byte. */
@@ -878,12 +996,11 @@ export interface HostEventMap {
   /** An event from the shader add-on's engine (or "addon" for its engine's own state), for its page. */
   'shaders.event': { name: string; data?: unknown }
   /** System > Display: a change nobody kept was put back when its countdown ran out. */
-  'gpu.display.reverted': { display: string }
   'gpu.driver': DriverProgress
   /** Exo's own Discord client: connection state, QR sign-in steps, list changes, unread marks, messages and typing. */
   'discord.state': { state: DiscordState; message?: string | null }
   'discord.signin': DiscordSignInStep
-  'discord.changed': { guildId: string | null; voice?: boolean }
+  'discord.changed': { guildId: string | null; voice?: boolean; inVoice?: number }
   'discord.unread': DiscordUnread
   /** A message that notifies while Exo is in front: Exo's own banner (in the background it is Windows' notification). */
   'discord.notify': DiscordNotice
@@ -903,13 +1020,14 @@ export interface HostEventMap {
   /** This client's own Go Live: connecting, live or off (with why, when it ended on its own). */
   'discord.golive': { state: 'connecting' | 'live' | 'off'; title?: string | null; message?: string | null }
   /** Each second while live: the stream's picture size and what it really sends. */
-  'discord.golive.stats': { width: number; height: number; fps: number; bitrate: number; max?: number }
+  'discord.golive.stats': { width: number; height: number; fps: number; bitrate: number; max?: number; codec?: string }
   /** This client's camera: live (send frames) or off. */
   'discord.camera': { state: 'connecting' | 'live' | 'off' }
   /** Discord wants a keyframe of this client's camera (Go Live's come from Exo Capture). */
   'discord.video.keyframe': { source: 'camera' }
   /** One whole, decrypted H.264 frame (Annex B, base64) to decode. */
-  'discord.video.frame': { source: 'call' | 'stream'; userId: string; timestamp: number; keyframe: boolean; data: string; rotation?: number; flip?: boolean }
+  /** The frame comes as shared memory (bytes); data (base64) only from the dev mock. */
+  'discord.video.frame': { source: 'call' | 'stream'; userId: string; timestamp: number; keyframe: boolean; bytes?: Uint8Array; data?: string; rotation?: number; flip?: boolean; codec?: 'h264' | 'h265' }
   'discord.call': { channelId: string; ringing: boolean }
   'discord.presence': DiscordPresence
   /** The open server's member list changed, or member colors arrived. */
@@ -1117,6 +1235,9 @@ export const host = {
   artReplace: (id: string) => rawCall<ArtworkMutationResponse>('art.replace', { id }),
   artReset: (id: string) => rawCall<ArtworkMutationResponse>('art.reset', { id }),
   artRefetch: (id: string) => rawCall<ArtworkMutationResponse>('art.refetch', { id }),
+  /** A folder's cropped picture (PNG, base64), stored for it; the folder names the returned address once saved. */
+  libraryFolderArt: (folderId: string, image: string) =>
+    rawCall<{ ok: boolean; message?: string; art?: string | null }>('library.folderArt', { folderId, image }, 60_000),
   /**
    * Library › Refresh: sizes measured again, every store asked again (time
    * played, last launched, games that weren't showing), Riot hours, every
@@ -1232,6 +1353,13 @@ export const host = {
   storesMatrix: () => rawCall<StoreStatus[]>('stores.matrix'),
   getSettings: () => rawCall<LauncherSettings>('settings.get'),
   accountsList: () => rawCall<StoreAccounts>('accounts.list'),
+  /** What Exo last read; force (or a read older than half an hour) reads again, arriving as gifts.changed. */
+  giftsList: (force = false) => rawCall<StoreGifts>('gifts.list', { force }),
+  /** Accept adds the game to the library; the store's library is read again. */
+  giftsAnswer: (store: StoreGift['store'], id: string, accept: boolean) =>
+    rawCall<{ ok: boolean; message?: string | null }>('gifts.answer', { store, id, accept }, 120_000),
+  giftsSteamSignIn: () => rawCall<{ ok: boolean; message?: string | null }>('gifts.steamSignIn', {}, 15 * 60_000),
+  giftsSteamSignOut: () => rawCall<{ ok: boolean; message?: string | null }>('gifts.steamSignOut', {}, 60_000),
   /** Steam, Riot: sign in as `key` (the client restarts). Epic, GOG, Amazon: sign out, then that store's sign-in. */
   accountsSwitch: (store: AccountStore | SwitchStore, key?: string) =>
     rawCall<{ ok: boolean; message?: string | null }>('accounts.switch', key ? { store, key } : { store }, 15 * 60_000),
@@ -1364,6 +1492,8 @@ export const host = {
     rawCall<{ ok: boolean; message?: string | null }>('discord.stream', { action, ...(userId ? { userId } : {}) }),
   /** Whether the page shows call video now (on screen, with a camera or stream to draw): only then do frames come. */
   discordFrames: (on: boolean) => rawCall<{ ok: boolean; message?: string | null }>('discord.stream', { action: 'frames', on }),
+  /** Whether this page decodes H.265 in hardware, so Discord connections offer to receive it. */
+  discordVideoDecode: (hevc: boolean) => rawCall<{ ok: boolean; message?: string | null }>('discord.stream', { action: 'decode', hevc }),
   /**
    * Go Live from this client: what can be shared (screens and windows with pictures), a fresh picture of
    * one (or of the stream while live, no source), start (a source, height 0 for its own, frame rate, sound), stop.
@@ -1384,8 +1514,8 @@ export const host = {
    */
   discordFriend: (action: 'accept' | 'remove' | 'add' | 'dm' | 'block' | 'ignore' | 'unignore' | 'state', params: { userId?: string; username?: string; confirm?: boolean }) =>
     rawCall<{ ok: boolean; message?: string | null; channelId?: string | null; relationship?: number; ignored?: boolean; bot?: boolean; stranger?: boolean }>('discord.friend', { action, ...params }, 30_000),
-  /** The member list; more asks Discord for the next rows (they arrive as discord.members). */
-  discordMembers: (guildId: string, more = false) => rawCall<DiscordMemberList>('discord.members', more ? { guildId, more } : { guildId }),
+  /** The member list; at asks Discord for the rows from that one on (they arrive as discord.members). */
+  discordMembers: (guildId: string, at?: number) => rawCall<DiscordMemberList>('discord.members', at === undefined ? { guildId } : { guildId, at }),
   /** People to @mention whose names match; ask also asks Discord for more (they arrive as discord.colors). */
   discordMentionable: (guildId: string, query: string, ask: boolean) => rawCall<{ users: DiscordUser[] }>('discord.mentionable', { guildId, query, ask }),
   discordColors: (guildId: string, userIds: string[]) => rawCall<{ colors: Record<string, string | null> }>('discord.colors', { guildId, userIds }),
@@ -1402,10 +1532,9 @@ export const host = {
   discordEmojiFavorites: (action: 'list' | 'add' | 'remove' | 'use' = 'list', emoji?: string, reaction?: boolean) =>
     rawCall<{ ok: boolean; favorites?: string[] | null; frequent?: string[] | null; reactions?: string[] | null }>('discord.emojiFavorites', { action, ...(emoji ? { emoji } : {}), ...(reaction ? { reaction } : {}) }, 30_000),
   discordGifs: (query?: string) => rawCall<{ ok: boolean; gifs?: DiscordGif[] | null }>('discord.gifs', query ? { query } : {}, 30_000),
-  /** Join a server with an invite link or code, or leave one. */
-  /** Join or leave a server, read its Server Guide or events, or create a channel. */
-  discordServer: (action: 'join' | 'leave' | 'guide' | 'events' | 'members' | 'createChannel' | 'prune' | 'createEvent' | 'eventStatus' | 'ics' | 'rsvp' | 'showAll' | 'mute' | 'notify', params: { muted?: boolean; minutes?: number; level?: number; suppressEveryone?: boolean; suppressRoles?: boolean; invite?: string; guildId?: string; parentId?: string; name?: string; kind?: 'text' | 'voice'; sort?: number; days?: number; countOnly?: boolean; eventId?: string; interested?: boolean; on?: boolean; status?: 2 | 3 | 4; description?: string; start?: string; channelId?: string; location?: string; end?: string; query?: string; afterJoined?: number; afterUser?: string }) =>
-    rawCall<{ ok: boolean; message?: string | null; guildId?: string | null; channelId?: string | null; guide?: DiscordGuide | null; events?: { event: DiscordEvent; interested: boolean }[] | null; members?: DiscordMemberSearch | null; roles?: Record<string, DiscordRole>; online?: number | null; total?: number | null; resources?: DiscordResource[]; pruned?: number | null }>('discord.server', { action, ...params }, 30_000),
+  /** Join or leave a server, read an invite (a message's invite card), its Server Guide or events, or create a channel. */
+  discordServer: (action: 'join' | 'invite' | 'leave' | 'guide' | 'events' | 'members' | 'createChannel' | 'prune' | 'createEvent' | 'eventStatus' | 'ics' | 'rsvp' | 'showAll' | 'mute' | 'notify', params: { muted?: boolean; minutes?: number; level?: number; suppressEveryone?: boolean; suppressRoles?: boolean; invite?: string; guildId?: string; parentId?: string; name?: string; kind?: 'text' | 'voice'; sort?: number; days?: number; countOnly?: boolean; eventId?: string; interested?: boolean; on?: boolean; status?: 2 | 3 | 4; description?: string; start?: string; channelId?: string; location?: string; end?: string; query?: string; afterJoined?: number; afterUser?: string }) =>
+    rawCall<{ ok: boolean; message?: string | null; guildId?: string | null; channelId?: string | null; invite?: DiscordInvite | null; invalid?: boolean; guide?: DiscordGuide | null; events?: { event: DiscordEvent; interested: boolean }[] | null; members?: DiscordMemberSearch | null; roles?: Record<string, DiscordRole>; online?: number | null; total?: number | null; resources?: DiscordResource[]; pruned?: number | null }>('discord.server', { action, ...params }, 30_000),
   /**
    * Server Settings, Edit Channel and the person menu: a server's (guildId) or channel's (channelId) settings and the
    * changes to them, each checked by the host against the user's permissions. data is Discord's own reply.
@@ -1452,6 +1581,8 @@ export const host = {
     rawCall<DiscordClientSettings>('discord.clientSettings', change, 15_000),
   /** The live microphone in Voice & Video: on starts or renews it (levels arrive as discord.micLevel), off stops it. */
   discordMicTest: (on: boolean) => rawCall<{ ok: boolean }>('discord.micTest', { on }),
+  /** Only My Voice: learn the voice from the last Voice Check take (fetches the 40 MB voice model the first time), or forget it. */
+  discordMyVoice: (action: 'learn' | 'forget') => rawCall<{ ok: boolean; learned: boolean; message?: string | null }>('discord.myVoice', { action }, 180_000),
   /**
    * Lucid, the separate EQ app: its state, Start with Exo (set), its own window (open), Equalizer APO's device picker
    * (devices), a change to its settings (change: Lucid closes and starts again out of sight), or its download page (get).
@@ -1510,15 +1641,26 @@ export const host = {
   discordApps: (channelId: string, action: 'commands' | 'run' | 'autocomplete' | 'component' | 'modal' | 'dismiss', params: Record<string, unknown> = {}) =>
     rawCall<{ ok: boolean; message?: string | null; nonce?: string | null; commands?: AppCommand[]; applications?: AppInfo[] }>('discord.apps', { channelId, action, ...params }, 60_000),
   gpuDriver: (action: 'state' | 'update' = 'state', branch: 'game' | 'studio' = 'game') => rawCall<DriverState>('gpu.driver', { action, branch }, 60_000),
-  gpuDisplay: (action: 'state' | 'set' | 'keep' | 'revert' | 'adjust' | 'video' | 'override' = 'state', change?: DisplayChange) =>
+  gpuDisplay: (action: 'state' | 'set' | 'adjust' | 'video' | 'override' = 'state', change?: DisplayChange) =>
     rawCall<DisplayState>('gpu.display', { action, ...(change ?? {}) }, 30_000),
-  /** System > Graphics > Driver and profile: Exo's global profile for this PC; apply the G-SYNC or No G-SYNC variant (backing up what it replaces) or undo it. */
-  /** This PC's processor, installed memory (GB), graphics card and Windows, read once. */
-  gpuProfile: (action?: 'apply' | 'undo', gsync?: boolean) =>
-    rawCall<GpuProfile>('gpu.profile', action ? { action, ...(action === 'apply' ? { gsync: gsync === true } : {}) } : {}, 30_000),
+  /**
+   * System > Graphics > Driver and profile: Exo's global profile for this PC; apply the G-SYNC or No G-SYNC variant (a
+   * Radeon's with its Anti-Lag choice, an Intel GPU's with its Low latency choice), backing up what it replaces, or undo it.
+   */
+  gpuProfile: (action?: 'apply' | 'undo', gsync?: boolean, latency?: { antiLag?: RadeonAntiLag; lowLatency?: IntelLowLatency }) =>
+    rawCall<GpuProfile>('gpu.profile', action ? { action, ...(action === 'apply' ? { gsync: gsync === true, ...latency } : {}) } : {}, 30_000),
+  /** System > Graphics: the GPU's temperature, power, clock, VRAM and fan now. */
+  gpuSensors: () => rawCall<GpuSensors>('gpu.sensors', {}, 15_000),
+  /** Game sheet: a game's driver frame generation (a Radeon's Fluid Motion Frames, Intel's XeSS override); with a change, sets it for the game. */
+  gpuGame: (id: string, change?: { afmf?: boolean; frameGen?: IntelFrameGen }) => rawCall<GpuGame>('gpu.game', { id, ...change }, 30_000),
   /** A Profile Inspector import to the global profile: pick a .nip (waits for the picker), apply, undo, cancel, or state. */
   gpuImport: (action: 'pick' | 'apply' | 'undo' | 'cancel' | 'state') =>
     rawCall<GpuImportAnswer>('gpu.import', { action }, action === 'pick' ? 10 * 60_000 : 30_000),
+  /** System > This PC: the checks; apply or undo AMD's power plan tuning; gamemode opens Windows' Game Mode settings. */
+  systemHealth: (action?: 'apply' | 'undo' | 'chipset' | 'gamemode') => rawCall<PcHealth>('system.health', action ? { action } : {}, 35_000),
+  /** System > This PC > Interrupts: the devices; apply switches every one that can to MSI mode, undo puts all back, revert one. Waits on Windows' permission prompt. */
+  systemInterrupts: (action?: 'apply' | 'undo' | 'revert', device?: string) =>
+    rawCall<Interrupts>('system.interrupts', action ? { action, ...(device ? { device } : {}) } : {}, 120_000),
   /** The saved home page at once (refreshed behind it); refresh waits for a fresh one. */
   storeHome: (refresh = false) => rawCall<StoreHome>('store.home', refresh ? { refresh: true } : {}, 45_000),
   /** superseded: a newer search replaced this one. */

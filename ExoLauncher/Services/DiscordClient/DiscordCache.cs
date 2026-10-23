@@ -447,7 +447,7 @@ internal sealed partial class DiscordCache
                     {
                         if (ReadVoice(d) is { } member) vguild.Voice[vu] = member;
                         else vguild.Voice.Remove(vu);
-                        events.Add(("discord.changed", new { guildId = vg, voice = true }));
+                        events.Add(("discord.changed", new { guildId = vg, voice = true, inVoice = InVoice(vguild) }));
                     }
                     else if (Str(d, "guild_id") is null && Str(d, "user_id") is { } cu)
                     {
@@ -639,6 +639,7 @@ internal sealed partial class DiscordCache
                     owner = Me is not null && g.OwnerId == Me.Id,
                     unread = !IsMuted(g.Id) && visible.Any(Unread),
                     mentions = visible.Sum(c => _read.GetValueOrDefault(c.Id).Mentions),
+                    inVoice = InVoice(g),
                 };
             }).ToList();
             // The server list as Discord shows it: servers that are here or unavailable (a folder of one server is still a folder).
@@ -647,6 +648,10 @@ internal sealed partial class DiscordCache
             return new { me = Me is null ? null : new { id = Me.Id, name = Me.Name, avatar = Avatar(Me.Id), status = _myStatus, look = LookOf(Me.Id) }, dms, guilds, rail, blocked = _blocked.ToList(), ignored = _ignored.ToList() };
         }
     }
+
+    /// <summary>How many people are in the server's voice channels the user can see (the rail's voice mark).</summary>
+    private int InVoice(Guild guild) =>
+        guild.Voice.Values.Count(v => guild.Channels.TryGetValue(v.ChannelId, out var c) && (Perms(c) & ViewChannel) != 0);
 
     /// <summary>A server's channels the user can see, in Discord's order: loose channels, then each category with its own.</summary>
     internal object Channels(string guildId)
@@ -776,6 +781,11 @@ internal sealed partial class DiscordCache
     internal string? ParentOf(string channelId)
     {
         lock (_gate) return Find(channelId)?.ParentId;
+    }
+
+    internal bool InGuild(string guildId)
+    {
+        lock (_gate) return _guilds.ContainsKey(guildId);
     }
 
     internal bool IsCategory(string channelId)
@@ -1216,10 +1226,11 @@ internal sealed partial class DiscordCache
         lock (_gate)
         {
             if (!_guilds.TryGetValue(guildId, out var guild)) return new { items = System.Array.Empty<object>(), online = 0, total = 0 };
-            var items = new List<object>();
+            // A row Discord hasn't sent yet (a range not asked for) is null, so every row keeps its place.
+            var items = new List<object?>();
             foreach (var item in guild.List)
             {
-                if (item.ValueKind != JsonValueKind.Object) continue;
+                if (item.ValueKind != JsonValueKind.Object) { items.Add(null); continue; }
                 if (item.TryGetProperty("group", out var group))
                 {
                     var id = Str(group, "id") ?? "";
@@ -1248,12 +1259,6 @@ internal sealed partial class DiscordCache
             var rows = guild.GroupCounts.Count + guild.GroupCounts.Values.Sum();
             return new { items, online = guild.OnlineCount, total = guild.MemberCount, rows = Math.Max(rows, guild.List.Count) };
         }
-    }
-
-    /// <summary>How many rows of a server's member list Discord has sent so far (where the next range starts).</summary>
-    internal int MemberRows(string guildId)
-    {
-        lock (_gate) return _guilds.TryGetValue(guildId, out var guild) ? guild.List.Count : 0;
     }
 
     // An unanswered ask (the reply lost to a reconnect) may go again after this long.
@@ -1318,6 +1323,9 @@ internal sealed partial class DiscordCache
         // own client); channels that show the same people share a list, which then stays as it is.
         if (Str(d, "id") is var listId && listId != guild.ListId)
         {
+            // Only a SYNC brings another list: a late change to the list shown before (a presence moving someone in the
+            // channel just left) would otherwise replace the whole list with that one row.
+            if (!Array(d, "ops").Any(op => Str(op, "op") == "SYNC")) return;
             guild.List.Clear();
             guild.ListId = listId;
         }

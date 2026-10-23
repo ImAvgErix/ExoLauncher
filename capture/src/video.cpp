@@ -494,7 +494,10 @@ VideoEncoder::VideoEncoder(GpuDevice& gpu, Codec codec, UINT width, UINT height,
         }
         SetApi(m_api.get(), CODECAPI_AVEncCommonMeanBitRate, bitrate);
         SetApi(m_api.get(), CODECAPI_AVEncCommonMaxBitRate, static_cast<UINT32>(std::min<double>(bitrate * (realtime ? 1.2 : 1.5), 200e6)));
-        SetApi(m_api.get(), CODECAPI_AVEncMPVGOPSize, fps * (realtime ? 5 : 2));
+        // A stream's key frames come when viewers ask (one joins, or loses a packet resends can't bring back), and
+        // otherwise once a minute, as libwebrtc's senders keep them: one every five seconds is six to nine frames' worth
+        // sent at once, and every viewer saw it as a hitch.
+        SetApi(m_api.get(), CODECAPI_AVEncMPVGOPSize, fps * (realtime ? 60 : 2));
         SetApi(m_api.get(), CODECAPI_AVEncMPVDefaultBPictureCount, 0);
         SetApiBool(m_api.get(), CODECAPI_AVLowLatencyMode, true);
         // Leans to speed: NVENC, AMF and Quick Sync run beside the game's own GPU work. A stream's
@@ -649,7 +652,7 @@ void VideoEncoder::SubmitSync(ID3D11Texture2D* texture, int64_t time)
     sample->AddBuffer(buffer.get());
     sample->SetSampleTime(time);
     sample->SetSampleDuration(10'000'000 / m_fps);
-    if (m_forceKey.exchange(false) && m_api) SetApi(m_api.get(), CODECAPI_AVEncVideoForceKeyFrame, 1);
+    TakeRequests();
     HRESULT hr = m_mft->ProcessInput(m_in, sample.get(), 0);
     if (hr == MF_E_NOTACCEPTING)
     {
@@ -660,12 +663,25 @@ void VideoEncoder::SubmitSync(ID3D11Texture2D* texture, int64_t time)
     while (TakeOutput()) {}
 }
 
+// What was asked since the last frame, applied before the next goes in: a key frame, a new bit rate (the
+// hardware encoders take a mean and peak rate mid-stream; the buffer stays as it started).
+void VideoEncoder::TakeRequests()
+{
+    if (!m_api) return;
+    if (m_forceKey.exchange(false)) SetApi(m_api.get(), CODECAPI_AVEncVideoForceKeyFrame, 1);
+    if (UINT rate = m_newRate.exchange(0))
+    {
+        SetApi(m_api.get(), CODECAPI_AVEncCommonMeanBitRate, rate);
+        SetApi(m_api.get(), CODECAPI_AVEncCommonMaxBitRate, static_cast<UINT32>(std::min<double>(rate * 1.2, 200e6)));
+    }
+}
+
 void VideoEncoder::FeedLocked()
 {
     while (m_credits > 0 && !m_queue.empty())
     {
         auto sample = m_queue.front();
-        if (m_forceKey.exchange(false) && m_api) SetApi(m_api.get(), CODECAPI_AVEncVideoForceKeyFrame, 1);
+        TakeRequests();
         HRESULT hr = m_mft->ProcessInput(m_in, sample.get(), 0);
         if (hr == MF_E_NOTACCEPTING) break;
         m_queue.pop_front();
@@ -881,7 +897,8 @@ CaptureSession::CaptureSession(std::shared_ptr<GpuDevice> gpu, const Options& op
     m_interval = 10'000'000 / m_fps;
     m_keyInterval = options.realtime ? 50'000'000 : 10'000'000;
     HMONITOR monitor = options.window ? MonitorFromWindow(options.window, MONITOR_DEFAULTTONEAREST) : options.monitor;
-    m_hdr = m_codec != Codec::H264 && MonitorIsHdr(monitor);
+    // A live stream stays SDR: Discord's viewers decode 8-bit pictures, whatever the screen.
+    m_hdr = !options.realtime && m_codec != Codec::H264 && MonitorIsHdr(monitor);
     winrt::Windows::Graphics::SizeInt32 size{};
     bool wide = true; // false: the frames from inside the game are SDR
     if (options.window && options.gameHook)
@@ -980,7 +997,7 @@ CaptureSession::CaptureSession(std::shared_ptr<GpuDevice> gpu, const Options& op
             else
             {
                 m_codec = m_codec == Codec::AV1 && options.hevcFallback ? Codec::HEVC : Codec::H264;
-                m_hdr = m_codec != Codec::H264 && MonitorIsHdr(monitor) && wide;
+                m_hdr = !options.realtime && m_codec != Codec::H264 && MonitorIsHdr(monitor) && wide;
             }
         }
     }

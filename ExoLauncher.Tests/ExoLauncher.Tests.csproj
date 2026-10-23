@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <!--
     Pure-logic tests for the host. The running app stays the real verification
-    (tools\e2e\Invoke-ExoE2E.ps1); these pin parsing, ownership and policy code
+    (node tools\e2e\run.mjs); these pin parsing, ownership and policy code
     whose failures are silent in the app.
   -->
   <PropertyGroup>
@@ -18,15 +18,14 @@
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <SelfContained>false</SelfContained>
     <WindowsPackageType>None</WindowsPackageType>
-    <!-- The host is framework-dependent on the Windows App SDK; the test runner has no
-         bootstrapper, so it carries the runtime itself. CI passes the same value. -->
+    <!-- The host carries the Windows App SDK itself (self-contained), and so does the test runner. CI passes the same value. -->
     <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.0.1" />
-    <PackageReference Include="xunit.v3" Version="3.2.2" />
-    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.11.0" />
+    <PackageReference Include="xunit.v3" Version="4.0.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="4.0.1" PrivateAssets="all" />
   </ItemGroup>
 
   <ItemGroup>

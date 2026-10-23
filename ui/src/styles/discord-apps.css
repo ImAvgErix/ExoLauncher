@@ -182,7 +182,7 @@
 
 .exo-dc-cv-button.is-primary {
   background: var(--color-fg);
-  color: #0a0a0a;
+  color: var(--color-primary-fg);
 }
 
 .exo-dc-cv-button.is-primary:hover:not(:disabled) {
@@ -190,7 +190,7 @@
 }
 
 .exo-dc-cv-button.is-primary .exo-dc-typing-dots i {
-  background: #0a0a0a;
+  background: rgb(var(--exo-ink-rgb) / 0.04);
 }
 
 .exo-dc-cv-button.is-success {

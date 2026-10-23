@@ -9,6 +9,7 @@ import {
   AboutMe, ActivityCard, Connections, MemberSince, MutualFriends, MutualServers, NoteField, ProfileBanner, ProfileEffectOf, ProfileFace, profileName, profileTheme, ProfileWho,
   profileOf, RoleList, showFullProfile, useMutualFriends, useProfile, type FullProfileTarget, type Loaded, type ProfileTab,
 } from './profileParts'
+import { ModalBack } from './SettingsLayer'
 
 /**
  * Discord's profile panel beside a DM: banner, the person, badges, what they're doing, About Me, Member Since,
@@ -109,7 +110,7 @@ function FullProfile({ target, meId, onClose, onMessage }: {
   const name = data ? profileName(data) : 'Profile'
   const tabs = data ? tabsOf(data, friends, me) : []
   return (
-    <div className="exo-dc-modal-back" onClick={onClose}>
+    <ModalBack onClose={onClose}>
       <div ref={box} className="exo-dc-modal exo-dc-pf is-full" role="dialog" aria-modal="true" aria-label={name} tabIndex={-1} onClick={event => event.stopPropagation()}
         style={data ? profileTheme(data, guildId) : undefined}>
         {data ? (
@@ -138,7 +139,7 @@ function FullProfile({ target, meId, onClose, onMessage }: {
           </>
         ) : <p className="exo-dc-note exo-dc-pf-wait" role={failed ? 'alert' : 'status'}>{failed ? "Discord didn't send this profile. Try again." : 'Loading'}</p>}
       </div>
-    </div>
+    </ModalBack>
   )
 }
 

@@ -20,7 +20,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 24
+          node-version: 26
           cache: npm
           cache-dependency-path: |
             ui/package-lock.json
@@ -37,7 +37,7 @@ jobs:
       # Keep Release resource indexing in the same Windows App SDK mode as the package.
       - run: dotnet build ExoLauncher.sln -c Release -p:Platform=x64 -p:WindowsAppSDKSelfContained=true -p:PublishReadyToRun=false
       # Self-contained, so the test host needs no Windows App Runtime installed on the runner.
-      - run: dotnet test ExoLauncher.Tests/ExoLauncher.Tests.csproj -c Release -p:Platform=x64 -p:WindowsAppSDKSelfContained=true -p:PublishReadyToRun=false --no-build
+      - run: dotnet test --project ExoLauncher.Tests/ExoLauncher.Tests.csproj -c Release -p:Platform=x64 -p:WindowsAppSDKSelfContained=true -p:PublishReadyToRun=false --no-build
       - run: dotnet publish ExoLauncher/ExoLauncher.csproj -c Release -p:Platform=x64 -p:WindowsAppSDKSelfContained=true -p:PublishReadyToRun=false -o artifacts/package
 
   ui:
@@ -49,7 +49,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 24
+          node-version: 26
           cache: npm
           cache-dependency-path: |
             ui/package-lock.json

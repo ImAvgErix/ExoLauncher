@@ -89,9 +89,9 @@ public sealed class VoiceGateTests
             var cleaned = random.Next(8) == 0 ? -100 : heard - 2 - 6 * random.NextDouble();
             Assert.False(gate.Voiced(AtDb(cleaned), automatic: true, -60, before: heard), $"frame {f}");
         }
-        // A voice over it, at a normal level, kept by suppression: open on its first frame, and held 300 ms after.
+        // A voice over it, at a normal level, kept by suppression: open on its first frame, and held 500 ms after.
         Assert.True(gate.Voiced(AtDb(-30), automatic: true, -60, before: -29.5f));
-        for (var f = 0; f < 15; f++) Assert.True(gate.Voiced(AtDb(-100), automatic: true, -60, before: -45f));
+        for (var f = 0; f < VoiceGate.Hold; f++) Assert.True(gate.Voiced(AtDb(-100), automatic: true, -60, before: -45f));
         Assert.False(gate.Voiced(AtDb(-100), automatic: true, -60, before: -45f));
     }
 
@@ -123,24 +123,181 @@ public sealed class VoiceGateTests
     }
 }
 
-/// <summary>Clip Guard: a voice over full scale is held under -1 dBFS with no delay, and one under it passes untouched.</summary>
-public sealed class ClipGuardTests
+/// <summary>No gain stage: with noise suppression off, the chain changes nothing but the low cut.</summary>
+public sealed class ChainGainTests
 {
     [Fact]
-    public void LoudSoundStaysUnderTheCeilingAndQuietSoundIsUntouched()
+    public void WithoutNoiseSuppressionOnlyTheLowCutRuns()
     {
-        using var chain = new ExoLauncher.Services.DiscordClient.Voice.VoiceChain();
-        var plain = new ExoLauncher.Services.DiscordClient.Voice.VoiceProcessing("custom", false, false, false, false, false, -100, 0, false);
-        var loud = new float[ExoLauncher.Services.DiscordClient.Voice.VoiceAudio.FrameFloats];
-        for (var i = 0; i < loud.Length; i += 2) loud[i] = loud[i + 1] = 2f * MathF.Sin(i * 0.01f);
-        chain.Process(loud, plain, null, systemGain: false);
-        Assert.All(loud, s => Assert.InRange(MathF.Abs(s), 0f, 0.8911f));
-
         using var calm = new ExoLauncher.Services.DiscordClient.Voice.VoiceChain();
-        var quiet = new float[ExoLauncher.Services.DiscordClient.Voice.VoiceAudio.FrameFloats];
-        for (var i = 0; i < quiet.Length; i += 2) quiet[i] = quiet[i + 1] = 0.3f * MathF.Sin(i * 0.01f);
+        var plain = new ExoLauncher.Services.DiscordClient.Voice.VoiceProcessing("custom", false, false, false, false, -100, 0, false);
+        var lowCut = new ExoLauncher.Services.DiscordClient.Voice.LowCut();
+        float[] Quiet()
+        {
+            var frame = new float[ExoLauncher.Services.DiscordClient.Voice.VoiceAudio.FrameFloats];
+            for (var i = 0; i < frame.Length; i += 2) frame[i] = frame[i + 1] = 0.15f * MathF.Sin(i * 0.01f);
+            return frame;
+        }
+        // The gate's opening fades in; after it, only the low cut (which every frame goes through first) changes a frame.
+        var opening = Quiet();
+        lowCut.Process((float[])opening.Clone());
+        calm.Process(opening, plain, null, systemGain: false);
+        var quiet = Quiet();
         var before = (float[])quiet.Clone();
+        lowCut.Process(before);
         calm.Process(quiet, plain, null, systemGain: false);
         Assert.Equal(before, quiet);
+    }
+}
+
+/// <summary>The microphone's low cut: a desk's knock under a voice is taken out, the voice itself kept.</summary>
+public sealed class LowCutTests
+{
+    private static double Rms(Func<int, double> wave, bool cut)
+    {
+        var filter = new ExoLauncher.Services.DiscordClient.Voice.LowCut();
+        double sum = 0; var n = 0;
+        for (var f = 0; f < 50; f++)
+        {
+            var frame = new float[ExoLauncher.Services.DiscordClient.Voice.VoiceAudio.FrameFloats];
+            for (var i = 0; i < frame.Length; i += 2) frame[i] = frame[i + 1] = (float)wave(f * frame.Length / 2 + i / 2);
+            if (cut) filter.Process(frame);
+            if (f < 10) continue; // past its first moment
+            for (var i = 0; i < frame.Length; i += 2) { sum += frame[i] * (double)frame[i]; n++; }
+        }
+        return Math.Sqrt(sum / n);
+    }
+
+    [Fact]
+    public void ADeskKnockIsCutAndAVoiceKept()
+    {
+        Func<int, double> knock = t => 0.3 * Math.Sin(2 * Math.PI * 30 * t / 48000.0);
+        Func<int, double> voice = t => 0.3 * Math.Sin(2 * Math.PI * 200 * t / 48000.0);
+        Assert.True(20 * Math.Log10(Rms(knock, false) / Rms(knock, true)) > 25, "a 30 Hz knock wasn't cut");
+        Assert.True(20 * Math.Log10(Rms(voice, false) / Rms(voice, true)) < 1, "a 200 Hz voice was cut");
+    }
+}
+
+/// <summary>A knock on the desk is told from a voice by how fast it rises, and keeps the automatic gate shut.</summary>
+public sealed class KnockTests
+{
+    private const int Floats = ExoLauncher.Services.DiscordClient.Voice.VoiceAudio.FrameFloats;
+
+    private static float[] Frame(Func<int, double> wave, int at)
+    {
+        var frame = new float[Floats];
+        for (var i = 0; i < frame.Length; i += 2) frame[i] = frame[i + 1] = (float)wave(at * Floats / 2 + i / 2);
+        return frame;
+    }
+
+    [Fact]
+    public void AKnockIsCaughtAndAVoiceIsNot()
+    {
+        var detector = new ExoLauncher.Services.DiscordClient.Voice.KnockDetector();
+        var random = new Random(3);
+        // Quiet room, then a knock: 2 ms of loud noise ringing down over 40 ms.
+        Assert.False(detector.Hit(Frame(_ => 0.001 * (random.NextDouble() * 2 - 1), 0)));
+        const int knockAt = 960 + 300;
+        Assert.True(detector.Hit(Frame(t => t < knockAt ? 0.001 * (random.NextDouble() * 2 - 1)
+            : 0.5 * Math.Exp(-(t - knockAt) / 480.0) * (random.NextDouble() * 2 - 1), 1)));
+        // A voice starting: 200 Hz rising over 30 ms from the same quiet room.
+        var voice = new ExoLauncher.Services.DiscordClient.Voice.KnockDetector();
+        voice.Hit(Frame(_ => 0.001 * (random.NextDouble() * 2 - 1), 0));
+        for (var f = 1; f < 6; f++)
+            Assert.False(voice.Hit(Frame(t => Math.Min(1, (t - 960) / 1440.0) * 0.2 * Math.Sin(2 * Math.PI * 200 * t / 48000.0), f)), $"frame {f}");
+    }
+
+    [Fact]
+    public void AKnockKeepsTheGateShutButNotAVoiceAlreadyGoing()
+    {
+        var gate = new ExoLauncher.Services.DiscordClient.Voice.VoiceGate();
+        var tone = new float[Floats];
+        for (var i = 0; i < tone.Length; i += 2) tone[i] = tone[i + 1] = (float)(0.03 * Math.Sin(2 * Math.PI * 200 * (i / 2) / 48000.0));
+        var silence = new float[Floats];
+        for (var f = 0; f < 50; f++) gate.Voiced(silence, automatic: true, -60, before: -80f);
+        // The knock: loud, kept by suppression, but not speech by its estimate: shut, and for 100 ms after.
+        Assert.False(gate.Voiced(tone, automatic: true, -60, before: -33f, speech: 5f, knock: true));
+        for (var f = 0; f < 4; f++) Assert.False(gate.Voiced(tone, automatic: true, -60, before: -33f, speech: 5f));
+        // Clear speech opens it even then.
+        var other = new ExoLauncher.Services.DiscordClient.Voice.VoiceGate();
+        for (var f = 0; f < 50; f++) other.Voiced(silence, automatic: true, -60, before: -80f);
+        Assert.True(other.Voiced(tone, automatic: true, -60, before: -33f, speech: 25f, knock: true));
+        // Already talking: a knock doesn't cut it.
+        Assert.True(other.Voiced(tone, automatic: true, -60, before: -33f, speech: 5f, knock: true));
+    }
+}
+
+/// <summary>Discord's lead-in: the gate's opening brings the 100 ms before it, oldest first, faded in at its own start.</summary>
+public sealed class GateLeadTests
+{
+    [Fact]
+    public void TheFramesBeforeAnOpeningGoFirst()
+    {
+        using var chain = new ExoLauncher.Services.DiscordClient.Voice.VoiceChain();
+        var manual = new ExoLauncher.Services.DiscordClient.Voice.VoiceProcessing("custom", false, false, false, false, -50, 0, false);
+        float[] At(float amplitude, int f)
+        {
+            var frame = new float[ExoLauncher.Services.DiscordClient.Voice.VoiceAudio.FrameFloats];
+            for (var i = 0; i < frame.Length; i += 2) frame[i] = frame[i + 1] = amplitude * MathF.Sin((f * frame.Length / 2 + i / 2) * 0.05f);
+            return frame;
+        }
+        for (var f = 0; f < 20; f++) Assert.False(chain.Process(At(0.001f, f), manual, null, systemGain: false));
+        Assert.Empty(chain.TakeLead());
+        var opening = At(0.3f, 20);
+        Assert.True(chain.Process(opening, manual, null, systemGain: false));
+        var lead = chain.TakeLead().ToArray();
+        Assert.Equal(ExoLauncher.Services.DiscordClient.Voice.VoiceChain.LeadFrames, lead.Length);
+        Assert.Equal(0f, lead[0][0]); // faded in from silence at the lead-in's first sample
+        Assert.True(MathF.Abs(opening[2 * 200]) > 0.01f); // the opening frame itself isn't faded again
+        Assert.True(chain.Process(At(0.3f, 21), manual, null, systemGain: false));
+        Assert.Empty(chain.TakeLead()); // only on the opening
+    }
+}
+
+/// <summary>A recording's pauses turned down 30 dB, never a word: the gain is up before the gate opens, and glides.</summary>
+public sealed class RecordingGateTests
+{
+    [Fact]
+    public void PausesGoDownAndAWordIsWholeFromItsStart()
+    {
+        var gate = new ExoLauncher.Services.DiscordClient.Voice.RecordingGate();
+        var outputs = new List<(float[] Frame, long At)>();
+        for (var f = 0; f < 30; f++)
+        {
+            var frame = Enumerable.Repeat(0.1f, ExoLauncher.Services.DiscordClient.Voice.VoiceAudio.FrameFloats).ToArray();
+            var (late, at) = gate.Push(frame, open: f >= 15, at: f);
+            if (late is not null) outputs.Add(((float[])late.Clone(), at));
+        }
+        Assert.Equal(0, outputs[0].At); // frames keep their own times, 5 frames late
+        var floor = MathF.Pow(10, ExoLauncher.Services.DiscordClient.Voice.RecordingGate.FloorDb / 20) * 0.1f;
+        Assert.InRange(outputs[5].Frame[^1], floor * 0.99f, floor * 1.01f); // a pause, turned down
+        Assert.All(outputs.Where(o => o.At >= 15), o => Assert.All(o.Frame, s => Assert.Equal(0.1f, s, 1e-5f))); // the word, whole from its first frame
+        var ramp = outputs.First(o => o.At == 10).Frame; // the frame 100 ms before the word glides up
+        for (var i = 2; i < ramp.Length; i += 2) Assert.True(ramp[i] >= ramp[i - 2] && ramp[i] - ramp[i - 2] < 0.001f);
+    }
+}
+
+/// <summary>Discord's "no input from your mic": 15 s of nothing says it, the first sound clears it, mute never does.</summary>
+public sealed class MicSilenceTests
+{
+    private static float[] AtDb(float db) => Enumerable.Repeat(MathF.Pow(10, db / 20), 1920).ToArray();
+
+    [Fact]
+    public void FifteenSecondsOfNothingIsSilentAndASoundClearsIt()
+    {
+        var mic = new ExoLauncher.Services.DiscordClient.Voice.MicSilence();
+        for (var f = 0; f < ExoLauncher.Services.DiscordClient.Voice.MicSilence.Frames - 1; f++) Assert.Null(mic.Hear(AtDb(-90), muted: false));
+        Assert.True(mic.Hear(AtDb(-90), muted: false));
+        Assert.Null(mic.Hear(AtDb(-69), muted: false)); // between the levels: still silent
+        Assert.False(mic.Hear(AtDb(-40), muted: false));
+    }
+
+    [Fact]
+    public void AQuietRoomOrAMutedMicIsNeverCalledSilent()
+    {
+        var room = new ExoLauncher.Services.DiscordClient.Voice.MicSilence();
+        for (var f = 0; f < 2000; f++) Assert.Null(room.Hear(AtDb(-68), muted: false));
+        var muted = new ExoLauncher.Services.DiscordClient.Voice.MicSilence();
+        for (var f = 0; f < 2000; f++) Assert.Null(muted.Hear(AtDb(-100), muted: true));
     }
 }

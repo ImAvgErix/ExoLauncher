@@ -9,6 +9,7 @@ import { CallPersonItems, useDiscordVoice, type VoiceControls } from '../discord
 import { useSoundboardSounds } from '../discord/Soundboard'
 import { startDiscordShell, useAccountSettings } from '../../lib/discordPrefs'
 import { BarCapsule } from './BarCapsule'
+import { useDismiss } from '../../lib/dismiss'
 
 /**
  * The Exo Island (DESIGN_NEXT › Exo Island): the capsule left of the Rooms, only while something
@@ -157,12 +158,11 @@ function CallFaces({ members, speaking }: { members: DiscordVoiceMember[]; speak
 // The person menu's call items, in Discord's menu look (the room's own menu needs the room).
 function PersonMenu({ at, onClose }: { at: PersonAt; onClose: () => void }) {
   const box = useRef<HTMLDivElement>(null)
+  useDismiss(box, onClose)
   useEffect(() => {
-    const away = (event: PointerEvent) => { if (!box.current?.contains(event.target as Node)) onClose() }
     const key = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose() }
-    document.addEventListener('pointerdown', away, true)
     document.addEventListener('keydown', key)
-    return () => { document.removeEventListener('pointerdown', away, true); document.removeEventListener('keydown', key) }
+    return () => document.removeEventListener('keydown', key)
   }, [onClose])
   return createPortal(
     <div className="exo-dc exo-call-menu">

@@ -1,10 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { host } from '../../../lib/host'
 import type { DiscordHome } from '../../../lib/discord'
 import { changeAccountSettings, useAccountSettings, useStreamerHides, type AccountSettings, type DiscordAuthorizedApp, type DiscordConnection } from '../../../lib/discordPrefs'
 import { connectionLabel } from '../profileParts'
 import { Confirm } from '../admin'
 import { AccountToggle, Category, ChoiceRow, LinkRow, LoadError, Row, ToggleRow, useLoad } from './parts'
+import { useAccount } from './AccountPages'
 
 const REDACTION = { show: 1, blur: 2, block: 3 } as const
 
@@ -82,7 +83,7 @@ export function MessagingPage({ guilds }: { guilds: DiscordHome['guilds'] }) {
         <ToggleRow label="Message requests" detail="Filter messages from server members you may not know." checked={!dmsRestricted && !settings.defaultMessageRequestRestricted}
           disabled={dmsRestricted} onChange={value => { setAskAll({ kind: 'requests', restricted: !value }) }} />
         {askAll ? (
-          <div className="exo-dc-settings-ask" role="alertdialog" aria-label={askAll.kind === 'dms' ? 'Server Privacy' : 'Message Requests'}>
+          <div className="exo-dc-settings-ask exo-glass" role="alertdialog" aria-label={askAll.kind === 'dms' ? 'Server Privacy' : 'Message Requests'}>
             <span>Do you want to also apply this change to all your existing servers?</span>
             <button type="button" className="exo-set-btn" onClick={() => applyDefault(false)}>No</button>
             <button type="button" className="exo-set-btn is-primary" onClick={() => applyDefault(true)}>Yes</button>
@@ -108,13 +109,7 @@ export function MessagingPage({ guilds }: { guilds: DiscordHome['guilds'] }) {
 
 /** Whether the account may see age-restricted content (Discord's nsfw_allowed): adults get Show among the filters. */
 function useAdult() {
-  const [adult, setAdult] = useState(true)
-  useEffect(() => {
-    let live = true
-    host.discordAccount('me').then(result => { if (live && result.me) setAdult(result.me.nsfwAllowed) }).catch(() => { })
-    return () => { live = false }
-  }, [])
-  return adult
+  return useAccount().me?.nsfwAllowed ?? true
 }
 
 type Consent = 'usage_statistics' | 'personalization'
@@ -133,7 +128,7 @@ const TURN_OFF: Record<Consent, { title: string; body: string }> = {
 /** Discord settings > Data & Privacy: how Discord uses your data, sponsored content, and who sees your full profile. */
 export function DataPrivacyPage() {
   const settings = useAccountSettings()
-  const consent = useLoad(() => host.discordAccount('consent'), data => data as { usageStatistics: boolean; personalization: boolean })
+  const consent = useLoad('consent', () => host.discordAccount('consent'), data => data as { usageStatistics: boolean; personalization: boolean })
   // Which consent's Turn off question is open, and what Discord said when one didn't save.
   const [asking, setAsking] = useState<Consent | null>(null)
   const [consentError, setConsentError] = useState<string | null>(null)
@@ -152,7 +147,7 @@ export function DataPrivacyPage() {
           checked={consent.value?.personalization ?? false} disabled={!consent.value}
           onChange={value => { if (value) return setConsent('personalization', true); setAsking('personalization') }} />
         {asking ? (
-          <div className="exo-dc-settings-ask" role="alertdialog" aria-label={TURN_OFF[asking].title}>
+          <div className="exo-dc-settings-ask exo-glass" role="alertdialog" aria-label={TURN_OFF[asking].title}>
             <span>{TURN_OFF[asking].body}</span>
             <button type="button" className="exo-set-btn" onClick={() => setAsking(null)}>No, take me back!</button>
             <button type="button" className="exo-set-btn is-danger" onClick={() => { setAsking(null); setConsentError(null); void setConsent(asking, false).then(setConsentError) }}>Yes, I&apos;m sure</button>
@@ -212,8 +207,8 @@ export function ActivityPage() {
 /** Discord settings > Connected Apps: your connections, and the apps you've authorized (with Deauthorize). */
 export function ConnectedAppsPage() {
   const hides = useStreamerHides()
-  const connections = useLoad(() => host.discordAccount('connections'), data => data as DiscordConnection[])
-  const apps = useLoad(() => host.discordAccount('apps'), data => data as DiscordAuthorizedApp[])
+  const connections = useLoad('connections', () => host.discordAccount('connections'), data => data as DiscordConnection[])
+  const apps = useLoad('apps', () => host.discordAccount('apps'), data => data as DiscordAuthorizedApp[])
   const [failed, setFailed] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   // Discord asks before an app loses its link to the account.

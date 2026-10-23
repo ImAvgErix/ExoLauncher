@@ -1,10 +1,13 @@
+using System.Security.Cryptography;
+using System.Text;
 using Microsoft.UI.Dispatching;
 using Microsoft.Web.WebView2.Core;
 
 namespace ExoLauncher.Helpers;
 
 /// <summary>Pinned, hash-verified provider extensions installed once into the
-/// shared embedded profile — never into sign-in or shell profiles.</summary>
+/// shared embedded profile (the YouTube Music and Apple Music players) — never into
+/// sign-in or shell profiles. uBlock Origin Lite blocks YouTube Music's ads.</summary>
 internal static class WebExtensions
 {
     internal sealed record Entry(string Key, string Title, string Version, string Folder, string ManifestSha256,
@@ -16,13 +19,15 @@ internal static class WebExtensions
             "47e23e0e1fdf19eec2c55d4ccefa5ae563c132181ad72d8fe40701617cc4d2f7", "SponsorBlock"),
         new("better-lyrics", "Better Lyrics", "2.3.3", "better-lyrics",
             "454a2ae1ec285033dbed8f736d4a2834b9bffccd413bb0100320a3ca972ddf34", "Better Lyrics"),
+        new("ublock-origin-lite", "uBlock Origin Lite", "2026.1018.2229", "ublock-origin-lite",
+            "036e7b044dc7b4f8c7cf158271c977c1fd3438c4f4c4f2531354db597b116ac1", "uBlock Origin Lite"),
     ];
 
     private sealed record SurfaceContext(nint Owner, DispatcherQueue Dispatcher);
     private sealed class Registration(string key)
     {
         internal readonly string Key = key;
-        internal readonly WebAdBlockTargets<CoreWebView2, SurfaceContext> Targets = new();
+        internal readonly Targets Targets = new();
         internal readonly SemaphoreSlim Operation = new(1, 1);
         internal readonly HashSet<string> Configured = new(StringComparer.Ordinal);
     }
@@ -37,7 +42,7 @@ internal static class WebExtensions
         {
             var profile = core.Profile;
             if (profile.ProfileName != WebViewHostProfile.EmbeddedProfileName || profile.IsInPrivateModeEnabled) return;
-            var key = WebAdBlockPolicy.ProfileKey(profile.ProfilePath, false);
+            var key = ProfileKey(profile.ProfilePath);
             var context = new SurfaceContext(owner, DispatcherQueue.GetForCurrentThread()
                 ?? throw new InvalidOperationException("The browser UI queue is unavailable."));
             Registration registration;
@@ -55,6 +60,9 @@ internal static class WebExtensions
     // Extensions Exo shipped once and no longer does; their install markers
     // may still hold the id they were given.
     private static readonly string[] Retired = ["equicord"];
+    // uBlock Origin (Manifest V2, which Edge's engine is retiring) went with 3.14, for uBlock Origin Lite. It kept
+    // its own markers under adblock; by name it is exactly "uBlock Origin" (Lite's name goes on).
+    private const string RetiredUBlock = "uBlock Origin";
 
     /// Installed extensions persist in a profile and each runs its own
     /// renderer whenever the profile loads. The shell must carry none (older
@@ -67,14 +75,14 @@ internal static class WebExtensions
         try
         {
             var embedded = core.Profile.ProfileName == WebViewHostProfile.EmbeddedProfileName;
-            var key = WebAdBlockPolicy.ProfileKey(core.Profile.ProfilePath, false);
+            var key = ProfileKey(core.Profile.ProfilePath);
             var retiredIds = Retired.Select(retired => ReadMarker(Marker(key, retired, ".extid"))).OfType<string>().ToHashSet();
             foreach (var extension in await core.Profile.GetBrowserExtensionsAsync())
             {
                 var name = extension.Name ?? "";
                 if (name.StartsWith("Microsoft", StringComparison.Ordinal)) continue;
                 if (embedded && !name.StartsWith("Equicord", StringComparison.OrdinalIgnoreCase) &&
-                    !retiredIds.Contains(extension.Id)) continue;
+                    !retiredIds.Contains(extension.Id) && name != RetiredUBlock) continue;
                 // A shipped extension removed here reinstalls on the next
                 // attach only once its warm markers are gone.
                 var shipped = Entries.Where(entry => Matches(entry, extension,
@@ -84,6 +92,8 @@ internal static class WebExtensions
                 foreach (var entry in shipped) ForgetInstall(key, entry.Key);
                 if (retiredIds.Contains(extension.Id))
                     foreach (var retired in Retired) ForgetInstall(key, retired);
+                if (name == RetiredUBlock)
+                    try { Directory.Delete(Path.Combine(PathHelper.AppDataDir, "adblock"), true); } catch { }
             }
         }
         catch (Exception error) { AppLog.Warn("Stale extensions could not be removed from the " + surface + " profile: " + error.Message); }
@@ -95,6 +105,12 @@ internal static class WebExtensions
         lock (Gate)
             foreach (var registration in Profiles.Values) registration.Targets.Forget(core);
     }
+
+    // A profile's folder as a key for its marker files (the formula older builds used, so their markers still match).
+    private static string ProfileKey(string profilePath) =>
+        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(
+            Path.GetFullPath(profilePath).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                .ToUpperInvariant() + "|False")));
 
     private static string Marker(Registration registration, Entry entry, string suffix) =>
         Marker(registration.Key, entry.Key, suffix);
@@ -233,7 +249,7 @@ internal static class WebExtensions
 
     private static async Task StartConfiguration(Registration registration, Entry entry, string extensionId)
     {
-        var signature = WebAdBlockPolicy.ProfileSignature(Signature(entry), WebExtensionProfile.Revision, extensionId);
+        var signature = Signature(entry) + "|" + WebExtensionProfile.Revision + "|" + extensionId;
         lock (Gate)
         {
             if (registration.Configured.Contains(entry.Key) ||
@@ -257,4 +273,37 @@ internal static class WebExtensions
         catch { lock (Gate) registration.Configured.Remove(entry.Key); }
     }
 
+    /// <summary>All views sharing one real browser profile, without retaining their lifetime.</summary>
+    private sealed class Targets
+    {
+        private readonly object _gate = new();
+        private readonly List<(WeakReference<CoreWebView2> Core, SurfaceContext Context)> _targets = [];
+
+        internal void Add(CoreWebView2 core, SurfaceContext context)
+        {
+            lock (_gate)
+            {
+                _targets.RemoveAll(target => !target.Core.TryGetTarget(out var existing) || ReferenceEquals(existing, core));
+                _targets.Add((new(core), context));
+            }
+        }
+
+        internal void Forget(CoreWebView2 core)
+        {
+            lock (_gate)
+                _targets.RemoveAll(target => !target.Core.TryGetTarget(out var existing) || ReferenceEquals(existing, core));
+        }
+
+        internal (CoreWebView2 Core, SurfaceContext Context)[] Snapshot()
+        {
+            lock (_gate)
+            {
+                var result = new List<(CoreWebView2, SurfaceContext)>();
+                _targets.RemoveAll(target => !target.Core.TryGetTarget(out _));
+                foreach (var target in _targets)
+                    if (target.Core.TryGetTarget(out var core)) result.Add((core, target.Context));
+                return result.ToArray();
+            }
+        }
+    }
 }

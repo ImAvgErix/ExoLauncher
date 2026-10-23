@@ -17,7 +17,7 @@
 }
 
 /* The bar stays live: its glide carries the selection while the room changes under it.
-   Discord's rail holds still the same way while the room beside it pushes to another server,
+   Discord's rail and your dock hold still the same way while the room beside them pushes to another server,
    and Music's player while one of its pages pushes under it (a pushed page is drawn above
    the page, so it would otherwise slide over the player). */
 :root[data-exo-vt] .exo-titlebar {
@@ -32,6 +32,8 @@
 ::view-transition-new(exo-bar),
 ::view-transition-group(exo-dc-rail),
 ::view-transition-new(exo-dc-rail),
+::view-transition-group(exo-dc-dock),
+::view-transition-new(exo-dc-dock),
 ::view-transition-group(exo-music-bar),
 ::view-transition-new(exo-music-bar) {
   animation: none;
@@ -39,6 +41,7 @@
 
 ::view-transition-old(exo-bar),
 ::view-transition-old(exo-dc-rail),
+::view-transition-old(exo-dc-dock),
 ::view-transition-old(exo-music-bar) {
   display: none;
 }
@@ -61,12 +64,16 @@
   from { translate: var(--exo-vt-shift) 0; }
 }
 
-/* Room: the page slides 12px toward the chosen tab while it crossfades, the old one gone first. */
-:root[data-exo-vt='room'] {
+/* Room: the page slides 12px toward the chosen tab while it crossfades, the old one gone first.
+   The shift is set on the moving pictures, never on the root: a custom property on <html> is inherited by every
+   element, so the whole page's style was worked out again as each transition began and ended (15 to 30 ms each). */
+:root[data-exo-vt='room']::view-transition-old(root),
+:root[data-exo-vt='room']::view-transition-new(root) {
   --exo-vt-shift: 12px;
 }
 
-:root[data-exo-vt='room'][data-exo-vt-back] {
+:root[data-exo-vt='room'][data-exo-vt-back]::view-transition-old(root),
+:root[data-exo-vt='room'][data-exo-vt-back]::view-transition-new(root) {
   --exo-vt-shift: -12px;
 }
 
@@ -76,6 +83,17 @@
 
 :root[data-exo-vt='room']::view-transition-new(root) {
   animation: exo-vt-fade-in 180ms var(--ease-out) both, exo-vt-slide-in var(--dur-move) var(--ease-spring) both;
+}
+
+/* Appearance: the whole window, the Bar too, crossfades from one theme to the other over the flight time. */
+:root[data-exo-vt='theme'] .exo-titlebar {
+  view-transition-name: none;
+}
+
+:root[data-exo-vt='theme']::view-transition-old(root),
+:root[data-exo-vt='theme']::view-transition-new(root) {
+  animation-duration: var(--dur-flight);
+  animation-timing-function: var(--ease-out);
 }
 
 /* Push and morph: the page itself changes at once; only the named pane or art moves. */
@@ -88,11 +106,13 @@
 }
 
 /* Push: the pane's new page comes in 24px from the side it was chosen toward; going back is quicker. */
-:root[data-exo-vt='push'] {
+:root[data-exo-vt='push']::view-transition-old(exo-page),
+:root[data-exo-vt='push']::view-transition-new(exo-page) {
   --exo-vt-shift: 24px;
 }
 
-:root[data-exo-vt='push'][data-exo-vt-back] {
+:root[data-exo-vt='push'][data-exo-vt-back]::view-transition-old(exo-page),
+:root[data-exo-vt='push'][data-exo-vt-back]::view-transition-new(exo-page) {
   --exo-vt-shift: -24px;
 }
 

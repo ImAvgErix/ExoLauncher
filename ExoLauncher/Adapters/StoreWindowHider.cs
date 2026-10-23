@@ -167,6 +167,9 @@ internal sealed class StoreWindowHider : IDisposable
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     private static extern int GetWindowText(IntPtr hWnd, System.Text.StringBuilder lpString, int nMaxCount);
 
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern int GetClassName(IntPtr hWnd, System.Text.StringBuilder lpClassName, int nMaxCount);
+
     [DllImport("user32.dll")]
     private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
 
@@ -502,7 +505,10 @@ internal sealed class StoreWindowHider : IDisposable
     /// <summary>
     /// Real store chrome has a title ("Steam", "Epic Games Launcher", …).
     /// Untitled HWNDs are CEF/SDL helper surfaces — hiding them is fine; restoring them
-    /// creates dozens of blank taskbar entries.
+    /// creates dozens of blank taskbar entries. Windows' own input-method windows have
+    /// titles ("Default IME", "MSCTFIME UI") but are never shown: shown, the 0x0 window never
+    /// paints, and while its thread is busy Windows puts up a "Default IME (Not Responding)"
+    /// ghost (Riot Client's did).
     /// </summary>
     private static bool IsChromeWindow(IntPtr hWnd)
     {
@@ -511,7 +517,10 @@ internal sealed class StoreWindowHider : IDisposable
             if (!IsWindow(hWnd)) return false;
             var sb = new System.Text.StringBuilder(512);
             _ = GetWindowText(hWnd, sb, sb.Capacity);
-            return sb.Length > 0;
+            if (sb.Length == 0) return false;
+            var kind = new System.Text.StringBuilder(64);
+            _ = GetClassName(hWnd, kind, kind.Capacity);
+            return kind.ToString() is not ("IME" or "MSCTFIME UI");
         }
         catch
         {
@@ -759,6 +768,9 @@ internal sealed class StoreWindowHider : IDisposable
             // Required launch dialogs can be smaller than the main frame.
             // Preserve their own taskbar styles when restoring them.
             var primary = IsPrimaryStoreChrome(hWnd);
+            // And only what Exo hid, or the store's main window: a titled window the store itself never showed (Riot's
+            // tray icon window "TrayIconClass", 400x430) opened as a stray blank frame.
+            if (!primary && !s_originalExStyle.ContainsKey(hWnd)) return true;
 
             var ex = GetWindowLongPtr(hWnd, GwlExstyle).ToInt64();
             if (s_originalExStyle.TryRemove(hWnd, out var original)) ex = original.ToInt64();

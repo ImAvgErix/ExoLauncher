@@ -48,7 +48,7 @@
   align-items: center;
   gap: 12px;
   min-height: 42px;
-  border-top: 1px solid #161616;
+  border-top: 1px solid rgb(var(--exo-ink-rgb) / 0.086);
 }
 
 .exo-graphics-row:first-child {
@@ -83,7 +83,7 @@
   gap: 8px;
   margin: 10px 0 2px;
   padding-left: 12px;
-  border-left: 1px solid #242424;
+  border-left: 1px solid rgb(var(--exo-ink-rgb) / 0.14);
   max-width: 68ch;
 }
 

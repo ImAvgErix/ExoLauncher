@@ -14,12 +14,14 @@ namespace ExoLauncher.Services;
 /// even after Exo restarts. A re-apply or a switch of variant keeps the first
 /// backup. Each read compares the driver with the applied variant, so a
 /// driver update or another tool that moves a setting shows as changed with
-/// Re-apply. AMD and Intel get what to set by hand; Exo writes neither.
+/// Re-apply. A Radeon gets its own profile through ADLX (<see cref="RadeonProfileService"/>) and an Intel GPU
+/// through IGCL (<see cref="IntelProfileService"/>), or what to set by hand when their driver library does not answer.
 /// </summary>
 internal static class GpuProfileService
 {
     internal sealed record State(bool Ok, string? Message, string? Vendor, string? Gpu, int Series, GpuProfile.Screen Screen,
-        string Status, bool Gsync, bool CanUndo, bool DriverUpdated, IReadOnlyList<GpuProfile.Item> Manual);
+        string Status, bool Gsync, bool CanUndo, bool DriverUpdated, IReadOnlyList<GpuProfile.Item> Manual,
+        string? AntiLag = null, string? Summary = null, string? LowLatency = null);
 
     private sealed record Backup(uint Driver, bool Gsync, Dictionary<uint, uint?> Before);
 
@@ -32,6 +34,9 @@ internal static class GpuProfileService
         // While NVIDIA's installer swaps the driver, its settings can't be read: say so instead of an error.
         if (NvidiaDriverService.Current.Stage == "installing")
             return new State(false, "Your NVIDIA driver is being installed.", "nvidia", null, 0, MainScreen("nvidia"), "manual", false, false, false, []);
+        // AMD's and Intel's too: a Radeon's settings are left alone until AMD's installer is done.
+        if (GpuDriverUpdate.Current.Stage == "installing")
+            return new State(false, "Your graphics driver is being installed.", GraphicsService.Vendor(), null, 0, MainScreen(null), "manual", false, false, false, []);
         lock (Gate)
         {
             FollowRefreshLocked();
@@ -53,7 +58,10 @@ internal static class GpuProfileService
     {
         try
         {
-            if (LoadBackup() is not { Gsync: true } || GraphicsService.Vendor() != "nvidia") return;
+            var vendor = GraphicsService.Vendor();
+            if (vendor == "amd") RadeonProfileService.Shared.FollowRefresh(MainScreen(vendor));
+            if (vendor == "intel") IntelProfileService.Shared.FollowRefresh(MainScreen(vendor));
+            if (LoadBackup() is not { Gsync: true } || vendor != "nvidia") return;
             var screen = MainScreen("nvidia");
             var (ok, _, writes, values) = Nvidia(new GpuProfile.Variant(Series(), true, screen.RefreshHz));
             if (!ok) return;
@@ -65,12 +73,23 @@ internal static class GpuProfileService
         catch (Exception ex) { AppLog.Debug("GPU profile frame cap: " + ex.GetType().Name); }
     }
 
-    /// <summary>Applies the G-SYNC or No G-SYNC variant to the global profile, backing up what it replaces first.</summary>
-    internal static State Apply(bool gsync)
+    /// <summary>
+    /// Applies the G-SYNC or No G-SYNC variant to the global profile (on a Radeon, its profile with the Anti-Lag choice;
+    /// on Intel, with the Low latency choice), backing up what it replaces first.
+    /// </summary>
+    internal static State Apply(bool gsync, string? antiLag = null, string? lowLatency = null)
     {
         lock (Gate)
         {
-            if (GraphicsService.Vendor() != "nvidia") return ReadLocked() with { Ok = false, Message = "Exo changes only NVIDIA driver settings." };
+            var vendor = GraphicsService.Vendor();
+            if (vendor == "amd")
+                return Radeon(RadeonProfileService.Shared.Apply(MainScreen(vendor), antiLag ?? GpuProfile.AntiLagGames)) ?? ReadLocked() with { Ok = false, Message = "AMD's driver did not answer." };
+            if (vendor == "intel")
+            {
+                var main = MainScreen(vendor);
+                return Intel(IntelProfileService.Shared.Apply(main, lowLatency ?? GpuProfile.LowLatencyOn), main) ?? ReadLocked() with { Ok = false, Message = "Intel's driver did not answer." };
+            }
+            if (vendor != "nvidia") return ReadLocked() with { Ok = false, Message = "Exo changes only NVIDIA, AMD and Intel driver settings." };
             var screen = MainScreen("nvidia");
             var (ok, message, writes, values) = Nvidia(new GpuProfile.Variant(Series(), gsync, screen.RefreshHz));
             if (!ok) return ReadLocked() with { Ok = false, Message = message };
@@ -95,6 +114,13 @@ internal static class GpuProfileService
     {
         lock (Gate)
         {
+            if (GraphicsService.Vendor() == "amd")
+                return Radeon(RadeonProfileService.Shared.Undo(MainScreen("amd"))) ?? ReadLocked() with { Ok = false, Message = "AMD's driver did not answer." };
+            if (GraphicsService.Vendor() == "intel")
+            {
+                var main = MainScreen("intel");
+                return Intel(IntelProfileService.Shared.Undo(main), main) ?? ReadLocked() with { Ok = false, Message = "Intel's driver did not answer." };
+            }
             if (LoadBackup() is not { } backup) return ReadLocked() with { Ok = false, Message = "Nothing to undo." };
             if (GraphicsService.Vendor() != "nvidia") return ReadLocked() with { Ok = false, Message = "Not undone." };
             var ids = backup.Before.Keys.Order().ToList();
@@ -111,14 +137,16 @@ internal static class GpuProfileService
         var vendor = GraphicsService.Vendor();
         var screen = MainScreen(vendor);
         if (vendor is null) return new State(true, null, null, null, 0, screen, "none", false, false, false, []);
+        if (vendor == "amd" && Radeon(RadeonProfileService.Shared.Read(screen)) is { } radeon) return radeon;
+        if (vendor == "intel" && Intel(IntelProfileService.Shared.Read(screen), screen) is { } intel) return intel;
         if (vendor != "nvidia")
         {
             var amd = vendor == "amd";
             return new State(true,
-                amd ? "Set these in AMD Software. Exo reads AMD's settings but does not change them yet: it has not been tried on an AMD card."
-                    : "Set these in Intel Graphics Software. Exo reads Intel's settings but does not change them yet: it has not been tried on an Intel card.",
+                amd ? "Set these in AMD Software. Exo could not reach AMD's driver settings on this PC."
+                    : "Set these in Intel Graphics Software. Exo could not reach Intel's driver settings on this PC.",
                 vendor, AdapterName(vendor), 0, screen, "manual", false, false, false,
-                amd ? GpuProfile.Amd(screen, AmdAdlx.Read()) : GpuProfile.Intel(screen, IntelIgcl.Read()));
+                amd ? GpuProfile.Amd(screen, AmdAdlx.Read()) : GpuProfile.Intel(screen));
         }
         var backup = LoadBackup();
         // The applied variant is the one to compare; before any, what the screen reports.
@@ -143,21 +171,44 @@ internal static class GpuProfileService
         return (true, null, GpuProfile.Nvidia(variant, free, known, read.Values), read.Values);
     }
 
+    /// <summary>The Radeon profile as the page's state; null (ADLX did not answer, or offers nothing Exo sets) falls back to what to set by hand.</summary>
+    private static State? Radeon(RadeonProfileService.State? radeon)
+    {
+        if (radeon is null || radeon.Status == "none") return null;
+        var screen = MainScreen("amd") with { Vrr = radeon.FreeSync };
+        return new State(radeon.Ok, radeon.Message, "amd", radeon.Gpu ?? AdapterName("amd"), 0, screen, radeon.Status, false,
+            radeon.CanUndo, radeon.DriverUpdated, [], radeon.AntiLag, radeon.Summary);
+    }
+
+    /// <summary>The Intel profile as the page's state; null (IGCL did not answer, or offers nothing Exo sets) falls back to what to set by hand.</summary>
+    private static State? Intel(IntelProfileService.State? intel, GpuProfile.Screen screen)
+    {
+        if (intel is null || intel.Status == "none") return null;
+        return new State(intel.Ok, intel.Message, "intel", intel.Gpu ?? AdapterName("intel"), 0, screen, intel.Status, false,
+            intel.CanUndo, intel.DriverUpdated, [], Summary: intel.Summary, LowLatency: intel.LowLatency);
+    }
+
     private static int Series() =>
         GpuCapability.Adapters().Select(GpuProfile.NvidiaSeries).FirstOrDefault(series => series is not null) ?? 0;
 
     private static string? AdapterName(string vendor)
     {
         var name = GpuCapability.Adapters().FirstOrDefault(adapter => GraphicsService.Vendors([adapter]).Contains(vendor));
+        if (vendor == "intel") return IntelIgcl.ShortName(name);
         return name?.Replace("NVIDIA ", "", StringComparison.OrdinalIgnoreCase).Replace("GeForce ", "", StringComparison.OrdinalIgnoreCase).Trim();
     }
 
-    /// <summary>The main screen; its variable refresh only as NVIDIA's driver reports it (others: false).</summary>
-    private static GpuProfile.Screen MainScreen(string? vendor)
+    /// <summary>The main screen; its variable refresh as NVIDIA's or Intel's driver reports it (a Radeon's comes from its FreeSync settings: false here).</summary>
+    internal static GpuProfile.Screen MainScreen(string? vendor)
     {
         if (WindowsHdr.Primary() is not { } primary) return new GpuProfile.Screen(null, 0, false);
         var refresh = DisplayOutput.RefreshRates(primary.GdiName).Current;
-        var vrr = vendor == "nvidia" && NvidiaProfiles.ScreenVrr(primary.GdiName) == true;
+        var vrr = vendor switch
+        {
+            "nvidia" => NvidiaProfiles.ScreenVrr(primary.GdiName) == true,
+            "intel" => IntelIgcl.ScreenVrr(primary.Target),
+            _ => false,
+        };
         return new GpuProfile.Screen(string.IsNullOrWhiteSpace(primary.Name) ? null : primary.Name, refresh, vrr);
     }
 

@@ -29,7 +29,7 @@ const BY_TITLE: Record<string, Group> = {
   Sensitivity: 'Sensor', 'CPI stages': 'Sensor', Sensor: 'Sensor', Performance: 'Sensor',
   'DPI acceleration': 'Sensor', 'DPI indicator': 'Sensor',
   Buttons: 'Buttons', 'Button controls': 'Buttons', 'Buttons and wheel': 'Buttons', 'Button assignments': 'Buttons',
-  'Button response': 'Buttons', 'Main switches': 'Buttons', 'Magnetic switches': 'Buttons', Clicks: 'Buttons',
+  'Button response': 'Buttons', 'Main switches': 'Buttons', 'TMR-DS': 'Buttons', 'Magnetic switches': 'Buttons', Clicks: 'Buttons',
   'Multiclick filter': 'Buttons', 'Scroll wheel': 'Buttons', Scrolling: 'Buttons', 'Rapid fire': 'Buttons',
   Macros: 'Buttons', Haptics: 'Buttons',
   Profiles: 'Profiles',

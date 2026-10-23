@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { shouldReduceMotion } from '../../lib/motionPreference'
-import { useGlassTone, useLens } from '../../lib/glass'
+import { useLens } from '../../lib/glass'
 
 // The way out's length (system.css › exo-capsule-out, the quick time), and a frame to spare.
 const LEAVE_MS = 140
@@ -16,7 +16,6 @@ export function BarCapsule({ children }: { children: ReactNode }) {
   const [present, setPresent] = useState(shown)
   const glass = useRef<HTMLDivElement>(null)
   useLens(glass, shown || present)
-  useGlassTone(glass, 'bar', shown || present)
   if (shown) last.current = children
   if (shown !== present && (shown || shouldReduceMotion())) setPresent(shown)
   const leaving = !shown && present

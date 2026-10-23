@@ -12,7 +12,7 @@ internal static unsafe partial class Dave
     private const string Lib = "dave.dll";
     internal const int CodecOpus = 1;
     internal const int MediaAudio = 0, MediaVideo = 1;
-    internal const int CodecH264 = 4;
+    internal const int CodecH264 = 4, CodecH265 = 5;
 
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     internal delegate void FailureCallback(nint source, nint reason, nint userData);

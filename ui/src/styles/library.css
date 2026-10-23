@@ -1,4 +1,4 @@
-/* The Library (DESIGN.md › Library): Continue, Friends are playing, and one grid. */
+/* The Library (DESIGN.md › Library): Continue, Gifts, Friends are playing, and one grid. */
 
 .exo-section-title,
 .exo-shelf-title {
@@ -14,21 +14,15 @@
   padding: 0 var(--exo-gutter) 22px;
 }
 
+/* Three equal banners, each filled edge to edge with its game's wide art. */
 .exo-continue-row {
   display: grid;
-  grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
   margin-top: 12px;
   height: clamp(200px, 28vh, 300px);
 }
 
-.exo-continue-row[data-count="2"] {
-  grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
-}
-
-.exo-continue-row[data-count="1"] {
-  grid-template-columns: minmax(0, 860px);
-}
 
 .exo-continue-card {
   position: relative;
@@ -58,12 +52,10 @@
   object-fit: cover;
 }
 
-/* The art fades into the black under the title: a mask on the art, not a dark layer over it (two layers under
-   one rounded clip antialias the corner twice, and the light art shows through as a rim). Nothing under it. */
+/* The art is shown whole, never faded or dimmed: the title sits on glass (.exo-continue-text), as Play and More do. */
 .exo-continue-scrim {
   position: absolute;
   inset: 0;
-  mask-image: linear-gradient(0deg, rgb(0 0 0 / 0.14) 0%, rgb(0 0 0 / 0.65) 40%, #000 66%);
 }
 
 .exo-continue-card:has(.exo-now-wash-img.is-on) {
@@ -94,10 +86,14 @@
   pointer-events: none;
 }
 
+/* The title and its line on a plate of small glass, sized to the words. */
 .exo-continue-text {
   display: grid;
-  gap: 2px;
+  gap: 1px;
   min-width: 0;
+  max-width: min(100%, 420px);
+  padding: 7px 14px 8px;
+  border-radius: 12px;
 }
 
 .exo-continue-text strong {
@@ -112,7 +108,7 @@
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
-  color: rgb(var(--exo-ink-rgb) / 0.72);
+  color: var(--color-muted);
   font-size: calc(13px * var(--exo-scale, 1));
   font-weight: 500;
 }
@@ -151,28 +147,20 @@
   color: var(--color-primary-fg);
   font: inherit;
   font-size: calc(13px * var(--exo-scale, 1));
-  font-weight: 700;
+  font-weight: 500;
   cursor: pointer;
   transition: background-color 120ms var(--ease-out), scale 120ms var(--ease-out);
 }
 
+/* Starting…: busy, not unavailable, so it stays solid (at 60% the white pill and its words went see-through over the art). */
 .exo-continue-play:disabled {
-  cursor: default;
-  opacity: 0.6;
+  cursor: progress;
 }
 
 @media (hover: hover) and (pointer: fine) {
-  /* The scrim lifts a little off the art; Play brightens as every primary does; More takes the hover fill. */
-  .exo-continue-open:hover .exo-continue-scrim {
-    mask-image: linear-gradient(0deg, rgb(0 0 0 / 0.22) 0%, rgb(0 0 0 / 0.8) 40%, #000 66%);
-  }
-
+  /* Play brightens as every primary does; More, being glass, takes glass's lift (glass.css). */
   .exo-continue-play:hover:not(:disabled) {
     background: var(--exo-primary-hover);
-  }
-
-  .exo-continue-more:hover {
-    background-color: var(--hover-fill);
   }
 
   .exo-friend-pill-text:hover {
@@ -196,7 +184,7 @@
   width: 32px;
   height: 32px;
   border-radius: 50%;
-  background: #000;
+  background: var(--color-bg);
   font-size: calc(12px * var(--exo-scale, 1));
   font-weight: 700;
   font-variant-numeric: tabular-nums;
@@ -271,8 +259,9 @@
   font-weight: 700;
 }
 
+/* The game is what the row is about: the secondary gray, as faint sits at 4.5:1 on black and under it on the pill's lift. */
 .exo-friend-pill-text span {
-  color: var(--color-faint);
+  color: var(--color-muted);
   font-size: calc(12px * var(--exo-scale, 1));
   font-weight: 500;
 }
@@ -297,6 +286,94 @@
   background: var(--hover-fill);
 }
 
+/* Gifts: one card per gift waiting on a store, its wide art, who sent it, their words, Accept and Decline. */
+.exo-gifts {
+  padding: 0 var(--exo-gutter) 22px;
+}
+
+.exo-gifts-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 520px), 1fr));
+  gap: 10px;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.exo-gift {
+  display: grid;
+  grid-template-columns: 176px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+  min-height: 99px;
+  padding: 10px 16px 10px 10px;
+  border-radius: var(--exo-card-radius);
+  background: var(--exo-float);
+  box-shadow: inset 0 0 0 1px var(--exo-float-line);
+}
+
+.exo-gift-art {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border-radius: 8px;
+  background: rgb(var(--exo-ink-rgb) / 0.06);
+  color: var(--color-muted);
+}
+
+.exo-gift-art img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.exo-gift-text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.exo-gift-text strong {
+  overflow: hidden;
+  font-size: calc(13px * var(--exo-scale, 1));
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.exo-gift-text span,
+.exo-gift-line {
+  color: var(--color-muted);
+  font-size: calc(12px * var(--exo-scale, 1));
+  font-weight: 500;
+}
+
+.exo-gift-message {
+  display: -webkit-box;
+  margin: 4px 0 0;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  color: var(--color-fg);
+  font-size: calc(12px * var(--exo-scale, 1));
+  overflow-wrap: anywhere;
+}
+
+.exo-gift-line {
+  margin: 4px 0 0;
+}
+
+.exo-gift-line.is-bad,
+.exo-gift .exo-set-btn.is-danger {
+  color: var(--color-bad);
+}
+
+.exo-gift-actions {
+  display: flex;
+  gap: 8px;
+}
+
 /* One grid: not installed is a mark, not a place. Its art sits darker and partly drained of color under
    a small download mark, so what you can play now stands out; hovering brings it back. One filter on the
    art (it already had one), not a dark layer over it: that layer's antialiased corner let the art through as a light rim. */
@@ -309,7 +386,9 @@
   filter: none;
 }
 
-.exo-library-pane .exo-tile.is-dim .exo-tile-media::before {
+/* In a folder the art stays whole (a folder is a place you chose, often all of one kind), the mark alone tells. */
+.exo-library-pane .exo-tile.is-dim .exo-tile-media::before,
+.exo-folder-grid .exo-tile.is-dim .exo-tile-media::before {
   content: "";
   position: absolute;
   top: 8px;

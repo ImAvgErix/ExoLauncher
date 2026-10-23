@@ -45,7 +45,7 @@ const LEDE: Record<StepId, string> = {
   welcome: 'Exo looks at this PC and sets up the rest. Everything here can be changed later in Settings.',
   capture: 'Keep the last moments of a game, record, or snip the screen. Change the keys if they clash with a game.',
   cleanup: 'Exo does the job of these. Remove the ones you don’t need, with every file and setting they leave behind.',
-  stores: "Exo found these on this PC. Sign in where offered so games you own but haven't installed show up too.",
+  stores: "Exo found these on this PC. Sign in where offered so games you own but haven't installed, and games friends give you, show up too.",
   apps: 'The service Exo plays your music from. The song stays in the top bar in every room.',
   discord: 'Exo has its own Discord: your servers, DMs and calls, without the Discord app. Sign in now or later in the Discord room.',
   pc: 'Exo sets up the rest by itself. One thing changes your graphics driver, so it asks first.',
@@ -96,11 +96,11 @@ export function OnboardingPanel({
   const headingRef = useRef<HTMLHeadingElement>(null)
   const focusPending = useRef(false)
 
-  // This PC shows when it has something to offer: an NVIDIA profile to apply (not applied yet), or Lucid (its setup, or Get Lucid).
+  // This PC shows when it has something to offer: Exo's profile for an NVIDIA, Radeon or Intel card (not applied yet), or Lucid.
   const [gpu, setGpu] = useState<GpuProfile | null>(null)
   const [tunePc, setTunePc] = useState(true)
   const [lucid, setLucid] = useState<LucidState | null>(null)
-  const pcNeeded = gpu?.vendor === 'nvidia' && (gpu.status === 'ready' || gpu.status === 'changed')
+  const pcNeeded = !!gpu?.vendor && ['nvidia', 'amd', 'intel'].includes(gpu.vendor) && (gpu.status === 'ready' || gpu.status === 'changed')
   const capture = useCapture()
   // The apps Exo replaces; opening setup first clears what removed ones left in this user's folders.
   const [replaced, setReplaced] = useState<{ cleared: number; apps: ReplacedApp[] } | null>(null)
@@ -270,8 +270,8 @@ export function OnboardingPanel({
     setFeedback(null)
     try {
       if (pcNeeded && tunePc && gpu) {
-        const applied = await host.gpuProfile('apply', gpu.gsync).catch((error: unknown) => { report(error, 'OnboardingPanel.applyProfile'); return null })
-        if (applied && !applied.ok) report(new Error(applied.message ?? 'NVIDIA profile not applied'), 'OnboardingPanel.applyProfile')
+        const applied = await host.gpuProfile('apply', gpu.vendor === 'nvidia' ? gpu.gsync : undefined).catch((error: unknown) => { report(error, 'OnboardingPanel.applyProfile'); return null })
+        if (applied && !applied.ok) report(new Error(applied.message ?? 'GPU profile not applied'), 'OnboardingPanel.applyProfile')
       }
       await onComplete(refreshLibrary)
     } catch (cause) {

@@ -33,6 +33,9 @@ public sealed partial class NetworkDestinationsTests
         // Store sign-in pages hosted in WebView2.
         ["auth.gog.com"] = "WebView sign-in",
         ["accounts.google.com"] = "WebView sign-in",
+        // Steam's website in the hidden gifts page and its sign-in window (StoreGifts).
+        ["login.steampowered.com"] = "WebView page",
+        ["help.steampowered.com"] = "WebView page",
         // Web music players hosted in WebView2, and scripts that run inside Spotify's own page.
         ["music.youtube.com"] = "WebView page",
         ["music.apple.com"] = "WebView page",

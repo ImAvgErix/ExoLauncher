@@ -10,6 +10,7 @@ import { useAccountSettings } from '../../lib/discordPrefs'
 import { appIcon, appsPlace, runCommand } from '../../lib/discordApps'
 import { useContextCommands } from './AppCommands'
 import { CallPersonItems } from './voice'
+import { useDismiss } from '../../lib/dismiss'
 
 type Person = {
   ok: boolean; known: boolean; me: boolean; owner: boolean; outranks: boolean; timedOut: boolean
@@ -123,11 +124,7 @@ function UserMenu({ at, guildId, serverName, meId, onClose }: { at: At; guildId:
     setSubOpen(null)
     box.current?.querySelector<HTMLElement>('[aria-expanded="true"]')?.focus()
   }, !dialog)
-  useEffect(() => {
-    const away = (event: PointerEvent) => { if (!dialog && box.current && !box.current.contains(event.target as Node)) onClose() }
-    document.addEventListener('pointerdown', away, true)
-    return () => document.removeEventListener('pointerdown', away, true)
-  }, [dialog, onClose])
+  useDismiss(box, onClose, { on: !dialog })
   const name = person?.nick || person?.name || at.name || 'them'
   const username = at.username ?? person?.username ?? null
   const run: Run = (action, params, after, settled) => void admin(action, { guildId, userId: at.userId, ...params }).then(result => {

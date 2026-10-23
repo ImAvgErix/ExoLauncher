@@ -9,6 +9,9 @@ import { CoverArt } from '../CoverArt'
 import { SnipEditor } from './SnipEditor'
 import { pressedArt, transition, visible } from '../../lib/viewTransition'
 
+/** A capture plays at half volume, as the player's slider shows, until you move it; kept while Exo runs. */
+let playbackVolume = 0.5
+
 function Star({ on }: { on: boolean }) {
   return <StarGlyph size={14} filled={on} />
 }
@@ -221,6 +224,7 @@ function Detail({ item, edit, onBack, onFavourite, onChanged, onDeleted, onAdded
             controls
             playsInline
             onLoadedMetadata={event => {
+              event.currentTarget.volume = playbackVolume
               const ms = event.currentTarget.duration * 1000
               if (Number.isFinite(ms) && ms > 0) { setDuration(ms); setRange(r => [r[0], r[1] > 0 && r[1] <= ms ? r[1] : ms]) }
             }}
@@ -230,6 +234,7 @@ function Detail({ item, edit, onBack, onFavourite, onChanged, onDeleted, onAdded
               // Plays only what stays after the trim.
               if (trimmed && ms > range[1]) { event.currentTarget.pause(); event.currentTarget.currentTime = range[0] / 1000 }
             }}
+            onVolumeChange={event => { playbackVolume = event.currentTarget.volume }}
           />
         ) : <img src={item.url} alt="" />}
       </div>

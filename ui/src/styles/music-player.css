@@ -9,7 +9,7 @@
   grid-template-rows: minmax(0, 1fr) 72px;
   min-width: 0;
   min-height: 0;
-  background: #000;
+  background: var(--color-bg);
   color: var(--color-fg);
   font-size: calc(13px * var(--exo-scale, 1));
 }
@@ -68,6 +68,7 @@
   font-weight: 600;
 }
 
+/* Your library's show-and-sort: a compact (28px) raised control, as Exo's every control (DESIGN.md › Controls). */
 .exo-music-sort {
   max-width: 60%;
   height: 28px;
@@ -75,14 +76,15 @@
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
-  border: 1px solid #242424;
+  border: 0;
   border-radius: 999px;
-  background: #000;
+  background: var(--exo-fill);
+  box-shadow: var(--exo-rim);
   color: var(--color-muted);
   font: inherit;
   font-size: calc(12px * var(--exo-scale, 1));
   cursor: pointer;
-  transition: border-color 120ms var(--ease-out), color 120ms var(--ease-out);
+  transition: background-color 120ms var(--ease-out), color 120ms var(--ease-out);
 }
 
 .exo-music-sort:hover {
@@ -107,7 +109,7 @@
   height: 44px;
   overflow: hidden;
   border-radius: 14px;
-  background: #0d0d0d;
+  background: rgb(var(--exo-ink-rgb) / 0.05);
   color: var(--color-fg);
 }
 
@@ -197,10 +199,11 @@
   font-weight: 600;
 }
 
-/* Recently played: two rows of compact tiles above Home's shelves. */
+/* Recently played: up to eight compact tiles above Home's shelves, four across as Spotify lays them, so they fill
+   their rows (auto-fill left four tiles in six columns, the right third empty). */
 .exo-music-recent {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 8px;
 }
 
@@ -215,9 +218,11 @@
   gap: 12px;
   width: 100%;
   padding: 4px 48px 4px 4px;
-  border: 1px solid var(--exo-float-line);
+  /* The lit glass rim every control has (a flat dark border made these tiles read apart from the rest). */
+  border: 1px solid transparent;
   border-radius: 14px;
   background: var(--exo-fill);
+  box-shadow: var(--exo-rim);
   color: inherit;
   font: inherit;
   text-align: left;
@@ -237,6 +242,8 @@
 /* One row per shelf, like the Store: eight cards across, the rest a sideways scroll, never a half-filled second row. */
 .exo-music-shelf {
   display: grid;
+  /* A card's hover area is 8px around its cover: the covers line up with the shelf's title, not 8px in. */
+  margin-inline: -8px;
   grid-auto-flow: column;
   grid-auto-columns: max(160px, calc((100% - 7 * 16px) / 8));
   gap: 16px;
@@ -339,6 +346,18 @@
   max-width: 480px;
 }
 
+/* Search's first row: the top result beside its first songs (pages.tsx), as Spotify lays it out. */
+.exo-music-search-head {
+  display: grid;
+  grid-template-columns: minmax(360px, 2fr) 3fr;
+  gap: 24px;
+  align-items: start;
+}
+
+.exo-music-search-head .exo-music-top {
+  max-width: none;
+}
+
 .exo-music-top-open {
   display: flex;
   align-items: center;
@@ -411,11 +430,12 @@
   min-width: 0;
 }
 
+/* A page title, the game sheet's size: at 20px it was weak beside a 176px cover. */
 .exo-music-header h2 {
   margin: 0;
-  font-size: calc(20px * var(--exo-scale, 1));
-  font-weight: 600;
-  line-height: 1.2;
+  font-size: calc(28px * var(--exo-scale, 1));
+  font-weight: 650;
+  line-height: 1.15;
 }
 
 .exo-music-header-sub {
@@ -461,7 +481,7 @@
 }
 
 .exo-music-track + .exo-music-track {
-  box-shadow: inset 0 1px 0 #161616;
+  box-shadow: inset 0 1px 0 rgb(var(--exo-ink-rgb) / 0.086);
 }
 
 .exo-music-track:hover {
@@ -525,7 +545,7 @@
   height: 16px;
   margin-left: 8px;
   border-radius: 4px;
-  background: #242424;
+  background: rgb(var(--exo-ink-rgb) / 0.14);
   color: var(--color-muted);
   font-size: calc(12px * var(--exo-scale, 1));
   line-height: 1;
@@ -640,7 +660,7 @@
 }
 
 .exo-music-friend + .exo-music-friend {
-  box-shadow: inset 0 1px 0 #161616;
+  box-shadow: inset 0 1px 0 rgb(var(--exo-ink-rgb) / 0.086);
 }
 
 .exo-music-friend > .exo-music-row-text {
@@ -806,8 +826,8 @@
   gap: 12px;
   margin: -12px -8px 12px;
   padding: 12px 8px;
-  background: #000;
-  box-shadow: inset 0 -1px 0 #1c1c1c;
+  background: var(--color-bg);
+  box-shadow: inset 0 -1px 0 rgb(var(--exo-ink-rgb) / 0.11);
 }
 
 .exo-music-songs-head h2 {
@@ -830,7 +850,7 @@
   flex: 1;
   place-items: center;
   min-height: 0;
-  background: #000;
+  background: var(--color-bg);
   color: var(--color-fg);
   font-size: calc(13px * var(--exo-scale, 1));
 }
@@ -1057,6 +1077,10 @@
 }
 
 .exo-music-side-head .exo-music-create {
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  min-height: 28px;
   margin-left: auto;
 }
 
@@ -1160,7 +1184,7 @@
   gap: 8px;
   border-radius: 14px;
   background: rgb(0 0 0 / 0.6);
-  color: var(--color-fg);
+  color: #fff; /* over media in every theme: Light's dark ink vanished on the dark pill */
   font-size: calc(12px * var(--exo-scale, 1));
   opacity: 0;
   transition: opacity 120ms var(--ease-out);
@@ -1233,11 +1257,11 @@
 
 /* The playlist sheet: name, description, Delete and Save, on the floating material. */
 .exo-music-sheet {
+  position: fixed; /* a modal's own place: glass's base position (relative) would override the browser's */
   width: min(440px, calc(100vw - 32px));
   padding: 0;
-  border: 1px solid var(--exo-float-line);
+  border: 0;
   border-radius: var(--exo-panel-radius);
-  background: var(--exo-float);
   color: var(--color-fg);
 }
 
@@ -1247,7 +1271,7 @@
 }
 
 .exo-music-sheet::backdrop {
-  background: rgb(0 0 0 / 0.6);
+  background: rgb(0 0 0 / calc(0.6 * var(--exo-scrim-k)));
   animation: exo-fade-in var(--dur-base) var(--ease-out) backwards;
 }
 
@@ -1305,6 +1329,7 @@
 /* A discography: every release in rows. */
 .exo-music-grid {
   display: grid;
+  margin-inline: -8px;
   grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
   gap: 16px;
 }

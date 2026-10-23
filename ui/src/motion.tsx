@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { focusableSelector, trapTab } from './lib/focusTrap'
+import { useDismiss } from './lib/dismiss'
 
 /** Longest the closing fade may hold the sheet when no transitionend arrives. */
 const EXIT_FALLBACK_MS = 150
@@ -16,15 +17,18 @@ export function GameOverlay({ open, instant = false, keep = false, label, childr
   scrim: ReactNode
 }) {
   const ref = useRef<HTMLDivElement>(null)
+  const stage = useRef<HTMLDivElement>(null)
   const presence = useRef<HTMLDivElement>(null)
   const wasOpen = useRef(false)
   const previousFocus = useRef<HTMLElement | null>(null)
-  // Mounted while open and through the closing fade. CSS fades it in
-  // (@starting-style) and out (.is-closing); an instant sheet skips both.
+  // Mounted while open and through the closing fade. It comes in under the
+  // page's own entrance and CSS fades it out (.is-closing); an instant sheet skips that.
   const [present, setPresent] = useState(open)
   if (open && !present) setPresent(true)
   if (!open && present && instant) setPresent(false)
   const closing = present && !open
+  // A press outside the page does what the scrim does (Escape too, below): a locked sheet's scrim is disabled.
+  useDismiss(stage, () => ref.current?.querySelector<HTMLButtonElement>(':scope > .exo-game-overlay-scrim')?.click(), { modal: true, on: open })
 
   useEffect(() => {
     if (!open) {
@@ -93,7 +97,7 @@ export function GameOverlay({ open, instant = false, keep = false, label, childr
     <div ref={presence} hidden={!present} inert={!present} className={`exo-game-overlay-presence${closing ? ' is-closing' : ''}${instant ? ' is-instant' : ''}`}>
       <div ref={ref} className="exo-game-overlay" role="dialog" aria-modal="true" aria-label={label} tabIndex={-1}>
         {scrim}
-        <div className="exo-game-overlay-stage">{children}</div>
+        <div ref={stage} className="exo-game-overlay-stage">{children}</div>
       </div>
     </div>,
     document.body,

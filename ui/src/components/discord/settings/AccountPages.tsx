@@ -5,7 +5,7 @@ import { useStreamerHides, type DiscordAccount, type DiscordSession } from '../.
 import { Menu } from '../../ui/Menu'
 import { uploadFile } from '../Chat'
 import { admin, dropUpload } from '../admin'
-import { Category, DISCORD_SETTINGS_URL, LinkRow, LoadError, Row, useLoad } from './parts'
+import { Category, DISCORD_SETTINGS_URL, LinkRow, LoadError, Row, useLoad, useRemembered } from './parts'
 import { itemsOf, KINDS, PlateRow, useMine, useShop, useWorn, wear, type Kind } from '../ShopPage'
 import { lookOf } from '../collectibles'
 import { ProfileCard, type Loaded } from '../profileParts'
@@ -19,9 +19,9 @@ const STATUSES: { id: Status; label: string }[] = [
   { id: 'invisible', label: 'Invisible' },
 ]
 
-/** The account from Discord (users/@me and its profile); null until it arrives. */
-function useAccount() {
-  const [me, setMe] = useState<DiscordAccount | null>(null)
+/** The account from Discord (users/@me and its profile); null until it first arrives, then read again behind it. */
+export function useAccount() {
+  const [me, setMe] = useRemembered<DiscordAccount>('me')
   const [error, setError] = useState<string | null>(null)
   const [round, setRound] = useState(0)
   useEffect(() => {
@@ -32,7 +32,7 @@ function useAccount() {
       else setError(result.message ?? "Discord didn't send your account. Try again.")
     }).catch(() => { if (live) setError("Discord didn't send your account. Try again.") })
     return () => { live = false }
-  }, [round])
+  }, [round, setMe])
   return { me, error, reload: () => { setError(null); setRound(r => r + 1) } }
 }
 
@@ -59,7 +59,10 @@ export function AccountPage({ home, onProfiles, onDevices }: { home: DiscordHome
   return (
     <>
       <h1>Account</h1>
+      {/* Your card beside who you are, so the page's top row is filled, not a card and a button with space after them. */}
+      <div className="exo-dc-account-top">
       <AccountCard home={home} onEdit={onProfiles} />
+      <div>
       {me ? null : error ? <LoadError error={error} onRetry={reload} /> : <p className="exo-dc-settings-note" role="status">Loading your account</p>}
       {me ? (
         <Category title="Account Info">
@@ -75,6 +78,8 @@ export function AccountPage({ home, onProfiles, onDevices }: { home: DiscordHome
             button={me.phone ? 'Edit' : 'Add'} url={DISCORD_SETTINGS_URL} />
         </Category>
       ) : null}
+      </div>
+      </div>
       <StatusRow home={home} />
       <Category title="Password & Security">
         <LinkRow label="Password" button="Edit" url={DISCORD_SETTINGS_URL} />
@@ -136,7 +141,7 @@ function Device({ session, busy, onLogOut }: { session: DiscordSession; busy?: b
 
 /** Discord settings > Account > Logged-in Devices: this device, the others, and logging them out. */
 export function DevicesPage({ onBack }: { onBack: () => void }) {
-  const { value, error, loading, reload } = useLoad(() => host.discordAccount('sessions'), data => data as DiscordSession[])
+  const { value, error, loading, reload } = useLoad('sessions', () => host.discordAccount('sessions'), data => data as DiscordSession[])
   const [failed, setFailed] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const current = value?.find(s => s.current)
@@ -348,7 +353,7 @@ function UserProfile({ home }: { home: DiscordHome['me'] }) {
         <DraftPreview home={home} draft={draft} />
       </div>
       {changed ? (
-        <div className="exo-dc-settings-savebar" role="region" aria-label="Unsaved changes">
+        <div className="exo-dc-settings-savebar exo-glass" role="region" aria-label="Unsaved changes">
           <span>Careful — you have unsaved changes!</span>
           {failed ? <em role="alert">{failed}</em> : null}
           <button type="button" className="exo-set-btn" disabled={saving} onClick={() => { setFailed(null); setDraft(draftOf(me)) }}>Reset</button>

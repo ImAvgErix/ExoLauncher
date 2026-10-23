@@ -1,6 +1,8 @@
 import { CompanyLogo } from '../../brand/CompanyLogo'
 import type { StoreAccounts, StoreStatus } from '../../lib/host'
 import { useStoreAccounts } from '../settings/StoreAccounts'
+import { SteamSignIn } from '../settings/StoresSection'
+import { useState } from 'react'
 import { Row, State } from '../settings/parts'
 import { canConnectStore, canOpenStoreClient, signsInInOwnApp, storeState } from '../../lib/stores'
 import type { MissingRuntime, StoreAction, StoreCheckState } from './model'
@@ -36,9 +38,12 @@ function StoreRow({ store, busy, error, found, onAction }: {
   const connect = canConnectStore(store)
   const handoff = signsInInOwnApp(store)
   const open = !connect && !handoff && canOpenStoreClient(store) && store.clientPresent === true
+  const [steamLine, setSteamLine] = useState<string | null>(null)
+  const [steamError, setSteamError] = useState<string | null>(null)
   return (
-    <Row label={store.displayName} detail={found ?? undefined} icon={<CompanyLogo company={store.store} size={22} />} error={error}>
+    <Row label={store.displayName} detail={steamLine ?? found ?? undefined} icon={<CompanyLogo company={store.store} size={22} />} error={steamError ?? error}>
       <State on={state.on}>{state.label}</State>
+      {store.store === 'steam' ? <SteamSignIn onLine={setSteamLine} onError={setSteamError} /> : null}
       {connect ? (
         <button type="button" className="exo-set-btn" disabled={!!busy} onClick={() => onAction('connect')}>
           {busy === 'connect' ? 'Signing in…' : 'Sign in'}

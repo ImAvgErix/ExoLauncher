@@ -5,7 +5,18 @@ import { trimStop } from '../../lib/utils'
 import { Row, State } from '../settings/parts'
 import { Choice } from '../settings/Choice'
 
+type Vendor = NonNullable<DriverState['vendor']>
+type Latest = NonNullable<DriverState['latest']>
+
 const NVIDIA_LICENSE = 'https://www.nvidia.com/en-us/drivers/nvidia-license/'
+const AMD_LICENSE = 'https://www.amd.com/en/legal/eula.html'
+
+/** What each vendor's update installs and leaves out, and whether Exo puts its profile back after: the consent's lines. */
+const VENDOR: Record<Vendor, { name: string; installs: string; leavesOut?: string; restores: boolean }> = {
+  nvidia: { name: 'NVIDIA', installs: 'The driver alone, as a clean install', leavesOut: 'NVIDIA app, telemetry, ShadowPlay, PhysX, HDMI/DisplayPort audio', restores: true },
+  amd: { name: 'AMD', installs: 'The driver and AMD Software, which Fluid Motion Frames needs', restores: true },
+  intel: { name: 'Intel', installs: 'The driver alone', leavesOut: 'Intel Graphics Software, Driver & Support Assistant, GameAssist, data collection', restores: false },
+}
 
 const STAGE: Record<DriverProgress['stage'], string> = {
   idle: '', downloading: 'Downloading', unpacking: 'Unpacking', waiting: 'Waiting', installing: 'Installing', done: 'Installed', failed: 'Stopped',
@@ -25,8 +36,9 @@ const WORKING = new Set<DriverProgress['stage']>(['downloading', 'unpacking', 'w
 
 type Branch = 'game' | 'studio'
 const BRANCHES = [{ value: 'game', label: 'Game Ready' }, { value: 'studio', label: 'Studio' }] as const
-const KIND: Record<NonNullable<DriverState['latest']>['kind'], string> = {
+const KIND: Record<Latest['kind'], string> = {
   game: 'Game Ready driver', studio: 'Studio driver', hotfix: 'hotfix driver', security: 'security update driver', workstation: 'NVIDIA RTX Enterprise driver',
+  recommended: 'Adrenalin', optional: 'optional Adrenalin', intel: 'Intel driver',
 }
 
 /** Game Ready or Studio, kept on this PC. */
@@ -35,23 +47,23 @@ function savedBranch(): Branch {
 }
 
 /** The row's one line: progress while it works, then how it ended, else installed vs newest. */
-function driverDetail(state: DriverState, progress: DriverProgress | null, starting: boolean) {
+function driverDetail(state: DriverState, vendor: Vendor, progress: DriverProgress | null, starting: boolean) {
   const latest = state.latest
   if (starting) return 'Starting the update'
   if (progress && WORKING.has(progress.stage))
     return `${progress.message ?? STAGE[progress.stage]}${progress.stage === 'downloading' ? ` · ${progress.percent}%` : ''}`
   if (progress?.stage === 'done' || progress?.stage === 'failed') return trimStop(progress.message) || STAGE[progress.stage]
-  if (!latest) return `${state.installed ?? 'No driver'} installed · NVIDIA's driver list couldn't be reached`
+  if (!latest) return `${state.installed ?? 'No driver'} installed · ${vendor === 'nvidia' ? "NVIDIA's driver list couldn't be reached" : `${VENDOR[vendor].name}'s newest driver for this card couldn't be found`}`
   if (!state.update) return `${state.installed} · the newest ${KIND[latest.kind]} for your card`
   const released = day(latest.released)
   return `${state.installed ?? 'No driver'} installed · ${KIND[latest.kind]} ${latest.version} available${released ? `, ${released}` : ''}`
 }
 
 /**
- * System > Graphics > Driver and profile, above the driver profile: the NVIDIA driver installed and NVIDIA's newest Game Ready
- * driver for this card. Update (or Reinstall, to strip what an earlier install added) asks first, then
- * downloads from NVIDIA and clean-installs the driver alone: no NVIDIA app, telemetry, ShadowPlay, PhysX
- * or HDMI/DisplayPort audio. Exo puts its profile back afterwards.
+ * System > Graphics > Driver and profile, above the driver profile: the installed driver and the vendor's newest for this
+ * card. Update (or Reinstall) asks first, then downloads from the vendor and installs. NVIDIA: a clean install of the driver
+ * alone, Game Ready or Studio. AMD: AMD Software: Adrenalin Edition with its driver. Intel: the driver without Intel's extras.
+ * Exo puts its profile back afterwards.
  */
 export function DriverRow({ active }: { active: boolean }) {
   const [state, setState] = useState<DriverState | null>(null)
@@ -71,8 +83,9 @@ export function DriverRow({ active }: { active: boolean }) {
   }, [branch])
 
   useEffect(() => { void load() }, [load, active])
-  // "Close your game first" goes away when the game does.
+  // "Close your game first" and "Leave your Discord call first" go away when the game or the call does.
   useEffect(() => active ? onHostEvent('game.runState', () => void load()) : undefined, [active, load])
+  useEffect(() => active ? onHostEvent('discord.voice', () => void load()) : undefined, [active, load])
   useEffect(() => onHostEvent('gpu.driver', next => {
     setStarting(false)
     setProgress(next)
@@ -96,13 +109,23 @@ export function DriverRow({ active }: { active: boolean }) {
     }
   }
 
-  if (!state?.nvidia) return null
+  const vendor = state?.vendor
+  if (!state || !vendor) return null
   const working = starting || (progress !== null && WORKING.has(progress.stage))
   const latest = state.latest
 
   return (
     <>
-      <Row label="NVIDIA driver" detail={driverDetail(state, progress, starting)} error={error ?? (working ? null : state.blocked ?? null)}>
+      {/* NVIDIA's Game Ready or Studio sits beside Update: the driver it installs. */}
+      <Row label={`${VENDOR[vendor].name} driver`} detail={driverDetail(state, vendor, progress, starting)} error={error ?? (working ? null : state.blocked ?? null)}>
+        {vendor === 'nvidia' && !state.workstation && (
+          <Choice label="Driver type" value={branch} choices={BRANCHES} disabled={working}
+            onChange={value => {
+              const next: Branch = value === 'studio' ? 'studio' : 'game'
+              try { localStorage.setItem('exo.driverBranch', next) } catch { /* kept for this session */ }
+              setBranch(next)
+            }} />
+        )}
         {working
           ? <State>{starting || !progress ? 'Starting' : STAGE[progress.stage]}…</State>
           : latest && (
@@ -112,47 +135,39 @@ export function DriverRow({ active }: { active: boolean }) {
             </button>
           )}
       </Row>
-      {state.workstation ? null : (
-        <Row label="Driver type" detail={branch === 'studio'
-          ? 'Studio: tested longer with creative apps, released less often'
-          : 'Game Ready: tuned for new games on release day, with hotfixes when NVIDIA ships one'}>
-          <Choice label="Driver type" value={branch} choices={BRANCHES} disabled={working}
-            onChange={value => {
-              const next: Branch = value === 'studio' ? 'studio' : 'game'
-              try { localStorage.setItem('exo.driverBranch', next) } catch { /* kept for this session */ }
-              setBranch(next)
-            }} />
-        </Row>
-      )}
-      {asking && latest && (
-        <DriverConsent version={`${KIND[latest.kind]} ${latest.version}`} bytes={latest.size}
-          onCancel={() => setAsking(false)} onInstall={() => void install()} />
-      )}
+      {asking && latest && <DriverConsent vendor={vendor} latest={latest} onCancel={() => setAsking(false)} onInstall={() => void install()} />}
     </>
   )
 }
 
-/** What the update downloads, installs and leaves out, and NVIDIA's license, before anything happens. */
-function DriverConsent({ version, bytes, onCancel, onInstall }: {
-  version: string
-  bytes: number
+/** What the update downloads, installs and leaves out, and the vendor's license, before anything happens. */
+function DriverConsent({ vendor, latest, onCancel, onInstall }: {
+  vendor: Vendor
+  latest: Latest
   onCancel: () => void
   onInstall: () => void
 }) {
   const headingId = useId()
   const cancel = useRef<HTMLButtonElement>(null)
   useEffect(() => { cancel.current?.focus() }, [])
+  const { name, installs, leavesOut, restores } = VENDOR[vendor]
+  const link = (url: string, label: string) => <button type="button" className="exo-set-link" onClick={() => void host.openUrl(url)}>{label}</button>
+  const title = vendor === 'amd' ? `Install AMD Software: Adrenalin Edition ${latest.version}${latest.kind === 'optional' ? ' (optional)' : ''}?`
+    : vendor === 'intel' ? `Install Intel's graphics driver ${latest.version}, driver only?`
+      : `Install NVIDIA ${KIND[latest.kind]} ${latest.version}, driver only?`
   return (
     <div className="exo-graphics-import" role="group" aria-labelledby={headingId}>
-      <p id={headingId} className="exo-graphics-import-title">Install NVIDIA {version}, driver only?</p>
+      <p id={headingId} className="exo-graphics-import-title">{title}</p>
       <ul className="exo-graphics-import-list">
-        <li><span>Downloads from NVIDIA</span><span className="exo-graphics-import-value">{bytes ? size(bytes) : 'About 1 GB'}</span></li>
-        <li><span>Installs</span><span className="exo-graphics-import-value">The driver alone, as a clean install</span></li>
-        <li><span>Leaves out</span><span className="exo-graphics-import-value">NVIDIA app, telemetry, ShadowPlay, PhysX, HDMI/DisplayPort audio</span></li>
-        <li><span>Afterwards</span><span className="exo-graphics-import-value">Exo puts your GPU profile back</span></li>
+        <li><span>Downloads from {name}</span><span className="exo-graphics-import-value">{latest.size ? size(latest.size) : 'About 1 GB'}</span></li>
+        <li><span>Installs</span><span className="exo-graphics-import-value">{installs}</span></li>
+        {leavesOut && <li><span>Leaves out</span><span className="exo-graphics-import-value">{leavesOut}</span></li>}
+        {restores && <li><span>Afterwards</span><span className="exo-graphics-import-value">Exo puts your GPU profile back</span></li>}
       </ul>
       <p className="exo-graphics-import-extra">
-        Windows asks for administrator permission. Installing means you accept <button type="button" className="exo-set-link" onClick={() => void host.openUrl(NVIDIA_LICENSE)}>NVIDIA's license</button>. The screen may go black for a moment.
+        Windows asks for administrator permission. Installing means you accept {vendor === 'nvidia' ? link(NVIDIA_LICENSE, "NVIDIA's license")
+          : vendor === 'amd' ? link(AMD_LICENSE, "AMD's license")
+            : <>the license on {latest.page ? link(latest.page, "Intel's download page") : "Intel's download page"}</>}. The screen may go black for a moment.
       </p>
       <span className="exo-graphics-import-actions">
         <button ref={cancel} type="button" className="exo-set-btn" onClick={onCancel}>Cancel</button>

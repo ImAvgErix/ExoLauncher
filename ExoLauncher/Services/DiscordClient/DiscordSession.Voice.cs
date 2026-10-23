@@ -25,7 +25,7 @@ internal sealed partial class DiscordSession
         if (!capture) _stream?.ReopenAudio(false);
     }
     private string? _voiceGuild, _voiceChannel, _voiceSession, _voiceState, _voiceMessage;
-    private bool _muted, _deafened, _e2ee, _camera;
+    private bool _muted, _deafened, _e2ee, _camera, _micSilent;
     private Timer? _voiceTick;
     // Each join counts up; the join timeout ends only its own join, and only before it ever connected.
     private int _joinId, _connectedJoin;
@@ -36,7 +36,7 @@ internal sealed partial class DiscordSession
     {
         lock (_voiceGate)
             // ringing: a DM call ringing this user now, for a page that opens after the ring began (its notification says to).
-            return new { state = _voiceState ?? "off", guildId = _voiceGuild, channelId = _voiceChannel, muted = _muted, deafened = _deafened, e2ee = _e2ee, message = _voiceMessage, ringing = _ringingMe.FirstOrDefault() };
+            return new { state = _voiceState ?? "off", guildId = _voiceGuild, channelId = _voiceChannel, muted = _muted, deafened = _deafened, e2ee = _e2ee, micSilent = _micSilent, message = _voiceMessage, ringing = _ringingMe.FirstOrDefault() };
     }
 
     /// <summary>Joins a voice channel (or a DM's call when <paramref name="guildId"/> is null), leaving any other first.</summary>
@@ -55,6 +55,7 @@ internal sealed partial class DiscordSession
             _voiceState = "connecting";
             _voiceMessage = null;
             _e2ee = false;
+            _micSilent = false;
             join = ++_joinId;
             wasRinging = _ringingMe.Remove(channelId);
         }
@@ -233,6 +234,13 @@ internal sealed partial class DiscordSession
         if (!ReferenceEquals(from, _voice)) return;
         if (kind == "speaking") { OnSpeaking(data); Event?.Invoke("discord.speaking", data); return; }
         if (kind == "ptt") { Sound(JsonSerializer.SerializeToElement(data).GetProperty("on").GetBoolean() ? "ptt_start" : "ptt_stop"); return; }
+        if (kind == "micSilent")
+        {
+            lock (_voiceGate) _micSilent = JsonSerializer.SerializeToElement(data).GetProperty("silent").GetBoolean();
+            AppLog.Info(_micSilent ? "Discord voice: the microphone has sent nothing for 15 s; the voice panel says so." : "Discord voice: the microphone is heard again.");
+            PublishVoice();
+            return;
+        }
         if (kind == "video")
         {
             var video = JsonSerializer.SerializeToElement(data);

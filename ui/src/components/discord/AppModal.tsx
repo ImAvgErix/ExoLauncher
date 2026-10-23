@@ -5,6 +5,7 @@ import { useLayer } from './admin'
 import { AppSelect } from './Components'
 import { uploadFile } from './Chat'
 import { Markdown, type MarkdownContext } from './markdown'
+import { ModalBack } from './SettingsLayer'
 
 // Form component types.
 const ROW = 1, TEXT_INPUT = 4, TEXT = 10, LABEL = 18, FILE_UPLOAD = 19, RADIO = 21, CHECKS = 22, CHECKBOX = 23
@@ -79,7 +80,7 @@ function AppForm({ modal, guildId, onClose }: { modal: AppModal; guildId: string
 
   const icon = appIcon({ id: modal.application.id, name: modal.application.name ?? '', icon: modal.application.icon })
   return (
-    <div className="exo-dc-modal-back is-top" onClick={onClose}>
+    <ModalBack top onClose={onClose}>
       <form ref={box} className="exo-dc-modal exo-dc-app-form" noValidate role="dialog" aria-modal="true" aria-label={modal.title} tabIndex={-1}
         onClick={event => event.stopPropagation()} onSubmit={event => { event.preventDefault(); void submit() }}>
         <header className="exo-dc-app-form-head">
@@ -97,7 +98,7 @@ function AppForm({ modal, guildId, onClose }: { modal: AppModal; guildId: string
           <button type="submit" className="button button--primary" disabled={busy}>{busy ? 'Submitting…' : 'Submit'}</button>
         </div>
       </form>
-    </div>
+    </ModalBack>
   )
 }
 

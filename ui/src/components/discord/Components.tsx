@@ -6,6 +6,7 @@ import { useLayer } from './admin'
 import { Icons } from './icons'
 import { showImage } from './extras'
 import { emojiUrl, Markdown, open, type MarkdownContext } from './markdown'
+import { useDismiss } from '../../lib/dismiss'
 
 // Discord's component types.
 const ROW = 1, BUTTON = 2, STRING_SELECT = 3, USER_SELECT = 5, ROLE_SELECT = 6, MENTIONABLE_SELECT = 7, CHANNEL_SELECT = 8,
@@ -211,12 +212,7 @@ export function AppSelect({ component, guildId, disabled, busy, onCommit, onChan
     if (commit && max > 1 && values.length >= (component.min_values ?? 1)) onCommit?.(values)
   }
   useLayer(box, () => close(true), open)
-  useEffect(() => {
-    if (!open) return
-    const away = (event: PointerEvent) => { if (!box.current?.contains(event.target as Node)) close(true) }
-    document.addEventListener('pointerdown', away, true)
-    return () => document.removeEventListener('pointerdown', away, true)
-  })
+  useDismiss(box, () => close(true), { on: open })
   const choose = (choice: Choice) => {
     setLabels(map => new Map(map).set(choice.value, choice.label))
     const next = max === 1 ? [choice.value] : values.includes(choice.value) ? values.filter(v => v !== choice.value) : values.length < max ? [...values, choice.value] : values

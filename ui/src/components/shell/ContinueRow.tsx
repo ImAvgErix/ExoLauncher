@@ -1,6 +1,6 @@
 import { memo, useRef, type CSSProperties } from 'react'
 import { shelfAction, type Game, type InstallProgress } from '../../lib/host'
-import { useGlassTone, useLens } from '../../lib/glass'
+import { useLens } from '../../lib/glass'
 import { More, Play } from '../../brand/icons'
 import { formatPlayed, formatRelativeLastPlayed, transferPercent } from '../../lib/utils'
 import { HeroWash } from '../CoverArt'
@@ -8,7 +8,7 @@ import type { GameMenuAt } from './GameMenu'
 
 /**
  * Continue (DESIGN.md › Library): the games you are actually playing, as big
- * landscape art with Play one click away. The first is the widest. The live state rides on the card:
+ * landscape art with Play one click away, three equal banners. The live state rides on the card:
  * the green glow while it runs, a ring while it downloads or updates.
  */
 export const ContinueRow = memo(function ContinueRow({ games, transferFor, startingId, onOpen, onPlay, onMenu }: {
@@ -41,8 +41,10 @@ function ContinueCard({ game, transfer, starting, onOpen, onPlay, onMenu }: {
   const percent = transfer?.isActive ? transferPercent(transfer) : null
   const working = !!transfer?.isActive
   const more = useRef<HTMLButtonElement>(null)
+  const plate = useRef<HTMLDivElement>(null)
   useLens(more, !working)
-  useGlassTone(more, `continue-${game.id}`, !working)
+  // The art is shown whole; the title reads off it on dark glass, as More does, over any art.
+  useLens(plate)
   const shortcut = shelfAction(game)
   return (
     <article className={`exo-continue-card${game.isRunning ? ' is-playing' : ''}${working ? ' exo-motion-work' : ''}`}>
@@ -51,7 +53,7 @@ function ContinueCard({ game, transfer, starting, onOpen, onPlay, onMenu }: {
         <span className="exo-continue-scrim"><HeroWash game={game} className="exo-continue-art" /></span>
       </button>
       <div className="exo-continue-info">
-        <div className="exo-continue-text">
+        <div ref={plate} className="exo-glass exo-continue-text">
           <strong>{game.title}</strong>
           <span className={game.isRunning ? 'is-good' : undefined}>{stateLine(game, transfer, percent)}</span>
         </div>

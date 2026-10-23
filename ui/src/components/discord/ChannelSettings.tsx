@@ -12,6 +12,7 @@ import { Icons } from './icons'
 import { SettingsLayer } from './SettingsLayer'
 import { Avatar } from './presence'
 import { pushPage } from '../../lib/viewTransition'
+import { useDismiss } from '../../lib/dismiss'
 
 type Overwrite = { id: string; type: number; allow: string; deny: string }
 type Settings = {
@@ -240,6 +241,7 @@ function AddTarget({ settings, taken, onAdd, onClose }: { settings: Settings; ta
   const [members, setMembers] = useState<Member[]>([])
   const box = useRef<HTMLDivElement>(null)
   useLayer(box, onClose)
+  useDismiss(box, onClose)
   const q = query.trim().toLowerCase()
   const roles = settings.roles.filter(r => r.id !== settings.guildId && !taken.has(r.id) && (!q || r.name.toLowerCase().includes(q)))
   // Member search with this channel's Manage Permissions, as Discord allows it.

@@ -25,12 +25,18 @@ internal sealed partial class DiscordRest : IDisposable
     private static int? _build;
 
     // As Chrome talks to Discord: HTTP/2 on one warm connection (no new TLS handshake per call or after a minute idle)
-    // and compressed answers (a page of messages is several times smaller).
+    // and compressed answers (a page of messages is several times smaller). The connection is pinged while in use, so
+    // one that died quietly (a network change, a sleep) is dropped within seconds instead of holding every call until
+    // its 30 s timeout (profiles, channels and messages all hung together for up to 30 s, then landed at once).
     private readonly HttpClient _http = ExoHttp.Create(TimeSpan.FromSeconds(30), new SocketsHttpHandler
     {
         AutomaticDecompression = DecompressionMethods.All,
         PooledConnectionIdleTimeout = TimeSpan.FromMinutes(5),
         EnableMultipleHttp2Connections = true,
+        ConnectTimeout = TimeSpan.FromSeconds(10),
+        KeepAlivePingDelay = TimeSpan.FromSeconds(10),
+        KeepAlivePingTimeout = TimeSpan.FromSeconds(5),
+        KeepAlivePingPolicy = HttpKeepAlivePingPolicy.Always,
     });
     private readonly string? _token;
 
@@ -250,6 +256,10 @@ internal sealed partial class DiscordRest : IDisposable
     /// <summary>Saves the fields present in a frecency settings protobuf (base64), as Discord's client does.</summary>
     internal Task<Reply> SaveFrecencyAsync(string settings, CancellationToken ct) =>
         SendAsync(HttpMethod.Patch, "users/@me/settings-proto/2", new JsonObject { ["settings"] = settings }, ct);
+
+    /// <summary>An invite's server, channel and counts, as a message's invite card shows them.</summary>
+    internal Task<Reply> InviteInfoAsync(string code, CancellationToken ct) =>
+        SendAsync(HttpMethod.Get, $"invites/{Uri.EscapeDataString(code)}?with_counts=true&with_expiration=true", null, ct);
 
     internal Task<Reply> JoinInviteAsync(string code, CancellationToken ct) =>
         SendAsync(HttpMethod.Post, $"invites/{Uri.EscapeDataString(code)}", new JsonObject(), ct);
@@ -489,14 +499,20 @@ internal sealed partial class DiscordRest : IDisposable
             }
             else if (body is not null) request.Content = new StringContent(body.ToJsonString(), Encoding.UTF8, "application/json");
             HttpResponseMessage response;
+            var sent = System.Diagnostics.Stopwatch.GetTimestamp();
             try { response = await _http.SendAsync(request, ct).ConfigureAwait(false); }
             catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException && !ct.IsCancellationRequested)
             {
+                // A read on a connection that turned out dead goes once more, on a fresh one.
+                if (attempt == 0 && method == HttpMethod.Get && ex is HttpRequestException) continue;
                 return new Reply(null, "Discord could not be reached.");
             }
             using (response)
             {
                 var text = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+                // A slow answer says whether Discord took long (on the wire) or something before it did.
+                var wire = System.Diagnostics.Stopwatch.GetElapsedTime(sent).TotalMilliseconds;
+                if (wire >= 700) AppLog.Info($"PERF discord rest {method} {Route(path)} wireMs={wire:F0} http={response.Version}");
                 JsonElement? json = null;
                 if (text.Length > 0)
                 {

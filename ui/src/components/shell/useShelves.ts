@@ -9,7 +9,11 @@ export type Shelves = {
   library: Game[]
   /** What you are playing: running, then downloading or updating, then the most recently played; three at most. */
   playing: Game[]
+  /** The games you hid: out of the grid, Continue and folders; Library's Hidden view lists them, sorted the same way. */
+  hidden: Game[]
 }
+
+const NONE: Game[] = []
 
 /** A card the library shows: playable, and installed, owned, downloading or a local folder. */
 function isShelfGame(game: Game, transferId: string | null, showTools: boolean): boolean {
@@ -32,19 +36,25 @@ function continueOrder(games: Game[], transferId: string | null): Game[] {
 
 /**
  * The library for its three places (DESIGN.md › Library): Continue, Friends
- * are playing, and one grid. Pure derivation over `games`. `recent` is the
- * host's launch order from the latest library read.
+ * are playing, and one grid, less the games you hid. Pure derivation over
+ * `games`. `recent` is the host's launch order from the latest library read.
  */
 export function useShelves(games: Game[], progress: InstallProgress | null, settings: LauncherSettings | null, recent: string[] | undefined): Shelves {
   const sortMode = settings?.sortMode
   const showTools = settings?.showLibraryTools === true
   const transferId = progress?.isActive ? progress.gameId : null
 
-  const library = useMemo(
+  const hiddenIds = settings?.hiddenGames
+  const all = useMemo(
     () => sortGames(games.filter((game) => isShelfGame(game, transferId, showTools)), librarySortMode(sortMode), recent ?? []),
     [games, sortMode, recent, transferId, showTools],
   )
+  const [library, hidden] = useMemo(() => {
+    if (!hiddenIds?.length) return [all, NONE]
+    const out = new Set(hiddenIds)
+    return [all.filter(game => !out.has(game.id)), all.filter(game => out.has(game.id))]
+  }, [all, hiddenIds])
   const playing = useMemo(() => continueOrder(library, transferId), [library, transferId])
 
-  return useMemo(() => ({ library, playing }), [library, playing])
+  return useMemo(() => ({ library, playing, hidden }), [library, playing, hidden])
 }

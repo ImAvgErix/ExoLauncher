@@ -1,3 +1,5 @@
+using ExoLauncher.Helpers;
+
 namespace ExoLauncher.Services.DiscordClient.Voice;
 
 /// <summary>
@@ -22,6 +24,7 @@ internal sealed class InboundCleaner : IDisposable
     private readonly Task<NoiseSuppressor?> _loading = Task.Run(NoiseSuppressor.Create);
     private NoiseSuppressor? _suppressor;
     private volatile bool _stop;
+    private bool _failed;
 
     /// <param name="play">To the mix: a cleaned frame and their User Volume (<see cref="VoiceAudio.Play"/> for their SSRC).</param>
     /// <param name="rent">A frame to play the model's last of them in (<see cref="VoiceAudio.Rent"/>).</param>
@@ -50,10 +53,11 @@ internal sealed class InboundCleaner : IDisposable
 
     private void Run()
     {
+        using var mmcss = MmcssTask.Join();
         while (!_stop)
         {
             _ready.WaitOne(200);
-            if (_suppressor is null && _loading.IsCompleted) _suppressor = _loading.IsCompletedSuccessfully ? _loading.Result : null;
+            if (_suppressor is null && !_failed && _loading.IsCompleted) _suppressor = _loading.IsCompletedSuccessfully ? _loading.Result : null;
             while (!_stop)
             {
                 (float[]? Frame, float Gain) next;
@@ -72,8 +76,20 @@ internal sealed class InboundCleaner : IDisposable
                 }
                 // Behind (a busy PC): the frames waiting play as they came until it has caught up, rather than late or
                 // not at all; a voice is never lost to its cleaning.
-                if (waiting < CatchUp) _suppressor?.Process(frame);
-                _play(frame, next.Gain);
+                try
+                {
+                    if (waiting < CatchUp) _suppressor?.Process(frame);
+                }
+                catch (Exception ex)
+                {
+                    // Their cleaning failed: from now on their voice plays as it comes. The thread must never end on it,
+                    // or they go silent for the rest of the call (heard as "halfway through I stop hearing them").
+                    AppLog.Info("Discord voice: noise suppression on someone's voice stopped (" + ex.GetType().Name + "); their voice plays as it comes.");
+                    _suppressor = null;
+                    _failed = true;
+                }
+                try { _play(frame, next.Gain); }
+                catch (Exception ex) when (ex is not OutOfMemoryException) { AppLog.Info("Discord voice: a frame of someone's voice couldn't play (" + ex.GetType().Name + ")."); }
             }
         }
     }

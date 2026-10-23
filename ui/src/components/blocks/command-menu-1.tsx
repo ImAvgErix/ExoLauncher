@@ -10,6 +10,7 @@ import {
   type ReactNode,
 } from "react";
 import { Search } from "../../brand/icons";
+import { useDismiss } from "../../lib/dismiss";
 
 const cx = (...c: (string | false | null | undefined)[]) =>
   c.filter(Boolean).join(" ");
@@ -135,6 +136,9 @@ export default function CommandMenu({
     timerRef.current = setTimeout(() => onOpenChange(false), EXIT_MS);
   }, [onOpenChange]);
 
+  // A press outside the panel closes it; while it fades out, presses go to the page.
+  useDismiss(dialogRef, close, { modal: true, on: isOpen && shown });
+
   useEffect(() => {
     clearTimeout(timerRef.current);
     if (!isOpen) {
@@ -144,7 +148,9 @@ export default function CommandMenu({
     // Opened by a global shortcut: focus goes back where it was on close.
     const previous = document.activeElement;
     returnFocusRef.current = previous instanceof HTMLElement && previous !== document.body ? previous : null;
+    // The last search comes back selected, as Spotlight's does: typing replaces it, the arrows still reach it.
     inputRef.current?.focus({ preventScroll: true });
+    inputRef.current?.select();
     frameRef.current = requestAnimationFrame(() => setShown(true));
     return () => {
       cancelAnimationFrame(frameRef.current ?? 0);
@@ -256,14 +262,11 @@ export default function CommandMenu({
     >
       {isOpen && (
         <>
-          <button
-            type="button"
-            tabIndex={-1}
-            aria-label="Close menu"
-            onClick={close}
+          <div
+            aria-hidden="true"
             className={cx(
-              "pointer-events-auto absolute inset-0 z-40 cursor-default bg-black/70 transition-opacity ease-(--ease-out) from-key:duration-0",
-              shown ? "opacity-100 duration-(--dur-base)" : "opacity-0 duration-(--dur-quick)",
+              "absolute inset-0 z-40 cursor-default bg-[rgb(0_0_0/calc(0.7*var(--exo-scrim-k)))] transition-opacity ease-(--ease-out) from-key:duration-0",
+              shown ? "pointer-events-auto opacity-100 duration-(--dur-base)" : "pointer-events-none opacity-0 duration-(--dur-quick)",
             )}
           />
           <div
@@ -385,7 +388,7 @@ export default function CommandMenu({
                 ) : (
                   <div className="flex flex-col items-center px-2.5 py-10 text-center">
                     <p className="text-[length:calc(13px*var(--exo-scale,1))] font-medium text-fg">
-                      No command matches "{query.trim()}"
+                      Nothing matches “{query.trim()}”
                     </p>
                     <button
                       type="button"
@@ -395,7 +398,7 @@ export default function CommandMenu({
                         setActiveIndex(0);
                         inputRef.current?.focus({ preventScroll: true });
                       }}
-                      className="mt-4 inline-flex h-8 cursor-pointer items-center justify-center gap-1.5 rounded-[10px] border border-[#242424] bg-transparent px-2.5 text-[length:calc(13px*var(--exo-scale,1))] font-medium text-fg transition-colors duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] hover:bg-(--hover-fill)"
+                      className="exo-set-btn mt-4"
                     >
                       Clear search
                     </button>

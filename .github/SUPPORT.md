@@ -1,6 +1,6 @@
 # Exo Launcher support
 
-Start with [Getting started and help](../docs/HELP.md) for installing, game stores, the Store, Music, Discord, Devices, upscalers and shaders.
+Start with [Getting started and help](../docs/HELP.md) for installing, the Library and game stores, the Store, System (drivers, display, upscalers and shaders), Discord, Music, captures and Devices.
 
 - [Download the latest release](https://github.com/ImAvgErix/ExoLauncher/releases/latest)
 - [Check supported features](../docs/SUPPORT_MATRIX.md)

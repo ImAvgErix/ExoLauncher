@@ -3,6 +3,7 @@ import { Button } from '../ui/Button'
 import { host, type LauncherSettings, type StoreStatus } from '../../lib/host'
 import { ErrorBoundary } from './ErrorBoundary'
 import { shouldReduceMotion } from '../../lib/motionPreference'
+import { useChildRef, useDismiss } from '../../lib/dismiss'
 
 let painted = false
 
@@ -129,24 +130,31 @@ const ENTRANCES = new Set(['exo-arrive', 'exo-switch', 'exo-enter', 'exo-enter-c
  * so off-screen rooms are not five hot trees. A crash stays inside the room.
  * Activity runs no effects while hidden, so a room preloaded behind the splash
  * is warm instead: live (its effects read its data) but not shown, until the
- * splash is gone and its reads have landed.
+ * splash is gone and its reads have landed. A warm room is laid out at its real size out of
+ * sight (exo-shell.css › is-backstage), never display:none: lists that size themselves render
+ * their rows, words are shaped and the code that draws them has run, so its first showing costs
+ * what a later one does (Discord's first frame was 109 ms, later ones 30).
  * A room arrives once: hidden is display:none, which restarts every CSS animation in it,
  * so when it comes back its entrances finish at once and it is simply there, as it was left.
  * A floating room (Settings) keeps its own open motion each time.
  */
-export function Room({ mounted, active, warm = false, label, className, onBackdrop, children }: {
+export function Room({ mounted, active, covered = false, warm = false, label, className, onBackdrop, children }: {
   mounted: boolean
   active: boolean
+  /** Under a floating room (Settings): still on screen and laid out as it was, but out of reach. */
+  covered?: boolean
   warm?: boolean
   label: string
   className: string
-  /** A floating room (Settings): a press on the dimmed space around its panel. */
+  /** A floating room (Settings): a press outside its panel. */
   onBackdrop?: () => void
   children: ReactNode
 }) {
   const frame = useRef<HTMLDivElement>(null)
   const arrived = useRef(false)
   const floating = !!onBackdrop
+  // The panel is the room's one child (Settings).
+  useDismiss(useChildRef(frame), onBackdrop, { modal: true, on: floating && active })
   useLayoutEffect(() => {
     const room = frame.current
     if (!active || !room) return
@@ -161,10 +169,11 @@ export function Room({ mounted, active, warm = false, label, className, onBackdr
     arrived.current = true
   }, [active, floating])
   if (!mounted) return null
+  const backstage = warm && !active && !floating
   return (
     <Activity mode={active || warm ? 'visible' : 'hidden'}>
-      <div ref={frame} className={`${className} exo-room`} hidden={!active || undefined}
-        onPointerDown={onBackdrop ? event => { if (event.target === event.currentTarget) onBackdrop() } : undefined}>
+      <div ref={frame} className={`${className} exo-room${backstage ? ' is-backstage' : ''}`}
+        hidden={(!active && !backstage) || undefined} inert={backstage || (active && covered) || undefined}>
         <ErrorBoundary label={label}>
           <Suspense fallback={null}>{children}</Suspense>
         </ErrorBoundary>

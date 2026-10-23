@@ -152,6 +152,14 @@ public sealed class AppServices
         });
         Store.Start();
         Downloads.Start();
+        // Exo's power plan: switched to by itself on Windows' own plans, refreshed while it's on (PowerPlan.Auto).
+        _ = Task.Run(() =>
+        {
+            try { if (PowerPlan.Shared.Auto(PcHealth.ThisPcProfile()) is { } why) AppLog.Info("Power plan: " + why); }
+            catch (Exception ex) { AppLog.Warn("Power plan: " + ex.Message); }
+        });
+        RadeonProfileService.Shared.Start(Launcher, () => GpuProfileService.MainScreen("amd"));
+        IntelProfileService.Shared.Start(Launcher, () => GpuProfileService.MainScreen("intel"));
         _ = Task.Run(async () =>
         {
             // Saved downloads resume once the library can answer for them: a

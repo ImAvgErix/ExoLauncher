@@ -3,6 +3,7 @@ import { host } from '../../lib/host'
 import { type DiscordMessage } from '../../lib/discord'
 import { Avatar } from './presence'
 import { Icons } from './icons'
+import { ModalBack } from './SettingsLayer'
 
 type Target = { id: string; name: string; place: string | null; avatar: string | null; dm: boolean }
 
@@ -56,7 +57,7 @@ export function ForwardDialog({ message, onClose }: { message: DiscordMessage; o
     onClose()
   }
   return (
-    <div className="exo-dc-modal-back" onClick={onClose}>
+    <ModalBack onClose={onClose}>
       <div className="exo-dc-modal exo-dc-forward-dialog" role="dialog" aria-label="Forward To" onClick={event => event.stopPropagation()}>
         <h2>Forward To</h2>
         <input className="exo-dc-modal-input" placeholder="Search" value={query} autoFocus aria-label="Search conversations" onChange={event => setQuery(event.target.value)} />
@@ -85,7 +86,7 @@ export function ForwardDialog({ message, onClose }: { message: DiscordMessage; o
           </button>
         </footer>
       </div>
-    </div>
+    </ModalBack>
   )
 }
 
@@ -104,7 +105,7 @@ export function NewThreadDialog({ message, onClose, onCreated }: { message: Disc
     else setError(result.message ?? 'Discord did not start the thread.')
   }
   return (
-    <div className="exo-dc-modal-back" onClick={onClose}>
+    <ModalBack onClose={onClose}>
       <div className="exo-dc-modal" role="dialog" aria-label="Create Thread" onClick={event => event.stopPropagation()}>
         <h2>Create Thread</h2>
         <input className="exo-dc-modal-input" value={name} maxLength={100} autoFocus aria-label="Thread name"
@@ -115,6 +116,6 @@ export function NewThreadDialog({ message, onClose, onCreated }: { message: Disc
           <button type="button" className="button button--primary exo-dc-blurple" disabled={busy || !name.trim()} onClick={() => void create()}>Create</button>
         </footer>
       </div>
-    </div>
+    </ModalBack>
   )
 }

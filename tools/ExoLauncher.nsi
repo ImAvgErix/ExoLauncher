@@ -64,7 +64,7 @@ UninstallIcon "${ICON}"
 ; Colors (DESIGN.md): ink, muted, faint, bad, the page, hairlines. COLORREF is 0xBBGGRR.
 !define INK "FFFFFF"
 !define MUTED "9D9D9D"
-!define FAINT "747474"
+!define FAINT "757575"
 !define BAD "FF5C5C"
 !define PAGE "000000"
 !define HAIRLINE "1F1F1F"
@@ -859,6 +859,10 @@ Section "Uninstall"
     MessageBox MB_OK|MB_ICONSTOP "Exo Launcher is still running. Close it and retry uninstalling." /SD IDOK
     Abort
   ${EndIf}
+  ; Exo's power plan goes with Exo: the plan it replaced comes back first.
+  File /oname=$PLUGINSDIR\exo-un-power.ps1 "${__FILEDIR__}\installer\Remove-ExoPowerPlan.ps1"
+  nsExec::ExecToLog 'powershell.exe -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File "$PLUGINSDIR\exo-un-power.ps1" -DataDirectory "${ROOT}"'
+  Pop $0
   !insertmacro Status "Removing files"
   Delete "$SMPROGRAMS\${LINK_NAME}.lnk"
   Delete "$DESKTOP\${LINK_NAME}.lnk"

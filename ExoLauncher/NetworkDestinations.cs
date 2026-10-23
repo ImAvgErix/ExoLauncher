@@ -25,7 +25,7 @@ internal static class NetworkDestinations
     internal sealed record Destination(string Host, string PrivacyRow);
 
     internal const string ExoReleases = "GitHub (ExoLauncher releases)";
-    internal const string ToolReleases = "GitHub (Legendary, gogdl and Nile releases, and Exo's own build of DeepFilterNet from Exo's release)";
+    internal const string ToolReleases = "GitHub (Legendary, gogdl and Nile releases, Exo's own build of DeepFilterNet from Exo's release, and NVIDIA's TitaNet voice model from sherpa-onnx's release)";
     internal const string StoreTools = "Epic, GOG, Amazon (through Legendary, gogdl, Nile)";
     internal const string EpicServices = "Epic account and library services";
     internal const string LegendaryApi = "Legendary's optional content lists (api.legendary.gl)";
@@ -45,7 +45,9 @@ internal static class NetworkDestinations
     internal const string StoreTags = "Store room: Steam tag names (IStoreService/GetTagList)";
     internal const string MusicArtwork = "Music artwork (Spotify, YouTube Music and Apple Music image servers)";
     internal const string Shaders = "Exo Shaders (SCSKiller's servers api.scskiller.com and api.scskiller.io; GitHub: Oodle and zlib-ng codec libraries, and some games' public archive keys)";
-    internal const string NvidiaDrivers = "NVIDIA (driver lookup and download: `www.nvidia.com`, `gfwsl.geforce.com`, `api-forums.nvidia.com`, `us.download.nvidia.com`, `international.download.nvidia.com`)";
+    internal const string AmdDrivers = "AMD (newest chipset and graphics driver versions and their downloads: `www.amd.com`, `drivers.amd.com`)";
+    internal const string IntelDrivers = "Intel (newest chipset and graphics driver versions and their downloads: `www.intel.com`, `downloadmirror.intel.com`)";
+    internal const string NvidiaDrivers = "NVIDIA (driver lookup and download, and RTX Noise Removal's runtime: `www.nvidia.com`, `gfwsl.geforce.com`, `api-forums.nvidia.com`, `us.download.nvidia.com`, `international.download.nvidia.com`)";
     internal const string DiscordClient = "Exo's own Discord client (discord.com, gateway.discord.gg, remote-auth-gateway.discord.gg, cdn.discordapp.com, Discord's media proxy on discordapp.net, Discord's voice servers on discord.media, Discord's file uploads for apps on storage.googleapis.com)";
     internal const string StripeCards = "Stripe's card form in Exo's Discord Shop (js.stripe.com, api.stripe.com, m.stripe.network, hooks.stripe.com), only while you add a card or your bank confirms a payment";
     internal const string DiscordGifs = "GIF hosts Discord points to (klipy.com, tenor.com, giphy.com)";
@@ -69,6 +71,8 @@ internal static class NetworkDestinations
 
         // EpicPlaytime: the playtime endpoint.
         new("library-service.live.use1a.on.epicgames.com", EpicServices),
+        // StoreGifts: a one-time exchange code that signs the hidden gifts page in to Epic's store.
+        new("account-public-service-prod.ol.epicgames.com", EpicServices),
 
         // WebHostBridge.Properties: an installed Epic game's optional content (selective download) list.
         new("api.legendary.gl", LegendaryApi),
@@ -137,6 +141,16 @@ internal static class NetworkDestinations
         new("us.download.nvidia.com", NvidiaDrivers),
         new("api-forums.nvidia.com", NvidiaDrivers),
         new("international.download.nvidia.com", NvidiaDrivers),
+
+        // ChipsetUpdate: the newest AMD chipset package (only on a Ryzen with AMD's chipset driver), and its download.
+        // GpuDriverUpdate: the newest AMD Software for an AMD GPU, and its download.
+        new("www.amd.com", AmdDrivers),
+        new("drivers.amd.com", AmdDrivers),
+
+        // ChipsetUpdate: the newest Intel Chipset Device Software (only on an Intel processor with it installed), and its download.
+        // GpuDriverUpdate: the newest Intel graphics driver for an Intel GPU, and its download.
+        new("www.intel.com", IntelDrivers),
+        new("downloadmirror.intel.com", IntelDrivers),
 
         // DlssSwapService.Catalog.
         new("beeradmoore.github.io", UpscalerList),

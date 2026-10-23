@@ -116,20 +116,13 @@ internal static unsafe partial class AmdAdlx
     }
 
     // Finds the screen, fetches the per-display interfaces at those IADLXDisplayServices slots and runs body on them (null when ADLX has no such screen or interface).
-    private static T? WithDisplay<T>(string name, int[] slots, Func<nint[], T?> body)
-    {
-        if (!Present) return default;
-        lock (Gate)
+    private static T? WithDisplay<T>(string name, int[] slots, Func<nint[], T?> body) =>
+        WithSystem("display", system =>
         {
-            nint module = 0, system = 0, services = 0, list = 0, display = 0;
+            nint services = 0, list = 0, display = 0;
             var items = new nint[slots.Length];
             try
             {
-                if (!NativeLibrary.TryLoad(Path.Combine(Environment.SystemDirectory, DllName), out module)) return default;
-                var queryVersion = (delegate* unmanaged[Cdecl]<ulong*, int>)NativeLibrary.GetExport(module, "ADLXQueryFullVersion");
-                var initialize = (delegate* unmanaged[Cdecl]<ulong, nint*, int>)NativeLibrary.GetExport(module, "ADLXInitialize");
-                ulong version = 0;
-                if (queryVersion(&version) != AdlxOk || initialize(version, &system) != AdlxOk || system == 0) return default;
                 if (Call(system, SystemGetDisplaysServices, &services) != AdlxOk || services == 0) return default;
                 if (Call(services, DisplaysGetDisplays, &list) != AdlxOk || list == 0) return default;
                 var size = ((delegate* unmanaged[Stdcall]<nint, uint>)Slot(list, ListSize))(list);
@@ -138,10 +131,7 @@ internal static unsafe partial class AmdAdlx
                 {
                     nint item = 0;
                     if (((delegate* unmanaged[Stdcall]<nint, uint, nint*, int>)Slot(list, ListAt))(list, index, &item) != AdlxOk || item == 0) continue;
-                    byte* text = null;
-                    if (((delegate* unmanaged[Stdcall]<nint, byte**, int>)Slot(item, DisplayName))(item, &text) == AdlxOk && text != null
-                        && string.Equals(Marshal.PtrToStringUTF8((nint)text)?.Trim(), name.Trim(), StringComparison.OrdinalIgnoreCase))
-                        display = item;
+                    if (string.Equals(Text(item, DisplayName), name.Trim(), StringComparison.OrdinalIgnoreCase)) display = item;
                     else ReleaseOf(item);
                 }
                 if (display == 0) return default;
@@ -153,23 +143,12 @@ internal static unsafe partial class AmdAdlx
                 }
                 return body(items);
             }
-            catch (Exception ex)
-            {
-                AppLog.Warn("ADLX display failed: " + ex.Message);
-                return default;
-            }
             finally
             {
-                foreach (var item in items.Concat([display, list, services])) if (item != 0) ReleaseOf(item);
-                if (module != 0)
-                {
-                    if (system != 0 && NativeLibrary.TryGetExport(module, "ADLXTerminate", out var terminate))
-                        ((delegate* unmanaged[Cdecl]<int>)terminate)();
-                    NativeLibrary.Free(module);
-                }
+                foreach (var item in items) if (item != 0) ReleaseOf(item);
+                ReleaseAll(display, list, services);
             }
-        }
-    }
+        });
 
     private static bool IsSupportedValue(nint item, int code)
     {

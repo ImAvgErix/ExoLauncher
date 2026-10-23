@@ -11,18 +11,24 @@
   align-items: center;
 }
 
+/* Where the game comes from: a label with its store's mark, not a control (drawn as one, it looked like the store
+   switcher and did nothing). */
 .exo-game-store-name {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  height: 28px;
-  padding: 0 12px 0 10px;
-  border-radius: 999px;
-  background: var(--exo-fill);
-  box-shadow: var(--exo-rim);
-  color: var(--color-fg);
+  color: var(--color-muted);
   font-size: calc(12px * var(--exo-scale, 1));
-  font-weight: 600;
+  font-weight: 500;
+}
+
+/* In Light the sheet's art shows faintly behind the title: muted gray read 4.4:1 over it. */
+:root[data-exo-theme="light"] .exo-game-store-name {
+  color: rgb(var(--exo-ink-rgb) / 0.86);
+}
+
+:root[data-exo-theme="light"] .exo-game-store-name img {
+  filter: brightness(0.45);
 }
 
 .exo-game-sources {
@@ -30,7 +36,7 @@
   flex-wrap: wrap;
   gap: 2px;
   padding: 2px;
-  border: 1px solid #242424;
+  border: 1px solid rgb(var(--exo-ink-rgb) / 0.14);
   border-radius: 999px;
 }
 
@@ -180,7 +186,11 @@
   border-top: 1px solid rgb(var(--exo-ink-rgb) / 0.12);
   text-align: left;
   text-shadow: 0 1px 6px rgba(0, 0, 0, 0.92);
+}
 
+/* Light's dark words on white glass need no halo; a black one smudged them. */
+:root[data-exo-theme="light"] .exo-game-stats {
+  text-shadow: none;
 }
 
 /* The game page's one message: a pill floating at its foot, over the page, never in its flow. */
@@ -193,7 +203,7 @@
   max-width: min(520px, calc(100% - 48px));
   margin: 0;
   padding: 8px 16px;
-  border: 1px solid #242424;
+  border: 1px solid rgb(var(--exo-ink-rgb) / 0.14);
   border-radius: 999px;
   background: var(--exo-fill);
   font-size: calc(12px * var(--exo-scale, 1));

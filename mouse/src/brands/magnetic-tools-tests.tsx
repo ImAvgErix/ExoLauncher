@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { Row, Segmented } from '../ui'
 import './magnetic-tools.css'
@@ -163,10 +163,10 @@ export function PollingTest({ reportedHz }: { reportedHz: number | null }) {
         {phase === 'run' ? (elapsed === 0 ? 'Move the mouse' : hzText(live))
           : phase === 'done' ? (shown ? 'Click to run again' : 'Not enough movement. Click to run again')
             : 'Click, then move the mouse in circles'}
+        {/* The run's progress fills along the pad's own foot, there only while it runs: an empty track under the
+            pad read as a stray line. The report keeps its place, so nothing re-lays out mid-test. */}
+        {phase === 'run' ? <span className="mt-progress" style={{ '--fill': elapsed / SAMPLE_MS } as CSSProperties} /> : null}
       </div>
-      {/* The bar and the report keep their place before and during a run, so the panel never changes
-          height under the pointer and the room does not re-lay out mid-test. */}
-      <div className="mt-progress"><span style={{ width: `${phase === 'run' ? (elapsed / SAMPLE_MS) * 100 : phase === 'done' ? 100 : 0}%` }} /></div>
       <Row label="Average"><span className="m-state">{shown ? hzText(shown.avg) : '-'}</span></Row>
       <Row label="Peak"><span className="m-state">{shown ? hzText(shown.peak) : '-'}</span></Row>
       <Row label="Lowest 5%"><span className="m-state">{shown ? hzText(shown.low5) : '-'}</span></Row>

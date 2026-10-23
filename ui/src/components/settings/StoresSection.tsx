@@ -1,6 +1,6 @@
-import { memo, useCallback, useState } from 'react'
+import { memo, useCallback, useEffect, useState } from 'react'
 import { CompanyLogo } from '../../brand/CompanyLogo'
-import { host, type AccountStore, type LauncherSettings, type StoreAccounts, type StoreStatus, type SwitchStore } from '../../lib/host'
+import { host, onHostEvent, type AccountStore, type LauncherSettings, type StoreAccounts, type StoreStatus, type SwitchStore } from '../../lib/host'
 import { AccountControl, AccountHours, AccountRows, accountDetail, accountLine, useStoreAccounts } from './StoreAccounts'
 import {
   availableStoreRows,
@@ -62,6 +62,7 @@ function InstalledStore({ store, busy, note, accounts, onConnect, onOpen, onAcco
             {busy === 'open' ? 'Opening…' : 'Open'}
           </button>
         ) : null}
+        <StoreSignIn store={store.store} onLine={setAccountNote} onError={setAccountError} />
         {showAccount && accounts ? (
           <AccountControl
             store={store.store as AccountStore | SwitchStore}
@@ -107,6 +108,44 @@ function MissingStore({ store, onError }: { store: StoreStatus; onError: (error:
       </button>
     </li>
   )
+}
+
+/**
+ * Steam's sign-in, as Epic's goes through Legendary: Valve's own sign-in page in Exo's window, once, kept until Sign
+ * out. It is what Steam's website needs (the Library's gifts); Exo reads the rest from the Steam app. On the Steam row,
+ * in Settings and in setup.
+ */
+export function SteamSignIn({ onLine, onError }: { onLine: (line: string | null) => void; onError: (error: string | null) => void }) {
+  const [signedIn, setSignedIn] = useState<boolean | null>(null)
+  const [busy, setBusy] = useState(false)
+  useEffect(() => {
+    host.giftsList().then(result => setSignedIn(result.steamSignedIn)).catch(() => setSignedIn(false))
+    return onHostEvent('gifts.changed', result => setSignedIn(result.steamSignedIn))
+  }, [])
+  const run = useCallback(async (signIn: boolean) => {
+    setBusy(true)
+    onError(null)
+    try {
+      const result = await (signIn ? host.giftsSteamSignIn() : host.giftsSteamSignOut())
+      if (result.ok) { setSignedIn(signIn); onLine(result.message ?? null) }
+      else onError(result.message ?? 'That did not finish. Try again.')
+    } catch {
+      onError('That did not finish. Try again.')
+    } finally {
+      setBusy(false)
+    }
+  }, [onLine, onError])
+  if (signedIn === null) return null
+  return (
+    <button type="button" className="exo-set-btn" disabled={busy} onClick={() => void run(!signedIn)}>
+      {busy ? (signedIn ? 'Signing out…' : 'Signing in…') : signedIn ? 'Sign out' : 'Sign in'}
+    </button>
+  )
+}
+
+/** The row's own sign-in where the store needs one beyond its app (Steam's website). */
+function StoreSignIn({ store, onLine, onError }: { store: string; onLine: (line: string | null) => void; onError: (error: string | null) => void }) {
+  return store === 'steam' ? <SteamSignIn onLine={onLine} onError={onError} /> : null
 }
 
 /** Steam's and Epic's own pop-ups and sounds, off with one press and kept off. */

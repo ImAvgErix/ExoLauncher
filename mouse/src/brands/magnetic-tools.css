@@ -100,18 +100,20 @@
 .mt-pad.is-wait { background: var(--bg); border-color: var(--muted); }
 .mt-pad.is-go { background: color-mix(in srgb, var(--good) 28%, transparent); border-color: var(--good); color: var(--ink); }
 
-.mt-progress {
-  height: 2px;
-  margin: -8px 0 12px;
-  border-radius: 999px;
-  background: var(--hair-control);
+.mt-pad:has(.mt-progress) {
+  position: relative;
   overflow: hidden;
 }
 
-.mt-progress > span {
-  display: block;
-  height: 100%;
+.mt-progress {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  height: 3px;
   background: var(--ink);
+  transform: translateX(calc(var(--fill, 0) * 100% - 100%));
+  transition: transform 100ms linear;
 }
 
 .mt-ladder {

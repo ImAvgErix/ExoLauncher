@@ -14,6 +14,8 @@ export type DiscordSignInStep = {
 export type DiscordDm = { id: string; name: string; avatar: string | null; look?: DiscordLook | null; group: boolean; unread: boolean; mentions: number; muted?: boolean; mutedUntil?: number | null; status?: string | null; userId?: string | null; username?: string | null; recipients?: string[]; subtitle?: string | null; call?: DiscordVoiceMember[] | null }
 export type DiscordGuild = {
   id: string; name: string; icon: string | null; muted: boolean; unread: boolean; mentions: number
+  /** How many people are in its voice channels you can see. */
+  inVoice?: number
   /** When a timed mute ends (ms). */
   mutedUntil?: number | null
   /** Notification Settings: 0 all messages, 1 only @mentions, 2 nothing. */
@@ -120,7 +122,7 @@ export type DiscordChannel = {
 }
 export type DiscordVoiceMember = { id: string; name: string; avatar: string | null; look?: DiscordLook | null; mute: boolean; deaf: boolean; video?: boolean; stream?: boolean }
 /** message: why the call ended on its own (a join Discord never answered, a connection that gave up). */
-export type DiscordVoice = { state: 'off' | 'connecting' | 'connected'; guildId: string | null; channelId: string | null; muted: boolean; deafened: boolean; e2ee: boolean; message?: string | null; ringing?: string | null }
+export type DiscordVoice = { state: 'off' | 'connecting' | 'connected'; guildId: string | null; channelId: string | null; muted: boolean; deafened: boolean; e2ee: boolean; micSilent?: boolean; message?: string | null; ringing?: string | null }
 export type DiscordChannels = {
   name: string | null
   channels: DiscordChannel[]
@@ -147,6 +149,19 @@ export type DiscordModeration = {
   kick: boolean; ban: boolean; manageGuild: boolean; auditLog: boolean; manageRoles: boolean; timeout: boolean
   manageChannels: boolean; manageExpressions: boolean; manageWebhooks: boolean; manageNicknames: boolean; prune: boolean; owner: boolean
 }
+/** An invite as a message's invite card shows it: the server (name only for a group DM), its counts, and whether you're in it. */
+export type DiscordInvite = {
+  guildId: string | null
+  channelId: string | null
+  name: string | null
+  icon: string | null
+  verified: boolean
+  partnered: boolean
+  online: number | null
+  members: number | null
+  joined: boolean
+}
+
 export type DiscordGuide = {
   welcome_message?: { message?: string } | null
   new_member_actions?: { channel_id: string; title: string; description?: string; emoji?: { name?: string | null } | null }[]
@@ -342,6 +357,12 @@ export function cdnSize(size: number): number {
   return Math.min(4096, 2 ** Math.ceil(Math.log2(Math.max(128, size * Math.max(2, window.devicePixelRatio || 1)))))
 }
 
+/** A Discord CDN picture at the size it is drawn: the host's lists link one size (256) for every place, which a 32px
+ * row decoded four times over. Any other link is left as it is. */
+export function cdnSized(url: string, size: number): string {
+  return url.startsWith('https://cdn.discordapp.com/') ? url.replace(/([?&]size=)\d+/, `$1${cdnSize(size)}`) : url
+}
+
 /** The picture hash in a Discord avatar link (the room's lists carry links; a message's author carries the hash). */
 export function avatarHashOf(url: string | null | undefined): string | null {
   return url ? /\/avatars\/\d+\/([^.?/]+)/.exec(url)?.[1] ?? null : null
@@ -458,8 +479,8 @@ export type DiscordRich = { type: number; name: string; details?: string | null;
 export type DiscordMemberItem =
   | { group: string; count: number }
   | { id: string; name: string; avatar: string | null; color: string | null; bot: boolean; status: string; activity?: string | null; look?: DiscordLook | null }
-/** rows: every row Discord's list has (groups and members), so more can be asked for as it scrolls. */
-export type DiscordMemberList = { items: DiscordMemberItem[]; online: number; total: number; rows?: number }
+/** items: each row at Discord's index, null where Discord hasn't sent it yet; rows: every row the list has (groups and members). */
+export type DiscordMemberList = { items: (DiscordMemberItem | null)[]; online: number; total: number; rows?: number }
 export type DiscordGif = { id: string; title?: string; url: string; src: string; gif_src?: string; width: number; height: number; preview?: string }
 export type DiscordThread = {
   id: string; name: string; parent_id: string; message_count?: number; last_message_id?: string | null; applied_tags?: string[]

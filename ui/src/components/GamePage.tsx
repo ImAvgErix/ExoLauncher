@@ -7,12 +7,13 @@ import { installProgressLabel, transferPercent } from '../lib/utils'
 import { CoverArt, HeroWash } from './CoverArt'
 import { GameHeader, GameStats, GameStore } from './game/GameSections'
 import { HdrRow } from './game/HdrRow'
+import { FrameGenRow } from './game/FrameGenRow'
 import { ArtworkStrip, GameActions } from './game/ManageStrip'
 import { PrimaryAction } from './game/PrimaryAction'
 import { ShaderPrecompile } from './game/ShaderPrecompile'
 import { useGameDetails } from './game/useGameDetails'
 import { useJustFinished } from '../lib/useJustFinished'
-import { useGlassTone, useLens } from '../lib/glass'
+import { useLens } from '../lib/glass'
 import { UpscalerFiles } from './UpscalerFiles'
 
 function isNoiseStatus(message: string): boolean {
@@ -174,7 +175,6 @@ export function GamePage({
   const finished = useJustFinished(downloading, isCurrent(selected))
   const close = useRef<HTMLButtonElement>(null)
   useLens(close)
-  useGlassTone(close, 'game-close')
 
   return (
     <article className="exo-game-page exo-enter">
@@ -260,6 +260,7 @@ export function GamePage({
               {installedActions && (
                 <HdrRow key={'hdr' + details.selectionKey} gameId={selected.id} hdrForGames={hdrForGames} onHdrForGames={onHdrForGames} />
               )}
+              {installedActions && <FrameGenRow key={'framegen' + details.selectionKey} gameId={selected.id} />}
             </div>
           </div>
         </div>

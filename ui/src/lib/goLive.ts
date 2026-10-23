@@ -16,7 +16,7 @@ import { discordPrefs } from './discordPrefs'
  */
 export type SendState = 'off' | 'picking' | 'connecting' | 'live'
 /** What the stream sends now; max is its ceiling, which moving pictures use (a still one needs far less). */
-export type GoLiveStats = { width: number; height: number; fps: number; bitrate: number; max?: number }
+export type GoLiveStats = { width: number; height: number; fps: number; bitrate: number; max?: number; codec?: string }
 export type GoLiveChoice = { source: string; height: number; fps: number; sound: boolean }
 
 function base64(bytes: Uint8Array): string {

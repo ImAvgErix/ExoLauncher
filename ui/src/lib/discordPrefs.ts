@@ -104,11 +104,17 @@ export type DiscordAccountAction = 'me' | 'name' | 'profile' | 'avatar' | 'banne
 export type DiscordClientSettings = {
   inputProfile: 'exo' | 'custom'
   noiseSuppression: boolean
+  noiseSuppressionKind?: 'ai' | 'standard'
   /** The same on everyone else's voice in a call, each their own; off by default. */
   othersNoiseSuppression: boolean
+  /** Only My Voice: voices that aren't the learned one are held back in calls (needs myVoiceLearned). */
+  onlyMyVoice: boolean
+  /** Whether Exo has learned this user's voice (from a Voice Check take); read-only. */
+  myVoiceLearned?: boolean
+  /** Each person's voice in a call brought toward one speaking level, for you; on by default. */
+  evenVoices: boolean
   /** Exo's echo cancellation, which runs only on speakers that aren't on your head. */
   echoCancellation: boolean
-  autoGain: boolean
   /** Exo's own gate, leveler and limiter after noise suppression (Custom; Voice Isolation always has it). */
   voiceFocus: boolean
   pushToTalk: boolean

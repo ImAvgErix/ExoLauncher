@@ -8,8 +8,8 @@ import { Avatar } from './presence'
 import { Nameplate, StyledName } from './collectibles'
 import { showFullProfile } from './profileParts'
 import { Confirm, StrangerConfirm } from './admin'
-import { openToggle } from './openToggle'
 import { usePageActive } from '../../lib/pageActivity'
+import { useDismiss } from '../../lib/dismiss'
 
 type Tab = 'online' | 'all' | 'pending' | 'add'
 
@@ -131,12 +131,11 @@ export function FriendsPage({ onOpenDm }: { onOpenDm: (channelId: string) => voi
 // A friend's More menu: closes on a press outside it or Escape.
 function FriendMenu({ onClose, onRemove }: { onClose: () => void; onRemove: () => void }) {
   const box = useRef<HTMLDivElement>(null)
+  useDismiss(box, onClose)
   useEffect(() => {
-    const away = (event: PointerEvent) => { if (!box.current?.contains(event.target as Node) && !openToggle(event.target)) onClose() }
     const escape = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose() }
-    document.addEventListener('pointerdown', away, true)
     document.addEventListener('keydown', escape)
-    return () => { document.removeEventListener('pointerdown', away, true); document.removeEventListener('keydown', escape) }
+    return () => document.removeEventListener('keydown', escape)
   }, [onClose])
   return (
     <div className="exo-dc-menu is-message" role="menu" ref={box}>
@@ -239,14 +238,17 @@ function ActiveCard({ friend, now, onOpen }: { friend: DiscordFriend; now: numbe
         <span className="exo-dc-friend-names"><strong>{friend.name}</strong><span>{head}</span></span>
         {Icon ? <Icon size={18} className="exo-dc-active-kind" /> : null}
       </span>
-      <span className="exo-dc-active-what">
-        {rich.image ? <img src={rich.image} alt="" draggable={false} /> : Icon ? <span className="exo-dc-active-art"><Icon size={22} /></span> : null}
-        <span className="exo-dc-friend-names">
-          <strong>{title}</strong>
-          {sub ? <span>{sub}</span> : null}
-          {!spotify && rich.start ? <span>{elapsed(rich.start, now)}</span> : null}
+      {/* What they are in, when there is more to it than the line above (a plain game's name and time already are). */}
+      {spotify || rich.image || rich.details ? (
+        <span className="exo-dc-active-what">
+          {rich.image ? <img src={rich.image} alt="" draggable={false} onError={event => { event.currentTarget.hidden = true }} /> : Icon ? <span className="exo-dc-active-art"><Icon size={22} /></span> : null}
+          <span className="exo-dc-friend-names">
+            <strong>{title}</strong>
+            {sub ? <span>{sub}</span> : null}
+            {!spotify && rich.start ? <span>{elapsed(rich.start, now)}</span> : null}
+          </span>
         </span>
-      </span>
+      ) : null}
     </button>
   )
 }

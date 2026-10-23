@@ -6,6 +6,7 @@ import { useAccountSettings } from '../../lib/discordPrefs'
 import { loadEmojis } from './EmojiPicker'
 import { Icons } from './icons'
 import { emojiUrl } from './markdown'
+import { ModalBack } from './SettingsLayer'
 
 /** One chip under a message: a reaction's normal count, or its super reactions on a chip of their own, as Discord shows them. */
 type Chip = { reaction: DiscordReaction; burst: boolean; count: number; mine: boolean }
@@ -156,7 +157,7 @@ export function ReactionsDialog({ message, first, onClose }: { message: DiscordM
     }).catch(() => setError('Discord did not take that reaction off.'))
   }
   return (
-    <div className="exo-dc-modal-back" onClick={onClose}>
+    <ModalBack onClose={onClose}>
       <div className="exo-dc-modal exo-dc-reactors" role="dialog" aria-label="Reactions" onClick={event => event.stopPropagation()}>
         <div className="exo-dc-reactors-emoji" role="tablist" aria-label="Reactions">
           {chips.map(chip => {
@@ -192,6 +193,6 @@ export function ReactionsDialog({ message, first, onClose }: { message: DiscordM
           {busy ? <p className="exo-dc-note">Loading</p> : null}
         </div>
       </div>
-    </div>
+    </ModalBack>
   )
 }

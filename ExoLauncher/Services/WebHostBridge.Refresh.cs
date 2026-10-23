@@ -11,7 +11,7 @@ public sealed partial class WebHostBridge
     /// asked for its games, time played and last launched again (games that
     /// weren't showing appear), hours from tracker.gg (Riot games) and Xbox are read again where a name or key is saved,
     /// achievements are read for every installed or played game
-    /// (three at a time), and every cover is fetched again. Each part that
+    /// (three at a time), gifts waiting on Steam and Epic are read again, and every cover is fetched again. Each part that
     /// fails is logged and the rest go on.
     /// </summary>
     private async Task<object> LibraryRefreshAllAsync(CancellationToken ct)
@@ -43,6 +43,7 @@ public sealed partial class WebHostBridge
             catch (Exception ex) { AppLog.Debug($"Refresh: achievements for {game.Id} skipped: {ex.GetType().Name}"); }
         }).ConfigureAwait(false);
 
+        _queue.TryEnqueue(() => _ = ReadGiftsAsync());
         var covers = await _services.Artwork.RefetchAllAsync(ct).ConfigureAwait(false);
         OnLibraryUpdated();
         AppLog.Info($"Library read again, achievements for {played.Count} games ({achievements} answered), {covers} covers.");

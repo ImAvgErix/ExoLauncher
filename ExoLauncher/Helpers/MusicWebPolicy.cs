@@ -4,8 +4,8 @@ namespace ExoLauncher.Helpers;
 /// Allow-lists for the music web players hosted on WebView2: YouTube Music
 /// (music.youtube.com) and Apple Music (music.apple.com). Both run hidden as
 /// the engine behind Exo's own player; only their own sign-in pages ever show,
-/// in Exo's sign-in window. The view runs uBlock Origin
-/// (WebAdBlocker) and the bundled extensions (WebExtensions); Exo
+/// in Exo's sign-in window. The view runs the bundled
+/// extensions (WebExtensions: uBlock Origin Lite, SponsorBlock, Better Lyrics); Exo
 /// always optimizes YouTube Music, which also hides its Premium upsells
 /// (EmbeddedClientPresentation).
 /// </summary>

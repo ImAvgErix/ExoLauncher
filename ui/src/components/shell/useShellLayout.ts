@@ -1,6 +1,9 @@
 import { useEffect, useSyncExternalStore } from 'react'
 import { host, type ChromeLayout, type ChromeRect, type LauncherSettings } from '../../lib/host'
 import { applyTextTheme, textThemeFrom } from '../../lib/exoTheme'
+import { APPEARANCE_KEY, asAppearance, storedAppearance, subscribeWindowsMode, themeOf, windowsLight } from '../../lib/appearance'
+import { transition } from '../../lib/viewTransition'
+import { modalOpen, watchLayers } from '../../lib/dismiss'
 
 export type ShellLayout = {
   /** The app setting or Windows asks for less motion. */
@@ -22,6 +25,8 @@ function systemReducesMotion(): boolean {
 const TITLE_BAND = '.exo-titlebar'
 /** What takes a click in the title band. Every other point of the band drags the window. */
 const TITLE_BAND_CONTROLS = 'button,a,input,select,textarea,[role="button"],[role="slider"]'
+/** While a sheet or dialog dims the app, only this top strip drags the window: a press anywhere else on the band reaches the page and closes it. */
+const MODAL_DRAG_STRIP = 6
 
 function bandRect(element: Element, band: DOMRect): ChromeRect | null {
   const bounds = element.getBoundingClientRect()
@@ -46,7 +51,8 @@ function bandRect(element: Element, band: DOMRect): ChromeRect | null {
 function measureTitleBand(bar: Element): ChromeLayout {
   const band = bar.getBoundingClientRect()
   const maximize = bar.querySelector('[data-exo-maximize]')
-  const interactiveRegions = [...bar.querySelectorAll(TITLE_BAND_CONTROLS)]
+  const below = { x: Math.floor(band.left), y: Math.floor(band.top) + MODAL_DRAG_STRIP, width: Math.ceil(band.width), height: Math.ceil(band.height) - MODAL_DRAG_STRIP }
+  const interactiveRegions = modalOpen() ? [below] : [...bar.querySelectorAll(TITLE_BAND_CONTROLS)]
     // A control inside another measured control is already covered.
     .filter(element => element !== maximize && !element.parentElement?.closest(TITLE_BAND_CONTROLS))
     .flatMap(element => bandRect(element, band) ?? [])
@@ -68,7 +74,12 @@ export function useShellLayout(settings: LauncherSettings | null): ShellLayout {
   const reduceMotion = settings?.reduceMotion === true || systemReduce
   const textColour = settings?.textColour
   const textSize = settings?.textSize
-  const glass = settings?.glass === 'tinted' || settings?.glass === 'solid' ? settings.glass : 'clear'
+  // Glass or Solid (Settings › General › Material). Glass stays glass with Windows' transparency effects off.
+  const glass = settings?.glass === 'solid' ? 'solid' : 'clear'
+  // Until the host answers, the choice public/theme.js drew the first frame with.
+  const appearance = settings ? asAppearance(settings.appearance) : storedAppearance()
+  const light = useSyncExternalStore(subscribeWindowsMode, windowsLight)
+  const theme = themeOf(appearance, light)
 
   useEffect(() => {
     document.documentElement.dataset.exoMotion = reduceMotion ? 'reduce' : 'full'
@@ -77,6 +88,14 @@ export function useShellLayout(settings: LauncherSettings | null): ShellLayout {
   useEffect(() => {
     document.documentElement.dataset.exoGlass = glass
   }, [glass])
+
+  // A new Appearance crossfades the whole window from the old to the new (transitions.css › theme), as macOS changes
+  // Light and Dark; the first frame's (public/theme.js) is already in place.
+  useEffect(() => {
+    const root = document.documentElement
+    if (root.dataset.exoTheme !== theme) void transition(() => { root.dataset.exoTheme = theme }, { kind: 'theme' })
+    try { localStorage.setItem(APPEARANCE_KEY, appearance) } catch { /* the next start opens in Match Windows */ }
+  }, [theme, appearance])
 
   useEffect(() => {
     applyTextTheme(textThemeFrom({ textColour, textSize }))
@@ -122,7 +141,8 @@ export function useShellLayout(settings: LauncherSettings | null): ShellLayout {
     })
     mutations.observe(document.body, { childList: true, subtree: true })
     window.addEventListener('resize', schedule)
-    return () => { sizes.disconnect(); mutations.disconnect(); window.removeEventListener('resize', schedule); cancelAnimationFrame(frame) }
+    const unwatch = watchLayers(schedule)
+    return () => { sizes.disconnect(); mutations.disconnect(); unwatch(); window.removeEventListener('resize', schedule); cancelAnimationFrame(frame) }
   }, [])
 
   return { reduceMotion }

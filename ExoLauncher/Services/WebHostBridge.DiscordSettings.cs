@@ -364,9 +364,12 @@ public sealed partial class WebHostBridge
         {
             inputProfile = VoiceProcessing.From(settings).Profile,
             noiseSuppression = settings.DiscordNoiseSuppression,
+            noiseSuppressionKind = settings.DiscordNoiseSuppressionKind,
             othersNoiseSuppression = settings.DiscordOthersNoiseSuppression,
+            onlyMyVoice = settings.DiscordOnlyMyVoice,
+            myVoiceLearned = Voiceprint.Learned,
+            evenVoices = settings.DiscordEvenVoices,
             echoCancellation = settings.DiscordEchoCancellation,
-            autoGain = settings.DiscordAutoGain,
             voiceFocus = settings.DiscordVoiceFocus,
             pushToTalk = settings.DiscordPushToTalk,
             pttDelay = settings.DiscordPttDelay,
@@ -390,9 +393,11 @@ public sealed partial class WebHostBridge
     {
         if (profile is not null) s.DiscordInputProfile = profile;
         if (ReadBool(p, hasParams, "noiseSuppression") is { } ns) s.DiscordNoiseSuppression = ns;
+        if (ReadString(p, hasParams, "noiseSuppressionKind") is { } kind && kind is "ai" or "standard") s.DiscordNoiseSuppressionKind = kind;
         if (ReadBool(p, hasParams, "othersNoiseSuppression") is { } forOthers) s.DiscordOthersNoiseSuppression = forOthers;
+        if (ReadBool(p, hasParams, "onlyMyVoice") is { } onlyMine) s.DiscordOnlyMyVoice = onlyMine;
+        if (ReadBool(p, hasParams, "evenVoices") is { } even) s.DiscordEvenVoices = even;
         if (ReadBool(p, hasParams, "echoCancellation") is { } ec) s.DiscordEchoCancellation = ec;
-        if (ReadBool(p, hasParams, "autoGain") is { } ag) s.DiscordAutoGain = ag;
         if (ReadBool(p, hasParams, "voiceFocus") is { } vf) s.DiscordVoiceFocus = vf;
         if (ReadBool(p, hasParams, "pushToTalk") is { } ptt) s.DiscordPushToTalk = ptt;
         if (ReadDouble(p, hasParams, "pttDelay") is { } delay) s.DiscordPttDelay = (int)Math.Clamp(delay, 0, 2000);
@@ -443,6 +448,21 @@ public sealed partial class WebHostBridge
             case "noDucking": return VoiceTune.SetNoDucking();
             default: return new { ok = false, message = "Unknown action." };
         }
+    }
+
+    /// <summary>Only My Voice: { action: "learn" } learns the user's voice from the last Voice Check take, "forget" deletes it.</summary>
+    private static async Task<object> DiscordMyVoiceAsync(JsonElement p, bool hasParams, CancellationToken ct)
+    {
+        var action = hasParams && p.TryGetProperty("action", out var a) ? a.GetString() : null;
+        if (action == "forget")
+        {
+            Voiceprint.Forget();
+            return new { ok = true, learned = false, message = (string?)null };
+        }
+        if (action != "learn") return new { ok = false, learned = Voiceprint.Learned, message = (string?)"Unknown action." };
+        if (VoiceCheck.LastTake is not { } take) return new { ok = false, learned = Voiceprint.Learned, message = (string?)"Record a Voice Check first." };
+        var problem = await MyVoice.LearnAsync(take.Cleaned, take.Voiced, ct).ConfigureAwait(true);
+        return new { ok = problem is null, learned = Voiceprint.Learned, message = problem };
     }
 
     /// <summary>The Input Sensitivity meter: { on } starts or renews it, off stops it.</summary>

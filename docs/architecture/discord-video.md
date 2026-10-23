@@ -7,24 +7,27 @@ libdave (`voice/`, `ExoLauncher/Services/DiscordClient/Voice/`). Video uses the 
 ## Split
 
 - **Host (C#)**: everything on the wire. Video RTP in and out on the call's UDP leg, H.264
-  packetization (RFC 6184: single NAL, STAP-A, FU-A), frame assembly, DAVE encryption and
+  packetization (RFC 6184, `Voice/H264Rtp.cs`: single NAL and FU-A out, STAP-A too in), NACK, RTX and
+  receiver feedback (transport-cc, REMB), frame assembly, DAVE encryption and
   decryption of whole frames (libdave handles H.264's unencrypted ranges itself), the voice
   gateway's video ops, and Go Live's own connections.
 - **Exo Capture (`capture/`, its own GPL program)**: Go Live's pixels. Exo itself never captures the
   screen (`BannedSymbols.txt`), so the add-on lists pictures for the picker and streams the chosen
   window or screen (below).
-- **Page (WebView2, Chromium)**: decoding with WebCodecs `VideoDecoder` (hardware H.264) and drawing
-  into the call's tiles; the camera (`getUserMedia`, WebCodecs `VideoEncoder`, hardware H.264, Annex B,
-  frames to the host as base64 messages); Go Live's picker, quality and preview
+- **Page (WebView2, Chromium)**: decoding with WebCodecs `VideoDecoder` (hardware first, software if
+  the card refuses) and drawing into the call's tiles (`ui/src/lib/discordVideo.ts`); the camera
+  (`getUserMedia`, WebCodecs `VideoEncoder`, hardware H.264, Annex B, frames to the host as base64
+  messages, `ui/src/lib/goLive.ts`); Go Live's picker, quality and preview
   (`ui/src/components/discord/GoLivePicker.tsx`).
 
 ## Go Live: picker, capture and encoder
 
 Discord's own flow, in Exo's look: Share Your Screen opens Exo's picker (Applications and Screens, each
 a picture with its title and app icon, the running library game first as the Game shortcut), then the
-quality (Resolution 720p, 1080p, 1440p or Source; Frame rate 15, 30 or 60; Stream sound) beside a live
-preview, then Go Live. While live the button opens the stream's own picture with its real resolution,
-frame rate and bit rate, and Stop Streaming.
+quality (Resolution 720p, 1080p, 1440p or Source, never above the source; Frame rate 15, 30, 60 or 120;
+Stream sound) beside a live preview, then Go Live. While live, your stream is a tile in the call playing
+the very frames viewers get, with LIVE, its real size, frame rate and bit rate, Hide Preview and Stop
+Streaming.
 
 - **Listing** (host, `GoLiveSources`): screens by `EnumDisplayMonitors`, windows by `EnumWindows` with
   Alt+Tab's rule (visible, not minimized, not a tool window or another window's dialog unless it asks
@@ -41,15 +44,30 @@ frame rate and bit rate, and Stop Streaming.
   (`IGraphicsCaptureItemInterop` CreateForWindow/CreateForMonitor, cursor on, border off), the GPU's
   video processor scales and converts to NV12 on the same D3D11 device, and the GPU's own H.264
   encoder (NVENC, AMF or Quick Sync through Media Foundation) encodes with low latency, no B-frames,
-  CBR with a one-second buffer, a key frame every five seconds and on request. The host's
-  `GoLivePlan` picks the size (the chosen height, never above the source's, 4096 a side and 4K's
-  pixels at most) and the rate (6 Mbit/s at 1080p 30, a third more at 60, within 1 to 10 Mbit/s);
-  op 12 announces both. A content resize keeps the stream's size (fitted, black around it).
+  CBR with a half-second buffer, a key frame on request and every minute. An encoder that
+  refuses steps down to 60, then 30 fps, then at most 1080p; a card whose encoder won't start at all
+  streams on Windows' own H.264 encoder on the CPU at up to 720p 30. The capture never runs faster
+  than the screen. The host's `GoLivePlan` (`GoLiveCapture.cs`) picks the size (the chosen height,
+  never above the source's, 4096 a side and 4K's pixels at most; 120 fps only up to 1440p's pixels)
+  and the rate (YouTube's upload table: 5 Mbit/s at 720p 30, 8 at 1080p, 16 at 1440p, 40 at 4K;
+  1.5 times at 60 fps, 2.25 at 120, 0.6 at 15; within 1 to 60 Mbit/s); op 12 announces both. Go Live
+  starts at 8 Mbit/s at most and then follows the server (`StreamRate`): under its REMB (9 Mbit/s seen),
+  down by half the loss its receiver reports past 10 %, up 8 % a second under 2 %, up to the plan's rate;
+  Exo Capture takes the new rate mid-stream (`stream.bitrate`). A content resize keeps the stream's size
+  (fitted, black around it).
 - **Frames to Discord**: Exo makes an anonymous pipe and duplicates its write end into the add-on
   (`CaptureAddon.ShareHandle`; still only the two processes hold it). Each frame is a 16-byte header
   (u32 length, u32 flags with 1 for a key frame, i64 capture time in 100 ns) and the Annex B frame,
   SPS and PPS in front of every key frame. `GoLiveCapture` reads them and hands them straight to the
-  stream's `VoiceConnection` (DAVE, RTP, RTX), timed on the 90 kHz clock from the capture time.
+  stream's `VoiceConnection` (DAVE, RTP, RTX), timed on the 90 kHz clock from the capture time. A pacer
+  sends the packets at 2.5 times the rate, resends first (libwebrtc's), and a lost packet is resent at most
+  once a round trip. Each video packet carries the extensions Discord's own do, in their order: abs-send-time
+  (id 3), toffset (2, zero) and the transport-wide sequence (5, two bytes); Discord's server drops video whose
+  id 5 is anything else.
+  First its SPS is made to say no frame is reordered (`H264Vui`, libwebrtc's `SpsVuiRewriter`): Discord's
+  apps receive with libwebrtc, whose depacketizer rewrites any other SPS after DAVE sealed the frame, and
+  that key frame then fails to decrypt (NVIDIA's encoder already writes one it keeps). New DAVE keys (a viewer
+  joined or left) ask for a key frame under them.
   Discord's PLI (`KeyframeRequested`) becomes `stream.keyframe` (at most four a second). The window
   closing or the add-on stopping ends the stream with that reason.
 - **Sound**: a window sends its app's sound only (process loopback INCLUDE_TARGET_PROCESS_TREE on the
@@ -73,14 +91,19 @@ and a camera frame is small.
   `streams: [{ type, rid: "100", quality: 100 }]`, where `type` is `"video"` on a call's connection and `"screen"` on
   Go Live's own (`MediaEngineStore.getVideoStreamParameters` for the stream context). READY answers with the streams'
   `ssrc` and `rtx_ssrc`.
-- SELECT_PROTOCOL: `codecs` lists Opus (payload type 120) and H.264 (101, RTX 102), each with
-  `encode`/`decode`. Exo offers only H.264 for video, which every Discord client has; SESSION
-  DESCRIPTION says the call's `video_codec`.
+- SELECT_PROTOCOL: `codecs` lists Opus (payload type 120), then H.265 (103, RTX 104) ahead of H.264 (101, RTX 102),
+  each with `encode`/`decode`, as Discord's apps list them (AV1, H.265, H.264, VP8; payload types from 101 by twos).
+  Exo encodes H.265 only on Go Live, where Exo Capture's card encodes HEVC, and decodes it where the page's WebCodecs
+  does in hardware (the page tells the host once, `discord.stream` `decode`), as Discord's apps do. SESSION
+  DESCRIPTION says the `video_codec` (and `keyframe_interval`); SESSION_UPDATE (op 14) changes it when someone joins
+  who can't play it. Go Live then starts Exo Capture over in that codec at the rate it had reached, and drops frames
+  in the old one meanwhile. H.265 goes out as RFC 7798 single NAL units and fragmentation units (`H265Rtp`), DAVE's
+  codec 5, and viewers' libwebrtc leaves its SPS alone.
 - Op 12 VIDEO: who sends video on which SSRC (`user_id`, `audio_ssrc`, `video_ssrc`, `rtx_ssrc`,
   `streams`). Sent by Exo to start or stop its own video (`streams: []` to stop), each stream with READY's type,
-  `active`, `max_bitrate`, `max_framerate` and `max_resolution` (`fixed` with the size, or `source`). A viewer asks the
-  server for the first `active` stream's SSRC (op 15 `{ "<ssrc>": 100, pixelCounts }`).
-- Op 15 MEDIA_SINK_WANTS: which video this client wants (`{ "any": 100 }` for all of it).
+  `active`, `max_bitrate`, `max_framerate` and `max_resolution` (`fixed` with the size).
+- Op 15 MEDIA_SINK_WANTS: which video this client wants. Discord's client names an SSRC
+  (`{ "<ssrc>": 100, pixelCounts }`); Exo asks for all of it (`{ "any": 100 }`).
 - Main gateway Go Live: op 18 STREAM_CREATE `{ type, guild_id, channel_id, preferred_region }`,
   op 22 STREAM_SET_PAUSED, op 19 STREAM_DELETE, op 20 STREAM_WATCH `{ stream_key }`. Discord answers
   with STREAM_CREATE (`stream_key`, `rtc_server_id`) and STREAM_SERVER_UPDATE (`endpoint`, `token`).
@@ -104,7 +127,8 @@ and a camera frame is small.
 
 ## Not yet
 
-- Simulcast (several qualities at once) and Discord's own bandwidth estimate; the encoder keeps the chosen bitrate.
+- Simulcast (several qualities at once), and congestion control from the server's transport-wide feedback
+  (Exo follows its REMB and reported loss).
 - A game in exclusive full screen that gives Windows.Graphics.Capture no picture (instant replay falls
   back to its game hook there; Go Live doesn't yet).
 - Changing the source or quality while live (stop and go live again).

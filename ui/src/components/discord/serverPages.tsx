@@ -12,6 +12,8 @@ import { Markdown } from './markdown'
 import { ChannelIcon } from './Sidebar'
 import { openUserMenu } from './UserMenu'
 import { useLayer } from './admin'
+import { ModalBack } from './SettingsLayer'
+import { useDismiss } from '../../lib/dismiss'
 
 /** Discord's rows over a server's channels, opened in place of a channel. */
 export const PAGES = { guide: 'page:guide', browse: 'page:browse', members: 'page:members' } as const
@@ -234,11 +236,11 @@ function Browse({ guildId, list, onPick }: { guildId: string; list: DiscordChann
           ) : null}
           {group.channels.map(c => (
             <div key={c.id} className="exo-dc-browse-row">
-              <button type="button" className="exo-dc-browse-name" disabled={c.kind === 'voice' || c.canRead === false} onClick={() => onPick(c.id)}>
+              <button type="button" className="exo-dc-browse-name" disabled={c.kind === 'voice'} onClick={() => onPick(c.id)}>
                 <span className="exo-dc-hash" aria-hidden="true"><ChannelIcon channel={c} /></span>
                 <span className="exo-dc-friend-names"><strong>{c.name}</strong>{c.active && c.kind !== 'voice' ? <span>Active {since(c.active)}</span> : null}</span>
               </button>
-              {c.kind !== 'voice' && c.canRead !== false ? <button type="button" className="exo-dc-tab is-raised exo-dc-browse-view" onClick={() => onPick(c.id)}>View</button> : null}
+              {c.kind !== 'voice' ? <button type="button" className="exo-dc-tab is-raised exo-dc-browse-view" onClick={() => onPick(c.id)}>View</button> : null}
               <input type="checkbox" aria-label={`Show ${c.name} in the channel list`} checked={!list.optIn || c.optedIn === true} onChange={event => follow(c.id, event.target.checked)} />
             </div>
           ))}
@@ -352,6 +354,8 @@ export function Members({ guildId, canPrune }: { guildId: string; canPrune: bool
   const [page, setPage] = useState(0)
   const [size, setSize] = useState(PAGE_SIZES[0])
   const [panel, setPanel] = useState<'sort' | 'prune' | null>(null)
+  const sortMenu = useRef<HTMLSpanElement>(null)
+  useDismiss(sortMenu, () => setPanel(null), { on: panel === 'sort' })
   const all = loaded?.rows ?? []
   const pages = Math.max(1, Math.ceil(all.length / size))
   const at = Math.min(page, pages - 1)
@@ -370,7 +374,7 @@ export function Members({ guildId, canPrune }: { guildId: string; canPrune: bool
             <Icons.Search size={16} />
             <input placeholder="Search by username or id" value={query} onChange={event => { setQuery(event.target.value); setPage(0) }} aria-label="Search members" />
           </label>
-          <span className="exo-dc-menu-anchor">
+          <span ref={sortMenu} className="exo-dc-menu-anchor">
             <button type="button" className="exo-dc-tab is-raised" aria-expanded={panel === 'sort'} onClick={() => setPanel(p => p === 'sort' ? null : 'sort')}>Sort</button>
             {panel === 'sort' ? (
               <div className="exo-dc-menu is-right" role="menu">
@@ -437,7 +441,7 @@ function Prune({ guildId, onClose, onPruned }: { guildId: string; onClose: () =>
   const box = useRef<HTMLDivElement>(null)
   useLayer(box, onClose)
   return (
-    <div className="exo-dc-modal-back is-top" onClick={onClose}>
+    <ModalBack top onClose={onClose}>
       <div ref={box} className="exo-dc-modal" role="dialog" aria-modal="true" aria-label="Prune members" tabIndex={-1} onClick={event => event.stopPropagation()}>
         <strong>Prune members</strong>
         <p>Remove members who haven't been seen in a while and have no roles. They can rejoin with a new invite.</p>
@@ -451,7 +455,7 @@ function Prune({ guildId, onClose, onPruned }: { guildId: string; onClose: () =>
           <button type="button" className="button button--primary exo-dc-danger-btn" disabled={busy || !count} onClick={() => void prune()}>Prune</button>
         </div>
       </div>
-    </div>
+    </ModalBack>
   )
 }
 
@@ -519,8 +523,8 @@ export function CreateChannel({ guildId, parentId, category, onCreated, onClose 
     } finally { setBusy(false) }
   }
   return (
-    <div className="exo-dc-modal-back" onClick={onClose} onKeyDown={event => { if (event.key === 'Escape') onClose() }}>
-      <div className="exo-dc-modal" role="dialog" aria-label="Create Channel" onClick={event => event.stopPropagation()}>
+    <ModalBack onClose={onClose}>
+      <div className="exo-dc-modal" role="dialog" aria-label="Create Channel" onClick={event => event.stopPropagation()} onKeyDown={event => { if (event.key === 'Escape') onClose() }}>
         <strong>Create Channel</strong>
         <p>in {category}</p>
         <p className="exo-dc-side-label">Channel type</p>
@@ -539,6 +543,6 @@ export function CreateChannel({ guildId, parentId, category, onCreated, onClose 
           <button type="button" className="button button--primary" disabled={!name.trim() || busy} onClick={() => void create()}>Create Channel</button>
         </div>
       </div>
-    </div>
+    </ModalBack>
   )
 }

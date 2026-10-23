@@ -161,7 +161,7 @@ std::wstring ThumbName(const std::wstring& path)
 }
 
 /// Go Live (Exo's Discord client): one window or screen encoded for Discord's servers (H.264, a
-/// constant bit rate, a key frame every five seconds and whenever Discord asks) and written to the
+/// constant bit rate, a key frame whenever Discord asks and every minute) and written to the
 /// pipe Exo made and handed over (its write end duplicated into this process; no other program has
 /// it). Per frame: a 16-byte header (u32 length, u32 flags with 1 for a key frame, i64 capture time
 /// in 100 ns) and the frame (Annex B, its SPS and PPS in front of every key frame). Exo encrypts
@@ -170,9 +170,10 @@ class Streamer
 {
 public:
     Streamer(std::shared_ptr<GpuDevice> gpu, const CaptureSession::Options& options, HANDLE pipe, std::function<void(const char*)> ended)
-        : m_pipe(pipe), m_ended(std::move(ended))
+        : m_pipe(pipe), m_ended(std::move(ended)), m_codec(options.codec)
     {
         m_video = std::make_unique<CaptureSession>(std::move(gpu), options, [this](PacketPtr packet) { OnPacket(packet); });
+        m_codec = m_video->CodecUsed(); // HEVC asked for, H.264 when the card's encoder refused it
         m_writer = std::thread([this] { Write(); });
         m_watch = std::thread([this] { Watch(); });
     }
@@ -206,7 +207,7 @@ private:
         if (packet->key)
         {
             // A viewer joins at a key frame: it must carry the parameter sets, whatever the encoder does.
-            auto sets = ParameterSets(packet->data, Codec::H264);
+            auto sets = ParameterSets(packet->data, m_codec.load());
             if (!sets.empty()) m_sets = std::move(sets);
             else if (!m_sets.empty())
             {
@@ -284,6 +285,7 @@ private:
 
     HANDLE m_pipe;
     std::function<void(const char*)> m_ended;
+    std::atomic<Codec> m_codec;
     std::mutex m_lock;
     std::condition_variable m_wake;
     std::deque<PacketPtr> m_queue;
@@ -367,10 +369,22 @@ public:
         if (method == L"probe") return Probe(Checked(p, L"path"));
         if (method == L"stream.thumbs") return Thumbs(p);
         if (method == L"stream.start") return StartStream(p);
+        if (method == L"voice.feed")
+        {
+            StartVoiceFeed(reinterpret_cast<HANDLE>(static_cast<intptr_t>(GetNumber(p, L"pipe", 0))));
+            return json::JsonValue::CreateBooleanValue(true);
+        }
         if (method == L"stream.keyframe")
         {
             std::lock_guard lock(m_streamLock);
             if (m_stream) m_stream->Session().ForceKeyFrame();
+            return json::JsonValue::CreateBooleanValue(m_stream != nullptr);
+        }
+        if (method == L"stream.bitrate")
+        {
+            auto rate = GetNumber(p, L"bitrate", 0);
+            std::lock_guard lock(m_streamLock);
+            if (m_stream && rate >= 100'000 && rate <= 200e6) m_stream->Session().SetBitrate(static_cast<UINT>(rate));
             return json::JsonValue::CreateBooleanValue(m_stream != nullptr);
         }
         if (method == L"stream.preview") return StreamPreview(p);
@@ -482,7 +496,8 @@ private:
         // Up to 120 fps, never faster than the screen it comes from (a faster rate would only repeat frames).
         options.fps = static_cast<UINT>(std::clamp(GetNumber(p, L"fps", 30), 10.0, 120.0));
         options.fps = std::min<UINT>(options.fps, std::max<UINT>(30, RefreshRate(options.window ? MonitorFromWindow(options.window, MONITOR_DEFAULTTONEAREST) : options.monitor)));
-        options.codec = Codec::H264;
+        // H.264, or HEVC when Discord's server picked H.265 for the stream (every viewer plays it) and the card encodes it.
+        options.codec = GetString(p, L"codec") == L"hevc" && m_support.hevc ? Codec::HEVC : Codec::H264;
         options.cursor = GetBool(p, L"cursor", true);
         options.width = static_cast<UINT>(std::clamp(GetNumber(p, L"width", 0), 0.0, 4096.0));
         options.height = static_cast<UINT>(std::clamp(GetNumber(p, L"height", 0), 0.0, 4096.0));
@@ -512,8 +527,10 @@ private:
         o.Insert(L"height", json::JsonValue::CreateNumberValue(video.Height()));
         o.Insert(L"fps", json::JsonValue::CreateNumberValue(video.Fps()));
         o.Insert(L"bitrate", json::JsonValue::CreateNumberValue(video.Bitrate()));
+        o.Insert(L"codec", json::JsonValue::CreateStringValue(video.CodecUsed() == Codec::HEVC ? L"hevc" : L"h264"));
+        o.Insert(L"hevc", json::JsonValue::CreateBooleanValue(m_support.hevc));
         Log("Go Live: " + std::to_string(video.Width()) + "x" + std::to_string(video.Height()) + " @" + std::to_string(video.Fps()) +
-            " H.264 " + std::to_string(video.Bitrate() / 1000) + " kbit/s" + (options.window ? " (window)" : " (screen)"));
+            " " + Narrow(CodecName(video.CodecUsed())) + " " + std::to_string(video.Bitrate() / 1000) + " kbit/s" + (options.window ? " (window)" : " (screen)"));
         std::lock_guard lock(m_streamLock);
         m_stream = std::move(stream);
         m_streamId = id;
@@ -877,7 +894,7 @@ private:
                 WriteThumb(thumbs, path, pixels, w, h);
                 Saved(L"clip", path, duration, game);
                 wchar_t detail[64];
-                swprintf_s(detail, L"Last %d seconds", static_cast<int>((duration + 5'000'000) / 10'000'000));
+                swprintf_s(detail, L"%d s", static_cast<int>((duration + 5'000'000) / 10'000'000));
                 m_ui.Toast(L"Clip saved", detail, monitor);
             }
             catch (const std::exception& e)

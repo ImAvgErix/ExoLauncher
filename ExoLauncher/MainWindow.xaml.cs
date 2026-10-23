@@ -40,6 +40,7 @@ public sealed partial class MainWindow : Window
     {
         InitializeComponent();
         App.MainAppWindow = this;
+        ApplyAppearance();
 
         try
         {
@@ -93,6 +94,7 @@ public sealed partial class MainWindow : Window
         {
             ApplyWindowChrome();
             StartHdrForGames();
+            StartDlssCheck();
             _ = Task.Run(() => NvidiaColor.ApplySaved(App.Services.Settings));
             _foregroundWatcher = ForegroundWatcher.Start(WindowNative.GetWindowHandle(this), inFront =>
             {
@@ -140,6 +142,11 @@ public sealed partial class MainWindow : Window
     private static readonly TimeSpan TrimInterval = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan TrimIdleInterval = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan TrimSettleTime = TimeSpan.FromSeconds(15);
+    // How long Exo is out of front before it steps back (host efficiency mode, the tree's memory trimmed and lowered):
+    // a quick switch to another window and back must cost nothing (Discord's calls ran 4 to 10 s slow after each one,
+    // paged out and throttled). Minimized or hidden, it steps back sooner.
+    private static readonly TimeSpan BackgroundGrace = TimeSpan.FromSeconds(60);
+    private static readonly TimeSpan HiddenGrace = TimeSpan.FromSeconds(10);
     private static readonly TimeSpan TrimSummaryInterval = TimeSpan.FromMinutes(5);
     private static readonly TimeSpan StoreRetrimInterval = TimeSpan.FromMinutes(5);
     private static readonly TimeSpan HostCloseGrace = TimeSpan.FromSeconds(3);
@@ -237,6 +244,8 @@ public sealed partial class MainWindow : Window
         // A process's role comes from its command line, which never changes.
         var roles = new Dictionary<ManagedProcessIdentity, HostedProcessKind>();
         var interval = TrimInterval;
+        // When Exo last left the front (null while it is in front).
+        DateTime? awaySince = null;
         try
         {
             while (true)
@@ -252,7 +261,9 @@ public sealed partial class MainWindow : Window
                 var state = _trimSnapshot;
                 if (!state.InFront) DispatcherQueue.TryEnqueue(ReconcileForeground);
                 var now = DateTime.UtcNow;
-                if (state.InFront)
+                awaySince = state.InFront ? null : awaySince ?? now;
+                var away = awaySince is { } since && now - since >= (state.HiddenOrMinimized ? HiddenGrace : BackgroundGrace);
+                if (!away)
                 {
                     if (_backgroundTreeLow)
                     {
@@ -282,7 +293,7 @@ public sealed partial class MainWindow : Window
                 var hostedPolicy = new HostedTrimPolicy(
                     MusicRoomOpen: musicVisible,
                     MusicPlaying: musicPlaying,
-                    ShellHidden: state.HiddenOrMinimized,
+                    ShellHidden: state.HiddenOrMinimized && away,
                     LiveAudio: liveAudio);
                 HostedProcessKind RoleOf(ManagedProcessIdentity identity)
                 {
@@ -316,10 +327,10 @@ public sealed partial class MainWindow : Window
                     }
                     // Music playing keeps Spotify at normal memory priority; a call keeps the host there.
                     var keepHot = (group.Key is "spotify" && musicPlaying) || (group.Key is "exo" && liveAudio);
-                    var low = !state.InFront && !keepHot;
+                    var low = away && !keepHot;
                     ProcessPriorityClass? priority = group.Key switch
                     {
-                        "spotify" => state.InFront || keepHot
+                        "spotify" => !away || keepHot
                             ? ProcessPriorityClass.Normal : ProcessPriorityClass.BelowNormal,
                         _ => null,
                     };
@@ -725,6 +736,23 @@ public sealed partial class MainWindow : Window
             _bridge.NotifyWindowState(IsMaximized);
             LogStartupMilestone("bridge-attached");
 
+            // The first frame in the saved Appearance (public/theme.js reads it): the page's own copy can be stale
+            // (a run that ended before the page saved its last choice), and Void opening in Light flashes white.
+            // Only the first load: a later one would put back what was saved at start.
+            try
+            {
+                var appearance = System.Text.Json.JsonSerializer.Serialize(App.Services.Settings.Current.Appearance);
+                var script = await core.AddScriptToExecuteOnDocumentCreatedAsync(
+                    $"if (location.host === '{WebViewTrustPolicy.TrustedAppHost}') try {{ localStorage.setItem('exo.appearance', {appearance}) }} catch (e) {{}}");
+                void Once(CoreWebView2 sender, CoreWebView2NavigationCompletedEventArgs _)
+                {
+                    sender.NavigationCompleted -= Once;
+                    try { sender.RemoveScriptToExecuteOnDocumentCreated(script); } catch { }
+                }
+                core.NavigationCompleted += Once;
+            }
+            catch (Exception ex) { AppLog.Debug("Appearance: first frame: " + ex.Message); }
+
             WebHost.Source = new Uri(WebViewTrustPolicy.StartUri);
             LogStartupMilestone("webview-navigation-start");
             _webReady = true;
@@ -1109,6 +1137,39 @@ public sealed partial class MainWindow : Window
                 : CoreWebView2MemoryUsageTargetLevel.Normal);
         }
         catch { }
+    }
+
+    /// <summary>
+    /// The window's own background in the page's (Settings › General › Appearance), so a resize or the first frame
+    /// never flashes black under Light: Void #000, Dark #121212, Light #f5f5f5; Match Windows reads Windows' app mode.
+    /// </summary>
+    internal void ApplyAppearance()
+    {
+        var appearance = App.Services.Settings.Current.Appearance;
+        if (appearance == "system") appearance = WindowsAppsLight() ? "light" : "dark";
+        var color = appearance switch
+        {
+            "light" => Windows.UI.Color.FromArgb(255, 0xf5, 0xf5, 0xf5),
+            "dark" => Windows.UI.Color.FromArgb(255, 0x12, 0x12, 0x12),
+            _ => Windows.UI.Color.FromArgb(255, 0, 0, 0),
+        };
+        try
+        {
+            RootGrid.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(color);
+            WebHost.DefaultBackgroundColor = color;
+        }
+        catch (Exception ex) { AppLog.Debug("Appearance: window background: " + ex.Message); }
+    }
+
+    /// <summary>Whether Windows' apps are in light mode (Settings › Personalization › Colors).</summary>
+    private static bool WindowsAppsLight()
+    {
+        try
+        {
+            using var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize");
+            return key?.GetValue("AppsUseLightTheme") is int light && light != 0;
+        }
+        catch (Exception ex) when (ex is System.Security.SecurityException or UnauthorizedAccessException or IOException) { return false; }
     }
 
     private void ApplyWindowChrome()

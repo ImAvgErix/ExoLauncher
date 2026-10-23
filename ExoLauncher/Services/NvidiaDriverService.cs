@@ -25,7 +25,8 @@ namespace ExoLauncher.Services;
 ///    Windows' own tar, so nothing else (NVIDIA app, telemetry, containers, ShadowPlay, PhysX, HDMI/DP audio)
 ///    is ever installed; check setup.exe's signature; run NVIDIA's setup as a silent clean install as
 ///    administrator (Windows asks); confirm the new version; put Exo's GPU profile back.
-/// Never touches a file NVIDIA signed, never re-signs, never writes driver tweaks. Waits while a game runs.
+/// Never touches a file NVIDIA signed, never re-signs, never writes driver tweaks. Waits while a game runs or a Discord call is on.
+/// A Radeon or an Intel GPU gets the same row from <see cref="GpuDriverUpdate"/>.
 /// </summary>
 internal static partial class NvidiaDriverService
 {
@@ -351,14 +352,8 @@ internal static partial class NvidiaDriverService
         return Parse(a).CompareTo(Parse(b));
     }
 
-    /// <summary>Why an update can't start now, or null.</summary>
-    internal static string? Blocked()
-    {
-        if (_running is { IsCompleted: false }) return "A driver update is already running.";
-        if (MainWindow.RunningLibraryGames().Count > 0) return "Close your game first.";
-        if (Process.GetProcessesByName("scskiller_warm").Length > 0) return "Exo Shaders is compiling. Try again when it's done.";
-        return null;
-    }
+    /// <summary>Why an update can't start now (a game, a Discord call, an Exo Shaders compile: <see cref="GpuDriverUpdate.Busy"/>), or null.</summary>
+    internal static string? Blocked() => _running is { IsCompleted: false } ? "A driver update is already running." : GpuDriverUpdate.Busy();
 
     /// <summary>Starts the update (the user consented); progress comes through <see cref="Changed"/>.</summary>
     internal static string? Start(Latest latest)
@@ -408,9 +403,9 @@ internal static partial class NvidiaDriverService
             if (!File.Exists(setup) || !Directory.Exists(Path.Combine(unpacked, "Display.Driver"))) throw new InvalidDataException("The driver package didn't unpack.");
             if (!AuthenticodeVerifier.HasPublisher(setup, "NVIDIA Corporation")) throw new InvalidDataException("NVIDIA's installer isn't signed by NVIDIA.");
 
-            // A clean install blanks the screen for a moment: a game started during the download is waited out first.
-            await WaitWhileAsync(() => MainWindow.RunningLibraryGames().Count > 0,
-                () => Report("waiting", 0, "Waiting for your game to close"), TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+            // A clean install blanks the screen for a moment and the driver's reload ends a Discord call: a game or a call
+            // started during the download is waited out first.
+            await GpuDriverUpdate.WaitQuietAsync(GpuDriverUpdate.Holding, reason => Report("waiting", 0, reason), TimeSpan.FromSeconds(5)).ConfigureAwait(false);
 
             // Windows asks for permission unless its settings let Exo go ahead without asking.
             Report("installing", 0, "Installing the driver. Your screen may flicker");
@@ -445,13 +440,18 @@ internal static partial class NvidiaDriverService
 
             // NvAPI in this process still points at the driver that was removed: load it again for the new one.
             NvidiaProfiles.Reinitialize();
-            // A new driver can reset driver profiles: put Exo's back.
-            var profile = GpuProfileService.Read();
-            if (profile.CanUndo) GpuProfileService.Apply(profile.Gsync);
-            // And the desktop color (NVIDIA's brightness, contrast, gamma, vibrance and hue), which a clean install resets.
-            NvidiaColor.ApplySaved(App.Services.Settings);
             lock (Gate) { Cache.Clear(); SaveCacheLocked(); }
+            // Done before the profile is read: while the stage says installing, GpuProfileService answers "being installed".
             Report("done", 100, $"Driver {latest.Version} installed");
+            try
+            {
+                // A new driver can reset driver profiles: put Exo's back.
+                var profile = GpuProfileService.Read();
+                if (profile.CanUndo) GpuProfileService.Apply(profile.Gsync);
+                // And the desktop color (NVIDIA's brightness, contrast, gamma, vibrance and hue), which a clean install resets.
+                NvidiaColor.ApplySaved(App.Services.Settings);
+            }
+            catch (Exception ex) { AppLog.Warn("Driver: Exo's profile was not put back: " + ex.Message); }
             Prune(keepVersion: latest.Version);
         }
         catch (Exception ex)
@@ -464,14 +464,6 @@ internal static partial class NvidiaDriverService
             // The unpacked driver (about 3 GB) goes however it ended: done, refused, stopped or failed. The installer stays for next time.
             TryDelete(unpacked);
         }
-    }
-
-    /// <summary>Returns once <paramref name="busy"/> is false, calling <paramref name="waiting"/> once if it had to wait.</summary>
-    internal static async Task WaitWhileAsync(Func<bool> busy, Action waiting, TimeSpan poll)
-    {
-        if (!busy()) return;
-        waiting();
-        while (busy()) await Task.Delay(poll).ConfigureAwait(false);
     }
 
     private static async Task DownloadAsync(Latest latest, string path)

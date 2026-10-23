@@ -281,13 +281,17 @@ public sealed class InstallProgress
         or InstallPhase.Installing or InstallPhase.Finalizing;
 }
 
-/// <summary>A folder of games on the Library's grid, made by the player; a game is in one folder at most.</summary>
+/// <summary>A folder of games on the Library's grid, made by the player; a game may be in several.</summary>
 public sealed class LibraryFolder
 {
     public string Id { get; set; } = "";
     public string Name { get; set; } = "";
     /// <summary>Its color on the grid: gray, red, orange, yellow, green, teal, blue or pink.</summary>
     public string Color { get; set; } = "gray";
+    /// <summary>How its games are ordered: "folder" (the folder's own order) or one of the Library's sorts.</summary>
+    public string Sort { get; set; } = "folder";
+    /// <summary>Its picture (<see cref="ExoLauncher.Services.FolderArtStore"/>), shown in place of its games' covers; null for the covers.</summary>
+    public string? Art { get; set; }
     /// <summary>Its games' ids, in the folder's order.</summary>
     public List<string> Games { get; set; } = [];
 }
@@ -312,9 +316,14 @@ public sealed class AppSettings
     public string TextColour { get; set; } = "white";
     /// <summary>Shell text size: "small", "normal" or "large".</summary>
     public string TextSize { get; set; } = "normal";
-    /// <summary>Liquid Glass: "clear", "tinted" (more opaque) or "solid".</summary>
+    /// <summary>Material: "clear" (Liquid Glass, whatever Windows' transparency effects say) or "solid".</summary>
     public string Glass { get; set; } = "clear";
+    /// <summary>Appearance: "system" (Light or Dark, as Windows' apps are), "light", "dark" or "void" (AMOLED black).</summary>
+    public string Appearance { get; set; } = "system";
     public string AppVersion { get; set; } = "1.0.0";
+    /// <summary>The last version whose What's New sheet was shown (ui/src/lib/whatsNew.ts). A new settings file starts at the
+    /// running version, so a new install sees nothing; a file from before the sheet has none, so it shows once.</summary>
+    public string? WhatsNewSeen { get; set; }
     /// <summary>Optional override; null = auto <c>%LOCALAPPDATA%\ExoLauncher\Games</c>.</summary>
     public string? DefaultInstallRoot { get; set; }
     /// <summary>Legacy field; Local portable path removed — always false.</summary>
@@ -354,8 +363,14 @@ public sealed class AppSettings
     public bool HdrSdrGamma { get; set; } = true;
     /// <summary>DeepFilterNet 3 on the microphone in Exo's own Discord calls (<see cref="ExoLauncher.Services.DiscordClient.Voice.NoiseSuppressor"/>).</summary>
     public bool DiscordNoiseSuppression { get; set; } = true;
+    /// <summary>Which noise suppression runs when it is on, as Discord's Krisp / Standard choice: "ai" (DeepFilterNet, the default), or "standard" (Google's WebRTC: <see cref="ExoLauncher.Services.DiscordClient.Voice.WebRtcNoise"/>).</summary>
+    public string DiscordNoiseSuppressionKind { get; set; } = "ai";
     /// <summary>The same on everyone else's voice in a call, each their own (<see cref="ExoLauncher.Services.DiscordClient.Voice.InboundCleaner"/>); off by default.</summary>
     public bool DiscordOthersNoiseSuppression { get; set; }
+    /// <summary>Only My Voice: voices that aren't the user's learned one are held back in calls (<see cref="ExoLauncher.Services.DiscordClient.Voice.MyVoice"/>); off by default.</summary>
+    public bool DiscordOnlyMyVoice { get; set; }
+    /// <summary>Each person's voice in a call brought toward one speaking level, for you (<see cref="ExoLauncher.Services.DiscordClient.Voice.VoiceLeveling"/>); on by default.</summary>
+    public bool DiscordEvenVoices { get; set; } = true;
     /// <summary>Game focus: no Discord notifications while a game runs (the unread badge still counts).</summary>
     public bool DiscordQuietWhilePlaying { get; set; } = true;
     /// <summary>Exo's Discord calls: the microphone and speakers chosen (Windows endpoint ids; none is Windows' default) and their volume, 0-200 like Discord's.</summary>
@@ -377,7 +392,6 @@ public sealed class AppSettings
     public int DiscordSensitivity { get; set; } = -60;
     /// <summary>Echo Cancellation (Exo's, on speakers that aren't on your head: <see cref="ExoLauncher.Services.DiscordClient.Voice.EchoCanceller"/>) and Automatic Gain Control.</summary>
     public bool DiscordEchoCancellation { get; set; } = true;
-    public bool DiscordAutoGain { get; set; } = true;
     /// <summary>Voice Focus in the Custom profile (Voice Isolation always has it): Exo's gate, leveler and limiter after noise suppression.</summary>
     public bool DiscordVoiceFocus { get; set; } = true;
     /// <summary>Voice Tune's tuning kept per microphone (by its Windows endpoint id), in the one-line form of
@@ -417,6 +431,8 @@ public sealed class AppSettings
     public int? DownloadHoursEnd { get; set; }
     /// <summary>Games from Epic, GOG and Amazon update by themselves while the PC is idle.</summary>
     public bool AutoUpdateGames { get; set; } = true;
+    /// <summary>This PC's chipset driver (AMD's on a Ryzen, Intel's on an Intel processor) updates by itself while the PC is idle (<see cref="ExoLauncher.Services.ChipsetUpdate"/>).</summary>
+    public bool AutoUpdateChipset { get; set; } = true;
     /// <summary>Lucid (<see cref="ExoLauncher.Services.LucidCompanion"/>) starts with Exo, out of sight; off until the user turns it on.</summary>
     public bool StartLucidWithExo { get; set; }
     /// <summary>Apps whose start with Windows Exo turned off (<see cref="ExoLauncher.Helpers.StartupApps"/>); one turned back on stays on.</summary>
@@ -447,6 +463,8 @@ public sealed class AppSettings
     public bool QuietStoreApps { get; set; }
     /// <summary>The Library's folders, in their order on the grid (<see cref="LibraryFolder"/>).</summary>
     public List<LibraryFolder> LibraryFolders { get; set; } = [];
+    /// <summary>Games hidden from the Library (card ids): out of its grid, Continue and folders; Library's Hidden view lists them.</summary>
+    public List<string> HiddenGames { get; set; } = [];
     /// <summary>
     /// Each installed Steam game's overlay switch as Exo set it, by app id: "on" or "off", with "?" until
     /// Steam has it (<see cref="ExoLauncher.Adapters.SteamOverlayConfig.Plan"/>).

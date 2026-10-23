@@ -6,22 +6,21 @@ import { resolveGridCardLayout } from './gridWindow'
  * 1200 px wide. The host serves a downscale of the exact cached file at
  * https://thumbs.exo-launcher.local/<file>?w=<px> (CoverArtService.Thumbnails).
  *
- * The width is twice the widest card this screen can produce at any window
- * size in device pixels, rounded up to a 120 px step. Chromium then finishes
- * with a clean halving (or less), so the thumbnail draws as sharp as the
- * original would; at 1.3× it resampled a second time and read soft. The host
- * serves the original whenever the thumbnail would be within a quarter of it,
- * which is most 600 px Steam posters on a 1440p screen. Resizing the window
- * never changes the URL. It only grows (a larger or denser monitor), so a
- * card never swaps to a softer bitmap mid-session.
+ * The width is the widest card this screen can produce at any window size in
+ * device pixels, rounded up to an 8 px step: the host's Lanczos pass is the
+ * one resample and Chromium draws it about 1:1. Twice the card (Chromium
+ * halving it through its mipmaps) read softer than the game page's cover. The
+ * host serves the original whenever the thumbnail would be within a quarter
+ * of it. Resizing the window never changes the URL. It only grows (a larger
+ * or denser monitor), so a card never swaps to a softer bitmap mid-session.
  */
 
 const THUMB_ORIGIN = 'https://thumbs.exo-launcher.local'
 const COVER_ORIGIN = 'https://covers.exo-launcher.local'
-const THUMB_STEP = 120
-const THUMB_MIN = 240
+const THUMB_STEP = 8
+const THUMB_MIN = 120
 /** Thumbnail pixels per device pixel of the widest card. */
-const THUMB_OVERSAMPLE = 2
+const THUMB_OVERSAMPLE = 1
 /** Past this the original is about as small as the thumbnail would be. */
 const THUMB_MAX = 720
 /** MainWindow's logical minimum width; the library pane spans the window. */

@@ -14,12 +14,12 @@ const ServerSettings = lazy(() => import('./ServerSettings').then(m => ({ defaul
 const ChannelSettings = lazy(() => import('./ChannelSettings').then(m => ({ default: m.ChannelSettings })))
 import { useAccountSettings, useStreamerHides } from '../../lib/discordPrefs'
 import { Confirm } from './admin'
-import { openToggle } from './openToggle'
 import { prefetchMessages } from './messageCache'
 import { transition } from '../../lib/viewTransition'
 import { LEVELS, MUTE_FOR } from './ChatHeader'
 import { SubContext, Submenu } from './UserMenu'
 import { dmData, DmCopyId, DmMuteItem, DmReadItem } from './dmMenu'
+import { useDismiss } from '../../lib/dismiss'
 
 export const FRIENDS = 'friends'
 export const SHOP = 'shop'
@@ -157,16 +157,16 @@ function GroupDmMenu({ dm, x, y, onLeave, onClose }: { dm: DiscordDm; x: number;
   const [note, setNote] = useState<string | null>(null)
   const info = { id: dm.id, unread: dm.unread || dm.mentions > 0, muted: !!dm.muted, mutedUntil: dm.mutedUntil ?? null }
   const done = (result: { ok: boolean; message?: string | null }) => { if (result.ok) onClose(); else setNote(result.message ?? 'Discord did not take that.') }
+  const box = useRef<HTMLDivElement>(null)
+  useDismiss(box, onClose)
   useEffect(() => {
-    const away = (event: Event) => { if (!(event.target as Element | null)?.closest?.('.exo-dc-gdm-menu')) onClose() }
     const escape = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose() }
-    window.addEventListener('mousedown', away)
     window.addEventListener('keydown', escape)
-    return () => { window.removeEventListener('mousedown', away); window.removeEventListener('keydown', escape) }
+    return () => window.removeEventListener('keydown', escape)
   }, [onClose])
   return (
     <SubContext.Provider value={{ open: sub, show: setSub }}>
-    <div className="exo-dc-menu exo-dc-channel-menu exo-dc-gdm-menu" role="menu" aria-label={dm.name} style={{ left: x, top: y }}>
+    <div ref={box} className="exo-dc-menu exo-dc-channel-menu exo-dc-gdm-menu" role="menu" aria-label={dm.name} style={{ left: x, top: y }}>
       <DmReadItem dm={info} onDone={done} />
       <span className="exo-dc-menu-line" role="separator" />
       <DmMuteItem dm={info} label="Mute Conversation" onDone={done} />
@@ -198,13 +198,12 @@ function ServerHeader({ guildId, name, list, onMarkRead, onLeave, onInvite, onMe
   const [settings, setSettings] = useState(false)
   const menuBox = useRef<HTMLDivElement>(null)
   // The menu closes on a press outside it or Escape, as Discord's does.
+  useDismiss(menuBox, () => setMenu(false), { on: menu })
   useEffect(() => {
     if (!menu) return
-    const away = (event: PointerEvent) => { if (!menuBox.current?.contains(event.target as Node) && !openToggle(event.target)) setMenu(false) }
     const escape = (event: KeyboardEvent) => { if (event.key === 'Escape') setMenu(false) }
-    document.addEventListener('pointerdown', away, true)
     document.addEventListener('keydown', escape)
-    return () => { document.removeEventListener('pointerdown', away, true); document.removeEventListener('keydown', escape) }
+    return () => document.removeEventListener('keydown', escape)
   }, [menu])
   return (
     <>
@@ -513,15 +512,17 @@ function GuildButton({ guild, place, onGo, onMenu, drop, within }: {
   within?: 'in' | 'last'
 }) {
   return (
-    <RailButton label={guild.name} place={guild.id} current={place === guild.id} unread={guild.unread} mentions={guild.mentions}
+    <RailButton label={guild.name} place={guild.id} current={place === guild.id} unread={guild.unread} mentions={guild.mentions} inVoice={guild.inVoice}
       muted={guild.muted} onClick={() => onGo(guild.id)} onMenu={(x, y) => onMenu({ guild, x, y })} node={guild.id} drop={drop} within={within}>
       {guild.icon ? <img src={guild.icon} alt="" draggable={false} loading="lazy" /> : <span className="exo-dc-initials">{initials(guild.name)}</span>}
     </RailButton>
   )
 }
 
-function RailButton({ label, home, place, current, unread, mentions, muted, onClick, onMenu, node, drop = '', within, children }: {
+function RailButton({ label, home, place, current, unread, mentions, inVoice = 0, muted, onClick, onMenu, node, drop = '', within, children }: {
   label: string
+  /** People in its voice channels: a speaker mark at its foot. */
+  inVoice?: number
   home?: boolean
   /** The server (or Home) it opens. */
   place?: string
@@ -540,9 +541,10 @@ function RailButton({ label, home, place, current, unread, mentions, muted, onCl
 }) {
   return (
     <button type="button" className={`exo-dc-guild${home ? ' is-home' : ''}${unread ? ' is-unread' : ''}${muted ? ' is-muted' : ''}${drop}`} aria-current={current}
-      aria-label={mentions ? `${label}, ${mentions} mentions` : label} onClick={onClick} data-dc-place={place} data-dc-node={node} data-dc-within={within}
+      aria-label={[label, mentions ? `${mentions} mentions` : null, inVoice ? `${inVoice} in voice` : null].filter(Boolean).join(', ')} onClick={onClick} data-dc-place={place} data-dc-node={node} data-dc-within={within}
       onContextMenu={onMenu ? event => { event.preventDefault(); onMenu(event.clientX, event.clientY) } : undefined}>
       {children}
+      {inVoice ? <span className="exo-dc-guild-voice" aria-hidden="true"><Icons.Sound size={10} /></span> : null}
       {mentions ? <span className="exo-dc-badge">{mentions > 99 ? '99+' : mentions}</span> : null}
     </button>
   )
@@ -559,13 +561,13 @@ function GuildMenu({ guild, x, y, onGo, onClose }: { guild: DiscordGuild; x: num
   const [note, setNote] = useState<string | null>(null)
   const [leaving, setLeaving] = useState(false)
   const [sub, setSub] = useState<string | null>(null)
+  const box = useRef<HTMLDivElement>(null)
+  useDismiss(box, onClose, { on: !leaving })
   useEffect(() => {
     if (leaving) return
-    const close = (event: Event) => { if (!(event.target as Element | null)?.closest?.('.exo-dc-guild-menu')) onClose() }
     const escape = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose() }
-    window.addEventListener('mousedown', close)
     window.addEventListener('keydown', escape)
-    return () => { window.removeEventListener('mousedown', close); window.removeEventListener('keydown', escape) }
+    return () => window.removeEventListener('keydown', escape)
   }, [onClose, leaving])
   const why = 'Discord did not take that.'
   const run = (work: Promise<{ ok: boolean; message?: string | null }>) =>
@@ -591,7 +593,7 @@ function GuildMenu({ guild, x, y, onGo, onClose }: { guild: DiscordGuild; x: num
   const level = guild.notify ?? 0
   return (
     <SubContext.Provider value={{ open: sub, show: setSub }}>
-    <div className="exo-dc-menu exo-dc-channel-menu exo-dc-guild-menu" role="menu" aria-label={guild.name} style={{ left: x, top: y }}>
+    <div ref={box} className="exo-dc-menu exo-dc-channel-menu exo-dc-guild-menu" role="menu" aria-label={guild.name} style={{ left: x, top: y }}>
       <button type="button" role="menuitem" disabled={!guild.unread && !guild.mentions} onClick={() => run(host.discordMarkRead(guild.id))}>Mark As Read</button>
       <span className="exo-dc-menu-line" role="separator" />
       <button type="button" role="menuitem" onClick={invite}>Invite to Server</button>
@@ -673,7 +675,8 @@ function ChannelList({ channels, open, collapsed, onPick, onToggle, onJoin, onCr
     if (category && collapsed.has(category) && !(c.unread && !c.muted) && c.id !== open) return null
     const inCategory = category !== null
     if (c.kind === 'voice') return <VoiceChannel key={c.id} channel={c} voice={voice} onJoin={onJoin} onMenu={(channel, x, y) => onMenu(channel, x, y, inCategory)} />
-    const readable = (c.kind === 'text' || c.kind === 'forum') && c.canRead !== false
+    // Any text channel listed opens, as in Discord: one without Read Message History shows only what arrives while open.
+    const readable = c.kind === 'text' || c.kind === 'forum'
     return (
       <button key={c.id} type="button"
         className={`exo-dc-item${c.unread ? ' is-unread' : ''}${c.muted ? ' is-muted' : ''}`}
@@ -719,10 +722,12 @@ function StartDm({ onOpen, onClose }: { onOpen: (channelId: string) => void; onC
 export function FriendPicker({ title, onPick, onClose }: { title: string; onPick: (friend: DiscordFriend) => void; onClose: () => void }) {
   const [friends, setFriends] = useState<DiscordFriend[]>([])
   const [query, setQuery] = useState('')
+  const box = useRef<HTMLDivElement>(null)
+  useDismiss(box, onClose)
   useEffect(() => { host.discordFriends().then(result => setFriends(result.friends.filter(f => f.kind === 'friend'))).catch(() => { }) }, [])
   const q = query.trim().toLowerCase()
   return (
-    <div className="exo-dc-menu is-start" role="dialog" aria-label={title}>
+    <div ref={box} className="exo-dc-menu is-start" role="dialog" aria-label={title}>
       <input className="exo-dc-find" placeholder="Type the username of a friend" value={query} autoFocus
         onChange={event => setQuery(event.target.value)} onKeyDown={event => { if (event.key === 'Escape') onClose() }} aria-label="Find a friend" />
       <div className="exo-dc-start-list">
@@ -758,13 +763,12 @@ function ChannelMenu({ channel, x, y, inCategory, guildId, canManage, onClose, o
   const [note, setNote] = useState<string | null>(null)
   const [sub, setSub] = useState<string | null>(null)
   const box = useRef<HTMLDivElement>(null)
+  useDismiss(box, onClose, { on: !confirmDelete })
   useEffect(() => {
     if (confirmDelete) return
-    const close = (event: Event) => { if (!(event.target as Element | null)?.closest?.('.exo-dc-channel-menu')) onClose() }
     const escape = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose() }
-    window.addEventListener('mousedown', close)
     window.addEventListener('keydown', escape)
-    return () => { window.removeEventListener('mousedown', close); window.removeEventListener('keydown', escape) }
+    return () => window.removeEventListener('keydown', escape)
   }, [onClose, confirmDelete])
   const run = (work: Promise<{ ok: boolean; message?: string | null }>) =>
     void work.then(result => { if (result.ok) onClose(); else setNote(result.message ?? 'Discord did not take that.') }).catch(() => setNote('Discord did not take that.'))

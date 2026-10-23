@@ -97,8 +97,8 @@ function EggSensor({ status: base, client, apply, applyAll, busy }: Section) {
       </Row>
     ),
     has(status.eggForceMaxFps) && can(client, 'setForceMaxSensorFps') && (
-      <Row key="fps" label="Force max sensor frame rate">
-        <Switch label="Force max sensor frame rate" checked={status.eggForceMaxFps} onChange={v => void apply('setForceMaxSensorFps', v)} disabled={busy} />
+      <Row key="fps" label="Force max sensor FPS">
+        <Switch label="Force max sensor FPS" checked={status.eggForceMaxFps} onChange={v => void apply('setForceMaxSensorFps', v)} disabled={busy} />
       </Row>
     ),
     has(status.eggLedLiftOffDisabled) && can(client, 'setLedLiftOffDisabled') && (
@@ -107,8 +107,8 @@ function EggSensor({ status: base, client, apply, applyAll, busy }: Section) {
       </Row>
     ),
     has(status.slamclickFilter) && can(client, 'setSlamclickFilter') && (
-      <Row key="slam" label="Slam-click filter">
-        <Switch label="Slam-click filter" checked={status.slamclickFilter} onChange={v => void apply('setSlamclickFilter', v)} disabled={busy} />
+      <Row key="slam" label="Slamclick filter">
+        <Switch label="Slamclick filter" checked={status.slamclickFilter} onChange={v => void apply('setSlamclickFilter', v)} disabled={busy} />
       </Row>
     ),
     has(status.motionJitterFilter) && can(client, 'setMotionJitterFilter') && (
@@ -229,8 +229,8 @@ function CpiField({ label, value, rules, disabled, onCommit }: {
 
 const SPDT = [
   { value: 'Off', label: 'Off' },
-  { value: 'GX Safe', label: 'GX safe' },
-  { value: 'GX Speed', label: 'GX speed' },
+  { value: 'GX Safe', label: 'GX Safe' },
+  { value: 'GX Speed', label: 'GX Speed' },
 ] as const
 
 function EggSwitches({ status: base, client, apply, busy }: Section) {
@@ -343,8 +343,8 @@ function OtSensor({ status: base, client, apply, busy }: Section) {
   const status = base as EggStatus
   const rows = [
     has(status.otSlamClickFilter) && can(client, 'setSlamClickFilter') && (
-      <Row key="slam" label="Slam-click filter">
-        <Switch label="Slam-click filter" checked={status.otSlamClickFilter} onChange={v => void apply('setSlamClickFilter', v)} disabled={busy} />
+      <Row key="slam" label="Slamclick filter">
+        <Switch label="Slamclick filter" checked={status.otSlamClickFilter} onChange={v => void apply('setSlamClickFilter', v)} disabled={busy} />
       </Row>
     ),
     has(status.otMotionSyncResponsive) && can(client, 'setMotionSyncResponsive') && (

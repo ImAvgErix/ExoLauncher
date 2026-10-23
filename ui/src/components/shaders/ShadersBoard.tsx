@@ -28,7 +28,12 @@ type Snapshot = {
   rev: number
   games: ShaderGame[]
   queue: Queue
-  app: { scanning?: boolean; readyCount?: number }
+  app: {
+    scanning?: boolean
+    readyCount?: number
+    /** Windows' Advanced Shader Delivery on this PC: works, else the one thing it needs ("Needs Gaming Services …"). */
+    gpu?: { shaderDelivery?: { works: boolean; text: string } }
+  }
 }
 
 const call = (method: string, params?: unknown) => host.shadersCall(method, params ?? {})
@@ -147,9 +152,9 @@ function coverFinder(games: readonly Game[]) {
 const wallClock = () => Date.now()
 
 /**
- * System > Shaders, in Exo itself: Scan games finds what the engine can build, each game shows as
- * its poster with its state, and Compile queues every ready game in the order shown; the queue
- * plays out live on the posters (the one compiling first, with its progress, then the rest in order).
+ * System > Shaders, in Exo itself: games are scanned on their own (and on Refresh), and only those that still need
+ * compiling show, each as its poster with its state; Compile queues every ready game in the order shown,
+ * and the queue plays out live on the posters (the one compiling first, with its progress, then the rest).
  * The waiting and ready posters drag (or move with Ctrl and the arrow keys) into the order to compile.
  */
 export function ShadersBoard({ active, games }: { active: boolean; games: readonly Game[] }) {
@@ -162,6 +167,15 @@ export function ShadersBoard({ active, games }: { active: boolean; games: readon
   const [pending, setPending] = useState<string[] | null>(null)
   const [moved, setMoved] = useState('')
   const estimates = useEstimates(active, `${snap?.games.length ?? 0}:${snap?.queue.finished?.length ?? 0}:${snap?.app.scanning ? 1 : 0}`, snap?.games)
+  // Games are found on their own: a scan when the room first shows, and again when the Library's games change.
+  const scanned = useRef<number | null>(null)
+  const scanning = !!snap?.app.scanning
+  const haveSnap = !!snap
+  useEffect(() => {
+    if (!active || !haveSnap || scanning || scanned.current === games.length) return
+    scanned.current = games.length
+    void call('scan').catch((caught: unknown) => report(caught, 'ShadersBoard.scan', { level: 'warn' })).finally(() => void read())
+  }, [active, haveSnap, scanning, games.length, read])
   const run = (key: string, ...steps: Step[]) => {
     setBusy(key)
     setError(null)
@@ -202,6 +216,7 @@ export function ShadersBoard({ active, games }: { active: boolean; games: readon
   return (
     <div className="exo-shaders-board">
       <Bar snap={snap} view={view} estimates={estimates} busy={busy} run={run} />
+      <Delivery snap={snap} />
       {error || failed ? <p className="exo-shaders-error" role="alert">{error ?? failed}</p> : null}
       {current && typeof current.percent === 'number'
         ? <div className="exo-shaders-progress" role="progressbar" aria-label={current.name} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(current.percent)}>
@@ -234,6 +249,25 @@ export function ShadersBoard({ active, games }: { active: boolean; games: readon
   )
 }
 
+/**
+ * Windows' precompiled shaders (Advanced Shader Delivery): on for this PC, and how many games came with theirs
+ * (Exo Shaders leaves those out, as Precompiled), or the one thing this PC still needs for them.
+ */
+function Delivery({ snap }: { snap: Snapshot }) {
+  const delivery = snap.app.gpu?.shaderDelivery
+  if (!delivery) return null
+  const precompiled = snap.games.filter(game => game.statusText === 'Precompiled').length
+  const line = delivery.works
+    ? `On${precompiled ? ` · ${precompiled} ${precompiled === 1 ? 'game came' : 'games came'} precompiled, nothing to compile` : ''}`
+    : delivery.text
+  return (
+    <p className="exo-shaders-delivery">
+      <span className={`exo-set-state${delivery.works ? ' is-on' : ''}`}>Windows' precompiled shaders</span>
+      <span>{line}</span>
+    </p>
+  )
+}
+
 type Step = [string, unknown?]
 type View = ReturnType<typeof arrange>
 
@@ -255,7 +289,8 @@ function arrange(snap: Snapshot, order: string[], pending: string[] | null) {
   const engineLane = [...waitingIds, ...readyIds]
   const lane = pending && pending.length === engineLane.length && pending.every(id => engineLane.includes(id)) ? pending : engineLane
   const inLane = new Set(lane)
-  const rest = snap.games.filter(game => !inQueue.has(game.id) && !inLane.has(game.id)).sort((a, b) => rank(a) - rank(b))
+  // Only what still needs doing: compiled games and ones the engine can't build stay out of the way.
+  const rest = snap.games.filter(game => !inQueue.has(game.id) && !inLane.has(game.id) && (!!game.error || game.tone === 'warn' || game.tone === 'primary')).sort((a, b) => rank(a) - rank(b))
   const posters = [current ? byId.get(current.id) : undefined, ...lane.map(id => byId.get(id)), ...rest].filter((game): game is ShaderGame => !!game)
   return { byId, waitingIds, readyIds: lane.filter(id => !waitingIds.includes(id)), lane, posters }
 }
@@ -266,7 +301,7 @@ function reorderKey(event: KeyboardEvent<HTMLButtonElement>, at: number, last: n
   return ({ ArrowLeft: at - 1, ArrowUp: at - 1, ArrowRight: at + 1, ArrowDown: at + 1, Home: 0, End: last } as Record<string, number>)[event.key]
 }
 
-/** What is happening with the time it leaves, Scan games, and Compile or Pause and Stop. */
+/** What is happening with the time it leaves, Refresh (a scan for games), and Compile or Pause and Stop. */
 function Bar({ snap, view, estimates, busy, run }: {
   snap: Snapshot
   view: View
@@ -288,7 +323,7 @@ function Bar({ snap, view, estimates, busy, run }: {
         {working || lane.length ? eta(queueSeconds(current, working ? waitingIds : lane, estimates), now, working, queue.paused) : null}
       </span>
       <button type="button" className="exo-set-btn" disabled={!!snap.app.scanning || busy === 'scan'} onClick={() => run('scan', ['scan'])}>
-        {snap.app.scanning || busy === 'scan' ? 'Scanning' : 'Scan games'}
+        {snap.app.scanning || busy === 'scan' ? 'Refreshing' : 'Refresh'}
       </button>
       {working
         ? <>
@@ -339,10 +374,12 @@ function Posters({ posters, lane, onMove, render }: {
       try { event.currentTarget.setPointerCapture(event.pointerId) } catch { /* a pointer already up; the drag still follows the list */ }
       dragged.current = true
     }
-    const box = list.current?.getBoundingClientRect()
-    if (box && list.current) {
+    // The System room scrolls the list (it's one page); near its top or bottom edge it scrolls on.
+    const scroller = list.current?.closest<HTMLElement>('.exo-system') ?? list.current
+    const box = scroller?.getBoundingClientRect()
+    if (box && scroller) {
       const edge = event.clientY < box.top + 48 ? -1 : event.clientY > box.bottom - 48 ? 1 : 0
-      if (edge) list.current.scrollBy({ top: edge * 16 })
+      if (edge) scroller.scrollBy({ top: edge * 16 })
     }
     setDrag({ ...drag, to: slotAt(event.clientX, event.clientY) })
   }
@@ -395,7 +432,7 @@ function Unread({ failed, onRetry }: { failed: string | null; onRetry: () => voi
 
 /** The bar's line while nothing compiles: what Compile would queue, else what a scan found (or that none has run yet). */
 function idleLine(snap: Snapshot, toCompile: number) {
-  if (snap.games.length === 0) return snap.app.scanning ? 'Looking for games' : 'Scan games to find what to compile'
+  if (snap.app.scanning) return 'Looking for games'
   return toCompile ? `${toCompile} ${toCompile === 1 ? 'game' : 'games'} ready to compile` : 'Every game is compiled'
 }
 
@@ -437,7 +474,8 @@ function roundSpan(seconds: number) {
   const step = minutes < 10 ? 1 : minutes < 60 ? 5 : minutes < 600 ? 10 : 60
   const rounded = Math.max(step, Math.round(minutes / step) * step)
   const h = Math.floor(rounded / 60), m = rounded % 60
-  return { rounded, span: seconds < 60 ? 'under a minute' : h ? (m ? `${h} h ${m} min` : `${h} h`) : `${m} min` }
+  // A number keeps its unit on its line (no-break spaces): a poster's narrow caption broke "50" from "min".
+  return { rounded, span: seconds < 60 ? 'under a minute' : h ? (m ? `${h}\u00a0h ${m}\u00a0min` : `${h}\u00a0h`) : `${m}\u00a0min` }
 }
 
 function rank(game: ShaderGame) {

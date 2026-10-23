@@ -1,16 +1,16 @@
-import { memo, useEffect, useRef, useState } from 'react'
+import { memo, useEffect, useRef, useState, type CSSProperties } from 'react'
 import { host } from '../../lib/host'
 import { usePageActive } from '../../lib/pageActivity'
 import { shouldReduceMotion } from '../../lib/motionPreference'
 import { Poll, PollResultLine } from './Poll'
 import { Attachments, fit, MovingImage, size, sized } from './Attachments'
 import { LottieSticker } from './LottieSticker'
-import { performanceMode, avatarUrl, displayName, jumpToMessage, type DiscordEmbed, type DiscordMessage } from '../../lib/discord'
+import { performanceMode, avatarUrl, displayName, jumpToMessage, openDiscord, type DiscordEmbed, type DiscordInvite, type DiscordMessage } from '../../lib/discord'
 import { Reactions, ReactionsDialog, useNitro } from './Reactions'
 import { EmojiPicker } from './EmojiPicker'
 import { Icons } from './icons'
 import { showImage, showProfile } from './extras'
-import { Link, Markdown, MarkdownLine, type MarkdownContext } from './markdown'
+import { inviteCode, Link, Markdown, MarkdownLine, type MarkdownContext } from './markdown'
 import { accountSettings, useAccountSettings } from '../../lib/discordPrefs'
 import { EPHEMERAL, LOADING } from '../../lib/discordApps'
 import { MessageComponents } from './Components'
@@ -18,6 +18,7 @@ import { MessageApps } from './AppCommands'
 import { CompanyLogo } from '../../brand/CompanyLogo'
 import { openLink } from '../../lib/music'
 import { Decoration, lookOf, StyledName } from './collectibles'
+import { useDismiss } from '../../lib/dismiss'
 
 /**
  * A GIF link: plays by itself while Exo is active when Play GIFs when Discord is focused is on (not in
@@ -303,7 +304,9 @@ function AuthorName({ message, name, ctx }: { message: DiscordMessage; name: str
 // The edited mark sits at the end of the last line, as in Discord.
 function MessageContent({ message, ctx }: { message: Pick<DiscordMessage, 'content' | 'edited_timestamp' | 'attachments' | 'poll' | 'sticker_items' | 'embeds' | 'flags'> & Partial<DiscordMessage>; ctx: MarkdownContext }) {
   const edited = message.edited_timestamp ? <span className="exo-dc-edited">(edited)</span> : null
-  const text = message.content && !(mediaOnly(message) && accountSettings().inlineEmbedMedia)
+  const jam = useJam(message.content)
+  // A jam link alone shows as its card, as a link with a preview shows as the preview.
+  const text = message.content && !linksOnly(message) && message.content.trim() !== jam
   // SUPPRESS_EMBEDS (4): the sender removed the link previews.
   const embeds = (message.flags ?? 0) & 4 ? [] : message.embeds
   return (
@@ -321,7 +324,8 @@ function MessageContent({ message, ctx }: { message: Pick<DiscordMessage, 'conte
         </span>
       ))}
       {embeds.map((embed, i) => <Embed key={i} embed={embed} ctx={ctx} />)}
-      {message.content ? <SpotifyJam text={message.content} /> : null}
+      {jam ? <SpotifyJam url={jam} /> : null}
+      {invitesIn(message.content).map(code => <InviteCard key={code} code={code} mine={!!ctx.meId && message.author?.id === ctx.meId} />)}
     </>
   )
 }
@@ -339,8 +343,8 @@ function isJam(url: string) {
   return known
 }
 
-/** A Spotify Jam invite, as Discord shows an activity invite: what it is, and Join, which joins it in Exo's Music room. */
-function SpotifyJam({ text }: { text: string }) {
+/** The message's Spotify Jam link once it is known to be one; null otherwise. */
+function useJam(text: string) {
   const url = JAM_LINK.exec(text)?.[0] ?? null
   const [jam, setJam] = useState(false)
   useEffect(() => {
@@ -349,7 +353,11 @@ function SpotifyJam({ text }: { text: string }) {
     if (url) void isJam(url).then(yes => { if (live) setJam(yes) })
     return () => { live = false }
   }, [url])
-  if (!url || !jam) return null
+  return url && jam ? url : null
+}
+
+/** A Spotify Jam invite, as Discord shows an activity invite: what it is, and Join, which joins it in Exo's Music room. */
+function SpotifyJam({ url }: { url: string }) {
   return (
     <div className="exo-dc-jam">
       <p className="exo-dc-jam-label">Invite to a Spotify Jam</p>
@@ -360,6 +368,81 @@ function SpotifyJam({ text }: { text: string }) {
       </div>
     </div>
   )
+}
+
+// A message's server invites (discord.gg/code, discord.com/invite/code), each once, in order.
+function invitesIn(text: string) {
+  return [...new Set((text.match(/https?:\/\/\S+/g) ?? []).map(inviteCode).filter((code): code is string => !!code))]
+}
+
+// Each invite is asked about once: what it opens, or 'invalid' (unknown or expired); null when Discord didn't answer.
+type InviteRead = DiscordInvite | 'invalid' | null
+const invites = new Map<string, InviteRead>()
+const reading = new Map<string, Promise<InviteRead>>()
+function readInvite(code: string) {
+  let read = reading.get(code)
+  if (!read) {
+    read = host.discordServer('invite', { invite: code })
+      .then(result => result.ok && result.invite ? result.invite : result.invalid ? 'invalid' as const : null, () => null)
+      .then(answer => { invites.set(code, answer); if (!answer) reading.delete(code); return answer })
+    reading.set(code, read)
+  }
+  return read
+}
+
+/**
+ * Discord's invite card under a message with a server invite: the server's icon, name and badge, who's online and how
+ * many are in it, and Join (Joined, opening it, when you're in it); an expired or unknown one says so.
+ */
+function InviteCard({ code, mine }: { code: string; mine: boolean }) {
+  const [invite, setInvite] = useState<InviteRead | undefined>(() => invites.get(code))
+  useEffect(() => {
+    let live = true
+    if (!invites.has(code)) void readInvite(code).then(answer => { if (live) setInvite(answer) })
+    return () => { live = false }
+  }, [code])
+  if (invite === null) return null
+  if (invite === 'invalid') {
+    return (
+      <div className="exo-dc-jam is-invalid">
+        <p className="exo-dc-jam-label">{mine ? 'You sent an invite, but' : "You've been invited, but"}</p>
+        <div className="exo-dc-jam-row">
+          <span className="exo-dc-invite-icon" aria-hidden="true" />
+          <span className="exo-dc-jam-what"><strong>Invalid Invite</strong><span>{mine ? 'Try sending a new invite' : 'Ask for a new invite'}</span></span>
+        </div>
+      </div>
+    )
+  }
+  const join = () => {
+    if (!invite) return
+    if (invite.joined && invite.guildId) return openDiscord({ guildId: invite.guildId, channelId: invite.channelId, outside: false })
+    // Joining changes what the card says: it asks again when it is next drawn.
+    invites.delete(code)
+    reading.delete(code)
+    window.dispatchEvent(new CustomEvent('exo-dc-invite', { detail: code }))
+  }
+  const count = (n: number | null, what: string) => n === null ? null : <span className={`exo-dc-invite-count is-${what.toLowerCase()}`}>{n.toLocaleString()} {what}</span>
+  return (
+    <div className="exo-dc-jam">
+      <p className="exo-dc-jam-label">{mine ? 'You sent an invite to join a server' : "You've been invited to join a server"}</p>
+      <div className="exo-dc-jam-row">
+        {invite?.icon ? <img className="exo-dc-invite-icon" src={invite.icon} alt="" draggable={false} />
+          : <span className="exo-dc-invite-icon" aria-hidden="true">{invite?.name ? initials(invite.name) : null}</span>}
+        <span className="exo-dc-jam-what">
+          <strong className="exo-dc-invite-name">
+            <span>{invite ? invite.name : 'Resolving Invite'}</span>
+            {invite?.verified || invite?.partnered ? <span className="exo-dc-invite-badge" aria-label={invite.verified ? 'Verified' : 'Partnered'}><Icons.Verified size={16} filled /></span> : null}
+          </strong>
+          {invite ? <span className="exo-dc-invite-counts">{count(invite.online, 'Online')}{count(invite.members, 'Members')}</span> : null}
+        </span>
+        {invite ? <button type="button" className={`button ${invite.joined ? 'button--secondary' : 'button--primary'}`} onClick={join}>{invite.joined ? 'Joined' : 'Join'}</button> : null}
+      </div>
+    </div>
+  )
+}
+
+function initials(name: string) {
+  return name.split(/\s+/).map(word => [...word][0] ?? '').join('').slice(0, 3)
 }
 
 // A forwarded message, Discord's way: "Forwarded", the message itself under a bar, and where it came from.
@@ -453,7 +536,7 @@ function Uploading({ upload }: { upload: NonNullable<DiscordMessage['uploading']
       {upload.files.map((file, i) => (
         <span key={`${file.name}-${i}`} className="exo-dc-file-chip">{file.name}<span className="exo-dc-file-size">{size(file.size)}</span></span>
       ))}
-      <span className="exo-dc-upload-bar" aria-hidden="true"><i style={{ width: `${Math.round(upload.progress * 100)}%` }} /></span>
+      <span className="exo-dc-upload-bar" aria-hidden="true"><i style={{ '--fill': upload.progress } as CSSProperties} /></span>
     </div>
   )
 }
@@ -533,13 +616,12 @@ function ActionsBar({ message, ctx, mine, canSend, actions, onViewReactions }: {
   const nitro = useNitro(ctx.guildId)
   const bar = useRef<HTMLDivElement>(null)
   // One message's menu at a time: a press anywhere else, or Escape, closes it (the press on another More opens that one).
+  useDismiss(bar, () => setMore(false), { on: more })
   useEffect(() => {
     if (!more) return
-    const away = (event: PointerEvent) => { if (!bar.current?.contains(event.target as Node)) setMore(false) }
     const escape = (event: KeyboardEvent) => { if (event.key === 'Escape') { event.stopPropagation(); setMore(false) } }
-    document.addEventListener('pointerdown', away, true)
     document.addEventListener('keydown', escape, true)
-    return () => { document.removeEventListener('pointerdown', away, true); document.removeEventListener('keydown', escape, true) }
+    return () => document.removeEventListener('keydown', escape, true)
   }, [more])
   const editable = mine && (message.type === 0 || message.type === 19)
   return (
@@ -626,21 +708,29 @@ function openMore(event: React.MouseEvent<HTMLDivElement>, message: DiscordMessa
   more.click()
 }
 
-// A message that is only a GIF or image link shows the picture alone, as Discord does.
-function mediaOnly(message: Pick<DiscordMessage, 'content' | 'embeds'>) {
-  const text = message.content.trim()
-  return /^https?:\/\/\S+$/.test(text) && message.embeds.some(e => (e.type === 'gifv' || e.type === 'image') && e.url === text)
+// A message that is only links, each with a preview that shows (or an invite, which shows its card), shows those alone.
+function linksOnly(message: Pick<DiscordMessage, 'content' | 'embeds' | 'flags'>) {
+  const links = message.content.trim().split(/\s+/)
+  if (!links.every(link => /^https?:\/\/\S+$/.test(link))) return false
+  const previewed = links.filter(link => !inviteCode(link))
+  if (!previewed.length) return true
+  if ((message.flags ?? 0) & 4) return false
+  const { inlineEmbedMedia, renderEmbeds } = accountSettings()
+  const shown = message.embeds.filter(e => e.type === 'image' || e.type === 'gifv' ? inlineEmbedMedia : renderEmbeds)
+  return shown.length >= previewed.length
 }
 
 // The quote over a reply, Discord's way; clicking it jumps to the original.
 function ReplyQuote({ reply, ctx }: { reply: DiscordMessage; ctx: MarkdownContext }) {
-  const text = reply.content || (reply.attachments.length || reply.embeds.length ? 'Click to see attachment' : 'Original message was deleted')
+  // A message of links alone shows as its previews, so its quote reads like an attachment's.
+  const words = reply.content && !linksOnly(reply) ? reply.content : ''
+  const text = words || (reply.attachments.length || reply.embeds.length ? 'Click to see attachment' : 'Original message was deleted')
   return (
     <p className="exo-dc-msg-reply" role="button" tabIndex={0} aria-label="Jump to the message replied to"
       onClick={() => window.dispatchEvent(new CustomEvent('exo-dc-jump', { detail: reply.id }))}>
       <img src={avatarUrl(reply.author, 32)} alt="" draggable={false} />
       <strong>{displayName(reply)}</strong>
-      <span className={reply.content ? undefined : 'is-italic'}>{reply.content ? <MarkdownLine text={reply.content} ctx={ctx} /> : text}</span>
+      <span className={words ? undefined : 'is-italic'}>{words ? <MarkdownLine text={words} ctx={ctx} /> : text}</span>
     </p>
   )
 }

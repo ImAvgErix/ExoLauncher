@@ -19,6 +19,29 @@ public sealed partial class WebHostBridge
         if (_discordEvents) return;
         _discordEvents = true;
         DiscordSession.Event += PostEvent;
+        DiscordSession.VideoFrame += PostVideoFrame;
+    }
+
+    // Discord video reaches the page as shared memory beside a small JSON note (WebView2's shared buffers; the page releases
+    // each once decoded): as base64 inside JSON, 60 frames a second per stream were serialized on Exo's UI thread and parsed
+    // again in the page, a third bigger than the video itself.
+    private void PostVideoFrame(object note, byte[] frame)
+    {
+        var web = _web;
+        if (web is null || frame.Length == 0) return;
+        var json = JsonSerializer.Serialize(note);
+        void Send()
+        {
+            try
+            {
+                using var buffer = web.Environment.CreateSharedBuffer((ulong)frame.Length);
+                using (var stream = System.IO.WindowsRuntimeStreamExtensions.AsStreamForWrite(buffer.OpenStream(), 0)) stream.Write(frame);
+                web.PostSharedBufferToScript(buffer, Microsoft.Web.WebView2.Core.CoreWebView2SharedBufferAccess.ReadOnly, json);
+            }
+            catch { }
+        }
+        if (!_queue.HasThreadAccess) _queue.TryEnqueue(Send);
+        else Send();
     }
 
     /// <summary>A Discord notification was clicked: the room opens that conversation (a thread in its channel).</summary>
@@ -334,13 +357,13 @@ public sealed partial class WebHostBridge
         return new { ok = error is null, message = error };
     }
 
-    // The member list; more asks Discord for the next rows (they arrive as discord.members).
+    // The member list; at asks Discord for the rows from there on (they arrive as discord.members).
     private static object DiscordMembers(JsonElement p, bool hasParams)
     {
         if (DiscordSession.Current is not { } session || ReadString(p, hasParams, "guildId") is not { } raw)
             return new { items = Array.Empty<object>(), online = 0, total = 0, rows = 0 };
         var guild = DiscordRest.Id(raw);
-        if (ReadBool(p, hasParams, "more") == true) session.MoreMembers(guild);
+        if (hasParams && ReadInt(p, "at", 0, 1_000_000, -1) is var at and >= 0) session.MembersAt(guild, at);
         return session.Cache.MemberList(guild);
     }
 
@@ -531,6 +554,10 @@ public sealed partial class WebHostBridge
             case "frames":
                 session.WantFrames(ReadBool(p, hasParams, "on") == true);
                 return new { ok = true, message = (string?)null };
+            case "decode":
+                // The page decodes H.265 in hardware: connections from now on offer to receive it.
+                DiscordClient.Voice.VoiceConnection.DecodesH265 = ReadBool(p, hasParams, "hevc") == true;
+                return new { ok = true, message = (string?)null };
             case "watch" when ReadString(p, hasParams, "userId") is { Length: > 0 and <= 24 } user && user.All(char.IsAsciiDigit):
                 var why = session.WatchStream(user);
                 return new { ok = why is null, message = why };
@@ -603,6 +630,10 @@ public sealed partial class WebHostBridge
                 var guild = accepted.ValueKind == JsonValueKind.Object && accepted.TryGetProperty("guild", out var g) && g.TryGetProperty("id", out var gid) ? gid.GetString() : null;
                 var invited = accepted.ValueKind == JsonValueKind.Object && accepted.TryGetProperty("channel", out var ch) && ch.TryGetProperty("id", out var cid) ? cid.GetString() : null;
                 return new { ok = reply.Error is null, message = reply.Error, guildId = guild, channelId = invited };
+            // A message's invite card: the server (or group DM), its counts and whether you're in it; invalid when
+            // Discord says the invite is unknown or expired, so the card says so.
+            case "invite" when InviteCode(ReadString(p, hasParams, "invite")) is { } info:
+                return await DiscordInviteAsync(session, info, ct).ConfigureAwait(false);
             case "leave" when ReadString(p, hasParams, "guildId") is { } leave:
                 reply = await session.Rest.LeaveGuildAsync(DiscordRest.Id(leave), ct).ConfigureAwait(false);
                 return new { ok = reply.Error is null, message = reply.Error };
@@ -680,6 +711,35 @@ public sealed partial class WebHostBridge
                 return new { ok = reply.Error is null, message = reply.Error, channelId = created };
         }
         return new { ok = false, message = "That isn't an invite link." };
+    }
+
+    // A message's invite card: the server (or group DM), its counts and whether you're in it. invalid: Discord says the
+    // invite is unknown or expired (10006), so the card says so; any other failure shows no card.
+    private static async Task<object> DiscordInviteAsync(DiscordSession session, string code, CancellationToken ct)
+    {
+        var reply = await session.Rest.InviteInfoAsync(code, ct).ConfigureAwait(false);
+        var body = reply.Body is { ValueKind: JsonValueKind.Object } b ? b : default;
+        if (reply.Error is not null || body.ValueKind != JsonValueKind.Object)
+            return new { ok = false, message = reply.Error, invalid = body.ValueKind == JsonValueKind.Object && body.TryGetProperty("code", out var c) && c.TryGetInt32(out var n) && n == 10006 };
+        static JsonElement Part(JsonElement e, string name) => e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Object ? v : default;
+        static string? Text(JsonElement e, string name) => e.ValueKind == JsonValueKind.Object && e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
+        static int? Count(JsonElement e, string name) => e.TryGetProperty(name, out var v) && v.TryGetInt32(out var n) ? n : null;
+        var guild = Part(body, "guild");
+        var channel = Part(body, "channel");
+        var features = guild.ValueKind == JsonValueKind.Object && guild.TryGetProperty("features", out var f) && f.ValueKind == JsonValueKind.Array
+            ? f.EnumerateArray().Select(x => x.GetString()).ToHashSet() : [];
+        var guildId = Text(guild, "id");
+        return new
+        {
+            ok = true,
+            invite = new
+            {
+                guildId, channelId = Text(channel, "id"), name = Text(guild, "name") ?? Text(channel, "name"), icon = guildId is not null && Text(guild, "icon") is { } icon ? $"https://cdn.discordapp.com/icons/{guildId}/{icon}.webp?size=128&quality=lossless" : null,
+                verified = features.Contains("VERIFIED"), partnered = features.Contains("PARTNERED"),
+                online = Count(body, "approximate_presence_count"), members = Count(body, "approximate_member_count"),
+                joined = guildId is not null && session.Cache.InGuild(guildId),
+            },
+        };
     }
 
     // Discord's Server Guide: its settings with the resources the user can see, each previewed by its

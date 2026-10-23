@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type CSSProperties } from 'react'
 import { host, onHostEvent } from '../../lib/host'
 import { report } from '../../lib/report'
+import { useLens } from '../../lib/glass'
 import type { DiscordChannel, DiscordVoice, DiscordVoiceMember } from '../../lib/discord'
 import { useVideoFeed } from '../../lib/discordVideo'
 import { clearGoLiveMessage, startCamera, stopCamera, useCamera, useGoLive } from '../../lib/goLive'
-import { Close } from '../../brand/icons'
+import { ChevronDown, ChevronUp, Close } from '../../brand/icons'
 import { MyStreamTile, ShareScreen, useStreamTile } from './GoLivePicker'
 import { Icons } from './icons'
 import { SoundboardButton } from './Soundboard'
@@ -202,6 +203,9 @@ export function VoiceRoom({ channel, controls, meId, onJoin, dm = false, chat }:
   const [membersHidden, setMembersHidden] = useState(false)
   const myStream = useStreamTile() && here
   const [stage, tileWidth] = useTileWidth(members.length + (myStream ? 1 : 0))
+  // The call's bar is glass like the Bar's capsules and Music's player: its edge bends what passes under it.
+  const bar = useRef<HTMLElement>(null)
+  useLens(bar)
   const audio = useAccountSettings().audioUsers
   return (
     <section className={`exo-dc-chat exo-dc-voice-room${dm ? ' is-dm' : ''}`} aria-label={dm ? `Call with ${channel.name}` : channel.name}>
@@ -221,12 +225,12 @@ export function VoiceRoom({ channel, controls, meId, onJoin, dm = false, chat }:
         {myStream && members.length > 0 ? <MyStreamTile meId={meId} /> : null}
       </div>
       {notes.length ? (
-        <div className="exo-dc-voice-notes" role="alert">
+        <div className="exo-dc-voice-notes exo-glass" role="alert">
           <span>{notes.map(note => <span key={note}>{note}</span>)}</span>
           <button type="button" className="exo-dc-icon-btn" aria-label="Dismiss" onClick={dismiss}><Close size={14} /></button>
         </div>
       ) : null}
-      <footer className="exo-dc-voice-bar">
+      <footer ref={bar} className="exo-dc-voice-bar exo-glass">
         {here ? <CallButtons controls={controls} channelId={channel.id} onCameraError={setCameraError} /> : (
           <button type="button" className="exo-dc-voice-join" disabled={channel.canConnect === false} onClick={onJoin}>{dm ? 'Join Call' : 'Join Voice'}</button>
         )}
@@ -396,7 +400,7 @@ function StreamStage({ member, onStop, onRetry, membersHidden, onToggleMembers }
       ) : <p className="exo-dc-note">Joining {member.name}'s stream…</p>}
       <span className="exo-dc-live">LIVE</span>
       <span className="exo-dc-stream-bar">
-        <span>{member.name}</span>
+        <span className="exo-dc-stream-name">{member.name}</span>
         <span className="exo-dc-stream-tools">
           <span className="exo-dc-stream-sound">
             <button type="button" className={`exo-dc-voice-btn${sound.muted ? ' is-off' : ''}`} aria-label={sound.muted ? 'Unmute Stream' : 'Mute Stream'} aria-pressed={sound.muted}
@@ -408,7 +412,7 @@ function StreamStage({ member, onStop, onRetry, membersHidden, onToggleMembers }
           </span>
           {full ? null : (
             <button type="button" className="exo-dc-voice-btn" aria-label={membersHidden ? 'Show Members' : 'Hide Members'} aria-pressed={membersHidden} onClick={onToggleMembers}>
-              <Icons.Members size={18} />
+              {membersHidden ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
             </button>
           )}
           <button type="button" className="exo-dc-voice-btn" aria-label={full ? 'Exit Full Screen' : 'Full Screen'} onClick={toggleFull}>
@@ -438,6 +442,9 @@ export function VoicePanel({ controls, place, onOpen }: { controls: VoiceControl
         {error ? <span role="alert">{error}</span> : voice.state !== 'off' && place
           ? <button type="button" className="exo-dc-voice-place" onClick={onOpen}>{place}</button>
           : null}
+        {voice.state === 'connected' && voice.micSilent && !voice.muted
+          ? <span className="exo-dc-voice-warn" role="status">Your mic seems silent. Check it’s plugged in, unmuted and its gain is up.</span>
+          : null}
       </div>
       {voice.state !== 'off' ? (
         <button type="button" className="exo-dc-icon-btn is-hangup" aria-label="Disconnect" onClick={() => void controls.leave()}>
@@ -453,7 +460,7 @@ export function VoicePanel({ controls, place, onOpen }: { controls: VoiceControl
 /** Someone is calling you in a DM: Join, or Decline (Discord stops ringing you everywhere). */
 export function IncomingCall({ name, onJoin, onDecline }: { name: string; onJoin: () => void; onDecline: () => void }) {
   return (
-    <div className="exo-dc-call" role="alert">
+    <div className="exo-dc-call exo-glass" role="alert">
       <span><strong>{name}</strong> is calling</span>
       <button type="button" className="is-join" onClick={onJoin}>Join</button>
       <button type="button" onClick={onDecline}>Decline</button>

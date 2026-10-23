@@ -33,6 +33,18 @@ internal static class DisplayOutput
     };
 
     /// <summary>
+    /// The best refresh rate for a screen: the main screen's highest; any other screen 60 Hz (the rate it has closest to
+    /// it). A second screen at a high rate keeps the GPU's memory clock from idling down on many cards and gives the
+    /// desktop compositor more frames to draw beside the game; Windows 11 runs each screen at its own rate, so a
+    /// fraction of the main screen's (82 of 165) gains nothing over 60.
+    /// </summary>
+    internal static int BestRefresh(bool main, IReadOnlyCollection<int> refreshes, int current)
+    {
+        if (refreshes.Count == 0) return current;
+        return main ? refreshes.Max() : refreshes.OrderBy(hz => Math.Abs(hz - 60)).ThenByDescending(hz => hz).First();
+    }
+
+    /// <summary>
     /// The best color the link takes at the current mode: RGB Full at its highest depth
     /// (12-bit at most), else RGB Limited, else the fullest YCbCr. Why is one plain line when
     /// that is not RGB Full, or when a deeper color only fits as YCbCr; null otherwise. A panel

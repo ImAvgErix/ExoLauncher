@@ -30,6 +30,7 @@ internal sealed unsafe class StreamAudio(uint app = 0) : IDisposable
 
     private void Run()
     {
+        using var mmcss = MmcssTask.Join(MmcssTask.Audio);
         try
         {
             var client = Activate();

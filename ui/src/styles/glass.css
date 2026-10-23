@@ -8,14 +8,13 @@
    beneath, the words keep their contrast:
    - small glass is dark by default: 9% to 33%, white words 6.6:1 and secondary 4.8:1 at the worst pixel over
      pure white art, a gray glass with a bright rim over black;
-   - over bright content the Bar, Music's player and the buttons over art turn light, as Apple's small glass
-     does: 72% to 96%, dark words 9.5:1 (lib/glass.ts reads how bright the art behind them is);
+   - it stays dark over bright content too (no light flip): a white plate on one card or capsule read as a
+     different control;
    - large glass (menus, popovers, Ctrl+K, toasts) stays dark: 7% to 22%, white 10.4:1, secondary 5.5:1; a
      thicker pane that scatters more and casts the deeper shadow.
-   Settings › General › Glass makes it Tinted (narrower bands) or Solid; Windows' more contrast and forced
-   colors make it solid. Nothing else switches it: not a running game, not Exo in the background, not Windows'
-   Transparency effects switch (mostly turned off for speed, which a still glass doesn't cost; it redraws only
-   when what is behind it moves). Exo's own Solid is there for anyone who needs it. */
+   Settings › General › Material makes it Solid; Windows' more contrast and forced colors make it solid. Nothing
+   else switches it: not a running game, not Exo in the background, not Windows' Transparency effects switch (mostly
+   turned off for speed, which a still glass doesn't cost; it redraws only when what is behind it moves). */
 @property --glass-glow {
   syntax: "<number>";
   inherits: true;
@@ -46,11 +45,19 @@
   --exo-pressed: rgb(var(--exo-ink-rgb) / 0.12);
   isolation: isolate;
   color: var(--color-fg);
-  background-color: transparent;
-  /* --exo-lens (blur and bend in one) is set only once its filter is in the page (lib/glass.ts): a missing
-     filter would void it all. */
-  backdrop-filter: var(--exo-lens, url(#exo-glass-soft)) url(#exo-glass-tone);
-  box-shadow: var(--exo-glass-rim);
+  /* Glassy's slab: a little tint, the light at its top, and a backdrop dimmed enough that white words keep their
+     contrast over bright art. --exo-lens (Exo's edge bend) is set only once its filter is in the page
+     (lib/glass.ts): a missing filter would void it all. */
+  background-color: var(--glassy-slab);
+  background-image: var(--glassy-sheen);
+  backdrop-filter: var(--exo-lens, blur(8px)) var(--glassy-tone);
+  box-shadow: var(--exo-glass-rim), var(--glassy-shadow);
+  text-shadow: var(--glassy-words);
+}
+
+/* A primary button on glass is ink on its own fill: no lift under its words. */
+:is(.exo-glass, .exo-shelf-sort-menu, .exo-key-popover, .exo-toast) :is(.is-primary, .exo-cta) {
+  text-shadow: none;
 }
 
 /* Large glass is a thicker pane: it scatters more, keeps the floating layer's hairline as a light edge and
@@ -61,7 +68,7 @@
 .exo-key-popover,
 .exo-toast,
 .exo-dc :is(.exo-dc-menu, .exo-dc-popover, .exo-dc-picker, .exo-dc-modal, .exo-dc-tip, .exo-dc-suggest, .exo-dc-soundboard-pop) {
-  --color-fg: var(--exo-text, #ffffff);
+  --color-fg: var(--exo-panel-ink);
   --exo-ink-inverse: initial;
   --color-muted: var(--exo-glass-panel-secondary);
   --color-faint: var(--exo-glass-panel-secondary);
@@ -69,9 +76,17 @@
   --hover-fill: rgb(var(--exo-ink-rgb) / 0.07);
   --exo-selected: rgb(var(--exo-ink-rgb) / 0.1);
   --exo-pressed: rgb(var(--exo-ink-rgb) / 0.14);
-  border: 1px solid rgb(var(--exo-ink-rgb) / 0.12);
-  backdrop-filter: url(#exo-glass-panel);
-  box-shadow: 0 18px 48px rgb(0 0 0 / 0.6);
+  /* Glassy's floating layer: Apple's dark material, frosted on the element itself, lit at its rim. */
+  background-color: var(--glassy-overlay);
+  background-image: var(--glassy-sheen);
+  backdrop-filter: blur(12px) saturate(1.8) var(--glassy-overlay-tone);
+  box-shadow: var(--glassy-ring), var(--glassy-rim), var(--glassy-shadow-raised);
+}
+
+/* A sheet holds a page of words over the dimmed room: it frosts deeper than a menu, so the room behind shows as color
+   and never as shapes behind its words. */
+.exo-glass.is-panel {
+  backdrop-filter: blur(24px) saturate(1.8) var(--glassy-overlay-tone);
 }
 
 /* A hovered row or control on glass lifts the glass under it, so its secondary words go full ink there, as a
@@ -115,6 +130,7 @@ button.exo-glass:hover {
   .exo-dc-settings-keybind-keys,
   .exo-dc-time-chip,
   .exo-dc-hidden-label,
+  .exo-dc-call button,
   .exo-dc-msg-actions,
   .exo-dc-round-btn,
   .exo-dc-toast,
@@ -138,14 +154,20 @@ button.exo-glass:hover {
   .exo-dc .exo-dc-modal-input,
   .exo-dc .exo-dc-tab.is-raised,
   .exo-dc .exo-dc-chat-head .exo-dc-tabs,
+  .exo-dc-new-bar,
+  .exo-dc-voice-tile-name,
+  .exo-dc-voice-btn,
+  .exo-dc-watch,
+  .exo-dc-stream-name,
   .exo-dc-poll-answer,
   .exo-dc-audio,
   .exo-dc-sound,
   .exo-dc-delete-quote,
-  .exo-game-store-name,
+  .exo-dc-stream-sound,
   .exo-game-status,
   .exo-badge,
   .exo-friend-pill-go,
+  .exo-music-sort,
   .exo-music-back,
   .exo-music-recent-open,
   .exo-music-top-open,
@@ -159,7 +181,6 @@ button.exo-glass:hover {
   .exo-store-badge,
   .exo-sgp-pill,
   .exo-sgp-offer,
-  .exo-music-sort,
   .exo-game-sources,
   .exo-shelf-chips,
   .exo-hub-tabs,
@@ -191,10 +212,18 @@ button.exo-glass:hover {
      themselves, not on the root: there they reached every element, and the whole Store page's style was worked out
      again as each transition began and ended (25 to 70 ms each, a stall before the art moved). A control with a
      fill of its own (a white primary) keeps it. */
-  :root[data-exo-vt] & {
+  :root[data-exo-vt]:not([data-exo-vt="theme"]) :is(.exo-titlebar, [data-exo-vt-named]) &, :root[data-exo-vt="push"] .exo-music-bar & {
     --exo-control-glass: none;
-    --exo-fill: rgb(0 0 0 / 0.65);
+    --exo-fill: var(--glassy-still-control);
   }
+}
+
+/* Badges over cover art (Update, In library, a store page's tags) and the labels and controls over a call's video (a tile's
+   name, Watch Stream, a stream's name and buttons): a deeper dim than a control on the page, so their small words and
+   glyphs keep 4.5:1 over the brightest art or a white page shared. Light's glass is a white frost already. */
+:root:not([data-exo-theme="light"]) :is(.exo-badge, .exo-store-badge, .exo-sgp-pill, .exo-dc-voice-tile-name, .exo-dc-watch,
+  .exo-dc-stream-bar :is(.exo-dc-stream-tools > .exo-dc-voice-btn, .exo-dc-stream-name, .exo-dc-stream-sound)) {
+  --exo-control-glass: blur(10px) brightness(0.34) contrast(0.9) saturate(1.6);
 }
 
 /* Controls repeated down a scrolling list (a song's or a library row's More, a friend's Message and More, a
@@ -206,6 +235,12 @@ button.exo-glass:hover {
   --exo-fill: transparent;
 }
 
+/* Over a friend's nameplate the row is art, not the page: Message and More take glass's still tint so their glyphs
+   don't sit straight on it. */
+.exo-dc-friend.has-nameplate .exo-dc-round-btn {
+  --exo-fill: var(--glassy-still-control);
+}
+
 .exo-music-toggle {
   --exo-control-glass: none;
   --exo-fill: rgb(var(--exo-ink-rgb) / 0.05);
@@ -214,18 +249,15 @@ button.exo-glass:hover {
 /* The same for all glass mid transition (a room switching, a page opening): the Bar, Continue's More, menus and
    panes draw a still tint in their own band (small dark 0.35 of what is under it, light glass over a white 0.72,
    large glass 0.25), so they never go clear and pop back as the transition ends. */
-:root[data-exo-vt] :is(.exo-glass, .exo-shelf-sort-menu, .exo-key-popover, .exo-toast) {
-  background-color: rgb(0 0 0 / 0.65);
+:root[data-exo-vt]:not([data-exo-vt="theme"]) :is(.exo-titlebar, [data-exo-vt-named]) :is(.exo-glass, .exo-shelf-sort-menu, .exo-key-popover, .exo-toast),
+:root[data-exo-vt="push"] .exo-music-bar :is(.exo-glass, .exo-shelf-sort-menu, .exo-key-popover, .exo-toast) {
+  background-color: var(--glassy-still);
   backdrop-filter: none !important;
 }
 
-:root[data-exo-vt] .exo-glass[data-tone="light"] {
-  background-color: rgb(255 255 255 / 0.72);
-}
-
-:root[data-exo-vt] :is(.exo-glass.is-panel, .exo-shelf-sort-menu, .exo-key-popover, .exo-toast,
+:root[data-exo-vt]:not([data-exo-vt="theme"]) :is(.exo-titlebar, [data-exo-vt-named]) :is(.exo-glass.is-panel, .exo-shelf-sort-menu, .exo-key-popover, .exo-toast,
   .exo-dc :is(.exo-dc-menu, .exo-dc-popover, .exo-dc-picker, .exo-dc-modal, .exo-dc-tip, .exo-dc-suggest, .exo-dc-soundboard-pop)) {
-  background-color: rgb(0 0 0 / 0.75);
+  background-color: var(--glassy-still-panel);
   backdrop-filter: none !important;
 }
 
@@ -243,14 +275,14 @@ button.exo-glass:hover {
    so what is on it stays glass; cards inside it are clear with a light hairline, never gray. */
 @layer base {
   :is(.exo-dc .exo-dc-side, .exo-dc .exo-dc-members, .exo-dc .exo-dc-dm-profile, .exo-dc .exo-dc-active, .exo-dc .exo-dc-dock,
-  .exo-dc .exo-dc-profile, .exo-music-side, .exo-music-panel, .exo-system-head, .exo-system-panel, .exo-friend-pill,
+  .exo-dc .exo-dc-profile, .exo-music-side, .exo-music-panel, .exo-system-head, .exo-system-panel, .exo-friend-pill, .exo-gift,
   .exo-game-overlay-stage, .exo-transfer-queue) {
     position: relative;
   }
 }
 
 :root :is(.exo-dc .exo-dc-side, .exo-dc .exo-dc-members, .exo-dc .exo-dc-dm-profile, .exo-dc .exo-dc-active, .exo-dc .exo-dc-dock,
-  .exo-dc .exo-dc-profile, .exo-music-side, .exo-music-panel, .exo-system-head, .exo-system-panel, .exo-friend-pill,
+  .exo-dc .exo-dc-profile, .exo-music-side, .exo-music-panel, .exo-system-head, .exo-system-panel, .exo-friend-pill, .exo-gift,
   .exo-game-overlay-stage, .exo-transfer-queue) {
   --exo-float: transparent;
   --exo-float-line: rgb(var(--exo-ink-rgb) / 0.1);
@@ -258,8 +290,16 @@ button.exo-glass:hover {
   background-color: transparent;
 }
 
+/* That isolation keeps a menu opened in the pane (a channel's right-click menu) inside it, under what comes after
+   it: the chat's avatars and lines drew over the menu. A pane holding one rises over its neighbors meanwhile. */
 :root :is(.exo-dc .exo-dc-side, .exo-dc .exo-dc-members, .exo-dc .exo-dc-dm-profile, .exo-dc .exo-dc-active, .exo-dc .exo-dc-dock,
-  .exo-dc .exo-dc-profile, .exo-music-side, .exo-music-panel, .exo-system-head, .exo-system-panel, .exo-friend-pill,
+  .exo-dc .exo-dc-profile, .exo-music-side, .exo-music-panel, .exo-system-head, .exo-system-panel, .exo-friend-pill, .exo-gift,
+  .exo-transfer-queue):has(:is(.exo-dc-menu, .exo-dc-popover, .exo-dc-picker, .exo-dc-tip, .exo-dc-suggest, .exo-dc-soundboard-pop, [role="menu"], [role="dialog"])) {
+  z-index: 50;
+}
+
+:root :is(.exo-dc .exo-dc-side, .exo-dc .exo-dc-members, .exo-dc .exo-dc-dm-profile, .exo-dc .exo-dc-active, .exo-dc .exo-dc-dock,
+  .exo-dc .exo-dc-profile, .exo-music-side, .exo-music-panel, .exo-system-head, .exo-system-panel, .exo-friend-pill, .exo-gift,
   .exo-game-overlay-stage, .exo-transfer-queue)::before {
   content: "";
   position: absolute;
@@ -267,13 +307,27 @@ button.exo-glass:hover {
   z-index: -1;
   border-radius: inherit;
   pointer-events: none;
-  /* Large glass's filter (index.html › exo-glass-panel) in CSS's own functions: 0.21 of the backdrop, so the
-     page's black behind it stays black (a 3% floor read as a gray panel) and art behind it tints it. An SVG blur
-     on a layer behind content drew white bands and blocks along the pane's edges (Chromium); these draw none. */
-  backdrop-filter: blur(18px) saturate(1.6) brightness(0.21);
-  /* The pane's edge is drawn here: the layer paints over the pane's own box-shadow, and over black the glass
-     is black, so the edge is all that draws it. */
-  box-shadow: inset 0 0 0 1px var(--exo-float-line);
+  /* Glassy's standard surface in CSS's own functions (an SVG blur on a layer behind content drew white bands
+     and blocks along the pane's edges in Chromium): clear frost with a little light in it and its sheen, lit at
+     its rim. */
+  --exo-fill: var(--glassy-pane);
+  background-color: var(--exo-fill);
+  background-image: var(--glassy-sheen);
+  backdrop-filter: blur(14px) var(--glassy-pane-tone);
+  box-shadow: var(--glassy-ring), var(--glassy-rim);
+}
+
+/* A game's sheet and a store page hold a page of words: the thicker glass of the other sheets (Settings, Properties),
+   so the busy room behind never shows through enough to blur them (a pane's thin glass left a store page's
+   requirements at 1.7 to 3.8:1 over the Store's covers, measured from the screen). */
+/* Words on a sheet are read, never faint (a table's headers were at 3.4:1). */
+.exo-game-overlay-stage {
+  --color-faint: var(--color-muted);
+}
+
+:root .exo-game-overlay-stage.exo-game-overlay-stage::before {
+  background-color: var(--glassy-overlay);
+  backdrop-filter: blur(20px) saturate(1.8) var(--glassy-overlay-tone);
 }
 
 /* Friends are playing: capsules like the Bar's, so they take its brighter Liquid Glass rim. */
@@ -282,49 +336,38 @@ button.exo-glass:hover {
 }
 
 /* Mid transition a pane's layer is a still tint too (see above). */
-:root[data-exo-vt] :is(.exo-dc .exo-dc-side, .exo-dc .exo-dc-members, .exo-dc .exo-dc-dm-profile, .exo-dc .exo-dc-active, .exo-dc .exo-dc-dock,
-  .exo-dc .exo-dc-profile, .exo-music-side, .exo-music-panel, .exo-system-head, .exo-system-panel, .exo-friend-pill,
+:root[data-exo-vt]:not([data-exo-vt="theme"]) :is(.exo-titlebar, [data-exo-vt-named]) :is(.exo-dc .exo-dc-side, .exo-dc .exo-dc-members, .exo-dc .exo-dc-dm-profile, .exo-dc .exo-dc-active, .exo-dc .exo-dc-dock,
+  .exo-dc .exo-dc-profile, .exo-music-side, .exo-music-panel, .exo-system-head, .exo-system-panel, .exo-friend-pill, .exo-gift,
   .exo-game-overlay-stage, .exo-transfer-queue)::before {
-  --exo-fill: rgb(0 0 0 / 0.75);
+  --exo-fill: var(--glassy-still-pane);
   background-color: var(--exo-fill);
   backdrop-filter: none;
 }
 
-@media (prefers-contrast: no-preference) and (forced-colors: none) {
-  :root[data-exo-glass="tinted"] {
-    --exo-control-glass: blur(6px) saturate(1.2) brightness(0.15) contrast(0.8);
-  }
-
-  :root[data-exo-glass="tinted"] :is(.exo-dc .exo-dc-side, .exo-dc .exo-dc-members, .exo-dc .exo-dc-dm-profile, .exo-dc .exo-dc-active, .exo-dc .exo-dc-dock,
-  .exo-dc .exo-dc-profile, .exo-music-side, .exo-music-panel, .exo-system-head, .exo-system-panel, .exo-friend-pill,
-  .exo-game-overlay-stage, .exo-transfer-queue)::before {
-    backdrop-filter: blur(40px) saturate(1.1) brightness(0.0814) contrast(0.86);
-  }
-}
-
-/* Solid, more contrast and forced colors: controls take the solid fill, panes are black. */
-:root[data-exo-glass="solid"] {
+/* Solid, more contrast and forced colors: controls take the solid fill, panes are black. Doubled :root: this file is
+   imported ahead of tokens.css's Dark and Light blocks, which set the glass's own fill and filter at one :root. */
+:root:root[data-exo-glass="solid"] {
   --exo-control-glass: none;
-  --exo-fill: #121212;
+  --exo-fill: var(--exo-solid-fill);
 }
 
 :root[data-exo-glass="solid"] :is(.exo-dc .exo-dc-side, .exo-dc .exo-dc-members, .exo-dc .exo-dc-dm-profile, .exo-dc .exo-dc-active, .exo-dc .exo-dc-dock,
-  .exo-dc .exo-dc-profile, .exo-music-side, .exo-music-panel, .exo-system-head, .exo-system-panel, .exo-friend-pill,
+  .exo-dc .exo-dc-profile, .exo-music-side, .exo-music-panel, .exo-system-head, .exo-system-panel, .exo-friend-pill, .exo-gift,
   .exo-game-overlay-stage, .exo-transfer-queue)::before {
-  background-color: #000;
+  background-color: var(--color-bg);
   backdrop-filter: none;
 }
 
 @media (prefers-contrast: more), (forced-colors: active) {
-  :root {
+  :root:root:root {
     --exo-control-glass: none;
-    --exo-fill: #121212;
+    --exo-fill: var(--exo-solid-fill);
   }
 
   :root :is(.exo-dc .exo-dc-side, .exo-dc .exo-dc-members, .exo-dc .exo-dc-dm-profile, .exo-dc .exo-dc-active, .exo-dc .exo-dc-dock,
-  .exo-dc .exo-dc-profile, .exo-music-side, .exo-music-panel, .exo-system-head, .exo-system-panel, .exo-friend-pill,
+  .exo-dc .exo-dc-profile, .exo-music-side, .exo-music-panel, .exo-system-head, .exo-system-panel, .exo-friend-pill, .exo-gift,
   .exo-game-overlay-stage, .exo-transfer-queue)::before {
-    background-color: #000;
+    background-color: var(--color-bg);
     backdrop-filter: none;
   }
 }
@@ -335,8 +378,9 @@ button.exo-glass:hover {
    the section list and cards in it are clear with a light hairline, never gray or black holes in it. */
 .exo-set-room > .exo-settings,
 .exo-dc-settings,
-.exo-props {
-  --color-fg: var(--exo-text, #ffffff);
+.exo-props,
+.exo-whats-new {
+  --color-fg: var(--exo-panel-ink);
   --color-muted: var(--exo-glass-panel-secondary);
   --color-faint: var(--exo-glass-panel-secondary);
   --dc-muted: var(--exo-glass-panel-secondary);
@@ -360,11 +404,8 @@ button.exo-glass:hover {
   pointer-events: none;
 }
 
-/* The glass and the words fade in while the sheet settles (game-b.css › exo-sheet-in). */
-.exo-sheet-glass,
-:is(.exo-set-room > .exo-settings, .exo-dc-settings, .exo-props) > * {
-  animation: exo-fade-in var(--dur-move) var(--ease-out) backwards;
-}
+/* The sheet settles in by its size (game-b.css › exo-sheet-in); its glass and words are there from the first frame:
+   a fading part hid the room from the glass controls in it until the fade ended. */
 
 /* Words on small glass: a blurred, moving backdrop is busier than black, so its small words keep Inter Medium
    (DESIGN.md › Type), the secondary line too. */
@@ -373,37 +414,9 @@ button.exo-glass:hover {
   font-weight: 500;
 }
 
-/* Light glass: the Bar and Music's player over bright content (lib/glass.ts sets data-tone), dark words on a
-   bright frost. Never while glass is solid, and never with Windows' more contrast or forced colors. */
-@media (prefers-contrast: no-preference) and (forced-colors: none) {
-  :root:not([data-exo-glass="solid"]) .exo-glass[data-tone="light"] {
-    --color-fg: var(--exo-glass-light-ink);
-    --color-muted: var(--exo-glass-light-secondary);
-    --color-faint: var(--exo-glass-light-secondary);
-    --hover-fill: rgb(0 0 0 / 0.06);
-    --exo-selected: rgb(0 0 0 / 0.09);
-    --exo-pressed: rgb(0 0 0 / 0.13);
-    --exo-track: rgb(0 0 0 / 0.2);
-    --exo-ink-inverse: var(--exo-glass-light-on-ink);
-    backdrop-filter: var(--exo-lens, url(#exo-glass-soft)) url(#exo-glass-tone-light);
-    box-shadow: var(--exo-glass-rim-light);
-  }
-
-  :root[data-exo-glass="tinted"] .exo-glass[data-tone="light"] {
-    backdrop-filter: var(--exo-lens, url(#exo-glass-soft)) url(#exo-glass-tone-light-tinted);
-  }
-}
-
-/* A tone change lands at once for everything on the glass (lib/glass.ts sets data-tone-flip for two frames):
-   every frame of it is legible, where a color easing across would pass through gray on the new glass. */
-.exo-glass[data-tone-flip],
-.exo-glass[data-tone-flip] *,
-.exo-glass[data-tone-flip] *::before {
-  transition: none !important;
-}
-
 /* Light from within: a press lights the glass where it lands (lib/glass.ts places it) and the light spreads
-   and fades as the press lets go. Grain under it keeps the dark gradients from banding. Behind the words. */
+   and fades as the press lets go. Behind the words. No grain: a noise layer kept dark gradients from banding,
+   but it lay on every glass surface at all times and read as film grain over clear glass. */
 .exo-glass::after,
 .exo-shelf-sort-menu::after,
 .exo-key-popover::after,
@@ -415,16 +428,16 @@ button.exo-glass:hover {
   z-index: -1;
   border-radius: inherit;
   pointer-events: none;
-  background:
-    radial-gradient(circle calc(24px + var(--glass-glow) * 56px) at var(--glass-x, 50%) var(--glass-y, 50%),
-      rgb(var(--exo-ink-rgb) / calc(var(--glass-glow) * 0.16)), transparent),
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 .05 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background: radial-gradient(circle calc(24px + var(--glass-glow) * 56px) at var(--glass-x, 50%) var(--glass-y, 50%),
+      rgb(var(--exo-ink-rgb) / calc(var(--glass-glow) * 0.16)), transparent);
   transition: --glass-glow 420ms var(--ease-out);
 }
 
+/* A glass button's hover lays the lift over its own slab, never in its place: in place of it, light glass lost its
+   white frost and went clear over the art, its dark words on whatever was behind (Continue's More in Light). */
 @media (hover: hover) and (pointer: fine) {
   button.exo-glass:hover:not(:disabled) {
-    background-color: var(--hover-fill);
+    background-image: linear-gradient(var(--hover-fill), var(--hover-fill)), var(--glassy-sheen);
   }
 }
 
@@ -449,26 +462,15 @@ button.exo-glass:hover {
   outline-offset: -2px;
 }
 
-/* Tinted (Settings › General › Glass): narrower bands, for anyone who wants more contrast. Never with
-   Windows' more contrast or forced colors: their rules below draw no backdrop. */
-@media (prefers-contrast: no-preference) and (forced-colors: none) {
-  :root[data-exo-glass="tinted"] :is(.exo-glass, .exo-shelf-sort-menu, .exo-key-popover, .exo-toast, .exo-dc :is(.exo-dc-menu, .exo-dc-popover, .exo-dc-picker, .exo-dc-modal, .exo-dc-tip, .exo-dc-suggest, .exo-dc-soundboard-pop)) {
-    backdrop-filter: var(--exo-lens, url(#exo-glass-soft)) url(#exo-glass-tone-tinted);
-  }
-
-  :root[data-exo-glass="tinted"] :is(.exo-glass.is-panel, .exo-shelf-sort-menu, .exo-key-popover, .exo-toast, .exo-dc :is(.exo-dc-menu, .exo-dc-popover, .exo-dc-picker, .exo-dc-modal, .exo-dc-tip, .exo-dc-suggest, .exo-dc-soundboard-pop)) {
-    backdrop-filter: url(#exo-glass-panel-tinted);
-  }
-}
-
-/* Solid: Settings asks for it. Small glass takes the controls' fill under the same rim; large glass is black. */
+/* Solid (Settings › General › Material). Small glass takes the controls' fill under the same rim; large glass takes
+   the theme's solid panel (a sheet's own float is transparent: it was see-through). */
 :root[data-exo-glass="solid"] :is(.exo-glass, .exo-shelf-sort-menu, .exo-key-popover, .exo-toast, .exo-dc :is(.exo-dc-menu, .exo-dc-popover, .exo-dc-picker, .exo-dc-modal, .exo-dc-tip, .exo-dc-suggest, .exo-dc-soundboard-pop)) {
   background-color: var(--exo-fill);
   backdrop-filter: none;
 }
 
 :root[data-exo-glass="solid"] :is(.exo-glass.is-panel, .exo-shelf-sort-menu, .exo-key-popover, .exo-toast, .exo-dc :is(.exo-dc-menu, .exo-dc-popover, .exo-dc-picker, .exo-dc-modal, .exo-dc-tip, .exo-dc-suggest, .exo-dc-soundboard-pop)) {
-  background-color: var(--exo-float);
+  background-color: var(--exo-solid-panel);
 }
 
 /* A dialog holding Stripe's card field is solid: WebView2 leaves unpainted what sits above a frame from another
@@ -489,7 +491,7 @@ button.exo-glass:hover {
   :root :is(.exo-glass, .exo-shelf-sort-menu, .exo-key-popover, .exo-toast, .exo-dc :is(.exo-dc-menu, .exo-dc-popover, .exo-dc-picker, .exo-dc-modal, .exo-dc-tip, .exo-dc-suggest, .exo-dc-soundboard-pop)) {
     --color-muted: var(--color-fg);
     --color-faint: var(--color-fg);
-    background-color: #000;
+    background-color: var(--color-bg);
     backdrop-filter: none;
     box-shadow: inset 0 0 0 1px rgb(var(--exo-ink-rgb) / 0.9);
   }
@@ -626,7 +628,7 @@ button.exo-glass:hover {
   font-weight: 600;
   white-space: nowrap;
   cursor: pointer;
-  transition: background-color 120ms var(--ease-out);
+  transition: background-color var(--dur-quick) var(--ease-out), scale var(--dur-quick) var(--ease-out);
 }
 
 .exo-mouse-pill:hover {
@@ -701,7 +703,7 @@ button.exo-glass:hover {
   margin-left: -5px;
   border-radius: 50%;
   object-fit: cover;
-  background: #1a1a1a;
+  background: var(--exo-tile);
   color: var(--color-muted);
   font-size: calc(12px * var(--exo-scale, 1));
   font-weight: 600;

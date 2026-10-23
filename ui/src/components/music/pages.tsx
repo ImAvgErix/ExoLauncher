@@ -101,8 +101,8 @@ export function SearchPage({ query, data, onFilter }: { query: string; data: Pla
   return (
     <>
       {chips}
-      {top && !only ? <TopResult card={top} /> : null}
-      {!only || only === 'tracks' ? <Songs title={filters.find(option => option.id === filter)?.name ?? 'Songs'} tracks={data.tracks} whole={whole} showAlbum /> : null}
+      <SearchTop top={only ? undefined : top} tracks={!only || only === 'tracks' ? data.tracks : undefined} whole={whole}
+        songsTitle={filters.find(option => option.id === filter)?.name ?? 'Songs'} />
       {groups.filter(([key]) => !only || only === key).map(([key, name]) => (
         <Shelf key={key} title={name} cards={data[key] ?? []} grid={!!only} />
       ))}
@@ -113,14 +113,32 @@ export function SearchPage({ query, data, onFilter }: { query: string; data: Pla
 
 const hasSongs = (data: PlayerViewData) => !!data.tracks?.length || !!data.episodes?.length
 
-/** Search's songs or episodes: the first six (all once narrowed), each played on its own. */
-function Songs({ title, tracks, whole, showAlbum = false }: { title: string; tracks?: PlayerTrack[]; whole: boolean; showAlbum?: boolean }) {
+/** Search's first results: Spotify's layout, the top result beside the first four songs; narrowed, the songs alone. */
+function SearchTop({ top, tracks, whole, songsTitle }: { top?: PlayerCard; tracks?: PlayerTrack[]; whole: boolean; songsTitle: string }) {
+  if (top && tracks?.length && !whole) {
+    return (
+      <div className="exo-music-search-head">
+        <TopResult card={top} />
+        <Songs title="Songs" tracks={tracks} whole={false} limit={4} />
+      </div>
+    )
+  }
+  return (
+    <>
+      {top ? <TopResult card={top} /> : null}
+      <Songs title={songsTitle} tracks={tracks} whole={whole} showAlbum />
+    </>
+  )
+}
+
+/** Search's songs or episodes: the first six, or limit (all once narrowed), each played on its own. */
+function Songs({ title, tracks, whole, showAlbum = false, limit = 6 }: { title: string; tracks?: PlayerTrack[]; whole: boolean; showAlbum?: boolean; limit?: number }) {
   const { play } = usePlayer()
   if (!tracks?.length) return null
   return (
     <section className="exo-music-section">
       <h2>{title}</h2>
-      <TrackList tracks={whole ? tracks : tracks.slice(0, 6)} onPlay={track => play(undefined, track)} showAlbum={showAlbum} />
+      <TrackList tracks={whole ? tracks : tracks.slice(0, limit)} onPlay={track => play(undefined, track)} showAlbum={showAlbum} />
     </section>
   )
 }

@@ -90,9 +90,9 @@ export const GraphicsCard = icon('graphics-card', 'gpu')
 export const AppUpdate = icon('app-update', 'circle-arrow-down')
 /** The Devices room: your mouse. */
 export const Mouse = icon('mouse', 'mouse')
-/** The profile your mouse is on (the Bar's mouse capsule): one of its saved presets. */
-export const MouseProfile = icon('mouse-profile', 'stack-2')
 export const Home = icon('home', 'home')
+/** A gift waiting on a store, in the Library. */
+export const Gift = icon('gift', 'gift')
 export const Loader2 = icon('loader', 'loader-2')
 
 // ── Actions ─────────────────────────────────────────────────────────────────────────────
@@ -142,6 +142,12 @@ export const Movie = icon('movie', 'movie')
 export const Devices = icon('devices', 'device-speaker')
 export const FullScreen = icon('full-screen', 'arrows-maximize')
 export const ExitFullScreen = icon('exit-full-screen', 'arrows-minimize')
+/** Exo's Appearance: Light, Dark or Void. */
+export const Appearance = icon('appearance', 'sun-moon')
+/** A game's cover art. */
+export const Cover = icon('cover', 'photo')
+/** Exo Shaders: a game's shaders compiled ahead. */
+export const Shaders = icon('shaders', 'bolt')
 
 // ── Music ───────────────────────────────────────────────────────────────────────────────
 export const Play = icon('play', 'player-play-filled')
@@ -180,14 +186,11 @@ export const FriendAccepted = icon('friend-accepted', 'user-check')
 export const MessageCircle = icon('message', 'message-circle')
 export const MessagePlus = icon('message-plus', 'message-plus')
 export const Unread = icon('unread', 'notification')
-export const Threads = icon('threads', 'message-reply')
 export const Forum = icon('forum', 'layout-list')
 export const Reply = icon('reply', 'corner-up-left')
 export const Forward = icon('forward', 'corner-up-right')
 export const At = icon('at', 'at')
 export const Hash = icon('hash', 'hash')
-/** A voice channel. */
-export const Headset = icon('headset', 'headset')
 export const Phone = icon('phone', 'phone')
 export const PhoneDown = icon('phone-down', 'phone-off')
 export const Pencil = icon('pencil', 'pencil')
@@ -246,7 +249,7 @@ export const BadgeCheck = icon('badge-check', 'rosette-discount-check')
 export const Burst = icon('burst', 'sparkle-highlight')
 export const AddCircle = icon('add-circle', 'circle-plus')
 export const HashLock = marked('hash-lock', 'hash', 'lock-filled')
-export const HeadsetLock = marked('headset-lock', 'headset', 'lock-filled')
+export const VolumeLock = marked('volume-lock', 'volume', 'lock-filled')
 
 // ── Capture and the snip editor ─────────────────────────────────────────────────────────
 export const Record = icon('record', 'player-record')
@@ -258,6 +261,14 @@ export const TextIcon = icon('text', 'typography')
 
 /** A check that draws itself in (tokens.css › .exo-motion-check): Tabler's check, as a line to animate. */
 export const CHECK_PATH = 'M5 12l5 5l10 -10'
+
+// ── Discord's own marks ─────────────────────────────────────────────────────────────────
+/** A thread, as Discord draws it (its web client's ThreadIcon, solid on the same 24 grid): Tabler has no thread. */
+export function Threads({ size = 16, className }: IconProps) {
+  return <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" className={classes('threads', false, className)} style={block}>
+    <path d="M12 2.81a1 1 0 0 1 0-1.41l.36-.36a1 1 0 0 1 1.41 0l9.2 9.2a1 1 0 0 1 0 1.4l-.7.7a1 1 0 0 1-1.3.13l-9.54-6.72a1 1 0 0 1-.08-1.58l1-1L12 2.8ZM12 21.2a1 1 0 0 1 0 1.41l-.35.35a1 1 0 0 1-1.41 0l-9.2-9.19a1 1 0 0 1 0-1.41l.7-.7a1 1 0 0 1 1.3-.12l9.54 6.72a1 1 0 0 1 .07 1.58l-1 1 .35.36ZM15.66 16.8a1 1 0 0 1-1.38.28l-8.49-5.66A1 1 0 1 1 6.9 9.76l8.49 5.65a1 1 0 0 1 .27 1.39ZM17.1 14.25a1 1 0 1 0 1.11-1.66L9.73 6.93a1 1 0 0 0-1.11 1.66l8.49 5.66Z" />
+  </svg>
+}
 
 // ── Brand marks ─────────────────────────────────────────────────────────────────────────
 export const Spotify = brand('spotify')

@@ -4,8 +4,6 @@ import { statusBelongsToSelection } from '../../lib/library'
 import { GameOverlay } from '../../motion'
 import { GamePage, type GamePageProps } from '../GamePage'
 
-/** How long after opening a scrim click is ignored, so the opening tap cannot close it. */
-const SCRIM_GRACE_MS = 160
 /** Presses closer together than this belong to the click streak that opened the sheet. */
 const STREAK_MS = 500
 
@@ -32,7 +30,8 @@ export function GameSheet({ game: current, open, instant, openedAt, locked, stat
 
   // Clicking a card again and again opens its sheet once: every press in that streak (each within
   // half a second of the last) lands on the sheet and presses nothing, however long it goes on, so
-  // only a deliberate press of Play plays. Buttons act on pointer up, so the whole press is held back.
+  // only a deliberate press of Play plays, and none closes it. Buttons act on pointer up, so the whole press is held
+  // back, on the window, ahead of the press that closes what is open (lib/dismiss).
   useEffect(() => {
     if (!open || instant) return
     let last = openedAt
@@ -53,11 +52,11 @@ export function GameSheet({ game: current, open, instant, openedAt, locked, stat
       if (event.type === 'click') holding = false
     }
     const events = ['pointerup', 'mousedown', 'mouseup', 'click', 'dblclick'] as const
-    document.addEventListener('pointerdown', down, true)
-    for (const name of events) document.addEventListener(name, rest, true)
+    window.addEventListener('pointerdown', down, true)
+    for (const name of events) window.addEventListener(name, rest, true)
     return () => {
-      document.removeEventListener('pointerdown', down, true)
-      for (const name of events) document.removeEventListener(name, rest, true)
+      window.removeEventListener('pointerdown', down, true)
+      for (const name of events) window.removeEventListener(name, rest, true)
     }
   }, [open, instant, openedAt])
 
@@ -73,10 +72,7 @@ export function GameSheet({ game: current, open, instant, openedAt, locked, stat
           aria-label="Close"
           tabIndex={-1}
           disabled={locked}
-          onClick={() => {
-            if (performance.now() - openedAt < SCRIM_GRACE_MS) return
-            onClose()
-          }}
+          onClick={onClose}
         />
       }
     >

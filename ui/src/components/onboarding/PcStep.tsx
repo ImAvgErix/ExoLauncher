@@ -5,7 +5,7 @@ import { host, type GpuProfile, type LucidState } from '../../lib/host'
 import { report } from '../../lib/report'
 
 /**
- * First run's tuning: Exo's NVIDIA driver profile for this card and screen (lowest latency, the right sync), on by
+ * First run's tuning: Exo's driver profile for this card and screen (NVIDIA, Radeon or Intel: lowest latency, the right sync), on by
  * default and applied when setup finishes, when there is one to apply; System > Graphics can undo it. Then Lucid, the
  * optional headphone EQ app: Start with Exo (off until the user turns it on) and its setup when this PC has it, else
  * its download page.
@@ -21,14 +21,21 @@ export function PcStep({ profile, tune, onTune, lucid, onLucid }: {
   return (
     <div className="exo-set-list">
       {profile ? (
-        <Row label={`NVIDIA profile for ${profile.gpu ?? 'your graphics card'}`} labelId="ob-nvidia"
-          detail={`Lowest input latency and ${profile.gsync ? 'G-SYNC' : 'fixed refresh'} for ${screen}. Undo any time in System › Graphics.`}>
+        <Row label={`Exo's profile for ${profile.gpu ?? 'your graphics card'}`} labelId="ob-nvidia"
+          detail={`Lowest input latency and ${syncName(profile)} for ${screen}. Undo any time in System › Graphics.`}>
           <Switch checked={tune} labelledBy="ob-nvidia" onChange={onTune} />
         </Row>
       ) : null}
       {lucid ? <LucidRows lucid={lucid} onLucid={onLucid} /> : null}
     </div>
   )
+}
+
+// The sync the profile sets, in its maker's words.
+function syncName(profile: GpuProfile): string {
+  if (profile.vendor === 'nvidia') return profile.gsync ? 'G-SYNC' : 'fixed refresh'
+  if (!profile.screen.vrr) return 'fixed refresh'
+  return profile.vendor === 'amd' ? 'FreeSync' : 'Adaptive Sync'
 }
 
 function LucidRows({ lucid, onLucid }: { lucid: LucidState; onLucid: (next: LucidState) => void }) {

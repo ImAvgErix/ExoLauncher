@@ -5,8 +5,8 @@ import { inflateSync } from 'node:zlib'
 
 export const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
-/** RGBA pixels of a PNG as Chromium captures it (8-bit RGB or RGBA, not interlaced). */
-function pngPixels(buffer) {
+/** RGBA pixels of an 8-bit RGB or RGBA PNG, not interlaced (Chromium's captures and System.Drawing's). */
+export function pngPixels(buffer) {
   let at = 8, width = 0, height = 0, channels = 4
   const chunks = []
   while (at < buffer.length) {
@@ -85,6 +85,27 @@ export class Shell {
   constructor(session, port) { this.s = session; this.port = port }
   close() { this.s.close() }
 
+  /**
+   * From now on, every console error, warning and uncaught exception in the page lands in the returned array
+   * ({ at, level, text }), oldest first.
+   */
+  async collectConsole() {
+    const seen = []
+    this.s.on((msg) => {
+      if (msg.method === 'Runtime.exceptionThrown') {
+        const d = msg.params.exceptionDetails
+        seen.push({ at: Date.now(), level: 'exception', text: (d.exception?.description || d.text || '').slice(0, 500) })
+      } else if (msg.method === 'Runtime.consoleAPICalled' && (msg.params.type === 'error' || msg.params.type === 'warning')) {
+        seen.push({ at: Date.now(), level: msg.params.type, text: msg.params.args.map(a => a.value ?? a.description ?? '').join(' ').slice(0, 500) })
+      } else if (msg.method === 'Log.entryAdded' && (msg.params.entry.level === 'error')) {
+        seen.push({ at: Date.now(), level: 'log-' + msg.params.entry.level, text: `${msg.params.entry.text} ${msg.params.entry.url ?? ''}`.slice(0, 500) })
+      }
+    })
+    await this.s.send('Runtime.enable')
+    await this.s.send('Log.enable')
+    return seen
+  }
+
   async eval(expression) {
     const r = await this.s.send('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true })
     if (r.exceptionDetails) throw new Error('page exception: ' + (r.exceptionDetails.exception?.description || r.exceptionDetails.text).slice(0, 600))
@@ -101,7 +122,8 @@ export class Shell {
     const deadline = Date.now() + timeoutMs
     let last
     while (Date.now() < deadline) {
-      last = await this.call(fn, ...args).catch((error) => { last = error; return null })
+      // A DOM element can't cross CDP by value (it arrives as nothing): one found counts as true.
+      last = await this.eval(`(() => { const v = (${fn.toString()})(...${JSON.stringify(args)}); return v instanceof Element ? true : v })()`).catch((error) => { last = error; return null })
       if (last) return last
       await sleep(interval)
     }
@@ -111,14 +133,6 @@ export class Shell {
   async screenshot(path) {
     const { writeFile } = await import('node:fs/promises')
     const r = await this.s.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false })
-    await writeFile(path, Buffer.from(r.data, 'base64'))
-    return path
-  }
-
-  /** Page pixels of one region at the page's own device scale (no re-render at another zoom). */
-  async screenshotClip(path, { x, y, width, height }) {
-    const { writeFile } = await import('node:fs/promises')
-    const r = await this.s.send('Page.captureScreenshot', { format: 'png', clip: { x, y, width, height, scale: 1 } })
     await writeFile(path, Buffer.from(r.data, 'base64'))
     return path
   }
@@ -160,12 +174,14 @@ export class Shell {
 
   /** A key press; `{ ctrl: true }` holds Ctrl (Ctrl+1, Ctrl+,). */
   async key(key, { ctrl = false } = {}) {
-    const codes = { Escape: 27, Enter: 13, Tab: 9, ',': 188 }
+    const codes = { Escape: 27, Enter: 13, Tab: 9, Backspace: 8, Delete: 46, ',': 188, ' ': 32, ArrowLeft: 37, ArrowUp: 38, ArrowRight: 39, ArrowDown: 40, Home: 36, End: 35, PageUp: 33, PageDown: 34 }
     const vk = codes[key] ?? (/^[0-9A-Za-z]$/.test(key) ? key.toUpperCase().charCodeAt(0) : 0)
-    const code = /^[0-9]$/.test(key) ? 'Digit' + key : key === ',' ? 'Comma' : /^[A-Za-z]$/.test(key) ? 'Key' + key.toUpperCase() : key
+    const code = /^[0-9]$/.test(key) ? 'Digit' + key : key === ',' ? 'Comma' : key === ' ' ? 'Space' : /^[A-Za-z]$/.test(key) ? 'Key' + key.toUpperCase() : key
     const base = { key, code, windowsVirtualKeyCode: vk, nativeVirtualKeyCode: vk, modifiers: ctrl ? 2 : 0 }
     if (ctrl) await this.s.send('Input.dispatchKeyEvent', { type: 'rawKeyDown', key: 'Control', code: 'ControlLeft', windowsVirtualKeyCode: 17, nativeVirtualKeyCode: 17, modifiers: 2 })
-    await this.s.send('Input.dispatchKeyEvent', { type: 'rawKeyDown', ...base })
+    // Enter and Space carry their character, so a focused button gets the keypress it acts on.
+    const text = !ctrl && key === 'Enter' ? '\r' : !ctrl && key === ' ' ? ' ' : undefined
+    await this.s.send('Input.dispatchKeyEvent', text ? { type: 'keyDown', text, ...base } : { type: 'rawKeyDown', ...base })
     await this.s.send('Input.dispatchKeyEvent', { type: 'keyUp', ...base })
     if (ctrl) await this.s.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Control', code: 'ControlLeft', windowsVirtualKeyCode: 17, nativeVirtualKeyCode: 17, modifiers: 0 })
   }
@@ -189,24 +205,6 @@ export class Shell {
     await this.s.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: pt.x, y: pt.y, button: 'right', clickCount: 1 })
     await this.s.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: pt.x, y: pt.y, button: 'right', clickCount: 1 })
     return pt
-  }
-
-  /** A real double-click (two presses, the second with clickCount 2) at the element's centre. */
-  async doubleClick(finder, ...args) {
-    const pt = await this.eval(`(() => {
-      const el = (${finder.toString()})(...${JSON.stringify(args)})
-      if (!el) return null
-      el.scrollIntoView({ block: 'nearest', inline: 'nearest' })
-      const r = el.getBoundingClientRect()
-      return r.width ? { x: r.left + r.width / 2, y: r.top + r.height / 2 } : null
-    })()`)
-    if (!pt) return false
-    await this.s.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: pt.x, y: pt.y })
-    for (const clickCount of [1, 2]) {
-      await this.s.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: pt.x, y: pt.y, button: 'left', clickCount })
-      await this.s.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: pt.x, y: pt.y, button: 'left', clickCount })
-    }
-    return true
   }
 }
 
@@ -251,7 +249,7 @@ class FrameShell {
   async waitFor(fn, { timeoutMs = 10000, interval = 100, args = [] } = {}) {
     const deadline = Date.now() + timeoutMs
     while (Date.now() < deadline) {
-      const last = await this.call(fn, ...args).catch(() => null)
+      const last = await this.eval(`(() => { const v = (${fn.toString()})(...${JSON.stringify(args)}); return v instanceof Element ? true : v })()`).catch(() => null)
       if (last) return last
       await sleep(interval)
     }

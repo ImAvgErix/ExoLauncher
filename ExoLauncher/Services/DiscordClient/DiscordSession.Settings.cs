@@ -260,13 +260,17 @@ internal sealed partial class DiscordSession
         Interlocked.Exchange(ref _attenuation, null)?.Dispose();
     }
 
+    /// <summary>In a voice call (or joining one) right now.</summary>
+    internal bool InCall
+    {
+        get { lock (_voiceGate) return _voiceChannel is not null; }
+    }
+
     /// <summary>The keybinds changed: a call in progress starts or stops reading them.</summary>
     internal void KeybindsChanged()
     {
-        bool inCall;
-        lock (_voiceGate) inCall = _voiceChannel is not null;
         lock (_keysHeld) { _keyTick?.Dispose(); _keyTick = null; }
-        CallChanged(inCall);
+        CallChanged(InCall);
     }
 
     private void KeyTick()

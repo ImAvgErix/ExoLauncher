@@ -18,6 +18,18 @@ export function useGlide<T extends HTMLElement>() {
     // A group mounted hidden (Settings before it opens) arms only after its
     // first visible placement, so the fill never slides in from nothing.
     let ready = 0
+    // While the fill travels (is-gliding), no other item shows its hover fill: the two would overlap as it passes.
+    // It lands when this move's own transitions end (or are cut short: hidden, or a newer move took over).
+    let at = ''
+    let move = 0
+    const glide = () => {
+      const id = ++move
+      box.classList.add('is-gliding')
+      void getComputedStyle(box, '::before').transform // starts the move's transitions now, so they can be waited on
+      const runs = document.getAnimations().filter(run => run.effect instanceof KeyframeEffect && run.effect.target === box
+        && run.effect.pseudoElement === '::before' && (run as CSSTransition).transitionProperty !== 'opacity')
+      void Promise.allSettled(runs.map(run => run.finished)).then(() => { if (id === move) box.classList.remove('is-gliding') })
+    }
     const place = () => {
       const on = box.querySelector<HTMLElement>(SELECTED)
       const style = box.style
@@ -26,13 +38,19 @@ export function useGlide<T extends HTMLElement>() {
         return
       }
       // Measured on screen, so an item inside another positioned box or a scrolled list still lines up.
-      const at = on.getBoundingClientRect()
+      const rect = on.getBoundingClientRect()
       const origin = box.getBoundingClientRect()
-      style.setProperty('--glide-x', `${at.left - origin.left - box.clientLeft + box.scrollLeft}px`)
-      style.setProperty('--glide-y', `${at.top - origin.top - box.clientTop + box.scrollTop}px`)
+      const x = rect.left - origin.left - box.clientLeft + box.scrollLeft
+      const y = rect.top - origin.top - box.clientTop + box.scrollTop
+      const to = `${x},${y},${on.offsetWidth},${on.offsetHeight}`
+      const moved = to !== at && at !== '' && box.classList.contains('is-glide-ready')
+      at = to
+      style.setProperty('--glide-x', `${x}px`)
+      style.setProperty('--glide-y', `${y}px`)
       style.setProperty('--glide-w', `${on.offsetWidth}px`)
       style.setProperty('--glide-h', `${on.offsetHeight}px`)
       style.setProperty('--glide-o', '1')
+      if (moved) glide()
       if (!ready) ready = requestAnimationFrame(() => box.classList.add('is-glide-ready'))
     }
     place()
@@ -43,6 +61,8 @@ export function useGlide<T extends HTMLElement>() {
     for (const child of box.querySelectorAll('button')) sizes.observe(child)
     return () => {
       cancelAnimationFrame(ready)
+      move++
+      box.classList.remove('is-gliding')
       attributes.disconnect()
       sizes.disconnect()
     }

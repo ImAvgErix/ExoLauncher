@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { host } from '../../lib/host'
 import { focusableSelector, trapTab } from '../../lib/focusTrap'
 import { report } from '../../lib/report'
+import { ModalBack } from './SettingsLayer'
 
 /** One discord.admin reply: data is Discord's own (or Exo's summary for the person menu and Edit Channel). */
 export type AdminReply<T> = { ok: boolean; message?: string | null; data?: T | null }
@@ -124,7 +125,7 @@ export function SaveBar({ shown, busy, error, onReset, onSave }: { shown: boolea
   const nudge = unsaved?.nudge ?? 0
   // A new key each nudge plays the shake again.
   return (
-    <div key={nudge} className={`exo-dc-savebar${nudge ? ' is-nudged' : ''}`} role="status">
+    <div key={nudge} className={`exo-dc-savebar exo-glass${nudge ? ' is-nudged' : ''}`} role="status">
       <span>{error ?? 'Careful — you have unsaved changes!'}</span>
       <button type="button" className="exo-dc-tab" disabled={busy} onClick={onReset}>Reset</button>
       <button type="button" className="button button--primary" disabled={busy} onClick={onSave}>Save Changes</button>
@@ -146,7 +147,7 @@ export function Confirm({ title, children, action, danger = true, busy, error, o
   const box = useRef<HTMLDivElement>(null)
   useLayer(box, onClose)
   return (
-    <div className="exo-dc-modal-back is-top" onClick={onClose}>
+    <ModalBack top onClose={onClose}>
       <div ref={box} className="exo-dc-modal exo-dc-confirm" role="dialog" aria-modal="true" aria-label={title} tabIndex={-1} onClick={event => event.stopPropagation()}>
         <strong>{title}</strong>
         {children}
@@ -156,7 +157,7 @@ export function Confirm({ title, children, action, danger = true, busy, error, o
           <button type="button" className={`button button--primary${danger ? ' exo-dc-danger-btn' : ''}`} disabled={busy} onClick={onConfirm}>{action}</button>
         </div>
       </div>
-    </div>
+    </ModalBack>
   )
 }
 

@@ -20,7 +20,7 @@ namespace ExoLauncher.Helpers;
 ///   0x10AFB768 (0 Performance, 1 Balanced, 2 Quality, 4 DLAA, 5 Ultra
 ///   Performance); multi frame count 0x104D6667 (1 = 2x … 5 = 6x) with FG
 ///   mode 0x10308298 = 2 (fixed).
-/// - Smooth Motion 0xB0D384C0 (0/1): RTX 50 from driver 571.86, RTX 40 later.
+/// - Smooth Motion 0xB0D384C0 (0/1): RTX 50 from driver 571.86, RTX 40 from the 590 branch.
 /// - Low latency mode: CPL state 0x0005F543 (0 Off, 1 On, 2 Ultra), Ultra Low
 ///   Latency 0x10835000 (0/1), maximum pre-rendered frames 0x007BA09E (0 = the
 ///   game decides, 1). Off = 0/0/0, On = 1/0/1, Ultra = 2/1/1.

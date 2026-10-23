@@ -417,8 +417,8 @@ function HitsControls({ tuning, state, prefix, busy, onChange }: {
   const rapidOn = !reportsSwitch || state.rapidTriggerEnabled
   return (
     <>
-      <Row label={name('Actuation')}>
-        <Slider label={name('Actuation')} min={1} max={tuning.maxActuation} step={1} value={clamp(state.actuation, 1, tuning.maxActuation)}
+      <Row label={name('Actuation point')}>
+        <Slider label={name('Actuation point')} min={1} max={tuning.maxActuation} step={1} value={clamp(state.actuation, 1, tuning.maxActuation)}
           format={v => String(v)} disabled={busy} onCommit={v => onChange({ ...state, actuation: v })} />
       </Row>
       <Row label={name('Rapid trigger')}>

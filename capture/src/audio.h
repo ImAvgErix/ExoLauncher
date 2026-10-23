@@ -15,7 +15,7 @@ public:
     struct Options
     {
         DWORD gamePid = 0;    // 0: everything on the default output except Discord
-        DWORD discordPid = 0; // Discord's root process now, 0 when it is not running
+        DWORD discordPid = 0; // where a call's voices play now (FindDiscord), 0 when nowhere
     };
 
     AudioCapture(const Options& options, std::function<void(PacketPtr)> sink);
@@ -32,5 +32,10 @@ private:
     std::thread m_thread;
 };
 
-/// The process id of the running Discord app (its top process), or 0.
+/// Where a call's voices play: the running Discord app's top process, else Exo's (its own Discord client), or 0.
 DWORD FindDiscord();
+
+/// Exo's cleaned voice for the microphone track: a pipe Exo writes 20 ms frames to (each a 16-byte header, when its
+/// sound was captured in 100 ns units, its sample frames and channels, then 16-bit stereo at 48 kHz). While frames
+/// come, the microphone track takes them instead of the raw microphone; this takes the pipe and closes it at its end.
+void StartVoiceFeed(HANDLE pipe);

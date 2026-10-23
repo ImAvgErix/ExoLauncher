@@ -27,15 +27,17 @@ internal sealed class VoiceTransport : IDisposable
     private byte[]? _chachaKey;
     private string _mode = Aes;
     private uint _nonce;
+    private int _wideSequence;
     private ushort _sequence;
     private uint _timestamp;
 
     /// <summary>One received RTP packet, transport-decrypted (its payload still DAVE-encrypted when the call is E2EE).</summary>
     /// <summary>One received RTP packet; Orientation is its urn:3gpp:video-orientation byte (C, F, R1 R0), or -1 when it carries none.</summary>
-    internal readonly record struct Packet(uint Ssrc, int PayloadType, bool Marker, ushort Sequence, uint Timestamp, ReadOnlyMemory<byte> Payload, int Orientation = -1, int TransportSequence = -1);
+    internal readonly record struct Packet(uint Ssrc, int PayloadType, bool Marker, ushort Sequence, uint Timestamp, ReadOnlyMemory<byte> Payload, int Orientation = -1, int TransportSequence = -1,
+        ReadOnlyMemory<byte> Extension = default);
 
-    // The video-orientation extension's id: Discord's media servers use libwebrtc's own ids (playout-delay 5, which Exo
-    // sends, video-orientation 13).
+    // The video-orientation extension's id. Discord's media servers fix each extension's id (no SDP): audio level 1, toffset 2,
+    // abs-send-time 3, transport-wide sequence 5, video-orientation 13.
     private const int OrientationId = 13;
 
     /// <summary>The video-orientation byte in a one-byte-header extension block (RFC 8285), or -1.</summary>
@@ -57,6 +59,22 @@ internal sealed class VoiceTransport : IDisposable
     /// The transport-wide sequence number in a one-byte-header extension block, or -1: the only libwebrtc extension two
     /// bytes long (draft-holmer-rmcat-transport-wide-cc-extensions), whatever id the server gave it.
     /// </summary>
+    /// <summary>A one-byte extension block's elements as "id:length", for app.log.</summary>
+    internal static string Elements(ReadOnlySpan<byte> block)
+    {
+        var parts = new List<string>();
+        for (var at = 0; at < block.Length;)
+        {
+            var head = block[at++];
+            if (head == 0) continue; // padding
+            int id = head >> 4, length = (head & 0x0F) + 1;
+            if (id == 15 || at + length > block.Length) break;
+            parts.Add($"{id}:{length}");
+            at += length;
+        }
+        return parts.Count == 0 ? "none" : string.Join(' ', parts);
+    }
+
     internal static int TransportSequence(ReadOnlySpan<byte> block)
     {
         for (var at = 0; at < block.Length;)
@@ -179,10 +197,14 @@ internal sealed class VoiceTransport : IDisposable
     /// <summary>Sends one video RTP packet (its frame already DAVE-encrypted), on the call's own counter.</summary>
     internal void SendVideo(uint ssrc, int payloadType, bool marker, ushort sequence, uint timestamp, ReadOnlySpan<byte> payload)
     {
-        // A one-byte header extension (RFC 8285) with playout-delay 0/0, as Discord's video senders use;
-        // with rtpsize the preamble is additional data and the element is encrypted with the payload.
+        // A one-byte header extension (RFC 8285) as Discord's own video packets carry it, in their order: abs-send-time (id 3),
+        // toffset (id 2, zero) and the transport-wide sequence (id 5, two bytes). With id 5 holding playout-delay's three
+        // bytes, Discord's server took none of the video (its receiver reports stayed at sequence 0) and viewers spun forever.
+        // With rtpsize the preamble is additional data and the elements are encrypted with the payload.
         if (!Started) return;
-        Span<byte> extension = [0x50 | 2, 0, 0, 0];
+        var sentAt = AbsSendTime(System.Diagnostics.Stopwatch.GetTimestamp());
+        var wide = (ushort)Interlocked.Increment(ref _wideSequence);
+        Span<byte> extension = [0x32, (byte)(sentAt >> 16), (byte)(sentAt >> 8), (byte)sentAt, 0x22, 0, 0, 0, 0x51, (byte)(wide >> 8), (byte)wide, 0];
         var body = extension.Length + payload.Length;
         Span<byte> packet = stackalloc byte[HeaderSize + 4 + body + TagSize + NonceSize];
         packet[0] = 0x90;
@@ -191,7 +213,7 @@ internal sealed class VoiceTransport : IDisposable
         BinaryPrimitives.WriteUInt32BigEndian(packet[4..], timestamp);
         BinaryPrimitives.WriteUInt32BigEndian(packet[8..], ssrc);
         packet[12] = 0xBE; packet[13] = 0xDE;
-        BinaryPrimitives.WriteUInt16BigEndian(packet[14..], 1);
+        BinaryPrimitives.WriteUInt16BigEndian(packet[14..], (ushort)(extension.Length / 4));
         Span<byte> plain = stackalloc byte[body];
         extension.CopyTo(plain);
         payload.CopyTo(plain[extension.Length..]);
@@ -201,6 +223,13 @@ internal sealed class VoiceTransport : IDisposable
         try { _udp.Client.Send(packet); }
         catch (SocketException ex) { AppLog.Debug("Discord video: send failed " + ex.SocketErrorCode); }
         catch (ObjectDisposedException) { }
+    }
+
+    /// <summary>abs-send-time: a send time as 6.18 fixed-point seconds, its low 24 bits.</summary>
+    internal static uint AbsSendTime(long ticks)
+    {
+        var frequency = System.Diagnostics.Stopwatch.Frequency;
+        return (uint)(((ticks / frequency) << 18) + ((ticks % frequency) << 18) / frequency) & 0xFFFFFF;
     }
 
     // One buffer for what arrives and one for what it decrypts to, for the whole call: a packet costs no allocation
@@ -266,7 +295,8 @@ internal sealed class VoiceTransport : IDisposable
         if (length <= 0) return;
         var orientation = oneByte ? Orientation(plain.AsSpan(0, skip)) : -1;
         var transport = oneByte ? TransportSequence(plain.AsSpan(0, skip)) : -1;
-        Received?.Invoke(new Packet(ssrc, type, (packet[1] & 0x80) != 0, sequence, timestamp, plain.AsMemory(skip, length), orientation, transport));
+        Received?.Invoke(new Packet(ssrc, type, (packet[1] & 0x80) != 0, sequence, timestamp, plain.AsMemory(skip, length), orientation, transport,
+            oneByte ? plain.AsMemory(0, skip) : default));
     }
 
     private void Seal(uint counter, ReadOnlySpan<byte> aad, ReadOnlySpan<byte> plain, Span<byte> cipher, Span<byte> tag)

@@ -3,10 +3,16 @@ using System.Security.Cryptography.X509Certificates;
 
 namespace ExoLauncher.Helpers;
 
-/// <summary>Validates the embedded signature and exact publisher using Windows trust policy.</summary>
+/// <summary>
+/// Validates the embedded signature and exact publisher using Windows trust policy, with the signing chain checked
+/// for revocation (a certificate the publisher withdrew, say after a leaked key, fails). When revocation can't be
+/// checked (no network to the CA), the signature alone decides, and app.log says so.
+/// </summary>
 internal static class AuthenticodeVerifier
 {
     private static readonly Guid WinTrustActionGenericVerifyV2 = new("00AAC56B-CD44-11d0-8CC2-00C04FC295EE");
+    // CERT_E_REVOCATION_FAILURE, CRYPT_E_NO_REVOCATION_CHECK, CRYPT_E_REVOCATION_OFFLINE: revocation unknown, not revoked.
+    private static readonly uint[] RevocationUnknown = [0x800B010E, 0x80092012, 0x80092013];
 
     internal static bool HasPublisher(string path, params string[] expectedPublishers)
     {
@@ -23,6 +29,15 @@ internal static class AuthenticodeVerifier
     }
 
     internal static bool WinTrustValid(string path)
+    {
+        var result = Verify(path, revocation: true);
+        if (result == 0) return true;
+        if (!RevocationUnknown.Contains(result)) return false;
+        AppLog.Warn($"Signature: revocation could not be checked for {Path.GetFileName(path)} (0x{result:X8}); the signature alone decides.");
+        return Verify(path, revocation: false) == 0;
+    }
+
+    private static uint Verify(string path, bool revocation)
     {
         var pathPointer = IntPtr.Zero;
         var filePointer = IntPtr.Zero;
@@ -42,21 +57,22 @@ internal static class AuthenticodeVerifier
             {
                 Size = (uint)Marshal.SizeOf<WinTrustData>(),
                 UiChoice = 2, // WTD_UI_NONE
-                RevocationChecks = 0, // WTD_REVOKE_NONE
+                RevocationChecks = revocation ? 1u : 0u, // WTD_REVOKE_WHOLECHAIN or WTD_REVOKE_NONE
                 UnionChoice = 1, // WTD_CHOICE_FILE
                 FileInfo = filePointer,
                 StateAction = 0, // WTD_STATEACTION_IGNORE
-                ProviderFlags = 0x1000, // WTD_CACHE_ONLY_URL_RETRIEVAL
+                // Revocation fetched from the CA (the root's own left out, as Windows does), else no network at all.
+                ProviderFlags = revocation ? 0x80u : 0x1000u, // WTD_REVOCATION_CHECK_CHAIN_EXCLUDE_ROOT : WTD_CACHE_ONLY_URL_RETRIEVAL
             };
             dataPointer = Marshal.AllocCoTaskMem(Marshal.SizeOf<WinTrustData>());
             Marshal.StructureToPtr(data, dataPointer, false);
             actionPointer = Marshal.AllocCoTaskMem(Marshal.SizeOf<Guid>());
             Marshal.StructureToPtr(WinTrustActionGenericVerifyV2, actionPointer, false);
-            return WinVerifyTrust(new IntPtr(-1), actionPointer, dataPointer) == 0;
+            return WinVerifyTrust(new IntPtr(-1), actionPointer, dataPointer);
         }
         catch
         {
-            return false;
+            return uint.MaxValue;
         }
         finally
         {

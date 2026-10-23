@@ -97,7 +97,7 @@ export function StoreRoom({ active, games, onSale, onOpenGame }: {
 
       <div ref={scroller} className="exo-store-scroll">
         <div key={view} className="exo-motion-switch">
-          {view === 'search' ? <Results hits={hits} card={card} />
+          {view === 'search' ? <Results hits={hits} card={card} onClear={() => setQuery('')} />
             : view === 'wishlist' ? <Wishlist wish={wish} owned={owned} card={card} />
               : <Discover home={home.data} error={home.error} retrying={home.loading} onRetry={() => void home.load(false)} card={card} onOpen={openPage}
                   onOpenFailed={setOpenError} still={!!page || !active} working={home.refreshing} />}
@@ -216,8 +216,7 @@ function Hero({ items, onOpen, still, working, arrive }: { items: StoreTile[]; o
 
 /**
  * The banner's art: the new game fades in over the last one once its picture has loaded, never over an empty frame,
- * and the last one goes when the fade ends, so two games never show through each other. The edge fade into the black
- * is one mask over both (store.css), so each layer is whole.
+ * and the last one goes when the fade ends, so two games never show through each other. Each layer is shown whole.
  */
 function HeroArt({ tile }: { tile: StoreTile }) {
   const [layers, setLayers] = useState<StoreTile[]>([tile])
@@ -250,7 +249,7 @@ function HeroPick({ tile, on, onPick }: { tile: StoreTile; on: boolean; onPick: 
 function HeroLogo({ tile }: { tile: StoreTile }) {
   const [failed, setFailed] = useState(false)
   return failed
-    ? <span className="exo-store-hero-name">{tile.name}</span>
+    ? <span className="exo-glass exo-store-hero-name">{tile.name}</span>
     : <img className="exo-store-hero-logo exo-motion-switch" src={steamArt(tile.appId, 'logo')} alt="" onError={() => setFailed(true)} />
 }
 
@@ -278,7 +277,7 @@ function FreeCard({ game, arriveAt, onOpenFailed }: { game: StoreFreeGame; arriv
     <button type="button" className={`exo-store-free-card${arriveAt != null ? ' exo-motion-arrive' : ''}`} style={arriveAt != null ? arriveStyle(arriveAt) : undefined}
       disabled={busy} aria-busy={busy} onClick={go}>
       <span className="exo-store-free-art"><SteamImage sources={(game.images ?? []).map(src => ({ src }))} /></span>
-      <span className="exo-store-free-text">
+      <span className="exo-glass exo-store-free-text">
         <span className="exo-store-card-title">{game.title}</span>
         <span className={`exo-store-free-when${game.now ? ' is-now' : ''}`}>{freeWhen(game.now, game.from, game.until)}{busy ? <Loader2 size={12} /> : <ExternalLink size={12} />}</span>
       </span>
@@ -321,9 +320,14 @@ function Row({ id, title, count, wide = false, working, children }: { id: string
 }
 
 /** The last answer stays up under the work band while a newer query is on its way. */
-function Results({ hits, card }: { hits: ReturnType<typeof useSearch>; card: CardFn }) {
+function Results({ hits, card, onClear }: { hits: ReturnType<typeof useSearch>; card: CardFn; onClear: () => void }) {
   if (!hits.items) return hits.error ? <Unreachable message={hits.error} busy={false} onRetry={hits.retry} /> : <GridSkeleton />
-  if (hits.items.length === 0) return <p className={`exo-store-empty${hits.pending ? ' exo-motion-work' : ''}`}>Nothing on the store matches “{hits.query}”.</p>
+  if (hits.items.length === 0) return (
+    <div className={`exo-store-empty${hits.pending ? ' exo-motion-work' : ''}`}>
+      <p>Nothing on the store matches “{hits.query}”</p>
+      <button type="button" className="exo-set-btn" onClick={onClear}>Clear search</button>
+    </div>
+  )
   return <div className={`exo-store-grid${hits.pending ? ' exo-motion-work' : ''}`}>{hits.items.map((t, i) => card(t, i, true))}</div>
 }
 
@@ -336,7 +340,7 @@ function Wishlist({ wish, owned, card }: {
   const { items, check: onCheck, checking, checked } = wish
   const arrive = useArrive('wishlist', wish.loaded)
   if (!wish.loaded) return wish.error ? <Unreachable message={wish.error} busy={false} onRetry={wish.reload} /> : <GridSkeleton />
-  if (items.length === 0) return <p className="exo-store-empty">Your wishlist is empty.</p>
+  if (items.length === 0) return <div className="exo-store-empty"><p>Your wishlist is empty</p></div>
   const sale = items.filter(w => w.discount > 0 && !owned(w.appId, w.name))
   const rest = items.filter(w => !sale.includes(w))
   return (

@@ -17,7 +17,8 @@ const RT_DEFAULT = 220
 const LATE_FIRMWARE = '1.1.1'
 const CUSTOM_LOD_FIRMWARE = '1.1.0'
 
-const CLICK = [{ value: 0, label: 'Mechanical' }, { value: 1, label: 'Analog' }] as const
+// xpanel's own names: TMR Analog, Smart Rapid Trigger, Actuation point, Release point, the TMR-DS panel.
+const CLICK = [{ value: 0, label: 'Mechanical' }, { value: 1, label: 'TMR Analog' }] as const
 const RELEASE = [{ value: 0, label: 'Normal' }, { value: 1, label: 'Early' }, { value: 2, label: 'Late' }] as const
 
 /** Every version the mouse reports ("Mouse 1.1.1-5289564", "Dongle RF 1.1.1"), by what it is for. */
@@ -121,7 +122,7 @@ function Switches({ status, client, apply, busy }: Section) {
   // can still be set together, and the read after the write shows the rest.
   if (modeL == null || modeR == null) {
     return (
-      <Panel title="Main switches">
+      <Panel title="TMR-DS">
         <Row label="Click" value={unread}>
           <Segmented label="Click" options={CLICK} value={null} onChange={v => void apply('setClickMode', v, v)} disabled={busy} />
         </Row>
@@ -158,16 +159,16 @@ function Switches({ status, client, apply, busy }: Section) {
         </Row>
         {side.mode === 1 && actuation ? (
           <>
-            <Row label={label('Actuation')}>
-              <Slider label={label('Actuation')} min={1} max={40} step={1} value={side.thr} format={v => `${(v / 100).toFixed(2)} mm`}
+            <Row label={label('Actuation point')}>
+              <Slider label={label('Actuation point')} min={1} max={40} step={1} value={side.thr} format={v => `${(v / 100).toFixed(2)} mm`}
                 onCommit={set.thr} disabled={busy} />
             </Row>
-            <Row label={label('Rapid trigger')} value={status.finalmouseTmrHystL == null ? unread : undefined}>
-              <Slider label={label('Rapid trigger')} min={150} max={250} step={10} value={side.rt} format={v => `${v} µm`}
+            <Row label={label('Smart Rapid Trigger')} value={status.finalmouseTmrHystL == null ? unread : undefined}>
+              <Slider label={label('Smart Rapid Trigger')} min={150} max={250} step={10} value={side.rt} format={v => `${v} µm`}
                 onCommit={set.rt} disabled={busy} />
             </Row>
-            <Row label={label('Release')} value={releases ? lateNeeds ?? undefined : unread}>
-              <Segmented label={label('Release')} options={release} value={side.rel} onChange={set.rel} disabled={busy} />
+            <Row label={label('Release point')} value={releases ? lateNeeds ?? undefined : unread}>
+              <Segmented label={label('Release point')} options={release} value={side.rel} onChange={set.rel} disabled={busy} />
             </Row>
           </>
         ) : null}
@@ -176,7 +177,7 @@ function Switches({ status, client, apply, busy }: Section) {
   }
 
   return (
-    <Panel title="Main switches">
+    <Panel title="TMR-DS">
       {pairable ? (
         <Row label="Sides">
           <Segmented label="Sides" options={TOGETHER} value={together ? 'both' : 'apart'} onChange={setPick} />
@@ -209,8 +210,8 @@ function Switches({ status, client, apply, busy }: Section) {
   )
 }
 
-const LIGHT = [{ value: 0, label: 'Off' }, { value: 1, label: 'Battery' }, { value: 2, label: 'Custom' }, { value: 4, label: 'TMR-DS' }] as const
-const BHOP = [{ value: 0, label: 'Off' }, { value: 1, label: 'Up' }, { value: 2, label: 'Down' }, { value: 3, label: 'Both' }] as const
+const LIGHT = [{ value: 0, label: 'Off' }, { value: 1, label: 'Battery level' }, { value: 2, label: 'Custom color' }, { value: 4, label: 'TMR-DS' }] as const
+const BHOP = [{ value: 0, label: 'Off' }, { value: 1, label: 'Scroll up' }, { value: 2, label: 'Scroll down' }, { value: 3, label: 'Both' }] as const
 const PASS = [{ value: 100, label: '100 ms' }, { value: 500, label: '500 ms' }, { value: 1000, label: '1 s' }, { value: 1500, label: '1.5 s' }] as const
 
 type Rgb = { r: number; g: number; b: number }

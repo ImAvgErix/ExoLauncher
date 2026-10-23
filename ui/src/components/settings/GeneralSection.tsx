@@ -12,9 +12,16 @@ const TEXT_SIZES = [
   { value: 'large', label: 'Large' },
 ] as const
 
+const APPEARANCE = [
+  { value: 'system', label: 'Match Windows' },
+  { value: 'light', label: 'Light' },
+  { value: 'dark', label: 'Dark' },
+  { value: 'void', label: 'Void' },
+] as const
+
+// Glass is Liquid Glass whatever Windows' transparency effects say; Solid has none.
 const GLASS = [
-  { value: 'clear', label: 'Clear' },
-  { value: 'tinted', label: 'Tinted' },
+  { value: 'clear', label: 'Glass' },
   { value: 'solid', label: 'Solid' },
 ] as const
 
@@ -27,6 +34,7 @@ export const GeneralSection = memo(function GeneralSection({ settings, onSave: s
   const [folderError, setFolderError] = useState<string | null>(null)
   const [textError, setTextError] = useState<string | null>(null)
   const [glassError, setGlassError] = useState<string | null>(null)
+  const [appearanceError, setAppearanceError] = useState<string | null>(null)
   const disabled = !settings
   const root = settings?.defaultInstallRoot?.trim() || null
 
@@ -57,10 +65,19 @@ export const GeneralSection = memo(function GeneralSection({ settings, onSave: s
           onChange={value => { setTextError(null); void save({ textSize: value }).then(setTextError) }}
         />
       </Row>
-      <Row label="Glass" labelId="set-glass" detail="How much shows through the bar, menus and the player" error={glassError}>
+      <Row label="Appearance" labelId="set-appearance" detail="Void is pure black, for OLED screens" error={appearanceError}>
         <Choice
-          label="Glass"
-          value={settings?.glass ?? 'clear'}
+          label="Appearance"
+          value={settings?.appearance ?? 'system'}
+          choices={APPEARANCE}
+          disabled={disabled}
+          onChange={value => { setAppearanceError(null); void save({ appearance: value }).then(setAppearanceError) }}
+        />
+      </Row>
+      <Row label="Material" labelId="set-glass" detail="Liquid Glass, or solid surfaces with nothing showing through" error={glassError}>
+        <Choice
+          label="Material"
+          value={settings?.glass === 'solid' ? 'solid' : 'clear'}
           choices={GLASS}
           disabled={disabled}
           onChange={value => { setGlassError(null); void save({ glass: value }).then(setGlassError) }}
@@ -146,6 +163,16 @@ function DownloadRows({ settings, disabled, save }: { settings: LauncherSettings
         disabled={disabled}
         onChange={value => save({ autoUpdateGames: value })}
       />
+      {settings?.chipset && (
+        <SwitchRow
+          id="set-auto-chipset"
+          label={settings.chipset === 'amd' ? 'Keep the AMD chipset driver up to date' : 'Keep the Intel chipset driver up to date'}
+          detail={`While you're away, with no game or call. ${settings.chipset === 'amd' ? 'USB and sound may drop' : 'Devices may reset'} for a moment.`}
+          checked={settings.autoUpdateChipset !== false}
+          disabled={disabled}
+          onChange={value => save({ autoUpdateChipset: value })}
+        />
+      )}
     </>
   )
 }

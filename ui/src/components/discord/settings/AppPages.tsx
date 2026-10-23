@@ -2,14 +2,14 @@ import { useEffect, useState } from 'react'
 import { host, type LauncherSettings } from '../../../lib/host'
 import { onPerformanceMode, performanceMode, setPerformanceMode } from '../../../lib/discord'
 import { changeAccountSettings, setDiscordPrefs, useAccountSettings, useDiscordPrefs, type DiscordClientSettings } from '../../../lib/discordPrefs'
-import { AccountToggle, Category, ChoiceRow, LoadError, Preview, Row, SliderRow, ToggleRow, useClientSettings } from './parts'
+import { AccountToggle, Category, ChoiceRow, LoadError, Preview, Row, SliderRow, ToggleRow, useClientSettings, useRemembered } from './parts'
 
 /** Discord settings > Notifications: Windows notifications, what Discord tells you about, its sounds and the badge. */
 export function NotificationsPage() {
   const settings = useAccountSettings()
   const { settings: client, save, error, reload } = useClientSettings()
-  const [launcher, setLauncher] = useState<LauncherSettings | null>(null)
-  useEffect(() => { host.getSettings().then(setLauncher).catch(() => { }) }, [])
+  const [launcher, setLauncher] = useRemembered<LauncherSettings>('launcher')
+  useEffect(() => { host.getSettings().then(setLauncher).catch(() => { }) }, [setLauncher])
   const quiet = launcher?.discordQuietWhilePlaying !== false
   return (
     <>
@@ -20,7 +20,7 @@ export function NotificationsPage() {
           disabled={!client} onChange={value => save({ desktopNotifications: value })} />
         <ToggleRow label="Enable Taskbar Flashing" detail="Flashes the app in your taskbar when you have new notifications." checked={client?.taskbarFlash ?? true}
           disabled={!client} onChange={value => save({ taskbarFlash: value })} />
-        <ToggleRow label="Quiet while playing" detail="No notifications while a game runs. Unread messages wait in the badge." checked={quiet} disabled={!launcher}
+        <ToggleRow label="Quiet While Playing" detail="No notifications while a game runs. Unread messages wait in the badge." checked={quiet} disabled={!launcher}
           onChange={value => {
             setLauncher(s => s && { ...s, discordQuietWhilePlaying: value })
             return host.setSettings({ discordQuietWhilePlaying: value }).then(() => null, () => {

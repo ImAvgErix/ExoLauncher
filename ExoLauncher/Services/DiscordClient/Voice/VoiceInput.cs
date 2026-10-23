@@ -8,8 +8,8 @@ namespace ExoLauncher.Services.DiscordClient.Voice;
 /// automatic sensitivity), or Custom (each choice the user's own). Earlier profiles (Voice Isolation, Studio)
 /// are Exo Voice now.
 /// </summary>
-internal readonly record struct VoiceProcessing(string Profile, bool NoiseSuppression, bool EchoCancellation, bool AutoGain,
-    bool PushToTalk, bool AutoSensitivity, int Threshold, int PttDelay, bool Focus)
+internal readonly record struct VoiceProcessing(string Profile, bool NoiseSuppression, bool EchoCancellation,
+    bool PushToTalk, bool AutoSensitivity, int Threshold, int PttDelay, bool Focus, bool OnlyMyVoice = false, string Suppressor = "ai")
 {
     internal static VoiceProcessing Current => From(App.Services.Settings.Shared);
 
@@ -17,13 +17,14 @@ internal readonly record struct VoiceProcessing(string Profile, bool NoiseSuppre
     /// Exo Voice, kept simple: noise suppression at one strength, Windows' echo cancellation, and Discord's own automatic
     /// gate. No Voice Focus, no gain riding and no tuning: each added delay or changed how a voice sounds.
     /// </summary>
-    internal static readonly VoiceProcessing ExoVoice = new("exo", true, true, false, false, true, -60, 0, false);
+    internal static readonly VoiceProcessing ExoVoice = new("exo", true, true, false, true, -60, 0, false);
 
     // One set of switches: noise suppression, echo cancellation (Exo's own, on speakers only: Windows' smeared voices), the
     // noise gate (Input Sensitivity) and gain control (Exo's own). No profiles, no Voice Focus, no tuning.
     internal static VoiceProcessing From(Models.AppSettings s) =>
-        new("custom", s.DiscordNoiseSuppression, s.DiscordEchoCancellation, s.DiscordAutoGain,
-            s.DiscordPushToTalk, s.DiscordAutoSensitivity, s.DiscordSensitivity, s.DiscordPttDelay, Focus: false);
+        new("custom", s.DiscordNoiseSuppression, s.DiscordEchoCancellation,
+            s.DiscordPushToTalk, s.DiscordAutoSensitivity, s.DiscordSensitivity, s.DiscordPttDelay, Focus: false,
+            OnlyMyVoice: s.DiscordOnlyMyVoice && Voiceprint.Learned, Suppressor: s.DiscordNoiseSuppressionKind);
 }
 
 /// <summary>
@@ -38,14 +39,28 @@ internal sealed class VoiceGate
     /// <summary>DeepFilterNet's local SNR (dB) over which a frame is voice whatever its level says.</summary>
     internal const float SpeechDb = 10f;
 
+    /// <summary>
+    /// Frames the gate stays open after the last voice (500 ms, Discord's vadTrailing of 25 frames).
+    /// </summary>
+    internal const int Hold = 25;
+
     private float _noiseFloor = -60f;
     // After noise suppression: what comes out between words (the cleaned floor) and what the microphone hears all the
     // time (its own floor: the fan and the room). See Voiced.
     private readonly QuietFloor _cleanedFloor = new(), _micFloor = new();
-    private int _hangover;
+    private int _hangover, _knockHold;
 
     /// <summary>The last frame's level, dBFS (-100 for silence).</summary>
     internal float Level { get; private set; } = -100f;
+
+    /// <summary>The last frame passed the gate's own rules (a voice, not its hold).</summary>
+    internal bool Speaking { get; private set; }
+
+    /// <summary>The last frame let through was the hold's last: the gate shuts after it unless the next is a voice (the chain fades it out).</summary>
+    internal bool Closing { get; private set; }
+
+    /// <summary>Muted: the hold ends, so unmuting is judged afresh.</summary>
+    internal void Mute() => _hangover = 0;
 
     /// <summary>Frames this gate let through and held shut, and the loudest frame it held shut (dBFS), since the last read.</summary>
     internal (int Open, int Shut, float LoudestShut) TakeStats()
@@ -77,7 +92,10 @@ internal sealed class VoiceGate
     /// dB). Over <see cref="SpeechDb"/> it opens the automatic gate by itself, as Discord's gate takes Krisp's voice
     /// activity: measured on the user's own voice through it, words scored 15 to 30 dB and the room around -12, a fan
     /// included, so a word's quiet start or end the level rules missed goes out too.</param>
-    internal bool Voiced(ReadOnlySpan<float> frame, bool automatic, int threshold, float? before = null, float? speech = null)
+    /// <param name="knock">A knock or slam began in this frame (<see cref="KnockDetector"/>): for 100 ms a shut automatic gate
+    /// stays shut unless suppression clearly hears speech (<see cref="SpeechDb"/> + 4), so the desk is never sent, and a
+    /// voice already going out isn't cut.</param>
+    internal bool Voiced(ReadOnlySpan<float> frame, bool automatic, int threshold, float? before = null, float? speech = null, bool knock = false)
     {
         double sum = 0;
         foreach (var s in frame) sum += s * s;
@@ -85,16 +103,27 @@ internal sealed class VoiceGate
         Level = db;
         _noiseFloor = db < _noiseFloor ? db : _noiseFloor + 0.05f;
         var open = !automatic ? db > threshold
-            : before is { } heard ? db > -65f && (speech > SpeechDb || (db > heard - 6f
-                && (heard > _micFloor.Db + 12f || (heard > _micFloor.Db + 6f && db > _cleanedFloor.Db + 18f))))
+            // After suppression: open when the model hears speech, or when what it left is clearly over its own quiet floor,
+            // the mic is over its own, and suppression kept most of it. Noise loses about 39 dB to it (a fan, a key's click)
+            // and a voice little, so under 15 dB taken is a voice; a steady fan is learned into both floors.
+            : before is { } heard ? db > -65f && (speech > SpeechDb
+                || (db > heard - 15f && db > _cleanedFloor.Db + 18f && heard > _micFloor.Db + 9f))
             : db > MathF.Max(_noiseFloor + 12f, -55f);
         if (before is { } mic)
         {
             _cleanedFloor.Add(db);
             _micFloor.Add(mic);
         }
-        if (open) { _hangover = 15; _open++; return true; }
-        if (_hangover-- > 0) { _open++; return true; }
+        if (knock) _knockHold = 5;
+        if (_knockHold > 0)
+        {
+            _knockHold--;
+            if (automatic && _hangover <= 0 && !(speech > SpeechDb + 4f)) open = false;
+        }
+        Speaking = open;
+        Closing = false;
+        if (open) { _hangover = Hold; _open++; return true; }
+        if (_hangover-- > 0) { Closing = _hangover == 0; _open++; return true; }
         _shut++;
         _loudestShut = MathF.Max(_loudestShut, db);
         return false;
@@ -171,55 +200,53 @@ internal sealed class AutoGain
 }
 
 /// <summary>
-/// Gain control ahead of noise suppression (the call's Automatic Gain Control): a quiet microphone is brought up to a
-/// normal speaking level before anything judges it. A mic opened raw (no Windows or driver boost, no Equalizer APO chain)
-/// can speak at -45 to -60 dBFS: DeepFilterNet then hears a voice barely over the room, the gate holds most of it, and
-/// what it sends is 25 dB under everyone else's voice, which the old gain control (after the gate, 1 dB a second, at
-/// most 18 dB) never made up. While the frame rises 10 dB over the room (the quietest frame lately: followed down at once,
-/// up 2.5 dB a second, so a pause between words shows it), the gain moves a tenth of the way to <see cref="TargetDb"/> each frame (up at most 0.5 dB, so a quiet mic is
-/// at its level after a second or two of talking; down at most 1 dB), from 0 to <see cref="MaxGainDb"/>; it never turns a voice down, and a frame whose peak
-/// would pass <see cref="Ceiling"/> gets less for that frame only. The gain learned for a microphone is where the next
-/// call on it starts (<see cref="Learned"/>).
+/// Gain control on a cleaned voice, as WebRTC's sits after its noise suppression: it learns the speaking level only
+/// from frames that are a voice (for your microphone, those the gate's rules passed, <see cref="VoiceGate.Speaking"/>; for
+/// someone in the call, those over their own quiet, see <see cref="VoiceAudio"/>), so a fan, a click or a pause never moves
+/// it, and turns the voice toward <see cref="TargetDb"/>, by at most <see cref="RangeDb"/> either way. The level is the
+/// mean, in dB, of the voice frames heard, starting from the target as if 10 frames of it had been (so one loud first
+/// syllable moves it a tenth), then of about the last 1.5 s of talking (75 frames). The gain glides across each frame
+/// from the last frame's to the new one, so it never steps. Nothing is allocated per frame.
 /// </summary>
-internal sealed class InputLeveler
+internal sealed class SpeechLeveler
 {
-    internal const float TargetDb = -26f, MaxGainDb = 30f, Ceiling = 0.9f;
-    private static readonly Dictionary<string, float> Learned = [];
-    private float _floorDb = float.NaN;
-    private readonly string? _mic;
-    private float _gainDb;
-
-    internal InputLeveler(string? mic)
-    {
-        _mic = mic;
-        if (mic is not null) lock (Learned) Learned.TryGetValue(mic, out _gainDb);
-    }
-
-    internal string? Mic => _mic;
+    internal const float TargetDb = -24f, RangeDb = 12f;
+    private const int Start = 10, Span = 75;
+    private float _speechDb = TargetDb, _gain = 1f;
+    private int _weight = Start;
 
     /// <summary>The gain now, in dB.</summary>
-    internal float GainDb => _gainDb;
+    internal float GainDb => 20 * MathF.Log10(_gain);
 
-    internal void Process(float[] frame)
+    /// <summary>The voice's speaking level as learned, in dBFS.</summary>
+    internal float SpeechDb => _speechDb;
+
+    /// <summary>Levels a 20 ms stereo frame in place; <paramref name="voiced"/>: it is a voice to learn the level from.</summary>
+    internal void Process(Span<float> stereo, bool voiced)
     {
-        double sum = 0;
-        var peak = 0f;
-        foreach (var s in frame) { sum += s * s; peak = MathF.Max(peak, MathF.Abs(s)); }
-        var db = MathF.Max(-100f, 10 * MathF.Log10((float)(sum / Math.Max(1, frame.Length)) + 1e-10f));
-        var floor = _floorDb;
-        _floorDb = float.IsNaN(floor) || db < floor ? db : floor + 0.05f;
-        if (db > -80f && !float.IsNaN(floor) && db > floor + 10f)
-            _gainDb = Math.Clamp(_gainDb + Math.Clamp((TargetDb - (db + _gainDb)) * 0.1f, -1f, 0.5f), 0f, MaxGainDb);
-        var gain = MathF.Pow(10f, _gainDb / 20f);
-        if (peak * gain > Ceiling) gain = Ceiling / peak;
-        if (gain <= 1f) return;
-        for (var i = 0; i < frame.Length; i++) frame[i] *= gain;
+        if (voiced && Level(stereo) is var db && db > -70f)
+        {
+            if (_weight < Span) _weight++;
+            _speechDb += (db - _speechDb) / _weight;
+        }
+        var target = MathF.Pow(10, Math.Clamp(TargetDb - _speechDb, -RangeDb, RangeDb) / 20);
+        var gain = _gain;
+        var step = (target - gain) / (stereo.Length / 2);
+        for (var i = 0; i + 1 < stereo.Length; i += 2)
+        {
+            gain += step;
+            stereo[i] *= gain;
+            stereo[i + 1] *= gain;
+        }
+        _gain = target;
     }
 
-    /// <summary>Keeps the gain for the microphone's next call.</summary>
-    internal void Keep()
+    /// <summary>A frame's level, dBFS (-100 for silence).</summary>
+    internal static float Level(ReadOnlySpan<float> frame)
     {
-        if (_mic is not null) lock (Learned) Learned[_mic] = _gainDb;
+        double sum = 0;
+        foreach (var s in frame) sum += s * s;
+        return MathF.Max(-100f, 10 * MathF.Log10((float)(sum / Math.Max(1, frame.Length)) + 1e-10f));
     }
 }
 
@@ -269,4 +296,38 @@ internal sealed class PushToTalkGate
     }
 
     internal bool Held => _held;
+}
+
+/// <summary>
+/// Whether the microphone sends anything, as Discord's "we're not detecting any input from your mic": silent when no
+/// 20 ms frame of its raw sound came over <see cref="QuietDb"/> for <see cref="Frames"/> frames (15 s) while unmuted,
+/// heard again at the first frame over <see cref="HeardDb"/>. A working mic in a quiet room still hears its own noise,
+/// a breath or a key over -72 dBFS within 15 s; a mic whose gain is at its lowest sits near -90 (measured on a fifine
+/// with its knob down). Between the two levels nothing changes, so a mic hovering there doesn't flicker it.
+/// </summary>
+internal sealed class MicSilence
+{
+    internal const float QuietDb = -72f, HeardDb = -66f;
+    internal const int Frames = 750;
+    private int _quiet;
+    private bool _silent;
+
+    /// <summary>Takes one raw frame; the new state when it changed, else null.</summary>
+    internal bool? Hear(ReadOnlySpan<float> frame, bool muted)
+    {
+        if (muted) { _quiet = 0; return Set(false); }
+        double sum = 0;
+        foreach (var s in frame) sum += s * s;
+        var db = 10 * MathF.Log10((float)(sum / Math.Max(1, frame.Length)) + 1e-12f);
+        if (db > HeardDb) _quiet = 0;
+        else if (db < QuietDb && _quiet < Frames) _quiet++;
+        return Set(_silent ? _quiet > 0 : _quiet >= Frames);
+    }
+
+    private bool? Set(bool silent)
+    {
+        if (silent == _silent) return null;
+        _silent = silent;
+        return silent;
+    }
 }

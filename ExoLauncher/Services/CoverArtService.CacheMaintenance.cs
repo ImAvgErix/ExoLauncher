@@ -371,6 +371,7 @@ public static partial class CoverArtService
         name.Equals("title-steam-map.json", StringComparison.OrdinalIgnoreCase) ||
         name.StartsWith("profile-", StringComparison.OrdinalIgnoreCase) ||
         name.StartsWith("custom-cover-", StringComparison.OrdinalIgnoreCase) ||
+        name.StartsWith(FolderArtStore.Prefix, StringComparison.OrdinalIgnoreCase) ||
         IsTemporaryCacheName(name);
 
     private static bool IsTemporaryCacheName(string name) =>

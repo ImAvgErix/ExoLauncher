@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useSyncExternalStore, type CSSProperties, 
 import { host } from '../../lib/host'
 import { cdnSize, onPerformanceMode, performanceMode, type DiscordCollectibleFields, type DiscordEffectItem, type DiscordLook } from '../../lib/discord'
 import { shouldReduceMotion } from '../../lib/motionPreference'
+import { usePageTheme } from '../../lib/appearance'
 
 /**
  * Discord's collectibles as its client draws them: avatar decorations, nameplates, display name styles and
@@ -144,11 +145,13 @@ const luminance = (rgb: number[]) => {
   const [r, g, b] = rgb.map(v => { const c = v / 255; return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4 })
   return 0.2126 * r + 0.7152 * g + 0.0722 * b
 }
-// A color made light enough to read on a dark background (Exo's black, or a toon name's #333), as Discord adjusts it.
+// A color made readable on its background, as Discord adjusts it: lighter on a dark one (Void's black, Dark's
+// charcoal, a toon name's #333), darker on Light's page.
 function readable(color: number, background: number[], ratio: number) {
   let rgb = rgbOf(color)
   const bg = luminance(background)
-  for (let i = 0; i < 20 && (luminance(rgb) + 0.05) / (bg + 0.05) < ratio; i++) rgb = rgb.map(v => v + (255 - v) * 0.1)
+  const contrast = () => bg > 0.5 ? (bg + 0.05) / (luminance(rgb) + 0.05) : (luminance(rgb) + 0.05) / (bg + 0.05)
+  for (let i = 0; i < 20 && contrast() < ratio; i++) rgb = bg > 0.5 ? rgb.map(v => v * 0.9) : rgb.map(v => v + (255 - v) * 0.1)
   return hex(rgb)
 }
 
@@ -194,10 +197,11 @@ function nameVars(effect: number, colors: string[], length: number): Record<stri
 export function StyledName({ name, look, scope, loop = false }: { name: string; look: DiscordLook | null | undefined; scope?: string; loop?: boolean }) {
   const ref = useRef<HTMLSpanElement>(null)
   const live = useLive(ref, loop ? undefined : scope)
+  const theme = usePageTheme()
   const style = look?.nameStyle
   if (!style?.colors.length) return <>{name}</>
   const effect = EFFECTS[style.effect] ? style.effect : 1
-  const background = effect === 4 ? [0x33, 0x33, 0x33] : [0, 0, 0]
+  const background = effect === 4 ? [0x33, 0x33, 0x33] : theme === 'light' ? [0xf5, 0xf5, 0xf5] : theme === 'dark' ? [0x12, 0x12, 0x12] : [0, 0, 0]
   const colors = style.colors.map(c => readable(c, background, MIN_CONTRAST[effect] ?? 3))
   const animate = live
   const font = FONTS[style.font]

@@ -127,10 +127,11 @@ export function titleIdentity(value: string): string {
 /** Time played as the game page says it: "45 min", "14 hr 12 min", or a dash. */
 export function formatPlayed(minutes: number | null | undefined): string {
   if (minutes == null || minutes <= 0) return '—'
-  if (minutes < 60) return `${minutes} min`
+  // No-break spaces keep each number with its unit when a narrow column wraps.
+  if (minutes < 60) return `${minutes}\u00a0min`
   const hours = Math.floor(minutes / 60)
   const rest = minutes % 60
-  return rest > 0 ? `${hours} hr ${rest} min` : `${hours} hr`
+  return rest > 0 ? `${hours}\u00a0hr ${rest}\u00a0min` : `${hours}\u00a0hr`
 }
 
 /** When it was last played, in the same words as time played: "5 min ago", "3 hr ago", "2 days ago". */

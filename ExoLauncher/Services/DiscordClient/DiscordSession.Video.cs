@@ -25,6 +25,9 @@ internal sealed partial class DiscordSession
     private volatile bool _livePreview;
     private string? _liveKey, _liveServer, _liveChannel, _liveEndpoint, _liveToken, _liveTitle;
     private uint? _liveSound; // null: no sound; 0: this PC's but Exo's; else the shared app's process
+    private int _liveMost; // the plan's rate: the most the stream goes up to when the server takes it
+    private (CaptureAddon Addon, GoLiveSources.Source Source, GoLivePlan Plan)? _liveStart; // to start Exo Capture again in another codec
+    private const int StreamStart = 8_000_000;
 
     /// <summary>
     /// Go Live: this client's own stream of a window or screen in the call it is in. Exo Capture starts
@@ -36,15 +39,14 @@ internal sealed partial class DiscordSession
         if (Cache.Me is null || StreamKeyOf(Cache.Me.Id) is null) return "Join a voice channel to go live.";
         StopGoLive();
         var plan = GoLivePlan.For(source.Width, source.Height, height, fps);
-        var (capture, error) = await GoLiveCapture.StartAsync(addon, source, plan, ct).ConfigureAwait(false);
+        // The stream starts at most at 8 Mbit/s (Discord's server takes 9 at most) and then follows what the server says
+        // it takes, up to the plan's rate (VoiceConnection.FollowServer).
+        var start = plan with { Bitrate = Math.Min(plan.Bitrate, StreamStart) };
+        var (capture, error) = await GoLiveCapture.StartAsync(addon, source, start, ct).ConfigureAwait(false);
         if (capture is null) return error;
-        capture.Frame += (frame, timestamp) =>
-        {
-            _live?.SendVideoFrame(frame, timestamp);
-            if (_livePreview && Cache.Me is { } me) PublishFrame("self", me.Id, timestamp, H264Rtp.IsKeyframe(frame), frame);
-        };
-        capture.Stats += (sent, bits) => Event?.Invoke("discord.golive.stats", new { width = capture.Width, height = capture.Height, fps = sent, bitrate = bits, max = capture.Bitrate });
-        capture.Ended += why => { if (ReferenceEquals(_liveCapture, capture)) StopGoLive("Your stream ended: " + why + "."); };
+        _liveMost = plan.Bitrate;
+        _liveStart = (addon, source, start);
+        WireCapture(capture);
         string? key, guild, channel;
         lock (_voiceGate)
         {
@@ -88,14 +90,15 @@ internal sealed partial class DiscordSession
             _live = null;
             _liveCapture = null;
         }
+        _liveStart = null;
         if (capture is not null) _ = capture.DisposeAsync().AsTask();
         if (live is not null) _ = live.DisposeAsync().AsTask();
         if (key is null) return;
+        AppLog.Info("Discord video: your stream stopped" + (why is null ? "." : " (" + why.TrimEnd('.') + ")."));
         _ = SendAsync(19, new JsonObject { ["stream_key"] = key });
         Event?.Invoke("discord.golive", new { state = "off", message = why });
     }
 
-    /// <summary>What this client's stream sends now, as a JPEG data URL at most width across; null when not live.</summary>
     /// <summary>Your stream's tile shows or leaves: it plays the very frames viewers get (from a fresh key frame), or stops.</summary>
     internal void WatchOwnStream(bool on)
     {
@@ -106,30 +109,90 @@ internal sealed partial class DiscordSession
 
     internal Task<string?> GoLivePreviewAsync(int width) => _liveCapture?.PreviewAsync(width) ?? Task.FromResult<string?>(null);
 
+    // A Go Live capture's frames go to the stream, and to your own tile while it shows; its end ends the stream, unless
+    // it is being replaced by one in another codec.
+    private void WireCapture(GoLiveCapture capture)
+    {
+        capture.Frame += (frame, timestamp) =>
+        {
+            _live?.SendVideoFrame(frame, timestamp, capture.Hevc);
+            if (_livePreview && Cache.Me is { } me)
+                PublishFrame("self", me.Id, timestamp, capture.Hevc ? H265Rtp.IsKeyframe(frame) : H264Rtp.IsKeyframe(frame), frame, hevc: capture.Hevc);
+        };
+        capture.Stats += (sent, bits) => Event?.Invoke("discord.golive.stats", new { width = capture.Width, height = capture.Height, fps = sent, bitrate = bits, max = capture.Bitrate, codec = capture.Hevc ? "H.265" : "H.264" });
+        capture.Ended += why => { if (ReferenceEquals(_liveCapture, capture) && !capture.Retiring) StopGoLive("Your stream ended: " + why + "."); };
+    }
+
+    // The server picked the stream's codec (H.265 when every viewer can play it, H.264 again when one who can't joins):
+    // Exo Capture starts over in it at the rate the stream had reached. Frames in the old codec stop at once
+    // (VoiceConnection.SendVideoFrame drops them), so viewers wait at most for the new encoder's first frame.
+    private async Task SwitchCodecAsync(VoiceConnection live, bool hevc)
+    {
+        GoLiveCapture? old;
+        (CaptureAddon Addon, GoLiveSources.Source Source, GoLivePlan Plan)? start;
+        lock (_voiceGate) (old, start) = (_liveCapture, _liveStart);
+        if (old is null || start is not { } s || old.Hevc == hevc || (hevc && !old.HevcSupported)) return;
+        old.Retiring = true; // starting the new stream ends the old one's pipe
+        var (next, error) = await GoLiveCapture.StartAsync(s.Addon, s.Source, s.Plan with { Bitrate = old.Bitrate }, CancellationToken.None, hevc).ConfigureAwait(false);
+        if (next is null || next.Hevc != hevc)
+        {
+            if (next is not null) await next.DisposeAsync().ConfigureAwait(false);
+            if (ReferenceEquals(_live, live)) StopGoLive($"Your stream ended: it couldn't change to {(hevc ? "H.265" : "H.264")} ({error ?? "Exo Capture used the other"}).");
+            return;
+        }
+        WireCapture(next);
+        bool current;
+        lock (_voiceGate)
+        {
+            current = ReferenceEquals(_live, live) && ReferenceEquals(_liveCapture, old);
+            if (current) _liveCapture = next;
+        }
+        await old.DisposeAsync().ConfigureAwait(false);
+        if (!current) { await next.DisposeAsync().ConfigureAwait(false); return; }
+        AppLog.Info($"Discord video: your stream now sends {(hevc ? "H.265" : "H.264")}.");
+        next.Keyframe();
+    }
+
     private void OpenLive()
     {
         VoiceConnection live;
-        GoLiveCapture? capture;
         string? title;
         uint? sound;
         lock (_voiceGate)
         {
             if (_live is not null || _liveKey is null || _liveServer is null || _liveEndpoint is null || _liveToken is null
-                || _voiceSession is null || Cache.Me is null) return;
-            if (StreamChannel(_liveServer, _liveChannel) is not { } channel) return;
-            live = new VoiceConnection(_liveEndpoint, _liveServer, channel, Cache.Me.Id, _voiceSession, _liveToken, listening: true, screen: true);
+                || _voiceSession is null || Cache.Me is null)
+            {
+                if (_live is null && _liveKey is not null && _liveServer is not null && _liveEndpoint is not null)
+                    AppLog.Info($"Discord video: your stream can't connect yet (token {(_liveToken is null ? "missing" : "given")}, voice session {(_voiceSession is null ? "missing" : "given")}).");
+                return;
+            }
+            if (StreamChannel(_liveServer, _liveChannel) is not { } channel)
+            {
+                AppLog.Info("Discord video: your stream has no channel to connect to.");
+                return;
+            }
+            AppLog.Info("Discord video: connecting your stream.");
+            live = new VoiceConnection(_liveEndpoint, _liveServer, channel, Cache.Me.Id, _voiceSession, _liveToken, listening: true, screen: true)
+            {
+                EncodesH265 = _liveCapture?.HevcSupported == true,
+            };
             _live = live;
-            (capture, title, sound) = (_liveCapture, _liveTitle, _liveSound);
+            (title, sound) = (_liveTitle, _liveSound);
         }
-        live.KeyframeRequested += () => capture?.Keyframe();
+        // The capture of the moment: it is replaced when the server changes the stream's codec.
+        live.KeyframeRequested += () => _liveCapture?.Keyframe();
+        live.RateWanted += rate => _liveCapture?.SetBitrate(rate);
+        live.CodecChosen += hevc => _ = SwitchCodecAsync(live, hevc);
         live.Changed += (kind, data) =>
         {
             // A stream stopped (or replaced by a new one) says "disconnected" as it closes: that one no longer speaks for Go Live.
             if (kind != "state" || !ReferenceEquals(live, _live)) return;
             var state = JsonSerializer.SerializeToElement(data).GetProperty("state").GetString();
-            if (state == "connected" && capture is not null)
+            if (state == "connected" && _liveCapture is { } capture)
             {
-                _ = live.SetVideoAsync(capture.Width, capture.Height, capture.Fps, capture.Bitrate);
+                live.FollowServer(capture.Bitrate, Math.Max(capture.Bitrate, _liveMost));
+                _ = live.SetVideoAsync(capture.Width, capture.Height, capture.Fps, Math.Max(capture.Bitrate, _liveMost));
                 _ = live.SpeakingAsync(2);
                 if (sound is { } app) live.StartSoundshare(app);
                 capture.Keyframe();
@@ -195,6 +258,15 @@ internal sealed partial class DiscordSession
     {
         if (type is not ("STREAM_CREATE" or "STREAM_SERVER_UPDATE" or "STREAM_DELETE" or "STREAM_UPDATE")) return false;
         var key = d.TryGetProperty("stream_key", out var k) ? k.GetString() : null;
+        // Each Go Live message for a stream this client watches or sends (never its token): a stream that won't open says why.
+        if (key is not null && (key == _liveKey || key == _streamKey))
+            AppLog.Info($"Discord video: {type} for {(key == _liveKey ? "your stream" : "the watched stream")}" + type switch
+            {
+                "STREAM_CREATE" => $" (server {(d.TryGetProperty("rtc_server_id", out var rs) ? "given" : "missing")}, channel {(d.TryGetProperty("rtc_channel_id", out var rc) && rc.ValueKind == JsonValueKind.String ? "given" : "none")}, paused {(d.TryGetProperty("paused", out var pz) ? pz.GetRawText() : "?")}).",
+                "STREAM_SERVER_UPDATE" => $" (endpoint {(d.TryGetProperty("endpoint", out var ep) && ep.GetString() is { } host ? host.Split(':')[0] : "missing")}).",
+                "STREAM_DELETE" => $" (reason {(d.TryGetProperty("reason", out var why) ? why.GetRawText() : "none")}).",
+                _ => ".",
+            });
         if (key is not null && key == _liveKey) { OnLiveDispatch(type, d); return true; }
         lock (_voiceGate)
         {
@@ -228,7 +300,12 @@ internal sealed partial class DiscordSession
         {
             if (_stream is not null || _streamKey is null || _streamServer is null || _streamEndpoint is null || _streamToken is null
                 || _voiceSession is null || Cache.Me is null) return;
-            if (StreamChannel(_streamServer, _streamChannel) is not { } channel) return;
+            if (StreamChannel(_streamServer, _streamChannel) is not { } channel)
+            {
+                AppLog.Info("Discord video: the watched stream has no channel to connect to.");
+                return;
+            }
+            AppLog.Info("Discord video: connecting to the watched stream.");
             user = UserOfKey(_streamKey);
             stream = new VoiceConnection(_streamEndpoint, _streamServer, channel, Cache.Me.Id, _voiceSession, _streamToken, listening: true)
             {
@@ -238,7 +315,7 @@ internal sealed partial class DiscordSession
             };
             _stream = stream;
         }
-        stream.Frame += (from, timestamp, key, data, orientation) => PublishFrame("stream", from, timestamp, key, data, orientation);
+        stream.Frame += (from, timestamp, key, data, orientation, hevc) => PublishFrame("stream", from, timestamp, key, data, orientation, hevc);
         stream.Changed += (kind, data) =>
         {
             // One stopped watching (StopWatching said so itself) closing late must not mark the stream watched now as ended.
@@ -314,7 +391,7 @@ internal sealed partial class DiscordSession
     /// <summary>The call's connection reports cameras turning on and off, and their frames.</summary>
     private void WatchCallVideo(VoiceConnection connection)
     {
-        connection.Frame += (from, timestamp, key, data, orientation) => PublishFrame("call", from, timestamp, key, data, orientation);
+        connection.Frame += (from, timestamp, key, data, orientation, hevc) => PublishFrame("call", from, timestamp, key, data, orientation, hevc);
         connection.KeyframeRequested += () => Event?.Invoke("discord.video.keyframe", new { source = "camera" });
     }
 
@@ -333,9 +410,16 @@ internal sealed partial class DiscordSession
     }
 
     // rotation: the sender's quarter turns clockwise (0-3) to show it upright; flip: mirrored first (urn:3gpp:video-orientation).
-    private void PublishFrame(string source, string userId, uint timestamp, bool keyframe, byte[] data, int orientation = 0)
+    private int _framesHeldBack;
+
+    private void PublishFrame(string source, string userId, uint timestamp, bool keyframe, byte[] data, int orientation = 0, bool hevc = false)
     {
-        if (source != "self" && !_framesWanted) return;
-        Event?.Invoke("discord.video.frame", new { source, userId, timestamp, keyframe, data = Convert.ToBase64String(data), rotation = orientation & 3, flip = (orientation & 4) != 0 });
+        if (source != "self" && !_framesWanted)
+        {
+            // The page hasn't asked for call video: said once in a while, so a stream that never shows says so.
+            if (Interlocked.Increment(ref _framesHeldBack) % 600 == 1) AppLog.Info("Discord video: frames held back (the page hasn't asked for call video).");
+            return;
+        }
+        VideoFrame?.Invoke(new { @event = "discord.video.frame", source, userId, timestamp, keyframe, rotation = orientation & 3, flip = (orientation & 4) != 0, codec = hevc ? "h265" : "h264" }, data);
     }
 }

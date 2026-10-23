@@ -1,6 +1,6 @@
 # Best display settings: what the evidence says
 
-Research for System > Display ("Best for this screen") and a check of Exo's NVIDIA profile (`gpu-profiles.md`, `Helpers/GpuProfile.cs`). The goals are the lowest input lag, the best performance and the best image on the widest range of PCs and screens. Researched October 17, 2026. Nothing was changed on the PC.
+Research for System > Display ("Best for this screen") and a check of Exo's NVIDIA profile (`gpu-profiles.md`, `Helpers/GpuProfile.cs`). The goals are the lowest input lag, the best performance and the best image on the widest range of PCs and screens. Researched October 17, 2026; the notes on what Exo does were checked against the code on October 21, 2026.
 
 How to read it: each topic gives a **recommendation**, the **conditions** it holds under, the **evidence** with links, and a **confidence**:
 
@@ -98,14 +98,14 @@ The evidence base has gaps. Blur Busters' G-SYNC 101 is still the only large pub
 
 ## 3. Refresh rate
 
-**Recommendation:** **the highest refresh rate Windows offers at the native resolution**, unless reaching it costs RGB or puts the link onto DSC (see below). Exo's `BestFor` already does the first part.
+**Recommendation:** **the highest refresh rate Windows offers at the native resolution**, unless reaching it costs RGB or puts the link onto DSC (see below). Exo's `BestFor` (`WebHostBridge.Display.cs`) already does the first part, from Windows' list less the rates the screen's EDID rules out (`DisplayOutput.OfferedRates`).
 
 **Conditions and side effects**
 
 - **Higher refresh lowers lag at any frame rate.** Each refresh is shorter, so frames reach the screen sooner even below the cap, and V-Sync or tearing artifacts shrink. This is the scan-out mechanism. RTINGS's per-refresh input-lag numbers follow it: one forum-quoted retest was 3.14 ms at 240 Hz, 5.27 at 120 Hz and 9.58 at 60 Hz. https://forums.blurbusters.com/viewtopic.php?p=71252
 - **Overclocked modes** (165 Hz "OC" on a 144 Hz panel and similar): overdrive is often tuned for the base rate, so overshoot or ghosting rises and some panels skip frames. Reviews say to stay at the base rate when the OC mode misbehaves, and to test with TestUFO frame skipping. https://forums.anandtech.com/threads/acer-predator-xb271hu-bmiprz-wont-overclock-to-165-hz.2468465/post-38528406, https://forums.blurbusters.com/viewtopic.php?p=54062. Windows does list OC modes once they are on in the monitor's menu, so Exo can't tell them apart. Low confidence that they are worse on today's monitors; most newer "OC" modes are within spec.
-- **10-bit at max refresh:** on DP 1.4 without DSC, many 1440p 240 Hz and 4K 144 Hz monitors only take 8-bit RGB (or YCbCr 4:2:2) at their top refresh. Pick the refresh first, then color, which Exo does: `BestFor` re-checks color at the new refresh after setting it (`WebHostBridge.Display.cs:163-176`).
-- **DSC at max refresh:** it can be the only way to reach the top rate. The cost (2b) is DSR/DLDSR and extra monitors, not image or lag. Exo can't see DSC state today.
+- **10-bit at max refresh:** on DP 1.4 without DSC, many 1440p 240 Hz and 4K 144 Hz monitors only take 8-bit RGB (or YCbCr 4:2:2) at their top refresh. Pick the refresh first, then color, which Exo does: `SetDisplay` (`WebHostBridge.Display.cs`) sets the refresh, then picks the color again from what the driver takes at the new rate.
+- **DSC at max refresh:** it can be the only way to reach the top rate. The cost (2b) is DSR/DLDSR and extra monitors, not image or lag. Exo can't see DSC state.
 
 **Confidence:** highest refresh is best = high. OC-mode downsides = low (anecdotal, model-specific). Color at max refresh = high (bandwidth arithmetic).
 
@@ -138,12 +138,12 @@ The evidence base has gaps. Blur Busters' G-SYNC 101 is still the only large pub
 - Mitigations, best first: steady frame rates (a cap); the monitor's anti-flicker mode; on the worst screens, VRR off **for that screen**. VESA Adaptive-Sync certification does not guarantee no flicker (RTINGS, as quoted on Guru3D, https://forums.guru3d.com/goto/post?id=6331256).
 - So **VRR stays on by default.** Per-display G-SYNC (`NvAPI_DISP_SetAdaptiveSyncData`, `nvidia-control-panel.md` section 7) is the right tool for an OLED or VA screen that flickers, rather than turning G-SYNC off globally.
 
-**AMD / Intel:** FreeSync or Adaptive-Sync on, a frame cap under refresh, Anti-Lag on (Anti-Lag 2 where a game ships it: AMD claims a 37% average latency cut, vendor numbers), Radeon Chill off for lowest lag. https://www.notebookcheck.net/AMD-Radeon-Anti-Lag-2-lands-with-even-more-latency-improvements-and-without-any-risk-of-false-positive-bans.840667.0.html, https://www.club386.com/?p=72043. Exo's `GpuProfile.Amd`/`Intel` lists match this. No independent Intel low-latency measurement was found.
+**AMD / Intel:** FreeSync or Adaptive-Sync on, a frame cap under refresh, Anti-Lag on (Anti-Lag 2 where a game ships it: AMD claims a 37% average latency cut, vendor numbers), Radeon Chill off for lowest lag. https://www.notebookcheck.net/AMD-Radeon-Anti-Lag-2-lands-with-even-more-latency-improvements-and-without-any-risk-of-false-positive-bans.840667.0.html, https://www.club386.com/?p=72043. Exo's Radeon profile (`GpuProfile.Radeon`) and the `GpuProfile.Amd`/`Intel` lists match this, except that Anti-Lag is on only while a game Exo launched runs: on globally, the driver also hooks Windows' own apps and costs CPU (RadeonTuner's driver notes). No independent Intel low-latency measurement was found.
 
 **Against Exo's profile:**
 
 - G-SYNC on, driver V-Sync on, LLM On, cap at Reflex's value and never closer than 3 under refresh: **all match the evidence.**
-- **G-SYNC global mode "Full screen and windowed"** (`GpuProfile.cs:89-90`): the evidence leans the other way. Blur Busters' author keeps it on Full screen globally, and the cost of windowed mode globally (desktop apps and browsers switching into VRR, stutter or flicker while their windows are focused) is real, especially on OLED and VA. The reason to keep it (legacy borderless games) has shrunk because of Windows 11's windowed-game optimizations. This is already Decision 2 in `gpu-profiles.md`. **Suggest Full screen globally.** Medium confidence.
+- **G-SYNC global and application mode Full screen** (`GsyncGlobalMode`, `GsyncAppMode` = 1 in `GpuProfile.cs`): matches. Exo used "Full screen and windowed" until this research. Blur Busters' author keeps it on Full screen globally, windowed mode globally lets desktop apps and browsers switch into VRR (stutter or flicker, worst on OLED and VA), and Windows 11's windowed-game optimizations make most borderless games count as full screen.
 - **Driver cap vs in-game cap:** the driver limiter adds up to about a frame; an in-game limiter or Reflex doesn't. Exo can't set in-game limiters. Keeping the driver cap as the safety net is right, but the UI should say "a game's own limiter or Reflex is better when it has one". Medium confidence.
 
 ---
@@ -162,8 +162,8 @@ The evidence base has gaps. Blur Busters' G-SYNC 101 is still the only large pub
 
 **Against Exo's profile:**
 
-- **Texture filtering High performance plus its three optimizations** (`GpuProfile.cs:108`): `gpu-profiles.md` already says "no measured gain found". Modern GPUs have spare texture-filtering throughput, and the old tests show the gap closing as far back as 2006. The image cost (shimmer in motion, bilinear between mip levels inside AF) is the documented part. **Suggest the driver default (Quality, optimizations default).** If performance-first stays the user's call, record it as a preference, not as evidence.
-- **Power management "Prefer maximum performance"** (`GpuProfile.cs:123`): its doc row cites one 2026 guide ("at most about 2 fps, 15-25 W at the desktop"). No latency measurement supports "no clock ramp-up lag". It is cheap and plausible for steady frame times, so keeping it is defensible, but the doc should label it as unmeasured (low confidence).
+- **Texture filtering High performance plus its three optimizations** (`GpuProfile.cs`, kept as the user's performance-first call): `gpu-profiles.md` already says "no measured gain found". Modern GPUs have spare texture-filtering throughput, and the old tests show the gap closing as far back as 2006. The image cost (shimmer in motion, bilinear between mip levels inside AF) is the documented part. The evidence favors the driver default (Quality, optimizations default); performance-first is a preference, not evidence.
+- **Power management "Prefer maximum performance"** (`0x1057EB71 = 1` in `GpuProfile.cs`, commented "no clock ramp-up lag"): no latency measurement supports that wording. It is cheap and plausible for steady frame times, so keeping it is defensible, but it is unmeasured (low confidence).
 - LLM On, max pre-rendered 1, threaded optimization default, shader cache, "compile while idle": nothing in the evidence contradicts them.
 
 ---
@@ -229,7 +229,7 @@ The evidence base has gaps. Blur Busters' G-SYNC 101 is still the only large pub
 
 - **Digital vibrance:** a saturation boost applied in the display pipeline (CSC). No performance cost has been reported, and the mechanism gives no reason for one. Competitive players raise it for visibility, but it moves colors away from the source and clips saturated colors. Its HDR behavior is undocumented. The neutral value is the driver's default (50%). **No source supports any other value as "best".** Confidence: medium (no direct measurement; from the mechanism).
 - **Brightness, contrast and gamma through the gamma ramp:** the ramp is a lookup table in the display engine, so it adds no frame latency. Applying it is slow, though: `SetDeviceGammaRamp` "may take as long as 200ms to return". Microsoft documents that it **"has undefined behavior in HDR modes"**. The ramp "is also reset on most display events (connecting/disconnecting a monitor, resolution changes, etc.)", any app can overwrite it (exclusive-full-screen games often set their own), and a ramp that fails the heuristics "fails silently". Microsoft recommends ICC profiles instead. https://learn.microsoft.com/en-us/windows/win32/api/wingdi/nf-wingdi-setdevicegammaramp. Confidence: high (Microsoft).
-- So the ramp is **not dependable while Windows HDR is on.** The Display tab should hide or disable the ramp sliders on an HDR screen, or say that HDR ignores them. Exo already re-applies the ramp on start, which is the right model for resets.
+- So the ramp is **not dependable while Windows HDR is on.** Exo follows this: on an HDR screen the Display tab offers no brightness, contrast or gamma (`WebHostBridge.Display.cs`) and `NvidiaColor.Apply` writes the ramp only while HDR is off. It re-applies the ramp on start (`NvidiaColor.ApplySaved`), the right model for resets.
 - **NVIDIA "Color accuracy mode"** (Reference / Accurate / Enhanced) only reports which color pipeline is in use; it is not an sRGB clamp. https://www.nvidia.com/content/Control-Panel-Help/vLatest/en-gb/mergedProjects/nvdspENG/CS_Adjust_Color_Settings_Advanced.htm. Leave it alone.
 
 ---
@@ -275,9 +275,8 @@ Exo can't set these. Keep the advice to this short list; each item helps most sc
 | Range | Full | RGB on monitors (done today). On HDMI TVs: Full plus a note to set the TV's HDMI black level to Auto/Full | High (monitors), medium (TVs) |
 | Depth | Deepest RGB depth the link takes, capped at the panel's EDID depth (done today) | Always. A 10-bit pick that needs DSC is acceptable; Exo can't see DSC | Medium |
 | Fallback when RGB doesn't fit | YCbCr 4:4:4, then 4:2:2, then 4:2:0, at the deepest depth (done today), with the cable/port note | HDMI 2.0 TVs and monitors at 4K high refresh | High |
-| Color policy | USER (explicit), not "driver picks" | Always when Exo applies a color | Medium |
-| Scaling | Leave as is | At native (the normal case) | High |
-| Scaling (if Best ever sets it) | GPU, Aspect ratio | Only if the user runs games below native; never as a blinking mode set at native | Medium |
+| Color policy | USER (explicit), not "driver picks" | Always when Exo applies a color (done today on NVIDIA) | Medium |
+| Scaling | Leave as is at native (the normal case); GPU, Aspect ratio for games below native. Best today (NVIDIA) writes No scaling on the GPU and turns on Override, so nothing is stretched; a below-native game shows black borders, and a screen on another scaling blinks once | At native it changes nothing on screen | High (native), medium (below native) |
 | G-SYNC for this screen | On | VRR-capable screen, unless the user reports flicker (OLED/VA) | High |
 | Digital vibrance, hue, ramp (brightness/contrast/gamma) | **Not touched** | Never | High |
 | RTX Video Super Resolution / HDR | **Not touched** (stays off) | Never in Best; a user opt-in elsewhere | Medium |
@@ -287,15 +286,15 @@ Exo can't set these. Keep the advice to this short list; each item helps most sc
 
 ## Changes the evidence suggests to Exo's current GPU profile or Display behavior
 
-1. **G-SYNC global and application mode: Full screen and windowed → Full screen.** `ExoLauncher/Helpers/GpuProfile.cs:89-90` (`GsyncGlobalMode`, `GsyncAppMode` = 2 when G-SYNC). Blur Busters' author keeps it on Full screen globally, and flip-model borderless (DX12, and DX10/11 under Windows 11's windowed-game optimizations) already counts as full screen. Windowed mode globally lets desktop apps and browsers trigger VRR, which stutters and flickers worst on OLED and VA. Value: 1 instead of 2. Medium confidence. Decision 2 in `gpu-profiles.md` already records the trade-off.
-2. **Texture filtering quality: High performance + three optimizations → driver default.** `GpuProfile.cs:108` (`0x00CE2691 = 0x14`, `0x0084CD70 = 1`, `0x00E73211 = 1`; `0x002ECAF2 = 0` already matches the default). No measurement since about 2006 shows a gain; the image cost (shimmer, bilinear between mips inside AF) is documented. Low-medium confidence. If kept as the user's performance-first call, `gpu-profiles.md` should mark it as a preference.
-3. **Power management "Prefer maximum performance": relabel, don't necessarily change.** `GpuProfile.cs:123` (`0x1057EB71 = 1`), comment "no clock ramp-up lag". No latency measurement supports that wording; only forum reports of steadier clocks and DPC times. Change the comment and the `gpu-profiles.md` row to "unmeasured; steadier clocks" (low confidence), or go back to the default.
-4. **Ramp sliders under Windows HDR.** Display tab (`NvidiaColor.cs` ramp, `DisplayOutput.Ramp`, `ui/src/components/gpu/DisplayTab.tsx`): Microsoft documents `SetDeviceGammaRamp` as undefined in HDR. Hide or disable brightness/contrast/gamma while HDR is on for that screen, or say they don't apply. High confidence.
-5. **Range on HDMI TVs.** `DisplayOutput.BestColor` (`DisplayOutput.cs:42`) picks RGB Full for every screen. Right for monitors; on TVs whose black level is set to Limited it crushes blacks. Keep Full, and add one line to `why` when the output is HDMI and the EDID says TV (CEA extension with no PC timings, or HDMI TV video blocks): "Set the TV's HDMI black level to Auto or Full." Medium confidence.
-6. **Driver-limiter wording.** `gpu-profiles.md` frame cap row (and the UI text): say that a game's own limiter or Reflex adds less lag than the driver cap, which is the safety net. Blur Busters G-SYNC 101 p.11. The value itself stays. High confidence for the wording.
-7. **Per-screen G-SYNC off for flicker.** `nvidia-control-panel.md` already lists `NvAPI_DISP_SetAdaptiveSyncData` as something Exo could add. The evidence (TFT Central, Blur Busters) makes it the right fix for VRR flicker, better than the profile's global No G-SYNC variant. Medium confidence.
-8. **`nvidia-control-panel.md` recommendation 1 ("Driver picks" as the default for anyone who hasn't changed anything)** conflicts with 2c/2d. NVIDIA's default picks Limited on HDMI CEA timings. Make "Driver picks" an available choice, not what "Best" writes. High confidence for the HDMI part.
-9. **Integer scaling note.** If the scaling control offers Integer, say it may block HDR (documented on Turing). `NvidiaScaling.cs`, `DisplayTab.tsx`. High confidence for Turing, unknown on newer cards.
+1. **G-SYNC global and application mode: Full screen and windowed → Full screen.** Done: `GsyncGlobalMode` and `GsyncAppMode` are 1 with G-SYNC (`ExoLauncher/Helpers/GpuProfile.cs`).
+2. **Texture filtering quality: High performance + three optimizations → driver default.** Kept as the user's performance-first call (`0x00CE2691 = 0x14`, `0x0084CD70 = 1`, `0x00E73211 = 1`; `0x002ECAF2 = 0` already matches the default). No measurement since about 2006 shows a gain; the image cost (shimmer, bilinear between mips inside AF) is documented. Low-medium confidence.
+3. **Power management "Prefer maximum performance": relabel, don't necessarily change.** `0x1057EB71 = 1`. No latency measurement supports "no clock ramp-up lag"; only forum reports of steadier clocks and DPC times. The `gpu-profiles.md` row now says so; the code comment in `GpuProfile.cs` still says "no clock ramp-up lag". Low confidence.
+4. **Ramp sliders under Windows HDR.** Done: no brightness, contrast or gamma on an HDR screen, and no ramp written while HDR is on (`NvidiaColor.Apply`).
+5. **Range on HDMI TVs.** `DisplayOutput.BestColor` picks RGB Full for every screen. Right for monitors; on TVs whose black level is set to Limited it crushes blacks. Keep Full, and add one line to `why` when the output is HDMI and the EDID says TV (CEA extension with no PC timings, or HDMI TV video blocks): "Set the TV's HDMI black level to Auto or Full." Medium confidence.
+6. **Driver-limiter wording.** Done in the `gpu-profiles.md` frame cap row; the UI text doesn't say it yet: a game's own limiter or Reflex adds less lag than the driver cap, which is the safety net. Blur Busters G-SYNC 101 p.11. The value itself stays. High confidence for the wording.
+7. **Per-screen G-SYNC off for flicker.** `NvAPI_DISP_SetAdaptiveSyncData` was tried and left out: it answered invalid argument on the dev PC's fixed-refresh screens, so it couldn't be checked (`nvidia-control-panel.md`, last section). The evidence (TFT Central, Blur Busters) still makes it the right fix for VRR flicker, better than the profile's global No G-SYNC variant. Medium confidence.
+8. **"Driver picks" is a choice, not what Best writes.** Done: "Use default color settings" (BEST_QUALITY) is offered, and Best writes USER, since NVIDIA's default picks Limited on HDMI CEA timings (2c/2d).
+9. **Integer scaling note.** The scaling control offers Integer without saying it may block HDR (documented on Turing). `NvidiaScaling.cs`, `ui/src/components/gpu/DisplayTab.tsx`. High confidence for Turing, unknown on newer cards.
 
 No change suggested: G-SYNC on with driver V-Sync, LLM On, max pre-rendered 1, the Reflex-formula cap with the 3-under floor, preferred refresh highest, VRR overlay off, the shader-cache and compile-while-idle values, refresh = highest in Best, RGB-first color with the panel-depth cap, and the AMD/Intel lists (Anti-Lag on, Chill off, FreeSync/Adaptive-Sync on with a cap).
 

@@ -8,7 +8,7 @@ using ExoLauncher.Helpers;
 namespace ExoLauncher.Services;
 
 /// <summary>
-/// The shader add-on for Library > Shaders (Exo Shaders, GPL-3.0-or-later, source
+/// The shader add-on for System > Shaders (Exo Shaders, GPL-3.0-or-later, source
 /// at github.com/ImAvgErix/exo-shaders): its own program, shipped in Exo's app
 /// folder under <c>addons\shaders</c> or installed beside Exo's data under
 /// <c>%LOCALAPPDATA%\ExoLauncher\addons\shaders</c>, with an

@@ -41,8 +41,8 @@ std::vector<uint8_t> ParameterSets(const std::vector<uint8_t>& data, Codec codec
 class VideoEncoder
 {
 public:
-    /// realtime: a live stream (Go Live) at a constant rate the network carries, a key frame every
-    /// five seconds; else a file's quality-led rate, a key frame every two.
+    /// realtime: a live stream (Go Live) at a constant rate the network carries, a key frame on request and
+    /// every minute; else a file's quality-led rate, a key frame every two seconds.
     /// software: Windows' own H.264 encoder on the CPU (Go Live when the graphics card's won't start), fed from memory.
     VideoEncoder(GpuDevice& gpu, Codec codec, UINT width, UINT height, UINT fps, UINT bitrate, bool hdr, bool realtime,
         std::function<void(PacketPtr)> sink, bool software = false);
@@ -50,6 +50,8 @@ public:
     /// Queues one NV12/P010 texture; released() runs once the encoder no longer reads it.
     void Submit(ID3D11Texture2D* texture, int64_t time, std::function<void()> released);
     void ForceKeyFrame() { m_forceKey = true; }
+    /// A new bit rate from the next frame on (Go Live following what Discord's server says the stream can take).
+    void SetBitrate(UINT bitrate) { m_newRate = bitrate; }
     /// The output type with its sequence header, once the first frame is out (waits up to 3 s).
     com_ptr<IMFMediaType> OutputType();
 
@@ -58,6 +60,7 @@ private:
     void FeedLocked();
     bool TakeOutput();
     void SubmitSync(ID3D11Texture2D* texture, int64_t time);
+    void TakeRequests();
 
     GpuDevice& m_gpu;
     Codec m_codec;
@@ -75,6 +78,7 @@ private:
     std::deque<com_ptr<IMFSample>> m_queue;
     int m_credits = 0;
     std::atomic<bool> m_forceKey{ false };
+    std::atomic<UINT> m_newRate{ 0 };
     bool m_drained = false;
     com_ptr<IMFMediaType> m_outputType;
     std::thread m_thread;
@@ -103,7 +107,7 @@ public:
         UINT width = 0, height = 0;
         /// Bits per second; 0 works it out from quality.
         UINT bitrate = 0;
-        /// Go Live: a constant bit rate for the network and a key frame every five seconds (and on request).
+        /// Go Live: a constant bit rate for the network and a key frame on request (and every minute).
         bool realtime = false;
     };
 
@@ -124,6 +128,7 @@ public:
     SIZE ContentSize() const;
     com_ptr<IMFMediaType> VideoType() { return m_encoder->OutputType(); }
     void ForceKeyFrame() { if (m_encoder) m_encoder->ForceKeyFrame(); }
+    void SetBitrate(UINT bitrate) { if (m_encoder) m_encoder->SetBitrate(bitrate); }
     /// The newest frame as BGRA pixels at most maxWidth across, for a thumbnail. False when there is none (or HDR).
     bool LastFrame(std::vector<uint8_t>& pixels, UINT& width, UINT& height, UINT maxWidth = 480);
     /// Frames converted and dropped since the start (dropped: the encoder was still busy).

@@ -4,9 +4,9 @@
 /* Discord's layout, Exo's look (DESIGN.md): every surface black, structure by hairlines, white ink,
    the white accent where Discord uses blurple, green only for what is on. */
 .exo-dc {
-  --dc-rail: #000;
-  --dc-side: #000;
-  --dc-chat: #000;
+  --dc-rail: var(--color-bg);
+  --dc-side: var(--color-bg);
+  --dc-chat: var(--color-bg);
   /* Cards are clear with a hairline: on the page they are its black, on glass they are the glass. Never gray. */
   --dc-raised: transparent;
   --dc-hover: var(--hover-fill);
@@ -16,7 +16,7 @@
   --dc-text: var(--color-fg);
   --dc-muted: var(--color-muted);
   --dc-blurple: var(--color-fg);
-  --dc-on-accent: #0a0a0a;
+  --dc-on-accent: var(--color-bg);
   --dc-link: var(--color-fg);
   --dc-good: var(--color-good);
   --dc-bad: var(--color-bad);
@@ -26,7 +26,7 @@
   grid-template-columns: 56px 240px minmax(0, 1fr);
   min-width: 0;
   min-height: 0;
-  background: #000;
+  background: var(--color-bg);
   color: var(--dc-text);
   font-size: calc(13px * var(--exo-scale, 1));
 }
@@ -46,7 +46,7 @@
   flex: none;
   width: 32px;
   height: 1px;
-  background: #222;
+  background: rgb(var(--exo-ink-rgb) / 0.133);
 }
 
 .exo-dc-guild {
@@ -63,7 +63,7 @@
   color: var(--color-fg);
   font: inherit;
   cursor: pointer;
-  transition: border-radius 160ms var(--ease-out), background-color 120ms var(--ease-out);
+  transition: border-radius var(--dur-base) var(--ease-out), background-color var(--dur-quick) var(--ease-out), scale var(--dur-quick) var(--ease-out);
 }
 
 .exo-dc-guild img {
@@ -131,7 +131,28 @@
   position: absolute;
   right: -4px;
   bottom: -4px;
-  box-shadow: 0 0 0 3px #000;
+  box-shadow: 0 0 0 3px var(--dc-rail);
+}
+
+/* People are in its voice channels: a small speaker at its foot, as Discord marks a server with a call going
+   (on the left when a mention count takes the right). */
+.exo-dc-guild-voice {
+  position: absolute;
+  right: -4px;
+  bottom: -4px;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: var(--color-good);
+  box-shadow: 0 0 0 3px var(--dc-rail);
+  color: #fff;
+}
+
+.exo-dc-guild:has(.exo-dc-badge) .exo-dc-guild-voice {
+  right: auto;
+  left: -4px;
 }
 
 .exo-dc-side {
@@ -173,9 +194,7 @@
   font: inherit;
   font-size: calc(12px * var(--exo-scale, 1));
   font-weight: 600;
-  letter-spacing: 0.04em;
   text-align: left;
-  text-transform: uppercase;
   cursor: pointer;
 }
 
@@ -348,7 +367,7 @@
 }
 
 .exo-dc-msg:hover {
-  background: #000;
+  background: var(--color-bg);
 }
 
 .exo-dc-msg.is-mention {
@@ -556,7 +575,7 @@
 .exo-dc-quote {
   margin: 0;
   padding-left: 12px;
-  border-left: 3px solid #333;
+  border-left: 3px solid rgb(var(--exo-ink-rgb) / 0.2);
   white-space: pre-wrap;
 }
 
@@ -575,7 +594,7 @@
   overflow-x: auto;
   border: 1px solid var(--exo-float-line);
   border-radius: 8px;
-  background: #0a0a0a;
+  background: rgb(var(--exo-ink-rgb) / 0.04);
   font-family: ui-monospace, Consolas, monospace;
   font-size: calc(12px * var(--exo-scale, 1));
   white-space: pre;
@@ -583,7 +602,7 @@
 
 .exo-dc-spoiler {
   border-radius: 4px;
-  background: #2a2a2a;
+  background: rgb(var(--exo-ink-rgb) / 0.28);
   color: transparent;
   cursor: pointer;
 }
@@ -624,7 +643,9 @@
   text-decoration: underline;
 }
 
+/* Inline in its line (the base styles make every picture a block, which stacked a one-line quote's emoji). */
 .exo-dc-emoji {
+  display: inline-block;
   width: 22px;
   height: 22px;
   vertical-align: -5px;
@@ -650,7 +671,7 @@
   overflow: hidden;
   border: 0;
   border-radius: 8px;
-  background: #0a0a0a;
+  background: rgb(var(--exo-ink-rgb) / 0.04);
   cursor: pointer;
 }
 
@@ -671,9 +692,9 @@ video.exo-dc-media {
   gap: 12px;
   max-width: 400px;
   padding: 10px 12px;
-  border: 1px solid #222;
+  border: 1px solid rgb(var(--exo-ink-rgb) / 0.133);
   border-radius: 10px;
-  background: #0a0a0a;
+  background: rgb(var(--exo-ink-rgb) / 0.04);
   color: var(--color-fg);
   font: inherit;
   cursor: pointer;
@@ -724,7 +745,7 @@ video.exo-dc-media {
   max-width: 440px;
   padding: 10px 12px;
   border: 1px solid var(--exo-float-line);
-  border-left: 4px solid #333;
+  border-left: 4px solid rgb(var(--exo-ink-rgb) / 0.2);
   border-radius: 8px;
   background: var(--dc-raised);
 }
@@ -761,9 +782,70 @@ video.exo-dc-media {
   line-height: 1.3;
 }
 
-.exo-dc-jam-what span {
+.exo-dc-jam-what > span {
   color: var(--color-faint);
   font-size: calc(12px * var(--exo-scale, 1));
+}
+
+/* A server invite, on the same card: the server's icon, its name and badge, who's online and how many are in it. */
+.exo-dc-invite-icon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 16px;
+  background: var(--exo-selected);
+  color: var(--color-fg);
+  font-weight: 600;
+  object-fit: cover;
+}
+
+.exo-dc-invite-name {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.exo-dc-invite-name > span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.exo-dc-invite-badge {
+  display: inline-flex;
+  color: var(--color-fg);
+}
+
+.exo-dc-jam-what .exo-dc-invite-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
+
+.exo-dc-invite-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.exo-dc-invite-count::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-faint);
+}
+
+.exo-dc-invite-count.is-online::before {
+  background: var(--color-good);
+}
+
+/* Unknown or expired: Discord's empty icon and its words in the error color. */
+.exo-dc-jam.is-invalid strong {
+  color: var(--color-bad);
 }
 
 .exo-dc-embed-body {
@@ -842,7 +924,7 @@ video.exo-dc-media {
   border: 1px solid var(--exo-float-line);
   border-bottom: 0;
   border-radius: 14px 14px 0 0;
-  background: #0a0a0a;
+  background: rgb(var(--exo-ink-rgb) / 0.04);
   color: var(--color-muted);
   font-size: calc(12px * var(--exo-scale, 1));
 }
@@ -875,7 +957,7 @@ video.exo-dc-media {
   padding: 4px;
   border: 1px solid var(--exo-float-line);
   border-radius: 14px;
-  background: #0a0a0a;
+  background: rgb(var(--exo-ink-rgb) / 0.04);
 }
 
 .exo-dc-input-row.is-attached {
@@ -884,7 +966,7 @@ video.exo-dc-media {
 }
 
 .exo-dc-input-row:focus-within {
-  border-color: #333;
+  border-color: rgb(var(--exo-ink-rgb) / 0.2);
 }
 
 .exo-dc-input {
@@ -934,7 +1016,7 @@ video.exo-dc-media {
   padding: 8px;
   border: 1px solid var(--exo-float-line);
   border-bottom: 0;
-  background: #0a0a0a;
+  background: rgb(var(--exo-ink-rgb) / 0.04);
 }
 
 .exo-dc-compose-bar + .exo-dc-files {
@@ -1020,12 +1102,16 @@ video.exo-dc-media {
   background: var(--dc-line);
 }
 
+/* A fill slides in from the left inside its rounded track (transform only: no layout each frame, so it stays smooth
+   while the page is busy; its rounded end keeps its shape, as a scale would not). */
 .exo-dc-upload-bar i {
   display: block;
+  width: 100%;
   height: 100%;
   border-radius: inherit;
   background: var(--color-fg);
-  transition: width 160ms var(--ease-out);
+  transform: translateX(calc(var(--fill, 0) * 100% - 100%));
+  transition: transform 160ms var(--ease-out);
 }
 
 /* SPOILER and sensitive pictures: blurred under their label until clicked. */
@@ -1073,7 +1159,7 @@ video.exo-dc-media {
   padding: 10px 12px;
   border: 1px solid var(--dc-line);
   border-radius: 10px;
-  background: #0a0a0a;
+  background: rgb(var(--exo-ink-rgb) / 0.04);
 }
 
 .exo-dc-inline-edit-foot {
@@ -1272,7 +1358,7 @@ video.exo-dc-media {
   border: 1px solid var(--exo-float-line);
   border-radius: 10px;
   outline: none;
-  background: #000;
+  background: var(--color-bg);
   color: var(--color-fg);
   font: inherit;
 }
@@ -1354,9 +1440,9 @@ video.exo-dc-media {
   gap: 6px;
   height: 26px;
   padding: 0 8px;
-  border: 1px solid #222;
+  border: 1px solid rgb(var(--exo-ink-rgb) / 0.133);
   border-radius: 8px;
-  background: #0a0a0a;
+  background: rgb(var(--exo-ink-rgb) / 0.04);
   color: var(--color-muted);
   font: inherit;
   font-size: calc(12px * var(--exo-scale, 1));
@@ -1370,11 +1456,11 @@ video.exo-dc-media {
 }
 
 .exo-dc-reaction:hover {
-  border-color: #333;
+  border-color: rgb(var(--exo-ink-rgb) / 0.2);
 }
 
 .exo-dc-reaction.is-mine {
-  border-color: #3a3a3a;
+  border-color: rgb(var(--exo-ink-rgb) / 0.23);
   background: #121a33;
   color: var(--color-fg);
 }
@@ -1397,7 +1483,7 @@ video.exo-dc-media {
   display: grid;
   flex: 1;
   place-items: center;
-  background: #000;
+  background: var(--color-bg);
   color: var(--color-fg);
 }
 
@@ -1427,9 +1513,9 @@ video.exo-dc-media {
   width: 216px;
   height: 216px;
   margin: 12px 0;
-  border: 1px solid #222;
+  border: 1px solid rgb(var(--exo-ink-rgb) / 0.133);
   border-radius: 14px;
-  background: #0a0a0a;
+  background: rgb(var(--exo-ink-rgb) / 0.04);
 }
 
 .exo-dc-qr-code {
@@ -1505,6 +1591,13 @@ video.exo-dc-media {
   color: var(--color-good);
 }
 
+/* A mic that sends nothing, said under the call's place until it is heard again: in full, on as many lines as it needs. */
+.exo-dc-voice-status span.exo-dc-voice-warn {
+  overflow: visible;
+  color: var(--color-bad);
+  white-space: normal;
+}
+
 .exo-dc-voice-status span {
   overflow: hidden;
   color: var(--color-faint);
@@ -1517,9 +1610,10 @@ video.exo-dc-media {
   flex: 1;
   height: 30px;
   padding: 0 10px;
-  border: 1px solid #222;
+  border: 0;
   border-radius: 999px;
-  background: #0a0a0a;
+  background: var(--exo-fill);
+  box-shadow: var(--exo-rim);
   color: var(--color-fg);
   font: inherit;
   font-size: calc(12px * var(--exo-scale, 1));
@@ -1539,9 +1633,7 @@ video.exo-dc-media {
   align-items: center;
   gap: 8px;
   padding: 8px 8px 8px 16px;
-  border: 1px solid var(--exo-float-line);
   border-radius: 999px;
-  background: var(--exo-float);
   transform: translateX(-50%);
 }
 
@@ -1550,8 +1642,7 @@ video.exo-dc-media {
 }
 
 .exo-dc-call button.is-join {
-  border-color: var(--hover-fill);
-  background: #0e2418;
+  background: color-mix(in srgb, var(--color-good) 14%, transparent);
   color: var(--color-good);
 }
 
@@ -1625,8 +1716,6 @@ video.exo-dc-media {
   color: var(--dc-muted);
   font-size: calc(12px * var(--exo-scale, 1));
   font-weight: 600;
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
 }
 
 .exo-dc-item {
@@ -1637,6 +1726,12 @@ video.exo-dc-media {
 .exo-dc-item.is-big {
   min-height: 42px;
   font-weight: 500;
+}
+
+/* Friends and Shop: the glyph centered in a conversation's 32px picture slot, so every label starts on one line. */
+.exo-dc-item.is-big > svg {
+  box-sizing: content-box;
+  padding-inline: 5px;
 }
 
 .exo-dc-item:hover:not(:disabled) {
@@ -1730,7 +1825,7 @@ video.exo-dc-media {
   height: 52px;
   padding: 0 8px;
   border-top: 0;
-  background: #000;
+  background: var(--color-bg);
 }
 
 .exo-dc-me-who {
@@ -1813,7 +1908,7 @@ video.exo-dc-media {
   padding: 6px;
   border: 1px solid var(--dc-line);
   border-radius: 8px;
-  background: #000;
+  background: var(--color-bg);
   box-shadow: 0 8px 24px rgb(0 0 0 / 0.5);
 }
 
@@ -1874,7 +1969,7 @@ video.exo-dc-media {
   align-items: center;
   justify-content: space-between;
   border-top: 1px solid var(--dc-line);
-  background: #000;
+  background: var(--color-bg);
 }
 
 .exo-dc-chat {
@@ -1885,7 +1980,7 @@ video.exo-dc-media {
   position: relative;
   gap: 8px;
   padding: 0 8px 0 16px;
-  border-bottom: 1px solid #000;
+  border-bottom: 1px solid var(--dc-chat);
   box-shadow: 0 1px 0 rgb(0 0 0 / 0.4);
   color: var(--dc-muted);
 }
@@ -1993,11 +2088,19 @@ video.exo-dc-media {
 }
 
 .exo-dc-members {
+  display: flex;
   flex: none;
+  flex-direction: column;
   width: 240px;
+  overflow: hidden;
+  background: var(--dc-side);
+}
+
+.exo-dc-members-list {
+  flex: 1;
+  min-height: 0;
   padding: 0 8px 16px;
   overflow-y: auto;
-  background: var(--dc-side);
 }
 
 .exo-dc-member {
@@ -2006,7 +2109,8 @@ video.exo-dc-media {
   gap: 12px;
   min-height: 42px;
   padding: 4px 8px;
-  border-radius: 6px;
+  /* The sidebar's and Music's row corner: one row shape in every list. */
+  border-radius: 12px;
   /* Rows out of view aren't laid out or painted: a list of hundreds scrolls and updates as one of ten. */
   content-visibility: auto;
   contain-intrinsic-size: auto 42px;
@@ -2014,6 +2118,20 @@ video.exo-dc-media {
 
 .exo-dc-member:hover {
   background: var(--dc-hover);
+}
+
+/* Rows Discord hasn't sent yet, as its client draws them: an avatar's circle and a name's bar on each 42px row
+   (the rest of a long list is one block of them). */
+.exo-dc-member.is-pending {
+  --pending: var(--dc-hover);
+  display: block;
+  padding: 0;
+  background:
+    radial-gradient(circle 16px at 24px 21px, var(--pending) 15.5px, transparent 16px) 0 0 / 100% 42px repeat-y,
+    linear-gradient(transparent 15px, var(--pending) 15px 27px, transparent 27px) 52px 0 / 50% 42px repeat-y;
+  pointer-events: none;
+  content-visibility: visible;
+  contain-intrinsic-size: none;
 }
 
 .exo-dc-member.is-offline {
@@ -2177,7 +2295,7 @@ video.exo-dc-media {
   max-height: 70vh;
   border: 1px solid var(--dc-line);
   border-radius: 8px;
-  background: #000;
+  background: var(--color-bg);
   box-shadow: 0 8px 24px rgb(0 0 0 / 0.5);
 }
 
@@ -2276,7 +2394,7 @@ video.exo-dc-media {
   margin: 0 16px;
   padding: 6px 12px;
   border-radius: 8px 8px 0 0;
-  background: #0a0a0a;
+  background: rgb(var(--exo-ink-rgb) / 0.04);
   color: var(--dc-muted);
   font-size: calc(12px * var(--exo-scale, 1));
 }
@@ -2387,6 +2505,7 @@ video.exo-dc-media {
   font: inherit;
   font-size: calc(20px * var(--exo-scale, 1));
   cursor: pointer;
+  transition: background-color var(--dur-quick) var(--ease-out), color var(--dur-quick) var(--ease-out), scale var(--dur-quick) var(--ease-out);
 }
 
 .exo-dc-round-btn:hover {
@@ -2429,7 +2548,7 @@ video.exo-dc-media {
   gap: 12px;
   margin-top: 16px;
   padding: 8px 8px 8px 16px;
-  border: 1px solid #000;
+  border: 1px solid var(--color-bg);
   border-radius: 8px;
   background: var(--dc-raised);
 }
@@ -2686,7 +2805,7 @@ video.exo-dc-media {
   z-index: 25;
   display: grid;
   place-items: center;
-  background: rgb(0 0 0 / 0.7);
+  background: rgb(0 0 0 / calc(0.7 * var(--exo-scrim-k)));
 }
 
 .exo-dc-modal {
@@ -2959,7 +3078,7 @@ video.exo-dc-media {
   z-index: 40;
   padding: 6px 10px;
   border-radius: 6px;
-  background: #000;
+  background: var(--color-bg);
   box-shadow: 0 4px 12px rgb(0 0 0 / 0.5);
   color: var(--dc-text);
   font-size: calc(13px * var(--exo-scale, 1));
@@ -2991,17 +3110,18 @@ video.exo-dc-media {
   font-size: calc(12px * var(--exo-scale, 1));
 }
 
-/* A white pill at the list's edge beside an unread channel. */
+/* A white pill beside an unread channel. Discord's hugs the list's edge, where Exo's pane draws its rim: it sits just
+   inside instead, a whole capsule clear of the rim, so the rim never runs through it. */
 .exo-dc-side-list .exo-dc-item.is-unread {
   position: relative;
 }
 
 .exo-dc-side-list .exo-dc-item.is-unread::before {
   position: absolute;
-  left: -8px;
+  left: -5px;
   width: 4px;
   height: 8px;
-  border-radius: 0 4px 4px 0;
+  border-radius: 2px;
   background: var(--color-fg);
   content: "";
 }
@@ -3161,13 +3281,6 @@ video.exo-dc-media {
   background: var(--dc-raised);
 }
 
-/* Discord writes labels as named, not in capitals. */
-.exo-dc-side-label,
-.exo-dc-category {
-  letter-spacing: 0;
-  text-transform: none;
-}
-
 .exo-dc-category {
   gap: 4px;
   font-size: calc(12px * var(--exo-scale, 1));
@@ -3249,10 +3362,11 @@ video.exo-dc-media {
   flex: 1;
 }
 
+/* On its label's center line: the label sits 16px under the row's top and 2px over its foot. */
 .exo-dc-category-add {
   width: 20px;
   height: 20px;
-  margin-top: 8px;
+  margin-top: 14px;
   margin-right: 4px;
   color: var(--dc-muted);
 }
@@ -3719,7 +3833,8 @@ textarea.exo-dc-modal-input {
   width: 18px;
   height: 18px;
   border-radius: 50%;
-  background: var(--color-fg);
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.35);
   content: "";
   transition: transform var(--dur-move) var(--ease-spring), background-color var(--dur-base) var(--ease-out);
 }
@@ -3782,6 +3897,11 @@ textarea.exo-dc-modal-input {
 .exo-dc-active-what {
   border-top: 1px solid var(--dc-line);
   background: rgb(0 0 0 / 0.25);
+}
+
+/* The 32px picture in the 40px art's slot, so both lines' words start together. */
+.exo-dc-active-who > :first-child {
+  margin-inline: 4px;
 }
 
 .exo-dc-active-what img,
@@ -4521,9 +4641,9 @@ button.exo-dc-pf-badge {
   width: 40px;
   height: 40px;
   border-radius: 12px;
-  background: #000;
+  background: var(--color-bg);
   box-shadow: inset 0 0 0 1px var(--dc-line);
-  transition: background-color 160ms var(--ease-out), box-shadow 160ms var(--ease-out);
+  transition: background-color var(--dur-base) var(--ease-out), box-shadow var(--dur-base) var(--ease-out), scale var(--dur-quick) var(--ease-out);
 }
 
 .exo-dc .exo-dc-guild:hover {
@@ -4532,11 +4652,17 @@ button.exo-dc-pf-badge {
 
 .exo-dc .exo-dc-guild[aria-current="true"] {
   background: var(--dc-selected);
-  box-shadow: inset 0 0 0 1px #3a3a3a;
+  box-shadow: inset 0 0 0 1px rgb(var(--exo-ink-rgb) / 0.23);
 }
 
 .exo-dc .exo-dc-guild .exo-company-logo {
   filter: grayscale(1) brightness(2.4);
+}
+
+/* On Light's pale tile the mark is the ink (white on it read 1.3:1, the home button looked disabled). */
+:root[data-exo-theme="light"] .exo-dc .exo-dc-guild .exo-company-logo {
+  filter: grayscale(1) brightness(0);
+  opacity: 0.88;
 }
 
 .exo-dc .exo-dc-guild.is-add {
@@ -4555,7 +4681,7 @@ button.exo-dc-pf-badge {
 /* Sidebar rows: Music's rows. */
 .exo-dc .exo-dc-item {
   min-height: 34px;
-  border-radius: 14px;
+  border-radius: 12px;
   color: var(--dc-muted);
   transition: background-color 120ms var(--ease-out), color 120ms var(--ease-out);
 }
@@ -4574,8 +4700,9 @@ button.exo-dc-pf-badge {
   color: var(--dc-text);
 }
 
+/* The channels' own gray, as in Discord: faint read under 4.5:1 on the channel list's lift. */
 .exo-dc .exo-dc-category {
-  color: var(--color-faint);
+  color: var(--dc-muted);
   font-weight: 500;
 }
 
@@ -4679,16 +4806,21 @@ button.exo-dc-pf-badge {
 
 /* Headers and panes divided by hairlines only. */
 .exo-dc .exo-dc-chat-head,
+/* Its hairline stays inside the pane's rounded rim (drawn edge to edge it ran into the rim). */
 .exo-dc .exo-dc-side-head {
-  border-bottom: 1px solid var(--dc-line);
+  border-bottom: 0;
   box-shadow: none;
+  background-image: linear-gradient(var(--exo-float-line), var(--exo-float-line));
+  background-position: center bottom;
+  background-size: calc(100% - 24px) 1px;
+  background-repeat: no-repeat;
 }
 
 .exo-dc .exo-dc-side,
 .exo-dc .exo-dc-members,
 .exo-dc .exo-dc-active,
 .exo-dc .exo-dc-dm-profile {
-  background: #000;
+  background: var(--color-bg);
 }
 
 .exo-dc .exo-dc-members,
@@ -4699,11 +4831,11 @@ button.exo-dc-pf-badge {
 
 /* Messages: Exo's hover, a quiet white mark for mentions of you. */
 .exo-dc .exo-dc-msg:hover {
-  background: #0a0a0a;
+  background: rgb(var(--exo-ink-rgb) / 0.04);
 }
 
 .exo-dc .exo-dc-msg.is-mention {
-  background: #0d0d0d;
+  background: rgb(var(--exo-ink-rgb) / 0.05);
   box-shadow: inset 2px 0 0 var(--dc-text);
 }
 
@@ -4727,15 +4859,12 @@ button.exo-dc-pf-badge {
   color: var(--exo-dc-role, var(--dc-text));
 }
 
+/* A link is the words' own color, underlined in it: a faint underline read as the words themselves going faint. */
 .exo-dc .exo-dc-link {
   color: var(--dc-text);
   text-decoration: underline;
-  text-decoration-color: #555;
+  text-decoration-color: currentColor;
   text-underline-offset: 2px;
-}
-
-.exo-dc .exo-dc-link:hover {
-  text-decoration-color: var(--dc-text);
 }
 
 /* Reactions: pills; yours filled. */
@@ -4755,8 +4884,9 @@ button.exo-dc-pf-badge {
   background: var(--dc-selected);
 }
 
-/* The app tag: a glass chip in sentence case. */
+/* The app tag: a glass chip in sentence case, a little apart from the name before it. */
 .exo-dc .exo-dc-tag {
+  margin-left: 4px;
   padding: 0 6px;
   border: 1px solid transparent;
   border-radius: 999px;
@@ -4802,7 +4932,7 @@ button.exo-dc-pf-badge {
 }
 
 .exo-dc .exo-dc-modal-back {
-  background: rgb(0 0 0 / 0.72);
+  background: rgb(0 0 0 / calc(0.72 * var(--exo-scrim-k)));
 }
 
 .exo-dc .exo-dc-modal-input {
@@ -4862,7 +4992,7 @@ button.exo-dc-pf-badge {
 .exo-dc .exo-dc-me,
 .exo-dc .exo-dc-voice {
   border-top: 1px solid var(--dc-line);
-  background: #000;
+  background: var(--color-bg);
 }
 
 /* Keyboard focus: Exo's white ring on controls; text fields show focus by their hairline. */
@@ -4883,17 +5013,26 @@ button.exo-dc-pf-badge {
 /* Motion (DESIGN.md › Motion): a conversation or page fades in when you switch to it; menus, popovers,
    pickers and a profile card appear as Exo's do, from 0.96 on the base time; a dialog settles in from
    the middle on the move time over a scrim that fades in. */
-.exo-dc .exo-dc-chat,
-.exo-dc .exo-dc-page,
-.exo-dc .exo-dc-friends-body {
-  animation: exo-switch var(--dur-base) var(--ease-out);
-}
 
 .exo-dc .exo-dc-menu,
 .exo-dc .exo-dc-popover,
-.exo-dc .exo-dc-picker,
-.exo-dc .exo-dc-profile {
+.exo-dc .exo-dc-picker {
   animation: exo-menu-in var(--dur-base) var(--ease-out);
+}
+
+/* A profile card settles in on the spring, a little more than a menu (it is a card you read, opened from a person):
+   from 0.94 and 8px toward where it was opened from, its glass fading itself in. */
+.exo-dc .exo-dc-profile {
+  transform-origin: top right;
+  animation: exo-dc-pf-in var(--dur-move) var(--ease-spring);
+}
+
+@keyframes exo-dc-pf-in {
+  from {
+    opacity: 0;
+    scale: 0.94;
+    translate: 8px 0;
+  }
 }
 
 .exo-dc .exo-dc-modal {
@@ -4921,7 +5060,7 @@ button.exo-dc-pf-badge {
 
 /* The selection glides between rows and tabs (Exo's glide), rounded like the rows it sits under. */
 .exo-dc .exo-dc-side-list.exo-glide::before {
-  border-radius: 14px;
+  border-radius: 12px;
 }
 
 .exo-dc .exo-dc-tabs {
@@ -4940,13 +5079,18 @@ button.exo-dc-pf-badge {
   box-shadow: var(--exo-rim);
 }
 
-/* A room header's tab bar (Friends, the Shop) is Exo's: 28px tabs, 12px text, round, as the Store's and System's. */
+/* A room header's tab bar (Friends, the Shop) is Exo's: 28px tabs, 12px text, round, as the Store's and System's;
+   a lone button beside the group (Add Friend) takes the group's own 32px, so their tops and feet line up. */
 .exo-dc .exo-dc-chat-head .exo-dc-tabs > .exo-dc-tab,
 .exo-dc .exo-dc-chat-head > .exo-dc-tab {
   height: 28px;
   padding: 0 14px;
   border-radius: 999px;
   font-size: calc(12px * var(--exo-scale, 1));
+}
+
+.exo-dc .exo-dc-chat-head > .exo-dc-tab {
+  height: 32px;
 }
 
 .exo-dc .exo-dc-item.is-here {
@@ -5086,9 +5230,44 @@ button.exo-dc-gifv {
 }
 
 .exo-dc .exo-dc-msg-reply {
+  position: relative;
   height: calc(18px * var(--exo-scale, 1));
   margin: 0 0 2px 56px;
+  /* Only the words clip (their own ellipsis), so the spine below and a tall emoji or mention aren't cut. */
+  overflow: visible;
   line-height: calc(18px * var(--exo-scale, 1));
+}
+
+.exo-dc .exo-dc-msg-reply span {
+  min-width: 0;
+  white-space: nowrap;
+}
+
+/* Inside the one-line quote, an emoji and a mention keep to the line's height instead of overflowing it. */
+.exo-dc .exo-dc-msg-reply :is(.exo-dc-emoji, img.exo-dc-emoji) {
+  width: auto;
+  height: 1.25em;
+  vertical-align: -0.25em;
+}
+
+.exo-dc .exo-dc-msg-reply .exo-dc-mention {
+  padding-block: 0;
+  line-height: inherit;
+}
+
+/* Discord's reply spine: from above the replier's picture, curving up and right into the quote. The picture's middle
+   sits 36px into the message (16px padding and half of 40px); the quote starts 56px past the padding. */
+.exo-dc .exo-dc-msg-reply::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  right: calc(100% + 4px);
+  width: 32px;
+  height: calc(50% + 4px);
+  border-top: 2px solid var(--exo-reply-spine, color-mix(in srgb, var(--color-faint) 60%, transparent));
+  border-left: 2px solid var(--exo-reply-spine, color-mix(in srgb, var(--color-faint) 60%, transparent));
+  border-top-left-radius: 6px;
+  pointer-events: none;
 }
 
 .exo-dc .exo-dc-edited {
@@ -5342,7 +5521,6 @@ button.exo-dc-gifv {
   z-index: 9;
   padding: 6px 10px;
   border-radius: 10px;
-  background: var(--exo-float);
   color: var(--dc-bad);
   font-size: calc(12px * var(--exo-scale, 1));
   white-space: nowrap;
@@ -5364,8 +5542,8 @@ button.exo-dc-gifv {
   height: 32px;
   overflow: hidden;
   border-radius: 999px;
-  background: var(--exo-float);
-  box-shadow: inset 0 0 0 1px var(--exo-float-line);
+  background: var(--exo-fill);
+  box-shadow: var(--exo-rim);
 }
 
 .exo-dc-new-bar > button {
@@ -5479,7 +5657,7 @@ button.exo-dc-gifv {
 .exo-dc-forward-check.is-on {
   border-color: var(--color-fg);
   background: var(--color-fg);
-  color: #000;
+  color: var(--color-bg);
 }
 
 /* Pickers (GIFs, stickers): a search, then tabs, then big tiles. */
@@ -5577,7 +5755,7 @@ button.exo-dc-gifv {
   border: 0;
   border-radius: 999px;
   background: rgb(0 0 0 / 0.6);
-  color: var(--color-fg);
+  color: #fff; /* over media in every theme: Light's dark ink vanished on the dark pill */
   opacity: 0;
   cursor: pointer;
 }
@@ -5788,7 +5966,8 @@ button.exo-dc-gifv {
   padding: 0 10px;
   overflow: hidden;
   border-radius: 999px;
-  background: rgb(0 0 0 / 0.7);
+  background: var(--exo-fill);
+  box-shadow: var(--exo-rim);
   color: var(--color-fg);
   font-size: calc(12px * var(--exo-scale, 1));
   font-weight: 600;
@@ -5813,8 +5992,6 @@ button.exo-dc-gifv {
   height: 52px;
   padding: 0 6px;
   border-radius: 999px;
-  background: var(--exo-float);
-  box-shadow: inset 0 0 0 1px var(--exo-float-line), 0 16px 40px rgb(0 0 0 / 0.6);
   transform: translateX(-50%);
 }
 
@@ -5883,8 +6060,6 @@ button.exo-dc-gifv {
   max-width: min(520px, calc(100% - 32px));
   padding: 8px 8px 8px 14px;
   border-radius: 14px;
-  background: var(--exo-float);
-  box-shadow: inset 0 0 0 1px var(--exo-float-line);
   color: var(--color-bad);
   font-size: calc(12px * var(--exo-scale, 1));
   transform: translateX(-50%);
@@ -5905,7 +6080,8 @@ button.exo-dc-gifv {
   height: 40px;
   border: 0;
   border-radius: 999px;
-  background: var(--exo-selected);
+  background: var(--exo-fill);
+  box-shadow: var(--exo-rim);
   color: var(--color-fg);
   cursor: pointer;
   transition: background-color 120ms var(--ease-out), scale 120ms var(--ease-out);
@@ -5917,7 +6093,7 @@ button.exo-dc-gifv {
 
 .exo-dc-voice-btn.is-off {
   background: var(--color-fg);
-  color: #000;
+  color: var(--color-bg);
 }
 
 .exo-dc-voice-btn.is-hangup {
@@ -6046,7 +6222,8 @@ button.exo-dc-gifv {
   padding: 0 16px;
   border: 0;
   border-radius: 999px;
-  background: rgb(0 0 0 / 0.7);
+  background: var(--exo-fill);
+  box-shadow: var(--exo-rim);
   color: var(--color-fg);
   font: inherit;
   font-size: calc(13px * var(--exo-scale, 1));
@@ -6068,7 +6245,7 @@ button.exo-dc-gifv {
   margin: 16px 24px 0;
   overflow: hidden;
   border-radius: var(--exo-panel-radius);
-  background: #000;
+  background: var(--color-bg);
 }
 
 .exo-dc-stream-bar {
@@ -6104,15 +6281,26 @@ button.exo-dc-gifv {
   height: 44px;
 }
 
+.exo-dc-stream-name {
+  display: inline-flex;
+  align-items: center;
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: var(--exo-fill);
+  box-shadow: var(--exo-rim);
+}
+
 .exo-dc-stream-tools {
   display: flex;
   align-items: center;
   gap: 8px;
 }
 
-/* Hide Members: the stream takes the whole room below the header. */
+/* Hide Members: the stream takes the whole room below the header, ending 12px over the call's bar (52px tall, at the
+   room's foot), which drew over its bottom edge. */
 .exo-dc-stream.is-alone {
-  margin-bottom: 16px;
+  margin-bottom: calc(52px + 12px);
 }
 
 /* Full Screen: the stream alone on the screen, edge to edge. */
@@ -6273,10 +6461,10 @@ button.exo-dc-poll-answer:hover:not(:disabled) {
 .exo-dc-poll-answer.is-result::before {
   content: "";
   position: absolute;
-  inset: 0 auto 0 0;
-  width: var(--share, 0%);
+  inset: 0;
   background: var(--exo-selected);
-  transition: width 240ms var(--ease-out);
+  transform: translateX(calc(var(--share, 0%) - 100%));
+  transition: transform var(--dur-move) var(--ease-spring);
 }
 
 .exo-dc-poll-answer.is-mine::before {
@@ -6327,7 +6515,7 @@ button.exo-dc-poll-answer:hover:not(:disabled) {
 .is-picked .exo-dc-poll-mark {
   background: var(--color-fg);
   box-shadow: none;
-  color: #000;
+  color: var(--color-bg);
 }
 
 .exo-dc-poll-foot {
@@ -6365,7 +6553,7 @@ button.exo-dc-poll-answer:hover:not(:disabled) {
   border: 0;
   border-radius: 999px;
   background: var(--color-fg);
-  color: #000;
+  color: var(--color-bg);
   cursor: pointer;
 }
 
@@ -6608,6 +6796,22 @@ button.exo-dc-poll-answer:hover:not(:disabled) {
   align-items: center;
   gap: 8px;
   width: 180px;
+  padding-right: 14px;
+  border-radius: 999px;
+  background: var(--exo-fill);
+  box-shadow: var(--exo-rim);
+}
+
+/* One glass pill over the video holds both, so the slider reads in every look (Light's dark track vanished on the
+   video): Mute Stream is a plain glyph in it. */
+.exo-dc-stream-sound .exo-dc-voice-btn:not(.is-off) {
+  --exo-control-glass: none;
+  background: transparent;
+  box-shadow: none;
+}
+
+.exo-dc-stream-sound .exo-dc-voice-btn:not(.is-off):hover {
+  background: var(--hover-fill);
 }
 
 /* Blocked or ignored people's messages, folded into one line as Discord does. */

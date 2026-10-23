@@ -75,7 +75,7 @@ internal static class WebViewEnvironmentFactory
 
     /// <summary>
     /// Controller options that place a view on the shared named profile used
-    /// by every music provider. One profile means one uBlock instance and one
+    /// by every music provider. One profile means one uBlock Origin Lite instance and one
     /// renderer per site instead of one per surface.
     /// </summary>
     internal static CoreWebView2ControllerOptions EmbeddedControllerOptions(CoreWebView2Environment environment)

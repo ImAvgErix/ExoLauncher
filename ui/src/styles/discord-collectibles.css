@@ -47,6 +47,9 @@
   object-fit: cover;
   object-position: right center;
   mask-image: linear-gradient(to right, transparent 0%, rgb(0 0 0 / 0.3) 25%, #000 60%);
+  /* Square: the row's own corners round it (a DM row's avatar rule made it a pill inside the row: two shapes). */
+  border-radius: 0;
+  background: none;
 }
 
 /* A profile effect over the whole card, above its picture and text, never taking a click. The card holds it
@@ -137,6 +140,12 @@
   paint-order: stroke fill;
   -webkit-text-stroke: calc(1px + 0.04em) var(--dn-neon-stroke);
   text-shadow: 0 0 var(--dn-neon-radius) var(--dn-main);
+}
+
+/* On Light's page a white neon tube is lost: it is drawn in its own color, made readable there (collectibles.tsx). */
+:root[data-exo-theme="light"] .exo-dc-dn-text.is-neon {
+  color: var(--dn-main);
+  animation: none;
 }
 
 .exo-dc-dn-text.is-toon {
@@ -648,11 +657,24 @@
   font-weight: 600;
 }
 
+/* Account's top row: your card (Edit User Profile under it) beside Account Info. */
+.exo-dc-account-top {
+  display: grid;
+  grid-template-columns: 300px minmax(0, 1fr);
+  gap: 32px;
+  align-items: start;
+  margin-bottom: 16px;
+}
+
+.exo-dc-account-top > div > :first-child {
+  margin-top: 0;
+}
+
 .exo-dc-settings-profile {
   display: flex;
+  flex-direction: column;
   align-items: flex-start;
-  gap: 20px;
-  margin-bottom: 16px;
+  gap: 12px;
 }
 
 .exo-dc-settings-swatch {

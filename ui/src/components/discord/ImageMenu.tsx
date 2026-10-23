@@ -3,6 +3,7 @@ import { host } from '../../lib/host'
 import { useLayer } from './admin'
 import { Icons } from './icons'
 import { open } from './markdown'
+import { useDismiss } from '../../lib/dismiss'
 
 type At = { src: string; link: string; still: boolean; x: number; y: number }
 
@@ -97,11 +98,7 @@ export function ImageMenuHost() {
 function ImageMenu({ at, onClose }: { at: At; onClose: () => void }) {
   const box = useRef<HTMLDivElement>(null)
   useLayer(box, onClose)
-  useEffect(() => {
-    const away = (event: PointerEvent) => { if (box.current && !box.current.contains(event.target as Node)) onClose() }
-    document.addEventListener('pointerdown', away, true)
-    return () => document.removeEventListener('pointerdown', away, true)
-  }, [onClose])
+  useDismiss(box, onClose)
   const picture = original(at.src)
   const ownImage = at.still && discordAsset(picture)
   const type = extension(picture)

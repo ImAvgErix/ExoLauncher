@@ -18,12 +18,13 @@ import type { Candidate, Step, useMouse } from './mouse'
  * ?unread one whose mouse slept through the read (only the receiver answered). ?razer shows a Razer
  * Viper V3 Pro on its HyperSpeed receiver instead, as a friend's reads it
  * (Razer's button controls, asymmetric lift-off, low power mode), for the
- * room with many panels.
+ * room with many panels. ?lamzu is a Lamzu with X and Y stored per DPI stage.
  */
 
 const params = new URLSearchParams(location.search)
 const RAZER = params.has('razer')
-const DEVICE = RAZER ? '1532:c1' : '361d:200'
+const LAMZU = params.has('lamzu')
+const DEVICE = RAZER ? '1532:c1' : LAMZU ? '3554:f5f7' : '361d:200'
 const FIRMWARE = params.get('firmware') ?? '1.1.1'
 const OLD = FIRMWARE !== '1.1.1'
 const UNREAD = params.has('unread')
@@ -99,6 +100,28 @@ const RAZER_START = {
   firmware: ['Mouse 1.14'],
 } as unknown as MouseStatus
 
+const LAMZU_START = {
+  brand: 'LunaFury',
+  name: 'Lamzu Maya X',
+  ui: { dpiStageEditor: { minDpi: 50, maxDpi: 30_000, stepDpi: 10, maxStages: 4, countEditable: true } },
+  batteryPercent: 64,
+  batteryState: 'Discharging',
+  dpi: 800,
+  dpiStages: [400, 800, 1600],
+  dpiStagesY: [400, 720, 1600],
+  activeDpiStage: 1,
+  pollingRateHz: 1000,
+  supportedPollingRates: [125, 250, 500, 1000, 2000, 4000, 8000],
+  activeProfile: null,
+  unitId: null,
+  connectionType: 'Wireless',
+  connectionDetail: '2.4 GHz receiver',
+  motionSync: null,
+  liftOffDistance: 'Low',
+  lunafury: { separateDpiAxes: true },
+  firmware: ['Mouse 1.0.6'],
+} as unknown as MouseStatus
+
 type Fields = Record<string, unknown>
 const SETTERS: Record<string, (s: Fields, ...a: number[]) => Fields> = {
   setDpi: (s, dpi) => ({ ...s, dpi }),
@@ -116,6 +139,10 @@ const SETTERS: Record<string, (s: Fields, ...a: number[]) => Fields> = {
   setLowPowerThreshold: (s, pct) => ({ ...s, lowBatteryWarning: pct }),
   setLiftOffDistance: (s, d) => ({ ...s, liftOffDistance: d, asymmetricLiftOff: { ...(s.asymmetricLiftOff as object), enabled: false } }),
   setLiftOff: (s, liftOff, landing) => ({ ...s, asymmetricLiftOff: { ...(s.asymmetricLiftOff as object), enabled: true, liftOff, landing } }),
+  setActiveDpiStage: (s, i) => ({ ...s, activeDpiStage: i, dpi: (s.dpiStages as number[])[i] }),
+  setDpiStageValue: (s, i, x) => ({ ...s, dpiStages: (s.dpiStages as number[]).map((v, j) => j === i ? x : v) }),
+  setLunaFuryDpiStageAxes: (s, i, x, y) => ({ ...s, dpiStages: (s.dpiStages as number[]).map((v, j) => j === i ? x : v), dpiStagesY: (s.dpiStagesY as number[]).map((v, j) => j === i ? y : v) }),
+  setLunaFurySeparateDpiAxes: (s, on) => ({ ...s, lunafury: { separateDpiAxes: !!on } }),
 }
 
 /** Setters whose first argument is a name, not a number (Razer's button controls). */
@@ -130,7 +157,7 @@ const CLIENT = {
   getLowPowerOptions: () => [5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 100],
 } as unknown as SupportedClient
 
-const CANDIDATE = { id: DEVICE, device: {} as HIDDevice, name: RAZER ? 'Viper V3 Pro' : 'Starlight X' } satisfies Candidate
+const CANDIDATE = { id: DEVICE, device: {} as HIDDevice, name: RAZER ? 'Viper V3 Pro' : LAMZU ? 'Maya X' : 'Starlight X' } satisfies Candidate
 
 const GAMES = [
   { id: 'steam:730', title: 'Counter-Strike 2' },
@@ -168,7 +195,7 @@ function look() {
 }
 
 function useMockMouse(): ReturnType<typeof useMouse> {
-  const [status, setStatus] = useState(RAZER ? RAZER_START : START)
+  const [status, setStatus] = useState(RAZER ? RAZER_START : LAMZU ? LAMZU_START : START)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [readAt, setReadAt] = useState(() => Date.now() - (params.has('asleep') ? 4 * 60_000 : 0))
@@ -192,7 +219,7 @@ function useMockMouse(): ReturnType<typeof useMouse> {
   }, [])
   const apply = useCallback((method: string, ...args: unknown[]) => applyAll([[method, args]]), [applyAll])
   return {
-    phase: 'ready', candidates: [CANDIDATE], current: CANDIDATE, brand: RAZER ? 'Razer' : 'Finalmouse', status, error, busy,
+    phase: 'ready', candidates: [CANDIDATE], current: CANDIDATE, brand: RAZER ? 'Razer' : LAMZU ? 'LunaFury' : 'Finalmouse', status, error, busy,
     client: CLIENT, readAt, apply, applyAll, choose: () => undefined, retry: () => undefined,
   }
 }

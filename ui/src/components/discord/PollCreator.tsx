@@ -5,7 +5,8 @@ import { Switch } from '../Switch'
 import { Choice } from '../settings/Choice'
 import { Close } from '../../brand/icons'
 import { Icons } from './icons'
-import { openToggle } from './openToggle'
+import { ModalBack } from './SettingsLayer'
+import { useDismiss } from '../../lib/dismiss'
 
 const LENGTHS = [
   { hours: 1, label: '1 hour' }, { hours: 4, label: '4 hours' }, { hours: 8, label: '8 hours' }, { hours: 24, label: '24 hours' },
@@ -42,7 +43,7 @@ export function PollCreator({ channelId, onClose }: { channelId: string; onClose
   }
 
   return (
-    <div className="exo-dc-modal-back" onClick={onClose}>
+    <ModalBack onClose={onClose}>
       <div className="exo-dc-modal exo-dc-poll-new" role="dialog" aria-label="Create a poll" onClick={event => event.stopPropagation()}>
         <header className="exo-dc-poll-new-head">
           <h2>Create a poll</h2>
@@ -81,7 +82,7 @@ export function PollCreator({ channelId, onClose }: { channelId: string; onClose
         </footer>
         {error ? <p className="exo-dc-note" role="alert">{error}</p> : null}
       </div>
-    </div>
+    </ModalBack>
   )
 }
 
@@ -90,13 +91,12 @@ export function PlusMenu({ channelId, disabled, onFiles }: { channelId: string; 
   const [open, setOpen] = useState(false)
   const [poll, setPoll] = useState(false)
   const menu = useRef<HTMLDivElement>(null)
+  useDismiss(menu, () => setOpen(false), { on: open })
   useEffect(() => {
     if (!open) return
-    const away = (event: PointerEvent) => { if (menu.current && !menu.current.contains(event.target as Node) && !openToggle(event.target)) setOpen(false) }
     const escape = (event: KeyboardEvent) => { if (event.key === 'Escape') setOpen(false) }
-    document.addEventListener('pointerdown', away, true)
     document.addEventListener('keydown', escape)
-    return () => { document.removeEventListener('pointerdown', away, true); document.removeEventListener('keydown', escape) }
+    return () => document.removeEventListener('keydown', escape)
   }, [open])
   return (
     <>

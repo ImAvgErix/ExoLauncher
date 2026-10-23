@@ -1,4 +1,3 @@
-import { openToggle } from './openToggle'
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { host } from '../../lib/host'
 import { report } from '../../lib/report'
@@ -6,6 +5,7 @@ import { type DiscordEmojis, type DiscordGuildEmoji } from '../../lib/discord'
 import { emojiUrl } from './markdown'
 import { Icons } from './icons'
 import { findUnicodeEmoji, loadUnicodeEmoji, type UnicodeEmojiSet } from './unicodeEmoji'
+import { useDismiss } from '../../lib/dismiss'
 
 export type PickedEmoji = { text: string; reaction: string }
 
@@ -76,12 +76,11 @@ export function EmojiPicker({ guildId, reacting, tabs, onPick, onClose }: {
     return () => { live = false }
   }, [guildId])
 
+  useDismiss(box, onClose)
   useEffect(() => {
-    const away = (event: PointerEvent) => { if (box.current && !box.current.contains(event.target as Node) && !openToggle(event.target)) onClose() }
     const escape = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose() }
-    document.addEventListener('pointerdown', away, true)
     document.addEventListener('keydown', escape)
-    return () => { document.removeEventListener('pointerdown', away, true); document.removeEventListener('keydown', escape) }
+    return () => document.removeEventListener('keydown', escape)
   }, [onClose])
 
   const q = query.trim().toLowerCase()
@@ -202,11 +201,7 @@ function EmojiArt({ cell }: { cell: Cell }) {
 /** Favorite or Unfavorite, on a right-click in the emoji and sticker pickers. */
 export function FavoriteMenu({ at, favorite, onClose, onFavorite }: { at: { x: number; y: number }; favorite: boolean; onClose: () => void; onFavorite: (add: boolean) => void }) {
   const box = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    const away = (event: PointerEvent) => { if (!box.current?.contains(event.target as Node)) onClose() }
-    document.addEventListener('pointerdown', away, true)
-    return () => document.removeEventListener('pointerdown', away, true)
-  }, [onClose])
+  useDismiss(box, onClose)
   return (
     <div ref={box} className="exo-dc-menu exo-dc-picker-menu" role="menu" style={{ left: at.x, top: at.y }}>
       <button type="button" role="menuitem" autoFocus onClick={() => onFavorite(!favorite)}>

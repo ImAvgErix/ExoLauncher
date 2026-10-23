@@ -17,6 +17,8 @@ public sealed class SettingsService
     private readonly object _persistenceGate = new();
     private AppSettings _current = new();
     private bool _loadFailed;
+    // No settings.json at the last Load: a new install (SyncAppVersion marks its What's New seen).
+    private bool _newFile;
     // Guarded by _persistenceGate. An unchanged snapshot is not rewritten.
     private string? _lastWrittenJson;
     private long _revision;
@@ -103,6 +105,7 @@ public sealed class SettingsService
             var failed = false;
             var corrupt = false;
             var hasExplicitOnboardingState = false;
+            var newFile = false;
             try
             {
                 if (File.Exists(PathHelper.SettingsPath))
@@ -116,6 +119,7 @@ public sealed class SettingsService
                         ?? throw new JsonException("settings.json deserialized to null");
                     NormalizeLoaded(loaded);
                 }
+                else newFile = true;
             }
             catch (Exception ex)
             {
@@ -140,6 +144,7 @@ public sealed class SettingsService
             {
                 _current = loaded;
                 _loadFailed = blockSaves;
+                _newFile = newFile;
                 _revision++;
                 CountHoursAcrossAccounts = loaded.CountHoursAcrossAccounts;
             }
@@ -164,6 +169,7 @@ public sealed class SettingsService
         loaded.SdrGammaBefore = CopyStrings(loaded.SdrGammaBefore);
         loaded.DiscordVoiceTunes = CopyStrings(loaded.DiscordVoiceTunes);
         loaded.LibraryFolders = NormalizeLibraryFolders(loaded.LibraryFolders);
+        loaded.HiddenGames = NormalizeHiddenGames(loaded.HiddenGames);
         if (string.IsNullOrWhiteSpace(loaded.SortMode) || !IsLibrarySortMode(loaded.SortMode))
             loaded.SortMode = "name";
     }
@@ -364,9 +370,12 @@ public sealed class SettingsService
     public void SyncAppVersion(string version)
     {
         if (string.IsNullOrWhiteSpace(version)) return;
+        bool seen;
         lock (_stateGate)
         {
-            if (string.Equals(_current.AppVersion, version, StringComparison.Ordinal)) return;
+            // A new install has nothing new to read about: its What's New starts as seen.
+            seen = _newFile && _current.WhatsNewSeen is null;
+            if (!seen && string.Equals(_current.AppVersion, version, StringComparison.Ordinal)) return;
             // A version bump must never be the thing that overwrites unreadable
             // settings with defaults — that is how first-run setup came back.
             if (_loadFailed)
@@ -375,7 +384,11 @@ public sealed class SettingsService
                 return;
             }
         }
-        TryCommitMutation(settings => settings.AppVersion = version, out _);
+        TryCommitMutation(settings =>
+        {
+            settings.AppVersion = version;
+            if (seen) settings.WhatsNewSeen = version;
+        }, out _);
     }
 
     public void Flush() => Save();
@@ -386,7 +399,7 @@ public sealed class SettingsService
     /// their AppSettings properties stay so older settings.json files load.
     /// </remarks>
     /// <summary>Settings > Downloads. Hours: both 0-23, or <paramref name="anyTime"/> to clear them.</summary>
-    public void ApplyDownloadPatch(bool? pauseWhilePlaying, int? hoursStart, int? hoursEnd, bool anyTime, bool? autoUpdate)
+    public void ApplyDownloadPatch(bool? pauseWhilePlaying, int? hoursStart, int? hoursEnd, bool anyTime, bool? autoUpdate, bool? autoUpdateChipset = null)
     {
         CommitMutation(settings =>
         {
@@ -395,6 +408,7 @@ public sealed class SettingsService
             else if (hoursStart is >= 0 and <= 23 && hoursEnd is >= 0 and <= 23 && hoursStart != hoursEnd)
                 (settings.DownloadHoursStart, settings.DownloadHoursEnd) = (hoursStart, hoursEnd);
             if (autoUpdate is { } auto) settings.AutoUpdateGames = auto;
+            if (autoUpdateChipset is { } chipset) settings.AutoUpdateChipset = chipset;
         });
     }
 
@@ -406,6 +420,7 @@ public sealed class SettingsService
         string? textColour = null,
         string? textSize = null,
         string? glass = null,
+        string? appearance = null,
         bool? framelessPinTop = null,
         bool? framelessPinSide = null,
         bool? showLibraryTools = null,
@@ -414,10 +429,14 @@ public sealed class SettingsService
         bool? hdrForGames = null,
         bool? hdrSdrGamma = null,
         bool? discordNoiseSuppression = null,
-        bool? discordQuietWhilePlaying = null)
+        bool? discordQuietWhilePlaying = null,
+        string? whatsNewSeen = null)
     {
+        if (whatsNewSeen is not null && (whatsNewSeen.Length is 0 or > 32 || !whatsNewSeen.All(c => char.IsAsciiLetterOrDigit(c) || c is '.' or '-')))
+            throw new InvalidDataException("Invalid What's New version.");
         CommitMutation(settings =>
         {
+            if (whatsNewSeen is not null) settings.WhatsNewSeen = whatsNewSeen;
             if (!string.IsNullOrWhiteSpace(sortMode))
                 settings.SortMode = IsLibrarySortMode(sortMode) ? sortMode! : "name";
             if (defaultInstallRoot is not null)
@@ -431,6 +450,8 @@ public sealed class SettingsService
                 settings.TextSize = NormalizeTextSize(textSize);
             if (glass is not null)
                 settings.Glass = NormalizeGlass(glass);
+            if (appearance is not null)
+                settings.Appearance = NormalizeAppearance(appearance);
             if (framelessPinTop is not null)
                 settings.FramelessPinTop = framelessPinTop.Value;
             if (framelessPinSide is not null)
@@ -507,42 +528,58 @@ public sealed class SettingsService
             return _current.HdrGameModes.TryGetValue(gameId, out var mode) ? mode : "auto";
     }
 
-    /// <summary>Library > folders: the whole list, as the Library has it now.</summary>
-    public void SetLibraryFolders(IEnumerable<LibraryFolder> folders)
+    /// <summary>Library > folders: the whole list, as the Library has it now. Returns what was kept.</summary>
+    public IReadOnlyList<LibraryFolder> SetLibraryFolders(IEnumerable<LibraryFolder> folders)
     {
         var clean = NormalizeLibraryFolders(folders);
         CommitMutation(settings => settings.LibraryFolders = clean);
+        return clean;
+    }
+
+    /// <summary>Library > Hide and Unhide: every hidden game, as the Library has them now.</summary>
+    public void SetHiddenGames(IEnumerable<string?> gameIds)
+    {
+        var clean = NormalizeHiddenGames(gameIds);
+        CommitMutation(settings => settings.HiddenGames = clean);
     }
 
     internal static readonly string[] FolderColors = ["gray", "red", "orange", "yellow", "green", "teal", "blue", "pink"];
 
+    private static bool ValidId(string? text, int max) => !string.IsNullOrWhiteSpace(text) && text.Length <= max && !text.Any(char.IsControl);
+
     /// <summary>
     /// A copy that holds: up to 200 folders with an id each (64 characters at most, once), a name (40 characters,
-    /// "Folder" when blank), one of <see cref="FolderColors"/> (gray otherwise), and up to 2,000 game ids, each game in
-    /// the first folder that lists it.
+    /// "Folder" when blank), one of <see cref="FolderColors"/> (gray otherwise), its order ("folder" or one of the
+    /// Library's sorts; "folder" otherwise), its own picture or none, and up to 2,000 game ids, each once in it. A game
+    /// may be in any number of folders.
     /// </summary>
     internal static List<LibraryFolder> NormalizeLibraryFolders(IEnumerable<LibraryFolder?>? folders)
     {
         var clean = new List<LibraryFolder>();
         var ids = new HashSet<string>(StringComparer.Ordinal);
-        var placed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        static bool Valid(string? text, int max) => !string.IsNullOrWhiteSpace(text) && text.Length <= max && !text.Any(char.IsControl);
         foreach (var folder in folders ?? [])
         {
-            if (folder is null || !Valid(folder.Id, 64) || !ids.Add(folder.Id)) continue;
+            if (folder is null || !ValidId(folder.Id, 64) || !ids.Add(folder.Id)) continue;
             var name = new string((folder.Name ?? "").Where(c => !char.IsControl(c)).ToArray()).Trim();
             if (name.Length > 40) name = name[..40].TrimEnd();
+            var placed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             clean.Add(new LibraryFolder
             {
                 Id = folder.Id,
                 Name = name.Length > 0 ? name : "Folder",
                 Color = FolderColors.Contains(folder.Color) ? folder.Color : "gray",
-                Games = (folder.Games ?? []).Where(game => Valid(game, 512) && placed.Add(game)).Take(2_000).ToList(),
+                Sort = folder.Sort == "folder" || IsLibrarySortMode(folder.Sort) ? folder.Sort : "folder",
+                Art = FolderArtStore.FileNameFor(folder.Id, folder.Art),
+                Games = (folder.Games ?? []).Where(game => ValidId(game, 512) && placed.Add(game)).Take(2_000).ToList(),
             });
             if (clean.Count == 200) break;
         }
         return clean;
     }
+
+    /// <summary>A copy that holds up to 5,000 game ids (512 characters at most), each once.</summary>
+    internal static List<string> NormalizeHiddenGames(IEnumerable<string?>? gameIds) =>
+        [.. (gameIds ?? []).Where(id => ValidId(id, 512)).Select(id => id!).Distinct(StringComparer.OrdinalIgnoreCase).Take(5_000)];
 
     /// <summary>Game sheet > HDR: Auto removes the override.</summary>
     public void SetHdrGameMode(string gameId, string mode)
@@ -693,6 +730,7 @@ public sealed class SettingsService
         settings.TextColour = NormalizeTextColour(settings.TextColour);
         settings.TextSize = NormalizeTextSize(settings.TextSize);
         settings.Glass = NormalizeGlass(settings.Glass);
+        settings.Appearance = NormalizeAppearance(settings.Appearance);
         if (!IsLibrarySortMode(settings.SortMode)) settings.SortMode = "name";
     }
 
@@ -713,9 +751,18 @@ public sealed class SettingsService
     private static string NormalizeGlass(string? value) =>
         value?.Trim().ToLowerInvariant() switch
         {
-            "tinted" => "tinted",
+            // Tinted is gone: it reads as Glass.
             "solid" => "solid",
             _ => "clear",
+        };
+
+    private static string NormalizeAppearance(string? value) =>
+        value?.Trim().ToLowerInvariant() switch
+        {
+            "light" => "light",
+            "dark" => "dark",
+            "void" => "void",
+            _ => "system",
         };
 
     internal static AppSettings Clone(AppSettings source) => new()
@@ -731,7 +778,9 @@ public sealed class SettingsService
         TextColour = source.TextColour,
         TextSize = source.TextSize,
         Glass = source.Glass,
+        Appearance = source.Appearance,
         AppVersion = source.AppVersion,
+        WhatsNewSeen = source.WhatsNewSeen,
         DefaultInstallRoot = source.DefaultInstallRoot,
         CopyPortableIntoLibrary = source.CopyPortableIntoLibrary,
         AllowResize = source.AllowResize,
@@ -756,7 +805,10 @@ public sealed class SettingsService
         HdrForGames = source.HdrForGames,
         HdrSdrGamma = source.HdrSdrGamma,
         DiscordNoiseSuppression = source.DiscordNoiseSuppression,
+        DiscordNoiseSuppressionKind = source.DiscordNoiseSuppressionKind,
         DiscordOthersNoiseSuppression = source.DiscordOthersNoiseSuppression,
+        DiscordOnlyMyVoice = source.DiscordOnlyMyVoice,
+        DiscordEvenVoices = source.DiscordEvenVoices,
         DiscordQuietWhilePlaying = source.DiscordQuietWhilePlaying,
         DiscordInputDevice = source.DiscordInputDevice is { Length: > 0 and <= 512 } input ? input : null,
         DiscordOutputDevice = source.DiscordOutputDevice is { Length: > 0 and <= 512 } output ? output : null,
@@ -770,7 +822,6 @@ public sealed class SettingsService
         DiscordAutoSensitivity = source.DiscordAutoSensitivity,
         DiscordSensitivity = Math.Clamp(source.DiscordSensitivity, -100, 0),
         DiscordEchoCancellation = source.DiscordEchoCancellation,
-        DiscordAutoGain = source.DiscordAutoGain,
         DiscordVoiceFocus = source.DiscordVoiceFocus,
         DiscordVoiceTunes = CopyStrings(source.DiscordVoiceTunes),
         DiscordAttenuation = Math.Clamp(source.DiscordAttenuation, 0, 100),
@@ -789,6 +840,7 @@ public sealed class SettingsService
         DownloadHoursStart = source.DownloadHoursStart is >= 0 and <= 23 ? source.DownloadHoursStart : null,
         DownloadHoursEnd = source.DownloadHoursEnd is >= 0 and <= 23 ? source.DownloadHoursEnd : null,
         AutoUpdateGames = source.AutoUpdateGames,
+        AutoUpdateChipset = source.AutoUpdateChipset,
         MouseBridge = source.MouseBridge is "exo" or "app" ? source.MouseBridge : null,
         MouseBridgeAppAutostart = source.MouseBridgeAppAutostart,
         MouseBridgeAppPath = source.MouseBridgeAppPath,
@@ -796,6 +848,7 @@ public sealed class SettingsService
         SteamOverlayDefaultOn = source.SteamOverlayDefaultOn,
         QuietStoreApps = source.QuietStoreApps,
         LibraryFolders = NormalizeLibraryFolders(source.LibraryFolders),
+        HiddenGames = NormalizeHiddenGames(source.HiddenGames),
         SteamOverlay = CopyStrings(source.SteamOverlay),
         StartupHandedToExo = [.. (source.StartupHandedToExo ?? []).Where(id => StartupApps.Known.Any(app => app.Id == id)).Distinct()],
         LucidPath = source.LucidPath is { Length: > 0 and <= 1024 } lucid ? lucid : null,

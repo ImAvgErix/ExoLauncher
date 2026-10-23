@@ -3,8 +3,8 @@ import { host, onHostEvent } from '../../lib/host'
 import { report } from '../../lib/report'
 import type { DiscordVoice } from '../../lib/discord'
 import { emojiUrl } from './emojiUrl'
-import { openToggle } from './openToggle'
 import { Icons } from './icons'
+import { useDismiss } from '../../lib/dismiss'
 
 type Sound = { sound_id: string; name: string; volume?: number; emoji_id?: string | null; emoji_name?: string | null; guild_id?: string | null; available?: boolean }
 
@@ -35,6 +35,7 @@ export function SoundboardButton({ guildId, channelId }: { guildId: string | nul
   const [sounds, setSounds] = useState<{ defaults: Sound[]; guild: Sound[] } | null>(null)
   const [error, setError] = useState<string | null>(null)
   const box = useRef<HTMLDivElement>(null)
+  useDismiss(box, () => setOpen(false), { on: open })
   useEffect(() => {
     if (!open) return
     let live = true
@@ -45,11 +46,9 @@ export function SoundboardButton({ guildId, channelId }: { guildId: string | nul
       const items = (result.guild as { items?: Sound[] } | null)?.items ?? []
       setSounds({ defaults: Array.isArray(result.defaults) ? result.defaults as Sound[] : [], guild: items })
     }).catch((err: unknown) => { report(err, 'Soundboard.list'); if (live) setError('Discord did not answer.') })
-    const away = (event: PointerEvent) => { if (box.current && !box.current.contains(event.target as Node) && !openToggle(event.target)) setOpen(false) }
     const escape = (event: KeyboardEvent) => { if (event.key === 'Escape') setOpen(false) }
-    document.addEventListener('pointerdown', away, true)
     document.addEventListener('keydown', escape)
-    return () => { live = false; document.removeEventListener('pointerdown', away, true); document.removeEventListener('keydown', escape) }
+    return () => { live = false; document.removeEventListener('keydown', escape) }
   }, [open, guildId])
 
   function play(sound: Sound) {

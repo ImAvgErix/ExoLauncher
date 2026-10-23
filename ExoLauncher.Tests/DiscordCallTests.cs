@@ -18,7 +18,7 @@ public sealed class DiscordCallTests
     [Theory]
     // Padding, abs-send-time (id 2, 3 bytes), then video-orientation (id 13, 1 byte): 180 degrees.
     [InlineData(new byte[] { 0, 0x22, 1, 2, 3, 0xD0, 0x02, 0 }, 2)]
-    // Only video-content-type (id 6, 1 byte) and playout-delay (id 5): no orientation, never a turn.
+    // Only video-content-type (id 6, 1 byte) and a three-byte element (id 5): no orientation, never a turn.
     [InlineData(new byte[] { 0x60, 0x01, 0x52, 0, 0, 0 }, -1)]
     // Flip and a quarter turn; then a truncated element after it is never reached.
     [InlineData(new byte[] { 0xD0, 0x05, 0x23 }, 5)]

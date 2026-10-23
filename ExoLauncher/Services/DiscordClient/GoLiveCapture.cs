@@ -14,7 +14,7 @@ namespace ExoLauncher.Services.DiscordClient;
 /// (H.264's level 5.2 carries no more); a bigger picture goes at 60. The capture also never runs faster than the
 /// screen. The bit rate is H.264's usual best for the size and rate (YouTube's upload table: 8 Mbit/s at 1080p 30,
 /// 12 at 1080p 60, 16 and 24 at 1440p, 40 and 60 at 4K, 1.5 times 60 fps at 120), between those points by pixels,
-/// within 1 to 60 Mbit/s. Viewers who can't take it all tell the sender so (REMB), and it steps down for them.
+/// within 1 to 60 Mbit/s.
 /// </summary>
 internal readonly record struct GoLivePlan(int Width, int Height, int Fps, int Bitrate)
 {
@@ -78,6 +78,15 @@ internal sealed class GoLiveCapture : IAsyncDisposable
     internal int Fps { get; private set; }
     internal int Bitrate { get; private set; }
 
+    /// <summary>The frames are HEVC (H.265), not H.264.</summary>
+    internal bool Hevc { get; private set; }
+
+    /// <summary>This PC's graphics card encodes HEVC, so the stream can be H.265 when Discord's server picks it.</summary>
+    internal bool HevcSupported { get; private set; }
+
+    /// <summary>Being replaced by a capture in another codec: its end doesn't end the stream.</summary>
+    internal bool Retiring { get; set; }
+
     /// <summary>One encoded frame (Annex B) and its RTP timestamp (90 kHz).</summary>
     internal event Action<byte[], uint>? Frame;
 
@@ -94,7 +103,7 @@ internal sealed class GoLiveCapture : IAsyncDisposable
     }
 
     /// <summary>Starts the add-on's stream of a source; the capture, or why not.</summary>
-    internal static async Task<(GoLiveCapture? Capture, string? Error)> StartAsync(CaptureAddon addon, GoLiveSources.Source source, GoLivePlan plan, CancellationToken ct)
+    internal static async Task<(GoLiveCapture? Capture, string? Error)> StartAsync(CaptureAddon addon, GoLiveSources.Source source, GoLivePlan plan, CancellationToken ct, bool hevc = false)
     {
         var pipe = new AnonymousPipeServerStream(PipeDirection.In, HandleInheritability.None, 1 << 20);
         nint remote;
@@ -119,6 +128,7 @@ internal sealed class GoLiveCapture : IAsyncDisposable
                 ["height"] = plan.Height,
                 ["fps"] = plan.Fps,
                 ["bitrate"] = plan.Bitrate,
+                ["codec"] = hevc ? "hevc" : "h264",
                 ["cursor"] = true,
                 ["pipe"] = (long)remote,
             }, ct).WaitAsync(TimeSpan.FromSeconds(10), ct).ConfigureAwait(false);
@@ -128,6 +138,8 @@ internal sealed class GoLiveCapture : IAsyncDisposable
             capture.Height = Read("height", plan.Height);
             capture.Fps = Read("fps", plan.Fps);
             capture.Bitrate = Read("bitrate", plan.Bitrate);
+            capture.Hevc = reply?["codec"] is JsonValue c && c.TryGetValue<string>(out var codec) && codec == "hevc";
+            capture.HevcSupported = reply?["hevc"] is JsonValue h && h.TryGetValue<bool>(out var hevcOk) && hevcOk;
             return (capture, null);
         }
         catch (Exception ex) when (ex is InvalidOperationException or TimeoutException or OperationCanceledException)
@@ -181,6 +193,14 @@ internal sealed class GoLiveCapture : IAsyncDisposable
             return reply is JsonValue v && v.TryGetValue<string>(out var data) && data.Length > 0 ? "data:image/jpeg;base64," + data : null;
         }
         catch (Exception ex) when (ex is InvalidOperationException or TimeoutException) { return null; }
+    }
+
+    /// <summary>A new bit rate from the next frame (Discord's server takes less, or more again).</summary>
+    internal void SetBitrate(int bitrate)
+    {
+        Bitrate = bitrate;
+        _ = _addon.CallAsync("stream.bitrate", new JsonObject { ["bitrate"] = bitrate }, CancellationToken.None)
+            .ContinueWith(t => _ = t.Exception, TaskContinuationOptions.OnlyOnFaulted);
     }
 
     /// <summary>Discord wants a key frame (someone started watching or lost one); at most four a second.</summary>

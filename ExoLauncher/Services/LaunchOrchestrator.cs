@@ -147,6 +147,8 @@ public sealed partial class LaunchOrchestrator
     public event Action<InstallProgress>? ProgressChanged;
     public event Action<GameEntry>? GameSessionCompleted;
     public event Action<GameEntry>? GameLaunched;
+    /// <summary>Just before the store adapter starts a game, on the pool: driver settings that apply from process start go here.</summary>
+    internal event Action<GameEntry>? GameLaunching;
     /// <summary>An exact game id gained or lost its verified process, whether Exo launched it or not.</summary>
     internal event Action<string, GameRunState>? GameRunStateChanged
     {
@@ -290,7 +292,12 @@ public sealed partial class LaunchOrchestrator
                 // Off the UI thread: Steam's Play runs process scans and starts
                 // the window hider before its first await, which froze the window.
                 var launchToken = launchCts.Token;
-                var result = await Task.Run(() => adapter.LaunchAsync(game, options, launchToken)).ConfigureAwait(false);
+                var result = await Task.Run(() =>
+                {
+                    try { GameLaunching?.Invoke(game); }
+                    catch (Exception ex) { AppLog.Warn("Before-launch listener failed: " + ex.Message); }
+                    return adapter.LaunchAsync(game, options, launchToken);
+                }).ConfigureAwait(false);
                 if (result.Ok)
                 {
                     // Stop may have closed a process while a vendor adapter was

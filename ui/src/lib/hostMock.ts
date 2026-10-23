@@ -1,7 +1,7 @@
 import { spotifyMock } from './spotifyMock'
 import { mockAdmin, mockAppMessages, mockApps, mockChannels, mockFriends, mockHome, mockMembers, mockMessages, mockProfile } from './discordMock'
 /** Browser development fixtures. Dynamically loaded only outside the packaged host. */
-import type { Game, GameProperties, LauncherSettings, InstallProgress, ReplacedApp } from './host'
+import type { Game, GameProperties, LauncherSettings, InstallProgress, ReplacedApp, StoreGift } from './host'
 import type { CaptureItem } from './capture'
 import { emitHostEvent } from './host'
 const MOCK_GAMES: Game[] = [
@@ -149,9 +149,23 @@ const mockShadersSnapshot = () => ({
   ],
 })
 
+/** `?gpu=amd` or `?gpu=intel` in browser dev: System's profile and a game's frame generation for that GPU instead of a GeForce. */
+const mockGpu = typeof location !== 'undefined' ? new URLSearchParams(location.search).get('gpu') : null
+let mockFrameGen = 'game'
+
+/** `?cpu=intel` in browser dev: This PC and Settings' chipset switch for an Intel processor instead of a Ryzen. */
+const mockIntelCpu = typeof location !== 'undefined' && new URLSearchParams(location.search).get('cpu') === 'intel'
+
+// ?whatsnew: a user just updated to 3.14.0 from before What's New, so its sheet opens over the Library.
+const mockWhatsNew = typeof location !== 'undefined' && new URLSearchParams(location.search).has('whatsnew')
+
+// ?folders: two Library folders to start with, Hades in both, one sorted by time played.
+const mockFolders = typeof location !== 'undefined' && new URLSearchParams(location.search).has('folders')
+
 const mockSettings: LauncherSettings = {
   onboardingComplete: !mockFirstRun,
-  appVersion: '1.0.0-dev',
+  appVersion: mockWhatsNew ? '3.14.0' : '1.0.0-dev',
+  whatsNewSeen: mockWhatsNew ? null : '1.0.0-dev',
   reduceMotion: false,
   framelessPinTop: false,
   framelessPinSide: false,
@@ -174,6 +188,14 @@ const mockSettings: LauncherSettings = {
   igdbTwitchConnected: false,
   steamGridDbKeySet: false,
   openXblKeySet: false,
+  autoUpdateChipset: true,
+  chipset: mockIntelCpu ? 'intel' : 'amd',
+  ...(mockFolders ? {
+    libraryFolders: [
+      { id: 'mockfav', name: 'Favorites', color: 'blue', sort: 'played', games: ['mock:hades', 'mock:eldenring', 'mock:valorant'] },
+      { id: 'mockrogue', name: 'Roguelikes', color: 'orange', games: ['mock:hades'] },
+    ],
+  } : {}),
 }
 
 /** The browser mock has no file dialog and no cover cache to copy a picture into. */
@@ -300,6 +322,11 @@ function mockCancelInstall() {
   return { ok: true, message: 'Cancel requested.' }
 }
 
+let MOCK_GIFTS: StoreGift[] = [
+  { store: 'steam', id: '237160366753599703', title: 'Hollow Signal', image: null, sender: 'Rocket alt', message: null },
+  { store: 'epic', id: 'a1b2c3d4e5f6', title: 'Night Harbor', image: null, sender: 'Mira', message: 'Happy birthday! Saw you wishlisted this.' },
+]
+
 let MOCK_REPLACED: ReplacedApp[] = [
   { id: 'discord', name: 'Discord', detail: 'Exo has its own Discord: servers, DMs and calls', installed: true, leftovers: 9, bytes: 412_000_000, needsAdmin: false },
   { id: 'snipping', name: 'Snipping Tool', detail: 'Exo snips with Print Screen and edits in Captures', installed: true, leftovers: 0, bytes: 0, needsAdmin: false },
@@ -419,7 +446,7 @@ function mockSettingsSet(params?: Record<string, unknown>) {
 
 // Discord settings > Voice & Video and the rest, kept for the session so the pages can be clicked through.
 let mockDiscordClient: Record<string, unknown> = {
-  inputProfile: 'exo', noiseSuppression: true, othersNoiseSuppression: false, echoCancellation: true, autoGain: true, voiceFocus: true, pushToTalk: false, pttDelay: 20,
+  inputProfile: 'exo', noiseSuppression: true, noiseSuppressionKind: 'ai', othersNoiseSuppression: false, onlyMyVoice: false, myVoiceLearned: false, evenVoices: true, echoCancellation: true, voiceFocus: true, pushToTalk: false, pttDelay: 20,
   autoSensitivity: true, sensitivity: -60, attenuation: 0, attenuateSelf: false, attenuateOthers: true, keybinds: [], desktopNotifications: true,
   unreadBadge: true, taskbarFlash: true, disabledSounds: [], disableAllSounds: false, selectedChannelSound: false, soundVolume: 60,
 }
@@ -583,6 +610,8 @@ const MOCK_HANDLERS: Record<string, MockHandler> = {
   'art.replace': () => ({ ok: false, cancelled: false, message: MOCK_NO_PICKER }),
   'art.reset': mockArtRefresh(true),
   'art.refetch': mockArtRefresh(false),
+  // No cover cache here: the picture comes back as itself.
+  'library.folderArt': (params) => ({ ok: true, art: `data:image/png;base64,${String(params?.image ?? '')}` }),
   'library.refreshAll': () => ({ ok: true, achievements: 0, covers: 0 }),
   'game.repair': () => ({ ok: true, queued: false, message: 'Mock: would verify files.' }),
   'game.extras': () => ({ ok: true, achievementsUnlocked: 23, achievementsTotal: 50 }),
@@ -676,7 +705,12 @@ const MOCK_HANDLERS: Record<string, MockHandler> = {
   'discord.voiceTune': () => ({ ok: false, message: 'Voice Tune needs Exo.' }),
   'discord.voiceCheck': () => ({ ok: false, message: 'Voice Check needs Exo.' }),
   'discord.sound': mockOk,
-  'discord.server': (p?: { action?: string }) => p?.action === 'members'
+  'discord.server': (p?: { action?: string; invite?: string }) => p?.action === 'invite'
+    ? p.invite === 'expired' ? { ok: false, invalid: true, message: 'Discord: Unknown Invite' }
+      : { ok: true, invite: p.invite === 'exo'
+        ? { guildId: '300000000000000001', channelId: '400000000000000002', name: 'Exo Squad', icon: null, verified: false, partnered: false, online: 12, members: 48, joined: true }
+        : { guildId: '300000000000000009', channelId: '400000000000000090', name: 'VALORANT', icon: 'https://cdn.discordapp.com/embed/avatars/0.png', verified: true, partnered: false, online: 182340, members: 1204512, joined: false } }
+    : p?.action === 'members'
     ? { ok: true, roles: { '300000000000000001': { name: 'Mods', color: '#e91e63', position: 2 } }, members: { total_result_count: 1, members: [{ member: { user: { id: '100000000000000002', username: 'ada', global_name: 'Ada' }, roles: ['300000000000000001'], joined_at: '2026-09-01T12:00:00Z' }, source_invite_code: 'exo' }] } }
     : p?.action === 'events'
     ? { ok: true, events: [{ interested: false, event: { id: '700000000000000001', name: 'Ranked night', scheduled_start_time: '2026-10-20T01:00:00Z', status: 1, user_count: 6, entity_metadata: { location: 'Voice' } } }] }
@@ -723,6 +757,14 @@ const MOCK_HANDLERS: Record<string, MockHandler> = {
   'stores.matrix': mockStoresMatrix,
   'settings.get': () => ({ ...mockSettings }),
   'settings.set': mockSettingsSet,
+  'gifts.list': () => ({ ok: true, steamSignedIn: true, gifts: MOCK_GIFTS }),
+  'gifts.answer': (params) => {
+    const id = (params as { id?: string } | undefined)?.id
+    MOCK_GIFTS = MOCK_GIFTS.filter(gift => gift.id !== id)
+    return { ok: true, message: (params as { accept?: boolean } | undefined)?.accept ? 'Added to your library.' : 'Declined.' }
+  },
+  'gifts.steamSignIn': () => ({ ok: true, message: "Signed in to Steam's website." }),
+  'gifts.steamSignOut': () => ({ ok: true, message: "Signed out of Steam's website." }),
   'accounts.list': () => ({
     ok: true,
     steam: {
@@ -794,11 +836,46 @@ const MOCK_HANDLERS: Record<string, MockHandler> = {
       { id: 'astro_a50_x', model: 'A50 X', brand: 'Astro', category: 'Gaming Headsets', grade: 'Good', keywords: 'a50x' },
     ],
   }),
-  'gpu.profile': (p) => ({
+  'gpu.profile': (p) => mockGpu === 'intel' || mockGpu === 'amd' ? {
+    ok: true, vendor: mockGpu, gpu: mockGpu === 'intel' ? 'Arc B580' : 'Radeon RX 9070 XT', series: 0, screen: { name: 'VG27AQ', hz: 165, vrr: true },
+    status: p?.action === 'apply' ? 'applied' : 'ready', gsync: false, canUndo: p?.action === 'apply', driverUpdated: false, items: [],
+    lowLatency: mockGpu === 'intel' ? p?.lowLatency ?? 'on' : null, antiLag: mockGpu === 'amd' ? p?.antiLag ?? 'games' : null,
+    summary: mockGpu === 'intel'
+      ? "Adaptive Sync on, frames capped at 157 fps, Low latency on, Intel's prebuilt shaders; Endurance Gaming and sharpening off"
+      : 'FreeSync on, frames capped at 157 fps, Anti-Lag while you play; Chill, Boost and Image Sharpening off',
+  } : {
     ok: true, vendor: 'nvidia', gpu: 'RTX 3070', series: 30, screen: { name: 'VG248', hz: 165, vrr: false },
     status: p?.action === 'apply' ? 'applied' : 'ready', gsync: p?.action === 'apply' && p.gsync === true,
     canUndo: p?.action === 'apply', driverUpdated: false, items: [],
-  }),
+  },
+  'system.health': (p) => {
+    const cpu = mockIntelCpu ? 'Core i7-14700K' : 'Ryzen 5 5600X'
+    const [label, from, to, drop] = mockIntelCpu
+      ? ['Intel chipset driver', '10.1.19867.8574', '10.1.20658.8883', 'Devices may reset']
+      : ['AMD chipset driver', '8.08.12.551', '8.09.28.1124', 'USB and sound may drop']
+    return {
+      ok: true,
+      items: [
+        p?.action === 'apply'
+          ? { key: 'power', label: 'Power plan', detail: `Exo's plan, tuned for your ${cpu}`, applied: true, canUndo: true }
+          : { key: 'power', label: 'Power plan', detail: `Your PC uses “Nexus LiteOS Power Plan”. Exo's plan is tuned for your ${cpu}.`, cpu },
+        p?.action === 'chipset'
+          ? { key: 'chipset', label, detail: `Updating to ${to}. ${drop} for a moment`, busy: true }
+          : { key: 'chipset', label, detail: `${from} installed · ${to} installs while you're away` },
+      ],
+    }
+  },
+  'system.interrupts': (p) => {
+    const applied = p?.action === 'apply'
+    return {
+      ok: true, restart: applied, result: null, canUndo: applied,
+      devices: [
+        { id: 'a1', name: 'NVIDIA GeForce RTX 3070', kind: 'graphics card', mode: 'line', plan: applied ? 'restart' : 'change', reason: applied ? 'Switches to MSI mode after a restart' : 'Uses a shared line. Exo will switch it to MSI mode', changed: applied },
+        { id: 'a2', name: 'AMD USB 3.10 eXtensible Host Controller', kind: 'USB controller', mode: 'msi', plan: 'done', reason: 'Uses MSI mode', changed: false },
+        { id: 'a3', name: 'Standard NVM Express Controller', kind: 'storage controller', mode: 'msi', plan: 'skip', reason: 'Left alone: Windows starts from the drive behind it', changed: false },
+      ],
+    }
+  },
   'stores.quiet': () => ({ ok: true, message: null }),
   'hdr.state': () => ({ supported: true, on: false, name: 'Mock OLED', peakNits: 1000, calibrated: false, verdict: 'great' }),
   'hdr.game': (p) => ({ ok: true, hdr: 'true', mode: typeof p?.mode === 'string' ? p.mode : 'auto' }),
@@ -826,6 +903,12 @@ const MOCK_HANDLERS: Record<string, MockHandler> = {
     }],
   }),
   'gpu.import': () => ({ ok: false, cancelled: true, undo: null }),
+  'gpu.sensors': () => ({ ok: false }),
+  'gpu.game': (p) => {
+    if (mockGpu === 'intel' && typeof p?.frameGen === 'string') mockFrameGen = p.frameGen
+    return mockGpu === 'intel' ? { ok: true, vendor: 'intel', supported: true, frameGen: mockFrameGen }
+      : { ok: true, vendor: 'amd', supported: mockGpu === 'amd', afmf: p?.afmf === true, amdSoftware: true }
+  },
   'store.home': () => ({ ok: true, at: new Date().toISOString(), hero: [], shelves: [{ id: 'mock', title: 'Top sellers', items: [MOCK_STORE_TILE] }], free: [] }),
   'store.search': () => ({ ok: true, items: [] }),
   'store.open': () => ({ ok: true }),

@@ -1,7 +1,7 @@
 import { useRef, type ReactNode } from 'react'
 import { Button } from '../ui/Button'
 import { useGlide } from '../../lib/glide'
-import { useGlassTone, useLens } from '../../lib/glass'
+import { useLens } from '../../lib/glass'
 import { ExoMark } from '../../brand/ExoMark'
 import { Chats, Gpu, Library, Mouse, MusicNotes, Settings, StoreBag } from '../../brand/icons'
 import { warmMusic, type MusicService } from '../../lib/music'
@@ -73,7 +73,6 @@ function NavTab({ label, Icon, active, badge, onOpen, onWarm }: {
 function RoomNavigation({ view, onView, storeSales }: Pick<TitleBarProps, 'view' | 'onView' | 'storeSales'>) {
   const glide = useGlide<HTMLElement>()
   useLens(glide)
-  useGlassTone(glide, 'bar')
   return (
     <nav ref={glide} className="exo-glass exo-top-rooms exo-glide" aria-label="Rooms">
       {NAV_TABS.map((tab) => (
@@ -102,8 +101,6 @@ function NavDock({ view, onView, onToggleSettings, onNowPlaying, onSearch, store
   const tools = useRef<HTMLDivElement>(null)
   useLens(search)
   useLens(tools)
-  useGlassTone(search, 'bar')
-  useGlassTone(tools, 'bar')
   return (
     <div className="exo-bar">
       <div className="exo-bar-start">

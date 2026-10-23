@@ -4,6 +4,7 @@ import { Button } from './ui/Button'
 import { host } from '../lib/host'
 import { report } from '../lib/report'
 import { useGlide } from '../lib/glide'
+import { useDismiss } from '../lib/dismiss'
 
 const STORES = ['steam', 'epic', 'gog'] as const
 const STORE_LABELS: Record<(typeof STORES)[number], string> = { steam: 'Steam', epic: 'Epic', gog: 'GOG' }
@@ -106,10 +107,9 @@ export function ActivateKeySheet({
       onClose()
     }
     window.addEventListener('keydown', onKey)
-    const outside = (event: PointerEvent) => { if (event.target instanceof Node && !panelRef.current?.contains(event.target)) onClose() }
-    document.addEventListener('pointerdown', outside)
-    return () => { window.removeEventListener('keydown', onKey); document.removeEventListener('pointerdown', outside) }
+    return () => window.removeEventListener('keydown', onKey)
   }, [open, onClose])
+  useDismiss(panelRef, onClose, { on: open })
 
   if (!open) return null
 

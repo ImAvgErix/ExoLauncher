@@ -5,6 +5,7 @@ import { Choice } from '../settings/Choice'
 import { admin, Confirm, personName, ReadError, untilLabel, useAdmin, useLayer } from './admin'
 import { Icons } from './icons'
 import { Avatar } from './presence'
+import { ModalBack } from './SettingsLayer'
 
 type Invite = { code: string; uses: number; max_uses: number; expires_at?: string | null; inviter?: DiscordUser | null; channel?: { id: string; name: string } | null }
 
@@ -306,7 +307,7 @@ function BanDetail({ ban, error, busy, onRevoke, onClose }: { ban: Ban; error: s
   const box = useRef<HTMLDivElement>(null)
   useLayer(box, onClose)
   return (
-    <div className="exo-dc-modal-back is-top" onClick={onClose}>
+    <ModalBack top onClose={onClose}>
       <div ref={box} className="exo-dc-modal exo-dc-confirm" role="dialog" aria-modal="true" aria-label={personName(ban.user)} tabIndex={-1} onClick={event => event.stopPropagation()}>
         <strong>{personName(ban.user)}</strong>
         <p className="exo-dc-side-label">Ban Reason</p>
@@ -317,6 +318,6 @@ function BanDetail({ ban, error, busy, onRevoke, onClose }: { ban: Ban; error: s
           <button type="button" className="button button--primary" onClick={onClose}>Done</button>
         </div>
       </div>
-    </div>
+    </ModalBack>
   )
 }

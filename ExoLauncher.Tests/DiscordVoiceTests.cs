@@ -75,7 +75,7 @@ public sealed class DiscordVoiceTests
         using var transport = new VoiceTransport("127.0.0.1", port, 1234);
         var received = new TaskCompletionSource<VoiceTransport.Packet>();
         // The payload is the transport's own buffer, valid only in the handler.
-        transport.Received += packet => received.TrySetResult(packet with { Payload = packet.Payload.ToArray() });
+        transport.Received += packet => received.TrySetResult(packet with { Payload = packet.Payload.ToArray(), Extension = packet.Extension.ToArray() });
         transport.Start(VoiceTransport.Aes, Enumerable.Range(0, 32).Select(i => (byte)(i * 3)).ToArray());
 
         var payload = Enumerable.Range(0, 900).Select(i => (byte)(i * 5)).ToArray();
@@ -89,7 +89,17 @@ public sealed class DiscordVoiceTests
         Assert.Equal((ushort)42, packet.Sequence);
         Assert.Equal(90_000u, packet.Timestamp);
         Assert.Equal(payload, packet.Payload.ToArray());
+        // Discord's own video packets' extensions, ids and sizes: abs-send-time, toffset, the transport-wide sequence.
+        Assert.Equal("3:3 2:3 5:2", VoiceTransport.Elements(packet.Extension.Span));
+        Assert.Equal(1, packet.TransportSequence);
     }
+
+    [Theory]
+    [InlineData(0L, 0u)]
+    [InlineData(1L, 1u << 18)] // one second
+    [InlineData(64L, 0u)] // the 6-bit seconds wrap
+    public void AbsSendTimeIsSixEighteenSeconds(long seconds, uint expected) =>
+        Assert.Equal(expected, VoiceTransport.AbsSendTime(seconds * System.Diagnostics.Stopwatch.Frequency));
 
     [Fact]
     public void TheVoiceGoesOutAsOneChannelAndPlaysOnBoth()
@@ -262,15 +272,32 @@ public sealed class DiscordVoiceTests
     }
 
     [Fact]
+    public void ARecordingTakesTheCallChainsVoiceBeforeItsGate()
+    {
+        using var chain = new VoiceChain();
+        var taken = new List<(float First, bool Open)>();
+        chain.Cleaned = (frame, open, _) => taken.Add((frame[0], open));
+        var processing = new VoiceProcessing("custom", false, false, false, true, -60, 0, false);
+        var frame = new float[VoiceAudio.FrameFloats];
+        chain.Process(frame, processing, null, false);
+        Assert.Single(taken); // once a frame, with the gate's verdict
+        chain.Cleaned = null;
+        chain.Process(frame, processing, null, false);
+        Assert.Single(taken); // untapped: the call alone
+    }
+
+    [Fact]
     public void ALostSentPacketCanBeResentWithItsSequenceNumber()
     {
         var sent = new H264Rtp.SentHistory();
         sent.Remember(500, 9000, true, [1, 2, 3]);
-        var resend = sent.Resend(500);
+        var resend = sent.Resend(500, 1_000);
         Assert.NotNull(resend);
         Assert.Equal(new byte[] { 0x01, 0xF4, 1, 2, 3 }, resend.Value.Payload);
         Assert.True(resend.Value.Marker);
-        Assert.Null(sent.Resend(501));
+        Assert.Null(sent.Resend(501, 1_000));
+        Assert.Null(sent.Resend(500, 1_100)); // asked again within a round trip: the first resend is still on its way
+        Assert.NotNull(sent.Resend(500, 1_150));
     }
 
     [Fact]
@@ -378,7 +405,7 @@ public sealed class VoiceChainTests
         Assert.Equal(new VoiceStages(chain.Stages.Suppression == "light" ? "light" : "on", NoiseSuppressor.GentleDb, false, "off", false), chain.Stages);
         Assert.Equal(0, sent);
         chain.Process(Noise(random, 0.01f), VoiceProcessing.ExoVoice, null, systemGain: true);
-        Assert.Equal("off", chain.Stages.Gain); // Exo Voice rides no gain, Windows' or its own
+        Assert.Equal("windows", chain.Stages.Gain); // Exo has no gain stage: only Windows' own, where a driver keeps it on, shows
     }
 
     [Fact]
@@ -388,7 +415,7 @@ public sealed class VoiceChainTests
         mic.Process(new float[VoiceAudio.FrameFloats], VoiceProcessing.ExoVoice, null, systemGain: false);
         Assert.Equal("mic", mic.Stages.Suppression);
         using var custom = new VoiceChain { StepsAside = false };
-        var plain = new VoiceProcessing("custom", false, false, false, false, true, -60, 0, false);
+        var plain = new VoiceProcessing("custom", false, false, false, true, -60, 0, false);
         custom.Process(new float[VoiceAudio.FrameFloats], plain, null, systemGain: false);
         Assert.Equal(new VoiceStages("off", NoiseSuppressor.GentleDb, false, "off", false), custom.Stages);
     }
@@ -430,7 +457,7 @@ public sealed class VoiceChainTests
     }
 
     // A fan's sound: pink and brown noise (Paul Kellet's pink filter, a leaky integrator for brown), wavering 15% at 0.7 Hz.
-    private static float[] Fan(int samples, double db, int seed)
+    internal static float[] Fan(int samples, double db, int seed)
     {
         var random = new Random(seed);
         var sound = new float[samples];
@@ -454,7 +481,7 @@ public sealed class VoiceChainTests
     // A voice DeepFilterNet keeps (a pulse train reads as noise to it): Rosenberg glottal pulses at 120 Hz with vibrato and
     // jitter through three formants, a vowel per 250 ms syllable (/a/, /i/, /o/, /e/), each starting over 20 ms and
     // ending over 40, as syllables do.
-    private static float[] Vowels(int samples, double db)
+    internal static float[] Vowels(int samples, double db)
     {
         var random = new Random(1);
         var sound = new float[samples];
@@ -736,7 +763,8 @@ public sealed class InboundCleanerTests
         Assert.Equal(frames + 1, heard.Length); // every frame once, and the drain's
         Assert.All(heard.Take(frames), h => Assert.Equal(0.5f, h.Gain));
         var output = heard.Skip(frames - 50).Take(50).Sum(h => h.Frame.Skip(2).Sum(v => (double)v * v));
-        Assert.True(10 * Math.Log10(input / Math.Max(output, 1e-12)) > 10, "their noise wasn't taken down");
+        var takenDb = 10 * Math.Log10(input / Math.Max(output, 1e-12));
+        Assert.True(takenDb > 10, $"their noise was taken down only {takenDb:F1} dB");
         Assert.Equal(1, played.Count(h => ReferenceEquals(h.Frame, heard[^1].Frame)));
         Thread.Sleep(100);
         Assert.Equal(frames + 1, played.Count); // nothing after it was let go of

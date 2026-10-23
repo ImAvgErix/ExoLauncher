@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useLayoutEffect, useRef } from 'react'
 import { Close } from '../../brand/icons'
 import type { DiscordHome } from '../../lib/discord'
 import { useDialogFocus } from '../../lib/focusTrap'
@@ -57,9 +57,11 @@ const GROUPS: { title?: string; items: { id: DiscordSettingsSection; label: stri
 /**
  * Discord's own User Settings for Exo's Discord client, laid out as Discord lays them out: the
  * sidebar's sections and the section beside it. The account's settings are Discord's (every Discord
- * app shares them); what Discord keeps per device is kept on this PC. Exo's own settings stay in Exo's.
+ * app shares them); what Discord keeps per device is kept on this PC. Exo's own settings stay in Exo's. They stay
+ * mounted with the room, hidden while closed, so they open at once with what they already read.
  */
-export function DiscordSettings({ section, home, onSection, onClose }: {
+export function DiscordSettings({ open, section, home, onSection, onClose }: {
+  open: boolean
   section: DiscordSettingsSection
   home: DiscordHome | null
   onSection: (section: DiscordSettingsSection) => void
@@ -67,10 +69,11 @@ export function DiscordSettings({ section, home, onSection, onClose }: {
 }) {
   const glide = useGlide<HTMLDivElement>()
   const dialog = useRef<HTMLDivElement>(null)
-  useDialogFocus(dialog)
+  useDialogFocus(dialog, open)
   // Escape closes Settings once it reaches the window: an open menu, a keybind being recorded or a dialog over
   // Settings takes it first.
   useEffect(() => {
+    if (!open) return
     const escape = (event: KeyboardEvent) => {
       if (event.key !== 'Escape' || event.defaultPrevented || document.querySelector('.exo-dc-modal-back')) return
       event.preventDefault()
@@ -78,11 +81,20 @@ export function DiscordSettings({ section, home, onSection, onClose }: {
     }
     window.addEventListener('keydown', escape)
     return () => window.removeEventListener('keydown', escape)
-  }, [onClose])
+  }, [open, onClose])
   useEffect(loadAccountSettings, [])
+  // Kept mounted, the sheet would reopen (and a section would open) where it was last scrolled: each starts at its top.
+  const body = useRef<HTMLDivElement>(null)
+  useLayoutEffect(() => {
+    if (!open) return
+    if (body.current) body.current.scrollTop = 0
+  }, [open, section])
+  useLayoutEffect(() => {
+    if (open && glide.current?.parentElement) glide.current.parentElement.scrollTop = 0
+  }, [open, glide])
   const current = section === 'devices' ? 'account' : section
   return (
-    <SettingsLayer onClose={onClose}>
+    <SettingsLayer onClose={onClose} hidden={!open}>
     <div ref={dialog} className="exo-dc-settings" role="dialog" aria-modal="true" aria-label="Discord settings" tabIndex={-1}>
       <span className="exo-glass is-panel exo-sheet-glass" aria-hidden="true" />
       <nav className="exo-dc-settings-nav" aria-label="Discord settings sections">
@@ -103,7 +115,7 @@ export function DiscordSettings({ section, home, onSection, onClose }: {
           ))}
         </div>
       </nav>
-      <div className="exo-dc-settings-body">
+      <div ref={body} className="exo-dc-settings-body">
         <button type="button" className="exo-game-close exo-dc-settings-close" aria-label="Close Discord settings" onClick={onClose}><Close size={16} /></button>
         <div key={section} className="exo-dc-settings-page exo-motion-switch">
           <Page section={section} me={home?.me ?? null} guilds={home?.guilds ?? []} onSection={onSection} onClose={onClose} />

@@ -51,3 +51,44 @@ internal static partial class LiveAudio
     [LibraryImport("winmm.dll", EntryPoint = "timeEndPeriod")]
     private static partial uint TimeEndPeriod(uint milliseconds);
 }
+
+/// <summary>
+/// One of the call's audio threads (the microphone's, the voice thread, the speakers', each person's own and the stream's
+/// sound) in Windows' Multimedia Class Scheduler for as long as it runs: registered as a "Pro Audio" (or "Audio") task, it
+/// is scheduled ahead of every ordinary thread, so a game at 100% CPU can't starve it the way it can starve a thread at
+/// ThreadPriority.Highest alone. Joined at the thread's start and left (Dispose) as it ends. Where MMCSS isn't running
+/// (some Windows Server installs), the thread runs as before and app.log says so once.
+/// </summary>
+internal readonly partial struct MmcssTask : IDisposable
+{
+    internal const string ProAudio = "Pro Audio", Audio = "Audio";
+    private static int _refusedSaid;
+    private readonly nint _handle;
+
+    private MmcssTask(nint handle) => _handle = handle;
+
+    /// <summary>Whether this thread is in the scheduler now.</summary>
+    internal bool Joined => _handle != 0;
+
+    /// <summary>The calling thread joins the scheduler as <paramref name="task"/>.</summary>
+    internal static MmcssTask Join(string task = ProAudio)
+    {
+        uint index = 0;
+        var handle = AvSetMmThreadCharacteristicsW(task, ref index);
+        if (handle == 0 && Interlocked.Exchange(ref _refusedSaid, 1) == 0)
+            AppLog.Info($"Discord voice: Windows' multimedia scheduler didn't take the audio threads (error {Marshal.GetLastPInvokeError()}); they run at high priority only.");
+        return new MmcssTask(handle);
+    }
+
+    /// <summary>The thread leaves the scheduler; whether Windows took it back.</summary>
+    internal bool Leave() => _handle != 0 && AvRevertMmThreadCharacteristics(_handle);
+
+    public void Dispose() => Leave();
+
+    [LibraryImport("avrt.dll", EntryPoint = "AvSetMmThreadCharacteristicsW", StringMarshalling = StringMarshalling.Utf16, SetLastError = true)]
+    private static partial nint AvSetMmThreadCharacteristicsW(string taskName, ref uint taskIndex);
+
+    [LibraryImport("avrt.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool AvRevertMmThreadCharacteristics(nint handle);
+}

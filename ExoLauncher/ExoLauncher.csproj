@@ -19,7 +19,9 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <ImplicitUsings>enable</ImplicitUsings>
     <WindowsPackageType>None</WindowsPackageType>
-    <WindowsAppSDKSelfContained>false</WindowsAppSDKSelfContained>
+    <!-- Exo carries the Windows App SDK itself: it builds on the newest (experimental) release, whose runtime Windows
+         doesn't install, so no PC needs one. -->
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
     <PublishSelfContained>true</PublishSelfContained>
     <!-- Keep private source metadata in local build symbols, outside release downloads. -->
     <CopyOutputSymbolsToPublishDirectory>false</CopyOutputSymbolsToPublishDirectory>
@@ -54,20 +56,22 @@
 
   <ItemGroup>
     <!-- Reference only the WinUI components used by the active host. -->
-    <PackageReference Include="Microsoft.WindowsAppSDK.Base" Version="2.0.4" />
-    <PackageReference Include="Microsoft.WindowsAppSDK.DWrite" Version="2.1.0" />
-    <PackageReference Include="Microsoft.WindowsAppSDK.Foundation" Version="2.3.9" />
-    <PackageReference Include="Microsoft.WindowsAppSDK.InteractiveExperiences" Version="2.1.6" />
-    <PackageReference Include="Microsoft.WindowsAppSDK.Runtime" Version="2.4.0" />
-    <PackageReference Include="Microsoft.WindowsAppSDK.WinUI" Version="2.3.6" />
-    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.28000.2705" />
-    <PackageReference Include="Microsoft.Windows.SDK.BuildTools.MSIX" Version="1.7.260903100">
+    <PackageReference Include="Microsoft.WindowsAppSDK.Base" Version="2.0.5-experimental2" />
+    <PackageReference Include="Microsoft.WindowsAppSDK.DWrite" Version="2.1.1-experimental" />
+    <PackageReference Include="Microsoft.WindowsAppSDK.Foundation" Version="2.3.13-experimental" />
+    <PackageReference Include="Microsoft.WindowsAppSDK.InteractiveExperiences" Version="2.1.10-experimental" />
+    <PackageReference Include="Microsoft.WindowsAppSDK.Runtime" Version="2.5.4-experimental" />
+    <PackageReference Include="Microsoft.WindowsAppSDK.WinUI" Version="2.3.10-experimental" />
+    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.29648.1000-preview" />
+    <PackageReference Include="Microsoft.Windows.SDK.BuildTools.MSIX" Version="1.7.261012100-preview">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
-    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4191.47" />
-    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.12" />
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4312-prerelease" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="11.0.0-rc.2.26504.105" />
     <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="3.0.5" />
+    <!-- Only My Voice: sherpa-onnx's C interface and ONNX Runtime (native, win-x64), for NVIDIA's TitaNet voiceprints. -->
+    <PackageReference Include="org.k2fsa.sherpa.onnx.runtime.win-x64" Version="1.13.8" />
     <Manifest Include="$(ApplicationManifest)" />
   </ItemGroup>
 
@@ -134,10 +138,8 @@
   </Target>
 
   <ItemGroup>
-    <Content Include="..\third_party\ublock-origin\extension\**\*" Link="extensions\ublock-origin\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <!-- Discord voice: libdave (DAVE end-to-end encryption), libopus and exo_apm (WebRTC's echo cancellation), built by voice\build.ps1. -->
     <Content Include="..\voice\out\dave.dll;..\voice\out\opus.dll;..\voice\out\exo_apm.dll;..\voice\out\LICENSE-*.txt" Link="%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
-    <Content Include="..\third_party\ublock-origin\NOTICE.txt" Link="extensions\uBlock-Origin-NOTICE.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="..\LICENSE" Link="LICENSE.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="..\THIRD_PARTY_NOTICES.md" Link="THIRD_PARTY_NOTICES.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="..\PRIVACY.md" Link="PRIVACY.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />

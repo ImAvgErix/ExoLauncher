@@ -9,7 +9,7 @@ import { report } from './report'
  * art from where it was to where it lands, `fade` crossfades the page, `none`
  * applies the change at once, in order with the others (a view with its own entrance).
  */
-export type TransitionKind = 'room' | 'push' | 'morph' | 'fade' | 'none'
+export type TransitionKind = 'room' | 'push' | 'morph' | 'fade' | 'theme' | 'none'
 
 /** A shared element: named on `from` before, on `to()` after, and only for the transition. */
 export type Morph = {
@@ -82,7 +82,10 @@ if (typeof document !== 'undefined') {
 }
 
 const setName = (element: Element | null | undefined, name: string) => {
-  if (element instanceof HTMLElement || element instanceof SVGElement) element.style.viewTransitionName = name
+  if (!(element instanceof HTMLElement || element instanceof SVGElement)) return
+  element.style.viewTransitionName = name
+  // Captured on its own, its glass sees nothing behind it: glass.css draws it a still tint until it lands.
+  element.toggleAttribute('data-exo-vt-named', name !== '')
 }
 
 /** Drawn and at least partly inside the window (a hidden room's copy never is). */
@@ -116,7 +119,21 @@ export const pane = (element: Element | null | undefined): Morph => ({ name: PAN
  * to `current` (the list's current item), into the page `page` matches after.
  */
 export function pushPage(update: () => void, page: string, current: string): Promise<void> {
-  return transition(update, { kind: 'push', back: pressedBefore(current), morph: { name: PANE, from: visible(page), to: () => visible(page) } })
+  // The page already shown, pressed again: nothing to push (it slid in over its own picture).
+  const at = recentPress() ?? document.activeElement
+  const now = visible(current)
+  if (at && now && (at === now || now.contains(at))) {
+    update()
+    return Promise.resolve()
+  }
+  return transition(update, { kind: 'push', back: pressedBefore(current), morph: { name: PANE, from: shown(visible(page)), to: () => shown(visible(page)) } })
+}
+
+/** A page taller than the pane it scrolls in pushes as that pane: its own picture would run past the pane's edge. */
+function shown(page: Element | null): Element | null {
+  const pane = page?.parentElement
+  if (!page || !pane || !/auto|scroll/.test(getComputedStyle(pane).overflowY)) return page
+  return page.getBoundingClientRect().height > pane.clientHeight + 1 ? pane : page
 }
 
 /** Whether what was just pressed sits before the list's current item (`current` matches it): a push back. */
@@ -152,7 +169,8 @@ function setCorners(morphs: Morph[]) {
  */
 function settle(element: Element, pushed: boolean) {
   for (let node: Element | null = element; node && node !== document.body; node = node.parentElement) {
-    for (const animation of node.getAnimations()) if (animation instanceof CSSAnimation && animation.animationName !== 'exo-switch') animation.finish()
+    // Time-based ones only: a scroll-linked one (a list's edge fade, exo-shell.css › pool) would stop following the scroll.
+    for (const animation of node.getAnimations()) if (animation instanceof CSSAnimation && animation.timeline === document.timeline && animation.animationName !== 'exo-switch') animation.finish()
   }
   if (pushed) for (const animation of element.getAnimations({ subtree: true })) if (animation instanceof CSSAnimation && animation.animationName === 'exo-switch') animation.finish()
 }
@@ -178,7 +196,7 @@ export function transition(update: () => void, options: { kind?: TransitionKind;
   const earlier = pending
   pending = null
   earlier?.()
-  if (kind === 'none' || !document.startViewTransition || kind !== 'morph' && fromKeyboard() || document.visibilityState !== 'visible' || running || (kind === 'push' || kind === 'morph') && morphs.length === 0) {
+  if (kind === 'none' || !document.startViewTransition || kind !== 'morph' && kind !== 'theme' && fromKeyboard() || document.visibilityState !== 'visible' || running || (kind === 'push' || kind === 'morph') && morphs.length === 0) {
     // While one runs, the page under it is live: this change shows there and the running one finishes.
     update()
     return Promise.resolve()
@@ -208,7 +226,7 @@ export function transition(update: () => void, options: { kind?: TransitionKind;
       settle(to, morph.name === PANE)
       landed.push(to)
     }
-    if (kind === 'room') for (const room of document.querySelectorAll('.exo-room:not([hidden])')) settle(room, false)
+    if (kind === 'room') for (const room of document.querySelectorAll('.exo-room:not([hidden], .is-backstage)')) settle(room, false)
   })
   running = view
   // Ended early by input (skipTransition): ready rejects with "Transition was skipped", which is expected.

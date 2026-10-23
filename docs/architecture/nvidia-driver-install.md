@@ -1,6 +1,6 @@
 # NVIDIA driver install: latest driver, no bloat, tweaked
 
-Research for a one-click driver installer in System > Graphics > Driver and profile, above the driver profile. Sources, read on this PC on October 17, 2026 (read only; nothing installed or changed):
+Research for the one-click driver update in System > Graphics > Driver and profile, above the driver profile. It is built (`ExoLauncher/Services/NvidiaDriverService.cs`); where Exo took a different path from the research, "Exo's flow (as built)" says so. Sources, read on this PC on October 17, 2026 (read only; nothing installed or changed):
 
 - **Nexus 1.4** (`C:\Program Files\Nexus`, .NET 8 WPF). `Nexus.dll` is protected: method bodies are encrypted at rest (ILSpy 9 shows empty bodies, "Read out of bounds" on the main types), user strings are AES/base64, resources are encrypted, and `Nexus.Authentication.Security.AntiRuntime` kills debuggers. Its logic could not be read statically, and it was not run. What Nexus does was read instead from its type and member names, its own files (`%TEMP%\Nexus\...`), the NVIDIA installer log of the install it ran on October 12 (`%TEMP%\NvidiaLogging\Log.4472setup.exe.log`), and the registry keys it marked.
 - **NVCleanstall**: not on this PC (Downloads, Program Files, `%LOCALAPPDATA%`, `%APPDATA%` searched). **Not reversed.** Its section uses TechPowerUp's product page and changelog (v1.0.0 to v1.19.0) only.
@@ -30,11 +30,11 @@ Labels: **seen** = read in a file, a binary, a log, the registry or a live respo
 1. Read `PCI\VEN_10DE&DEV_xxxx` and the name from `Win32_VideoController` (Exo already has it in `GraphicsService`).
 2. Name the product: the driver's own `ListDevices.txt` maps `DEV_2484` to "NVIDIA GeForce RTX 3070" (seen, 7,128 lines, per subsystem too). Before a driver is installed, Windows' device name works.
 3. Strip "NVIDIA ", match `TypeID=3` `Name` exactly; its `ParentID` is the psid. Laptop GPUs ("Laptop GPU" in the name) live under the "(Notebooks)" series; prefer the psid whose name says Notebooks when the PC is a laptop.
-4. Cache the two lookup lists (about 200 KB each) for a day; the driver list call is small.
+4. Exo keeps the whole answer an hour (`nvidia-drivers.json`, so a restart doesn't ask again) and leaves NVIDIA alone for its Retry-After after a 429 or 503. The two lookup lists are about 200 KB each; the driver list call is small.
 
-Installed version: `Win32_VideoController.DriverVersion` `32.0.16.1742` = 617.42 (last five digits of the last two fields: `6.1742` → `617.42`; seen on this PC). Exo's `NvidiaProfiles.DriverVersion()` already reads 61742 through NvAPI.
+Installed version: Windows' `DriverVersion` for the NVIDIA display adapter, `32.0.16.1742` = 617.42 (last five digits of the last two fields: `6.1742` → `617.42`; seen on this PC). Exo reads it from the display class key (`NvidiaDriverService.Installed`), which is current the moment an install finishes; NvAPI's `NvidiaProfiles.DriverVersion()` (61742) keeps answering for the driver this process loaded, so it is only the fallback.
 
-**What Nexus does (seen names, inferred behaviour):** `NvidiaDriverService.GetAvailableDriversAsync` → `FetchDriversFromTechPowerUpAsync`, using HtmlAgilityPack: it scrapes TechPowerUp's driver page (`techpowerup.com/download/nvidia-geforce-graphics-drivers/`, which lists versions and NVIDIA's file names) for its version drop-down, rather than asking NVIDIA. Exo should ask NVIDIA directly (above): it is the source, it filters by GPU, and it gives Studio vs Game Ready.
+**What Nexus does (seen names, inferred behavior):** `NvidiaDriverService.GetAvailableDriversAsync` → `FetchDriversFromTechPowerUpAsync`, using HtmlAgilityPack: it scrapes TechPowerUp's driver page (`techpowerup.com/download/nvidia-geforce-graphics-drivers/`, which lists versions and NVIDIA's file names) for its version drop-down, rather than asking NVIDIA. Exo should ask NVIDIA directly (above): it is the source, it filters by GPU, and it gives Studio vs Game Ready.
 
 ## Download
 
@@ -54,11 +54,11 @@ Nexus: `NvidiaDriverService.DownloadDriverAsync(downloadUrl, destinationPath, pr
 2. File size equals the HTTP Content-Length; the version in the file name equals the version asked for.
 3. After extraction, check `setup.exe` the same way, and `Display.Driver\NV_DISP.CAT` is the catalog Windows checks every driver file against at install (WHQL, signer "Microsoft Windows Hardware Compatibility Publisher", seen on `nvlddmkm.sys`). Windows enforces that itself; Exo only must not touch the files it covers.
 
-Host to add to `NetworkDestinations.cs` and PRIVACY.md: `www.nvidia.com` and `gfwsl.geforce.com` (version check), `us.download.nvidia.com` (download). Build the client with `ExoHttp.Create`.
+Hosts (`NetworkDestinations.cs` › `NvidiaDrivers`, and PRIVACY.md): `www.nvidia.com` and `gfwsl.geforce.com` (version check), `api-forums.nvidia.com` (hotfix announcements), `us.download.nvidia.com` and `international.download.nvidia.com` (download). The client is `ExoHttp.Create`.
 
 ## Extraction
 
-The exe is a PE with an appended 7z archive (seen, 7-Zip: `Type = 7z`, `Method = LZMA2:26 LZMA:20 BCJ2`, physical size 989,742,486). `7z x driver.exe -o<dir>` extracts it; 7-Zip reads the PE overlay. Nexus ships `Bin\7za.exe` for this (seen) and extracts to `%TEMP%\Nexus\Extracted\Nvidia\nvidia-{ver}\` (seen; `NvidiaDebloaterService.ExtractDriverAsync`, then `GpuDebloaterModalWindow.ExtractAndScanPackageAsync` builds the component list from the extracted `.nvi` files). Extraction is about 3.8 GB on disk; unpacking takes about 4 minutes on this PC (seen: ctime 16:53 → 16:57).
+The exe is a PE with an appended 7z archive (seen, 7-Zip: `Type = 7z`, `Method = LZMA2:26 LZMA:20 BCJ2`, physical size 989,742,486). `7z x driver.exe -o<dir>` extracts it; 7-Zip reads the PE overlay. Exo uses Windows' own `tar.exe` (bsdtar, which reads it too), so it ships no 7-Zip. Nexus ships `Bin\7za.exe` for this (seen) and extracts to `%TEMP%\Nexus\Extracted\Nvidia\nvidia-{ver}\` (seen; `NvidiaDebloaterService.ExtractDriverAsync`, then `GpuDebloaterModalWindow.ExtractAndScanPackageAsync` builds the component list from the extracted `.nvi` files). Extraction is about 3.8 GB on disk; unpacking takes about 4 minutes on this PC (seen: ctime 16:53 → 16:57).
 
 Layout of 617.42 (seen):
 
@@ -77,7 +77,7 @@ NvApp\  NvApp.MessageBus\  NvBackend\  NvContainer\  NvCpl\  NvDLISR\  NvTelemet
 - `<install><search dir="."><select name="**\*"/> ... <deselect .../>` makes NVI2 scan every subfolder for `*.nvi`. A component is in the package if and only if its folder (with its `.nvi`) is there. The setup log of Nexus's install confirms it: `FindSubPackageConfigFiles : Found 1 sub-package config files - 0 excluded - 1 selected unique` → `Display.Driver\DisplayDriver.nvi`.
 - `<sub-package name=".." disposition=".." userSelectable/hidden>` overrides per component (Display.Driver is `critical`; Display.NvApp `default`; VirtualAudio `demand`, hidden).
 - `<options>` are the command-line switches (seen, full list): `enableTelemetry`, `clean`, `prestage`, `validate`, `forcereboot`, `noreboot`, `k` (= forcereboot), `n` (= noreboot), `passive`, `noeula`, `nofinish`, `ignorepnp`, `progresswitheula`, `nosplash`, `nvappinitiated`, `custominvokerid`.
-- `<manifest>` lists files setup expects, including `${{EulaHtmlFile}}` = `NvApp\Unified_EULA\EULA_DD_NvApp_${{LocaleName}}.html`, `${{FunctionalConsentFile}}` and `${{PrivacyPolicyFile}}` under `NvApp\`. These are not `core="true"`. Nexus removed `NvApp\` without editing setup.cfg and setup ran to final status 0 (seen in the log), so leaving those lines is fine on 617.42. Other tools delete the three lines anyway (public); Exo does not need to.
+- `<manifest>` lists files setup expects, including `${{EulaHtmlFile}}` = `NvApp\Unified_EULA\EULA_DD_NvApp_${{LocaleName}}.html`, `${{FunctionalConsentFile}}` and `${{PrivacyPolicyFile}}` under `NvApp\`. These are not `core="true"`. Nexus removed `NvApp\` without editing setup.cfg and setup ran to final status 0 (seen in the log), but with Exo's set setup quit with 0x80070003 when those three texts were missing, so Exo unpacks them (`NvApp/Unified_EULA`, `NvApp/PrivacyPolicy`, `NvApp/FunctionalConsent_*`) and never `NvApp.nvi`, so the app itself is never offered to setup. Other tools delete the three lines instead (public).
 - `presentations.cfg` (in `NVI2\`) holds the UI; nothing to change.
 
 **`.nvi`** (seen): one XML per component, root `<nvi name="Package.Id" version=".." disposition="default|demand" hidden=".." hasDriver="true">` with `<dependencies><package type="requires|after|installs|uninstalls" package=".."/>`, `<constraints>`, `<properties>`, `<manifest>` (every file with its size) and `<phases>` (what setup does: `<inf>`, `<exe>`, `<addRegistry>`, `<deleteDirectoryTree>`, services). `disposition="demand"` packages install only when something that requires them is installed.
@@ -95,8 +95,8 @@ NvApp\  NvApp.MessageBus\  NvBackend\  NvContainer\  NvCpl\  NvDLISR\  NvTelemet
 | --- | --- | --- | --- |
 | Display.Driver | `Display.Driver\` | The graphics driver (nvlddmkm), Vulkan/OpenGL/OpenCL/CUDA/NVENC, Display Container, Control Panel appx, Ansel, NVWMI | **Keep** (required) |
 | installer core | `NVI2\` + `setup.exe`, `setup.cfg` | NVIDIA's installer engine and UI | **Keep** (required) |
-| HDAudio.Driver | `HDAudio\` | Audio over HDMI/DisplayPort | **Keep if** a monitor/TV/AVR plays sound over the GPU; otherwise strip. Default: keep (removing it silences HDMI/DP speakers) |
-| Display.PhysX | `PhysX\` (203 MB) | PhysX System Software for old GPU-PhysX games | Optional. Default: keep (few games need it, it costs disk only) |
+| HDAudio.Driver | `HDAudio\` | Audio over HDMI/DisplayPort | **Keep if** a monitor/TV/AVR plays sound over the GPU; otherwise strip (removing it silences HDMI/DP speakers). Exo doesn't install it, and its clean install removes the one already there: Windows' own High Definition Audio driver then takes the GPU's sound, and a monitor's speakers keep playing (seen, 2026-10-21, after Exo installed 621.01 clean) |
+| Display.PhysX | `PhysX\` (203 MB) | PhysX System Software for old GPU-PhysX games | Optional (few games need it, it costs disk only). Exo doesn't install it |
 | MSVCRuntime2019 | `MSVCRT\` | VC++ runtimes for NVIDIA's apps | Strip (the driver alone did not need it on this PC) |
 | Display.NvApp | `NvApp\` (467 MB) | NVIDIA App | Strip |
 | Display.NvApp.MessageBus, .NvBackend, .NvCPL | `NvApp.MessageBus\`, `NvBackend\`, `NvCpl\` | NVIDIA App back end and its control panel | Strip |
@@ -109,7 +109,7 @@ NvApp\  NvApp.MessageBus\  NvBackend\  NvContainer\  NvCpl\  NvDLISR\  NvTelemet
 | USBC | `PPC\` | USB-C controller driver on old RTX 20 cards with VirtualLink | Strip (keep only if the card has a USB-C port and something uses it) |
 | NVPCF | `NVPCF\` | Platform Controllers (Dynamic Boost, laptop power sharing) | Strip on desktops; **keep on laptops** |
 
-Exo's default "driver only" set: `Display.Driver`, `NVI2`, `HDAudio`, `PhysX`, plus `NVPCF` on a laptop. That is close to what Nexus installed here (seen: only Display.Driver).
+The research's "driver only" set was `Display.Driver`, `NVI2`, `HDAudio`, `PhysX`, plus `NVPCF` on a laptop. Exo installs less: `Display.Driver`, `NVI2` and the setup files, plus `NVPCF` on a laptop; HDMI/DP audio and PhysX are not installed. That is what Nexus installed here (seen: only Display.Driver).
 
 **How Nexus strips (seen):** it deletes component folders after extraction and does not edit `setup.cfg` or any `.nvi`. Evidence: at the install (16:54) setup found exactly one `.nvi` (Display.Driver); setup.cfg and every `.nvi` in its extraction are byte-identical to the archive; `Program Files\NVIDIA Corporation\Installer2` holds only `Display.Driver.*`, `installer.*`, `InstallerCore`, `CoreTemp.*`. Its modes (seen enum `GpuDebloatMode`): `DriverOnly`, `DriverAndCore`, `Stock`, `Custom`. What "Core" adds is **unknown** (strings encrypted); `PerformDriverAndCoreCleanup`, `ScanComponents`, `GetDisplayComponents` and `PatchSetupCfg` exist as names only. `PatchSetupCfg` exists, but it changed nothing in this run (seen). The extraction left on disk today is complete again (ctime 16:57, after the install): Nexus re-extracted on a later visit (inferred).
 
@@ -126,7 +126,7 @@ Nexus applies GPU tweaks from Library-like pages, not inside the driver package:
 | HAGS on | same key `HwSchMode`=2 | Hardware-accelerated GPU scheduling | Low; needed for DLSS frame generation | Performance (FG) | Nexus key (may be the user's own setting) |
 | Force max P-state | GPU class key `DisableDynamicPstate`=1 | GPU stays at full clocks | Higher idle power and heat | Latency (marginal) | this PC (`DisablePStates`) |
 | "Latency" class-key set | GPU class key: `D3PCLatency`=1, `F1TransitionLatency`=1, `LOWLATENCY`=1, `Node3DLowLatency`=1, `PciLatencyTimerControl`=0x20, `RMDeepL1EntryLatencyUsec`=1, `RmGspcMaxFtuS`/`RmGspcMinFtuS`/`RmGspcPerioduS`=1, `RMLpwrEiIdleThresholdUs`/`RMLpwrGrIdleThresholdUs`/`RMLpwrGrRgIdleThresholdUs`/`RMLpwrMsIdleThresholdUs`=1, `VRDirectFlipDPCDelayUs`/`VRDirectFlipTimingMarginUs`/`VRDirectJITFlipMsHybridFlipDelayUs`=1, `vrrCursorMarginUs`/`vrrDeflickerMarginUs`/`vrrDeflickerMaxUs`=1, `PreferSystemMemoryContiguous`=1, `RmCacheLoc`=0, `RmDisableInst2Sys`=1, `RmFbsrPagedDMA`=1, `TrackResetEngine`=0, `RMCtxswLog`=3 | Undocumented resource-manager knobs; mostly shorten idle/power-gating timers | Unmeasured; power and stability effects unknown; VRR margins may cause flicker | Claimed latency, unproven | this PC |
-| Feature switches | `HKLM\SYSTEM\CurrentControlSet\Services\nvlddmkm\Parameters\FTS`: 118 values `EnableGR*`, `EnableRID*`, `EnableDDC*`, `EnableFSN*`, `EnableDDW1000` (all 1 except `EnableDDC14`=0); `nvlddmkm\FTS` `EnableRID61684`=1, `NXPS`=1 | Driver feature-test overrides | **Unknown meaning**, undocumented; can change behaviour per driver | Unknown | `nvlddmkm\FTS`: Nexus; `Parameters\FTS`: this PC |
+| Feature switches | `HKLM\SYSTEM\CurrentControlSet\Services\nvlddmkm\Parameters\FTS`: 118 values `EnableGR*`, `EnableRID*`, `EnableDDC*`, `EnableFSN*`, `EnableDDW1000` (all 1 except `EnableDDC14`=0); `nvlddmkm\FTS` `EnableRID61684`=1, `NXPS`=1 | Driver feature-test overrides | **Unknown meaning**, undocumented; can change behavior per driver | Unknown | `nvlddmkm\FTS`: Nexus; `Parameters\FTS`: this PC |
 | Display power saving off | `HKLM\SYSTEM\CurrentControlSet\Services\nvlddmkm\Global\NVTweak` `DisplayPowerSaving`=0 | No panel power saving (laptops) | Battery life | Neither | Nexus |
 | Driver telemetry | `nvlddmkm` service `Parameters\Global\Startup\SendTelemetryData`=0 | Driver telemetry off | None | Privacy | **The INF already sets 0** (seen: `HKR,"Parameters\Global\Startup\SendTelemetryData",,%REG_DWORD%,0x0`). Redundant |
 
@@ -152,7 +152,7 @@ setup.exe -s -noreboot -noeula -nofinish -nosplash [-clean]
 ```
 
 - `-s` silent; `-passive` shows only progress (a good fit if Exo wants NVIDIA's progress window).
-- `-clean` = NVIDIA's "Perform a clean installation" (property `CleanInstall`): resets NVIDIA settings and profiles. Default to upgrade (no `-clean`); offer clean as an option. Exo re-applies its profile afterwards in both cases.
+- `-clean` = NVIDIA's "Perform a clean installation" (property `CleanInstall`): resets NVIDIA settings and profiles. Exo always installs clean, so nothing of an earlier install carries over, and re-applies its profile and desktop color afterwards.
 - `-noreboot` (`-n`): Exo decides about the reboot.
 - `-noeula`: skips the EULA page. **The user still agrees to NVIDIA's license**: show NVIDIA's EULA link in Exo's consent step before the install.
 - Needs admin: run `setup.exe` elevated (UAC) after Exo's own consent; it writes `Program Files`, the driver store and services.
@@ -172,28 +172,26 @@ setup.exe -s -noreboot -noeula -nofinish -nosplash [-clean]
 4. Exo Shaders: the engine already treats a new driver as a reason to compile again (its CHANGELOG: "compiles everything again after a driver update"). The driver installer deletes `%TEMP%\NVIDIA Corporation\NV_Cache` (seen phase `removeDXCacheWhileInstall`) and, on clean installs, NGX model caches. Tell the Shaders page the driver changed so its rebuild prompt shows.
 5. Delete the extraction; keep the verified installer (see rollback).
 
-## Recommendation for Exo's flow
+## Exo's flow (as built)
 
-System > Graphics > Driver and profile, above the driver profile, one row:
+System > Graphics > Driver and profile, above the driver profile, one row (`ui/src/components/gpu/DriverRow.tsx`): the installed driver, NVIDIA's newest, and Update.
 
-`Driver 617.14 · Update available: 617.42 (Game Ready, October 6)` → **Update**
-
-1. Check (on opening GPU, at most once a day): lookup IDs (cached) → driver list → compare with the installed version. Game Ready by default; Studio only when the user picked Studio and NVIDIA lists one.
-2. Click → consent sheet: what downloads (size), what is kept (driver, HDMI/DP audio, PhysX) and removed, upgrade or clean, NVIDIA's EULA link, "needs administrator rights", "closes running games: no, it waits".
-3. Download to `%LOCALAPPDATA%\ExoLauncher\drivers\{ver}\` with progress; verify Authenticode (NVIDIA Corporation, valid chain, revocation) and size.
-4. Extract with 7-Zip to a temp folder; check `setup.exe` signature; delete the component folders not kept (folders only).
-5. Elevated `setup.exe -s -noreboot -noeula -nofinish -nosplash [-clean]`; show progress from the log or as indeterminate.
-6. Verify the installed version; parse the log's final status and reboot flag.
-7. Re-apply the GPU profile and display settings; signal Exo Shaders; ask for a reboot only if needed.
+1. Check (when System > Graphics shows, at most once an hour): lookup IDs → driver list → compare with the installed version. Game Ready by default, Studio when the user picks it (listed without the WHQL flag: `isWHQL=0`), NVIDIA's RTX Enterprise driver on a workstation card (product type 3); betas are skipped and the download must be on `us.download.nvidia.com`. On Game Ready a GeForce hotfix wins when it is newer: the newest three hotfix topics NVIDIA staff opened on its GeForce forums (`api-forums.nvidia.com`) are read for NVIDIA's `hf.exe` link, only for a card on the current branches (Turing and newer, above). A card Game Ready left gets NVIDIA's security update driver.
+2. Update, after the user's consent. Blocked while a library game runs, while Exo Shaders compiles, or while another update runs.
+3. Download to `%LOCALAPPDATA%\ExoLauncher\drivers\{ver}\` with progress (a `.part` file, moved when whole): the final host must be NVIDIA's download host, the size must equal Content-Length, and `AuthenticodeVerifier.HasPublisher` (WinVerifyTrust, then the signer named NVIDIA Corporation; no revocation check) must pass. A verified installer already there is reused.
+4. Unpack only the kept entries with `tar.exe` into `{ver}\unpacked`; check `setup.exe`'s signature the same way.
+5. Wait for a game started meanwhile to close, then run `setup.exe -s -clean -noreboot -noeula -nofinish -nosplash` elevated (Windows asks; a refusal leaves everything unchanged).
+6. Exit code 0 and Windows' recorded driver version equal to the one asked for (polled up to 15 s) is success; anything else is a failure with the code, the old driver in place. The setup log isn't read and Exo never asks for a reboot.
+7. Load NvAPI again for the new driver, re-apply Exo's GPU profile (when it was applied) and desktop color (`NvidiaColor.ApplySaved`), clear the cached lookup, delete the unpacked driver (however it ended) and keep this and the previous version's installers. Scaling and RTX Video are not re-applied, and Exo Shaders is not told.
 
 Safety rules:
 
 - Never start while a game runs (Exo's run-state); never while Exo Shaders compiles. Block the button with the reason.
-- Keep the previous verified installer (one version back) for rollback: "Roll back to 617.14" runs the same pipeline with it. Windows' own "Roll back driver" works only for the immediately previous driver-store package.
+- Keep the previous verified installer (one version back) for a way back; there is no roll back button yet. Windows' own "Roll back driver" works only for the immediately previous driver-store package.
 - Debloating only removes component folders. Never edit, patch or re-sign a file covered by NVIDIA's signature or the `NV_DISP.CAT` catalog (INF, .sys, .dll), never install an unsigned or test-signed driver, never enable test signing. NVCleanstall's INF-based tweaks need exactly that (it "rebuilds the driver's digital signature" with its own key and offers an "EasyAntiCheat-compatible" signature mode, per its changelog). Exo applies tweaks as registry values after a normal install instead, so the driver stays NVIDIA's signed driver and anti-cheat never sees a modified one.
 - Never set `TdrLevel`=0, never disable the Display Container, never write undocumented FTS or class-key values.
-- Back up every registry value Exo changes (same pattern as `gpu-profile.json`) and offer Undo.
-- If the install fails: leave the old driver in place, keep the files, show one status line, write the log path to `app.log`.
+- Exo writes no driver tweaks. Any it ever writes are backed up (same pattern as `gpu-profile.json`) with an Undo.
+- If the install fails: leave the old driver in place, keep the installer, show one status line, log it to `app.log`.
 
 ## NVCleanstall (not reversed; TechPowerUp's description and changelog only)
 
@@ -205,7 +203,7 @@ Safety rules:
 
 ## Licensing and attribution
 
-- Nexus is proprietary and obfuscated; NVCleanstall is proprietary freeware. No code from either was read or may be copied. This document records behaviour, file formats, NVIDIA's public endpoints and registry locations, which are facts, not their code. Do not copy Nexus's watchdog script text either; Exo's flow is its own.
+- Nexus is proprietary and obfuscated; NVCleanstall is proprietary freeware. No code from either was read or may be copied. This document records behavior, file formats, NVIDIA's public endpoints and registry locations, which are facts, not their code. Do not copy Nexus's watchdog script text either; Exo's flow is its own.
 - NVIDIA's driver package is under NVIDIA's license (`EULA.txt` in the package). Exo must download it from NVIDIA per user, change it only locally on that user's PC (removing folders), and never host or redistribute a stripped package. Show NVIDIA's EULA before using `-noeula`.
 - NVIDIA's lookup endpoints are undocumented public web APIs used by nvidia.com's own driver page; they may change. Fail closed: no update offer if the response does not parse.
 - The registry values listed are observations; most are undocumented by NVIDIA. Cite nothing from third-party tweak packs as fact.

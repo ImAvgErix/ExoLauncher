@@ -2,7 +2,7 @@ import { useLayoutEffect, useRef, useState } from 'react'
 import { GROUPS } from './section'
 
 /** The gap between columns and between panels in a column, as in mouse.css. */
-const GAP = 16
+const GAP = 12
 /** A settings column, times text size: never so narrow a row's choices wrap, nor so wide its rows drift apart. */
 const COLUMN_MIN = 420
 const COLUMN_MAX = 520

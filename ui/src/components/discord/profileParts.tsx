@@ -71,23 +71,49 @@ export function ProfileCard({ data, avatar, banner, compact = false, scope }: { 
   )
 }
 
+/** Profiles already read this session: opened again, one draws at once and is read again behind it. */
+const loadedProfiles = new Map<string, Loaded>()
+
 /**
- * Someone's profile on a server (or anywhere, with no server). Discord not sending it shows what the message or
- * list knew of them (fallback), never Loading forever; failed is true only when there is nothing to show.
+ * Someone's profile on a server (or anywhere, with no server). Nothing waits on the network to draw: until Discord
+ * answers it shows what was read before, or what the message or list knew of them (fallback); failed is true only
+ * when there is nothing to show.
  */
+// Reads in flight, so a hover's read-ahead and the card that opens share one.
+const loadingProfiles = new Map<string, Promise<Loaded | null>>()
+
+/** Someone's profile, read once and kept: a pointer resting on them reads it ahead, so their card opens whole. */
+export function loadProfile(userId: string, guildId: string | null): Promise<Loaded | null> {
+  const at = `${userId}:${guildId ?? ''}`
+  const going = loadingProfiles.get(at)
+  if (going) return going
+  const read = host.discordProfile(userId, guildId).then(result => {
+    const loaded = result.profile?.user ? { profile: result.profile, extras: result.extras ?? null, note: result.note ?? null } : null
+    if (loaded) {
+      if (loadedProfiles.size >= 200) loadedProfiles.delete(loadedProfiles.keys().next().value!)
+      loadedProfiles.set(at, loaded)
+    }
+    return loaded
+  }).finally(() => loadingProfiles.delete(at))
+  loadingProfiles.set(at, read)
+  return read
+}
+
+/** Whether someone's profile has been read already. */
+export const profileLoaded = (userId: string, guildId: string | null) => loadedProfiles.has(`${userId}:${guildId ?? ''}`)
+
 export function useProfile(userId: string, guildId: string | null, fallback?: DiscordUser) {
   const key = `${userId}:${guildId ?? ''}`
   const [got, setGot] = useState<{ key: string; data: Loaded | null } | null>(null)
   useEffect(() => {
     let live = true
     const at = `${userId}:${guildId ?? ''}`
-    host.discordProfile(userId, guildId).then(result => {
-      if (live) setGot({ key: at, data: result.profile?.user ? { profile: result.profile, extras: result.extras ?? null, note: result.note ?? null } : null })
-    }).catch((error: unknown) => { report(error, 'DiscordProfile.load'); if (live) setGot({ key: at, data: null }) })
+    loadProfile(userId, guildId).then(loaded => { if (live) setGot({ key: at, data: loaded }) })
+      .catch((error: unknown) => { report(error, 'DiscordProfile.load'); if (live) setGot({ key: at, data: null }) })
     return () => { live = false }
   }, [userId, guildId])
   const current = got?.key === key ? got : null
-  const data = current?.data ?? (current && fallback ? { profile: profileOf(fallback), extras: null, note: null } : null)
+  const data = current?.data ?? loadedProfiles.get(key) ?? (fallback ? { profile: profileOf(fallback), extras: null, note: null } : null)
   return { data, failed: !!current && !data }
 }
 
@@ -474,11 +500,12 @@ export function MutualFriends({ friends, onPerson }: { friends: DiscordUser[] | 
   )
 }
 
-/** "14 Mutual Friends · 1 Mutual Server", each part a button to that list. */
-export function MutualLine({ data, onFriends, onServers }: { data: Loaded; onFriends: () => void; onServers: () => void }) {
+/** "14 Mutual Friends · 1 Mutual Server", each part a button to that list. Never on your own card (mine):
+ * nothing is mutual with yourself, and your full profile has no such tabs to open. */
+export function MutualLine({ data, mine = false, onFriends, onServers }: { data: Loaded; mine?: boolean; onFriends: () => void; onServers: () => void }) {
   const friends = data.profile.mutual_friends_count ?? 0
   const servers = data.profile.mutual_guilds?.length ?? 0
-  if (!friends && !servers) return null
+  if (mine || (!friends && !servers)) return null
   const plural = (n: number, what: string) => `${n} Mutual ${what}${n === 1 ? '' : 's'}`
   return (
     <span className="exo-dc-pf-mutual">

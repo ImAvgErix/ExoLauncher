@@ -8,7 +8,7 @@ import { FriendsPage } from './FriendsPage'
 import { DmSidebar, FRIENDS, Rail, ServerSidebar, SHOP, UserPanel } from './Sidebar'
 import { ShopPage } from './ShopPage'
 import { IncomingCall, useDiscordVoice, type VoiceControls, VoiceRoom } from './voice'
-import { AddServer, ImageHost, ProfileHost } from './extras'
+import { AddServer, ImageHost, ProfileHost, useProfileReadAhead } from './extras'
 import { ForumView } from './Forum'
 import { isPage, ServerPage } from './serverPages'
 import { FullProfileHost } from './DmProfile'
@@ -24,6 +24,8 @@ import { prefetchMessages } from './messageCache'
 import { pane, pressedBefore, transition, visible } from '../../lib/viewTransition'
 
 const HOME = '@me'
+/** The server a place is (Direct messages is none). */
+const guildOf = (place: string) => place === HOME ? null : place
 const WHERE_KEY = 'exo.discord.where'
 type SavedThread = { id: string; name: string; parentId: string }
 type Where = { place: string; channels: Record<string, string>; threads: Record<string, SavedThread> }
@@ -134,7 +136,7 @@ export function DiscordClient({ active }: { active: boolean }) {
   const [opened, setOpened] = useState(0)
   // The sidebar (it holds Server Settings) remounts only for opens from outside the room, so a #channel click keeps its scroll.
   const [fromOutside, setFromOutside] = useState(0)
-  const [settingsAt, setSettingsAt] = useState<DiscordSettingsSection | null>(takePendingSettings)
+  const { settingsAt, setSettingsAt, lastSettings, closeSettings } = useSettingsAt()
   // Join a Server, open (true) or holding an invite link Discord refused, with its reason.
   const [adding, setAdding] = useState<boolean | { invite: string; message: string }>(false)
 
@@ -154,7 +156,7 @@ export function DiscordClient({ active }: { active: boolean }) {
     window.addEventListener('exo-discord-open', fromPalette)
     const offHost = onHostEvent('discord.open', target => { takePendingOpen(); show(target) })
     return () => { window.removeEventListener('exo-discord-open', fromPalette); offHost() }
-  }, [navigate])
+  }, [navigate, setSettingsAt])
 
   useEffect(() => {
     if (place === HOME) { setList(null); return }
@@ -162,6 +164,7 @@ export function DiscordClient({ active }: { active: boolean }) {
   }, [place, refreshChannels])
 
   useLiveLists(place, home, refreshHome, refreshChannels, setHome, setList)
+  useProfileReadAhead(guildOf(place))
 
   // A server opens on its last channel, or its first one with text; a thread's id opens the thread in its channel.
   useEffect(() => {
@@ -177,14 +180,16 @@ export function DiscordClient({ active }: { active: boolean }) {
   }, [place, list, open])
 
   const go = useCallback((next: string) => { if (next !== now.current.place) navigate(next, null) }, [navigate])
-  // A server picked on the rail: the room beside the rail pushes from the side of the rail it was picked on.
+  // A server picked on the rail: the room beside the rail pushes from the side of the rail it was picked on. The rail
+  // and your dock over its foot hold still (the dock would otherwise slide off under the rail and come back).
   const railGo = useCallback((next: string) => {
     if (next === now.current.place) return
     const rail = visible('.exo-dc-rail')
+    const dock = visible('.exo-dc-dock')
     void transition(() => navigate(next, null), {
       kind: 'push',
       back: pressedBefore('.exo-dc-rail [aria-current="true"]'),
-      morph: [pane(visible('main.exo-dc')), { name: 'exo-dc-rail', from: rail, to: () => rail }],
+      morph: [pane(visible('main.exo-dc')), { name: 'exo-dc-rail', from: rail, to: () => rail }, { name: 'exo-dc-dock', from: dock, to: () => visible('.exo-dc-dock') }],
     })
   }, [navigate])
   const places = useProfilePlaces(home, go)
@@ -261,12 +266,13 @@ export function DiscordClient({ active }: { active: boolean }) {
     const show = (event: Event) => void transition(() => { takePendingSettings(); setSettingsAt(((event as CustomEvent).detail as DiscordSettingsSection) ?? 'account') }, { kind: 'none' })
     window.addEventListener('exo-discord-settings', show)
     return () => window.removeEventListener('exo-discord-settings', show)
-  }, [])
+  }, [setSettingsAt])
 
   return (
     <ProfilePlaces.Provider value={places}>
     <main className={`exo-dc${performance ? ' is-performance' : ''}`} {...look} aria-label="Discord">
-      {settingsAt ? <Suspense fallback={null}><DiscordSettings section={settingsAt} home={home} onSection={setSettingsAt} onClose={() => void transition(() => setSettingsAt(null))} /></Suspense> : null}
+      {/* Mounted with the room and hidden while closed: they open at once, on the section last shown. */}
+      <Suspense fallback={null}><DiscordSettings open={!!settingsAt} section={settingsAt ?? lastSettings.current} home={home} onSection={setSettingsAt} onClose={closeSettings} /></Suspense>
       <ProfileHost key={`p${opened}`} meId={meId} onMessage={messageUser} />
       <UserMenuHost key={`m${opened}`} place={place} list={list} home={home} />
       <FullProfileHost key={`f${opened}`} meId={meId} onMessage={messageUser} />
@@ -295,6 +301,15 @@ export function DiscordClient({ active }: { active: boolean }) {
   )
 }
 
+// Which section of Discord's settings is open, and the one they last showed: they stay mounted on it while closed.
+function useSettingsAt() {
+  const [settingsAt, setSettingsAt] = useState<DiscordSettingsSection | null>(takePendingSettings)
+  const lastSettings = useRef<DiscordSettingsSection>('account')
+  if (settingsAt) lastSettings.current = settingsAt
+  const closeSettings = useCallback(() => void transition(() => setSettingsAt(null)), [])
+  return { settingsAt, setSettingsAt, lastSettings, closeSettings }
+}
+
 // Your servers and opening one, for the profiles' Member Since and Mutual Servers.
 function useProfilePlaces(home: DiscordHome | null, openServer: (guildId: string) => void) {
   const guilds = home?.guilds
@@ -312,7 +327,11 @@ function useLiveLists(
 ) {
   useEffect(() => {
     const offChanged = onHostEvent('discord.changed', event => {
-      // A server's voice change shows only in its channel list; a DM call's shows on Home.
+      // A server's voice change shows in its channel list and on its rail mark (patched in place); a DM call's shows on Home.
+      if (event.voice && event.guildId && event.inVoice !== undefined) {
+        const { guildId, inVoice } = event
+        setHome(current => current && { ...current, guilds: current.guilds.map(g => g.id === guildId && g.inVoice !== inVoice ? { ...g, inVoice } : g) })
+      }
       if (!(event.voice && event.guildId)) refreshHome()
       if (place !== HOME && (event.guildId === null || event.guildId === place)) refreshChannels(place)
     })

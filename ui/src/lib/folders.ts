@@ -1,4 +1,5 @@
-import type { Game, LibraryFolder } from './host'
+import type { FolderSort, Game, LibraryFolder } from './host'
+import { sortGames } from './utils'
 
 /** A folder's colors, as the host keeps them (SettingsService.FolderColors); gray first, the default. */
 export const FOLDER_COLORS = ['gray', 'red', 'orange', 'yellow', 'green', 'teal', 'blue', 'pink'] as const
@@ -9,8 +10,8 @@ export const FOLDER_COLOR_NAMES: Record<FolderColor, string> = {
 export const folderColor = (color: string | undefined): FolderColor =>
   (FOLDER_COLORS as readonly string[]).includes(color ?? '') ? color as FolderColor : 'gray'
 
-/** A folder as the Library's grid shows it: its games that the library has, in the folder's order. */
-export type FolderView = { id: string; name: string; color: FolderColor; games: Game[] }
+/** A folder as the Library's grid shows it: its games that the library shows, in the folder's order or its sort. */
+export type FolderView = { id: string; name: string; color: FolderColor; sort: FolderSort; art: string | null; games: Game[] }
 
 /** A folder's place in the grid: a card of its own, carried as a game so the grid lays it out like one. */
 export type FolderTile = Game & { folder: FolderView }
@@ -22,14 +23,11 @@ export const isFolderTile = (game: Game): game is FolderTile => 'folder' in game
 /** The grid's id of a folder's card. */
 export const folderTileId = (folderId: string) => TILE + folderId
 
-/** The folder holding this game, if any. */
-export const folderOf = (folders: LibraryFolder[], gameId: string): LibraryFolder | undefined =>
-  folders.find(folder => folder.games.includes(gameId))
-
 /**
  * The grid with folders: each folder that holds a game of `all` comes first as one card, in the folders' order,
- * then the games of `games` in no folder, in `games`' order. `all` is every game the library shows (a folder keeps
- * a game that sits in Continue or Favorites, which take it out of `games`).
+ * then the games of `games` in no folder, in `games`' order. A game in folders shows inside each of them and not
+ * loose. `all` is every game the library shows (a folder keeps a game that sits in Continue, which takes it out of
+ * `games`; a hidden game is in neither). A folder's games are in its own order, or its sort.
  */
 export function withFolders(games: Game[], all: Game[], folders: LibraryFolder[]): Game[] {
   if (folders.length === 0) return games
@@ -40,6 +38,7 @@ export function withFolders(games: Game[], all: Game[], folders: LibraryFolder[]
     const inside = folder.games.map(id => byId.get(id)).filter((game): game is Game => !!game)
     for (const game of inside) filed.add(game.id)
     if (inside.length === 0) continue
+    const sort = folder.sort ?? 'folder'
     tiles.push({
       id: folderTileId(folder.id),
       title: folder.name,
@@ -48,7 +47,10 @@ export function withFolders(games: Game[], all: Game[], folders: LibraryFolder[]
       status: '',
       deps: [],
       launchNote: '',
-      folder: { id: folder.id, name: folder.name, color: folderColor(folder.color), games: inside },
+      folder: {
+        id: folder.id, name: folder.name, color: folderColor(folder.color), sort, art: folder.art ?? null,
+        games: sort === 'folder' ? inside : sortGames(inside, sort),
+      },
     })
   }
   return [...tiles, ...games.filter(game => !filed.has(game.id))]
@@ -71,33 +73,32 @@ export function freeFolderName(folders: LibraryFolder[]): string {
   }
 }
 
-const without = (folders: LibraryFolder[], gameIds: string[]) => {
-  const leaving = new Set(gameIds)
-  return folders.map(folder => folder.games.some(id => leaving.has(id)) ? { ...folder, games: folder.games.filter(id => !leaving.has(id)) } : folder)
-}
-
 /**
  * A folder saved from the New folder or Edit folder sheet: a new one goes first (the front of the grid), an edited
- * one keeps its place; its games leave any other folder, and a folder that empties goes away.
+ * one keeps its place. Its games stay in any other folder they are in.
  */
 export function saveFolder(folders: LibraryFolder[], folder: LibraryFolder): LibraryFolder[] {
   const clean = { ...folder, name: folder.name.trim().slice(0, 40) || freeFolderName(folders), color: folderColor(folder.color) }
-  const others = without(folders.filter(item => item.id !== folder.id), clean.games)
-  const at = folders.findIndex(item => item.id === folder.id)
-  const next = at < 0 ? [clean, ...others] : [...others.slice(0, at), clean, ...others.slice(at)]
-  return next.filter(item => item.games.length > 0)
+  return folders.some(item => item.id === folder.id)
+    ? folders.map(item => item.id === folder.id ? clean : item)
+    : [clean, ...folders]
 }
 
-/** The game moved into this folder (last in it); an emptied folder goes away. */
-export function moveToFolder(folders: LibraryFolder[], gameId: string, folderId: string): LibraryFolder[] {
-  return without(folders, [gameId])
-    .map(folder => folder.id === folderId ? { ...folder, games: [...folder.games, gameId] } : folder)
+/** The game added to this folder (last in it); the other folders it is in keep it. */
+export function addToFolder(folders: LibraryFolder[], gameId: string, folderId: string): LibraryFolder[] {
+  return folders.map(folder => folder.id === folderId && !folder.games.includes(gameId) ? { ...folder, games: [...folder.games, gameId] } : folder)
+}
+
+/** The game out of this folder only; an emptied folder goes away. */
+export function leaveFolder(folders: LibraryFolder[], gameId: string, folderId: string): LibraryFolder[] {
+  return folders
+    .map(folder => folder.id === folderId ? { ...folder, games: folder.games.filter(id => id !== gameId) } : folder)
     .filter(folder => folder.games.length > 0)
 }
 
-/** The game back in the grid; an emptied folder goes away. */
-export function leaveFolder(folders: LibraryFolder[], gameId: string): LibraryFolder[] {
-  return without(folders, [gameId]).filter(folder => folder.games.length > 0)
+/** The folder's order: its own ('folder') or one of the Library's sorts. */
+export function sortFolder(folders: LibraryFolder[], folderId: string, sort: FolderSort): LibraryFolder[] {
+  return folders.map(folder => folder.id === folderId ? { ...folder, sort } : folder)
 }
 
 export function renameFolder(folders: LibraryFolder[], folderId: string, name: string): LibraryFolder[] {

@@ -30,21 +30,28 @@ export function DevicesRoom({ active }: { active: boolean }) {
   const frame = useRef<HTMLIFrameElement>(null)
   const [load, setLoad] = useState(0)
   const [failed, setFailed] = useState(false)
+  // The load whose frame has said anything: it is running from then on, however quiet it goes after (behind a game it
+  // reads the mouse slowly or not at all). Judged per load, not per showing of the room: a room shown again used to
+  // start the wait over and call a quiet, working Exo Mouse not loaded.
+  const heard = useRef(-1)
+  const loadNow = useRef(load)
+  loadNow.current = load
   useEffect(() => {
-    let heard = false
     const listen = (event: MessageEvent) => {
       if (event.origin !== MOUSE_ORIGIN || event.source === null || event.source !== frame.current?.contentWindow) return
       // A slow start that answers after the wait still gets its room back.
-      heard = true
+      heard.current = loadNow.current
       setFailed(false)
     }
     window.addEventListener('message', listen)
-    const timer = window.setTimeout(() => { if (!heard) setFailed(true) }, LOAD_MS)
-    return () => {
-      window.removeEventListener('message', listen)
-      window.clearTimeout(timer)
-    }
-  }, [load])
+    return () => window.removeEventListener('message', listen)
+  }, [])
+  // The wait runs only while the room is on screen in front: a frame loading behind a game or a minimized Exo is slowed.
+  useEffect(() => {
+    if (!visible || heard.current === load) return
+    const timer = window.setTimeout(() => { if (heard.current !== load) setFailed(true) }, LOAD_MS)
+    return () => window.clearTimeout(timer)
+  }, [load, visible])
 
   return (
     <>

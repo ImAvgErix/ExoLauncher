@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { avatarUrl, displayName, type DiscordMessage } from '../../lib/discord'
 import { MarkdownLine, type MarkdownContext } from './markdown'
+import { ModalBack } from './SettingsLayer'
 
 export type ConfirmKind = 'delete' | 'pin' | 'unpin'
 
@@ -47,7 +48,7 @@ export function MessageConfirm({ kind, message, channel, ctx, onConfirm, onCance
   }, [onConfirm, onCancel])
   const { title, body, tip, action, danger } = words(kind, channel)
   return (
-    <div className="exo-dc-modal-back" onClick={onCancel}>
+    <ModalBack onClose={onCancel}>
       <div className="exo-dc-modal exo-dc-delete" role="alertdialog" aria-label={title} onClick={event => event.stopPropagation()}>
         <h2>{title}</h2>
         <p className="exo-dc-note">{body}</p>
@@ -64,6 +65,6 @@ export function MessageConfirm({ kind, message, channel, ctx, onConfirm, onCance
           <button type="button" className={`exo-dc-tab${danger ? ' is-danger' : ' is-raised'}`} onClick={onConfirm} autoFocus>{action}</button>
         </footer>
       </div>
-    </div>
+    </ModalBack>
   )
 }

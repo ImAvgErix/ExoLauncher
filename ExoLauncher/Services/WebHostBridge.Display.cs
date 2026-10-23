@@ -5,21 +5,7 @@ namespace ExoLauncher.Services;
 
 public sealed partial class WebHostBridge
 {
-    private const int DisplayKeepSeconds = 15;
     private readonly Lock _displayGate = new();
-    private DisplayPending? _displayPending;
-
-    /// <summary>An unconfirmed change: put back by <see cref="Revert"/> unless kept before the deadline.</summary>
-    private sealed class DisplayPending
-    {
-        public required string Id { get; init; }
-        public required Action Revert { get; init; }
-        /// <summary>What a kept change still has to save; null when everything is saved as it applies.</summary>
-        public Func<string?>? Keep { get; init; }
-        public required DateTime Deadline { get; init; }
-        public Timer? Timer { get; set; }
-        public CancellationTokenRegistration Registration { get; set; }
-    }
 
     /// <summary>One active screen: its GPU, the refresh rates and colors it takes, and what its link carries now.</summary>
     private sealed record DisplayScreen(string Gdi, string Name, bool Main, bool Hdr, string? Vendor, uint? NvId, uint Target,
@@ -29,10 +15,8 @@ public sealed partial class WebHostBridge
     /// <summary>
     /// System > Display: every screen's refresh rate and output color (format, depth, range), and
     /// the best its link carries, and on NVIDIA its scaling. "set" applies a change (or "best", or
-    /// "auto": the driver's own color settings) and starts a 15 second
-    /// countdown that puts it back, here, unless "keep" comes first; "revert" puts it back now.
-    /// Closing Exo during the countdown puts it back too. "adjust" sets the color sliders
-    /// (<see cref="SetColor"/>), which apply at once.
+    /// "auto": the driver's own color settings) and keeps it at once. "adjust" sets the color sliders
+    /// (<see cref="SetColor"/>), which apply at once too.
     /// </summary>
     private Task<object> GpuDisplayAsync(JsonElement p, bool hasParams) => Task.Run(() =>
     {
@@ -40,20 +24,6 @@ public sealed partial class WebHostBridge
         string? message = null;
         switch (action)
         {
-            case "keep":
-                lock (_displayGate)
-                {
-                    if (_displayPending is { } kept)
-                    {
-                        Finish(kept);
-                        message = kept.Keep?.Invoke();
-                        AppLog.Info($"Display: kept the change on {kept.Id}.");
-                    }
-                }
-                break;
-            case "revert":
-                RevertDisplay();
-                break;
             case "set":
                 message = SetDisplay(p, hasParams);
                 break;
@@ -75,8 +45,6 @@ public sealed partial class WebHostBridge
         var primary = WindowsHdr.PrimaryGdiName();
         var screens = WindowsHdr.All().Select(screen => ReadScreen(screen, primary)).ToList();
         var nvidia = screens.FirstOrDefault(screen => screen.NvId is not null)?.Gdi;
-        DisplayPending? pending;
-        lock (_displayGate) pending = _displayPending;
         return new
         {
             ok = message is null,
@@ -114,23 +82,19 @@ public sealed partial class WebHostBridge
                 superResolution = NvidiaVideo.Read(nvidia, NvidiaVideo.SuperResolution),
                 hdr = NvidiaVideo.Read(nvidia, NvidiaVideo.VideoHdr),
             },
-            pending = pending is null ? null : new
-            {
-                display = pending.Id,
-                seconds = Math.Max(0, (int)Math.Ceiling((pending.Deadline - DateTime.UtcNow).TotalSeconds)),
-            },
         };
     }
 
     /// <summary>
-    /// The best a screen takes: its highest refresh rate, the best color at it, and where the driver has
+    /// The best a screen takes: its best refresh rate (<see cref="DisplayOutput.BestRefresh"/>: the main screen's highest,
+    /// 60 Hz on any other), the best color at it, and where the driver has
     /// them (NVIDIA; AMD and Intel scaling isn't in Exo) No scaling performed on the GPU, overriding what
     /// games ask for: the picture is never stretched or blurred. Scaling and Override are null where the
     /// driver doesn't say.
     /// </summary>
     private static (int Refresh, OutputColor? Color, string? Why, int? Scaling, bool? Override) BestFor(DisplayScreen screen)
     {
-        var refresh = screen.Refreshes.Length > 0 ? screen.Refreshes.Max() : screen.Refresh;
+        var refresh = DisplayOutput.BestRefresh(screen.Main, screen.Refreshes, screen.Refresh);
         var (color, why) = DisplayOutput.BestColor(screen.Supported, screen.Refresh, screen.Caps?.PanelBpc);
         if (refresh != screen.Refresh && screen.Supported.Count > 0)
             why = $"Color checked at {screen.Refresh} Hz; Exo checks it again at {refresh} Hz when you use it." + (why is null ? "" : " " + why);
@@ -162,12 +126,15 @@ public sealed partial class WebHostBridge
         return null;
     }
 
-    /// <summary>Applies one change and starts the countdown; null when it went through as asked, else what to tell the user.</summary>
+    /// <summary>
+    /// Applies one change and keeps it; null when it went through as asked, else what to tell the user. No trial and no
+    /// Keep: Exo offers only the modes the screen reports it takes, and a trial waiting on Keep locked every other row
+    /// until it was pressed, so changes went one at a time.
+    /// </summary>
     private string? SetDisplay(JsonElement p, bool hasParams)
     {
         lock (_displayGate)
         {
-            if (_displayPending is not null) return "Keep or undo the last change first.";
             var id = ReadString(p, hasParams, "display");
             var raw = WindowsHdr.All().FirstOrDefault(screen => DisplayId(screen.GdiName) == id);
             if (raw is null) return "That screen is not connected.";
@@ -232,7 +199,7 @@ public sealed partial class WebHostBridge
                     scalingTo = to;
                 }
             }
-            // Best also turns on "Override the scaling set by games" (NVIDIA); the countdown puts it back with the rest.
+            // Best also turns on "Override the scaling set by games" (NVIDIA).
             var overrideOn = false;
             if (message is null && best && bestFor.Override == true && now.Override == false && now.NvId is { } overId)
             {
@@ -240,58 +207,11 @@ public sealed partial class WebHostBridge
                 overrideOn = message is null;
             }
             if (refresh == before.Refresh && !colorChanged && scalingTo is null && !overrideOn) return message;
-
-            var pending = new DisplayPending
-            {
-                Id = DisplayId(before.Gdi),
-                Deadline = DateTime.UtcNow.AddSeconds(DisplayKeepSeconds),
-                // The old refresh rate first: the old color may not exist at the new rate (10-bit at
-                // 144 Hz, not at 240 Hz), so it goes back once the screen is at the rate it was chosen for.
-                Revert = () =>
-                {
-                    string?[] lines =
-                    [
-                        refresh != before.Refresh ? DisplayOutput.SetRefresh(before.Gdi, before.Refresh) : null,
-                        scalingTo is not null && before.NvId is { } id && before.Scaling is { } scaling ? NvidiaScaling.Write(id, scaling) : null,
-                        overrideOn && before.NvId is { } overBack ? NvidiaScaling.WriteOverride(overBack, false) : null,
-                        colorChanged && before.Color is { } color ? WriteColor(before, color, before.Auto) : null,
-                    ];
-                    if (lines.FirstOrDefault(line => line is not null) is { } failed)
-                        AppLog.Warn($"Display: part of the change on {DisplayId(before.Gdi)} did not go back: {failed}");
-                },
-                Keep = refresh != before.Refresh ? () => DisplayOutput.SaveRefresh(before.Gdi) : null,
-            };
-            _displayPending = pending;
-            pending.Timer = new Timer(_ =>
-            {
-                if (RevertDisplay(pending)) PostEvent("gpu.display.reverted", new { display = pending.Id });
-            }, null, TimeSpan.FromSeconds(DisplayKeepSeconds), Timeout.InfiniteTimeSpan);
-            pending.Registration = _bridgeLifetime.Token.Register(() => RevertDisplay(pending));
-            AppLog.Info($"Display: changed {pending.Id} to {refresh} Hz{(wanted is null ? "" : ", " + DisplayOutput.Label(wanted))}; waiting {DisplayKeepSeconds} s to keep it.");
+            // A new refresh rate is saved as Windows' own, so it holds after a restart.
+            if (refresh != before.Refresh) message ??= DisplayOutput.SaveRefresh(before.Gdi);
+            AppLog.Info($"Display: changed {DisplayId(before.Gdi)} to {refresh} Hz{(wanted is null ? "" : ", " + DisplayOutput.Label(wanted))}.");
             return message;
         }
-    }
-
-    /// <summary>Puts the pending change back; with <paramref name="only"/>, only if that is still the pending one. True when something was put back.</summary>
-    private bool RevertDisplay(DisplayPending? only = null)
-    {
-        lock (_displayGate)
-        {
-            if (_displayPending is not { } pending || (only is not null && only != pending)) return false;
-            Finish(pending);
-            try { pending.Revert(); }
-            catch (Exception ex) { AppLog.Warn("Display: put back failed: " + ex.Message); }
-            AppLog.Info($"Display: put back the change on {pending.Id}.");
-            return true;
-        }
-    }
-
-    private void Finish(DisplayPending pending)
-    {
-        pending.Timer?.Dispose();
-        // Unregister, not Dispose: Dispose would wait on a shutdown revert that waits on this lock.
-        pending.Registration.Unregister();
-        _displayPending = null;
     }
 
     /// <summary>The screen as Windows has it now (its link's pixel rate changes with the refresh rate).</summary>

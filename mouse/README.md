@@ -6,9 +6,9 @@ driver or account, for every mouse
 [OpenMouse](https://github.com/OpenMouse-Project)'s protocol library supports.
 
 - **Status:** battery, charging, wireless signal and firmware, and the mouse's
-  name and battery in Exo's top bar.
-- **Settings:** DPI, polling rate, lift-off, buttons, scroll wheel, lighting and
-  more, showing only what your mouse has.
+  battery and profile in Exo's top bar.
+- **Settings:** DPI, polling rate, lift-off, motion sync, buttons, lighting,
+  sleep and more, showing only what your mouse has.
 - **Profiles:** each one linked to games and switched on by itself when one of
   them starts.
 - **Wired or wireless:** on its cable or its receiver, the same mouse with the
@@ -34,13 +34,14 @@ own; it reaches devices only through a small message protocol with its host:
 | `hid.receiveFeatureReport` / `hid.receiveInputReport { device, reportId }` | Read a report (base64) |
 | event `hid.input { device, reportId, data }` | An input report |
 | event `hid.changed` | A device arrived or left |
-| `exo.games` | Installed games, id and title only, to link a profile to games |
+| `exo.games` | Installed games (id, title and Exo's own cached cover thumbnail), to link a profile to games |
 | `exo.profiles.read` / `exo.profiles.write { data }` | Exo Mouse's saved profiles, kept in Exo's data folder |
-| one-way `{ notice }` / `{ state }` | A one-line notice for Exo to show, and the mouse's name and battery for its title bar |
+| one-way `{ notice }` / `{ state }` / `{ profile }` | A one-line notice for Exo to show; the mouse's name, battery and charging, and the name of the profile on it, for Exo's top bar |
 | event `game.runState { id, isRunning }` | A game started or stopped |
 | event `room.visible` | Whether the Devices room is on screen |
 | `exo.textScale`, event `exo.textScale { scale }` | The host's text size, as a factor on every font size |
 | `exo.motion`, event `exo.motion { motion }` | `reduce` or `full`: the host's reduce-motion setting, which stops every move here too |
+| `exo.theme`, event `exo.theme { theme }` | `light`, `dark` or `void`: the host's Appearance, which Exo Mouse is drawn in |
 
 `src/exo-hid.ts` turns that into the browser's WebHID interface, so the
 protocol library's drivers run unchanged.
@@ -48,7 +49,7 @@ protocol library's drivers run unchanged.
 ## Changes to OpenMouse
 
 `scripts/patch-protocol.mjs` runs before every build and applies fixes to
-`@openmouse/protocol` 0.42.2 until upstream ships them. It stops the build when
+`@openmouse/protocol` 0.45.2 until upstream ships them. It stops the build when
 the library version changes, so a fixed release is noticed and its patch removed.
 
 ## Build

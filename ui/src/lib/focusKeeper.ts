@@ -28,4 +28,24 @@ export function installFocusKeeper(): void {
       }
     }
   }).observe(document.body, { subtree: true, attributes: true, attributeFilter: ['disabled'] })
+  document.addEventListener('focusin', event => ringInside(event.target))
+}
+
+/**
+ * A keyboard ring sits 2px outside its control. Where a list or capsule clips there (a row flush with its scroller,
+ * a server at the rail's top), the ring would be cut flat, so it moves inside the control (system.css).
+ */
+function ringInside(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement) || !target.matches(':focus-visible')) return
+  const reach = 4 // Exo's one ring: 2px wide, 2px out (tokens.css)
+  const box = target.getBoundingClientRect()
+  let cut = false
+  for (let parent = target.parentElement; parent && !cut; parent = parent.parentElement) {
+    const clip = getComputedStyle(parent)
+    if (!/auto|scroll|hidden|clip/.test(clip.overflowX + clip.overflowY)) continue
+    const edge = parent.getBoundingClientRect()
+    cut = box.left - reach < edge.left || box.right + reach > edge.right || box.top - reach < edge.top || box.bottom + reach > edge.bottom
+  }
+  if (cut) target.dataset.exoRing = 'inside'
+  else delete target.dataset.exoRing
 }

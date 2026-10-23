@@ -333,14 +333,17 @@ export function Profiles({ device, status, client, applyAll, busy }: {
             </span>
           )}
           <span className="m-row-control m-actions">
-            <button type="button" className={`m-button${applying === p.id ? ' m-work' : ''}`} disabled={busy || active(p)} onClick={() => void apply(p)}>Apply</button>
+            {/* The profile on the mouse says Active beside its name; it has nothing to apply. */}
+            {active(p) ? null : (
+              <button type="button" className={`m-button is-compact${applying === p.id ? ' m-work' : ''}`} disabled={busy} onClick={() => void apply(p)}>Apply</button>
+            )}
             {p.isDefault ? (
-              <button type="button" className="m-link" disabled={active(p)} onClick={() => update(p.id)}>Update</button>
+              active(p) ? null : <button type="button" className="m-button is-compact" onClick={() => update(p.id)}>Update</button>
             ) : (
               <>
-                <button type="button" className="m-link" aria-haspopup="dialog" onClick={() => setLinking(p.id)}>Games</button>
-                <button type="button" className="m-link" onClick={() => { setRenaming(p.id); setDraft(p.name) }}>Rename</button>
-                <button type="button" className="m-link" onClick={() => remove(p.id)}>{deleting === p.id ? 'Sure?' : 'Delete'}</button>
+                <button type="button" className="m-button is-compact" aria-haspopup="dialog" onClick={() => setLinking(p.id)}>Games</button>
+                <button type="button" className="m-button is-compact" onClick={() => { setRenaming(p.id); setDraft(p.name) }}>Rename</button>
+                <button type="button" className="m-button is-compact is-danger" onClick={() => remove(p.id)}>{deleting === p.id ? 'Sure?' : 'Delete'}</button>
               </>
             )}
           </span>

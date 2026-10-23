@@ -114,6 +114,11 @@ function Sensitivity(section: Section) {
   const canValue = can(client, 'setDpiStageValue')
   const canActive = can(client, 'setActiveDpiStage')
   const canCount = editor.countEditable === true && can(client, 'setDpiStageCount')
+  // X and Y per stage where the mouse stores both and the driver writes one axis while keeping the other.
+  const axesSetter = ['setDpiStageAxes', 'setLunaFuryDpiStageAxes'].find(m => can(client, m))
+  const separate = status.lunafury?.separateDpiAxes
+  const canSeparate = separate != null && can(client, 'setLunaFurySeparateDpiAxes')
+  const stagesY = canValue && axesSetter && separate !== false ? status.dpiStagesY : undefined
   const sliderMax = Math.max(editor.minDpi + editor.stepDpi, Math.min(editor.maxDpi, 6400))
   const counts = Array.from({ length: Math.max(1, editor.maxStages) }, (_, i) => i + 1)
   return (
@@ -133,6 +138,11 @@ function Sensitivity(section: Section) {
             onChange={n => void apply('setDpiStageCount', n)} disabled={busy} />
         </Row>
       ) : null}
+      {canSeparate ? (
+        <Row label="Separate X and Y">
+          <Switch label="Separate X and Y" checked={separate === true} onChange={on => void apply('setLunaFurySeparateDpiAxes', on)} disabled={busy} />
+        </Row>
+      ) : null}
       {stages.length > 1 ? (
         <Row label="Active stage">
           {canActive ? (
@@ -145,14 +155,22 @@ function Sensitivity(section: Section) {
       ) : null}
       {stages.map((dpi, i) => {
         const y = status.dpiStagesY?.[i]
+        const editY = axesSetter && stagesY?.[i] != null ? stagesY[i] : null
         return (
-          <Row key={i} label={`Stage ${i + 1}`} value={y != null && y !== dpi ? `Vertical ${y}` : status.activeDpiStage === i && stages.length > 1 ? 'Active' : undefined}>
+          <Row key={i} label={`Stage ${i + 1}`} value={editY == null && separate !== false && y != null && y !== dpi ? `Vertical ${y}` : status.activeDpiStage === i && stages.length > 1 ? 'Active' : undefined}>
             <span className="cx-stage">
               {canColor ? (
                 <ColorField label={`Stage ${i + 1} color`} value={colors![i]!} disabled={busy}
                   onCommit={hex => void apply('setDpiStageColor', i, hex)} />
               ) : showColors ? <span className="m-seg-dot" style={{ background: colors![i] }} /> : null}
-              {canValue ? (
+              {editY != null ? (
+                <span className="cx-pair">
+                  <NumberField label={`Stage ${i + 1} X DPI`} min={editor.minDpi} max={editor.maxDpi} step={editor.stepDpi} suffix="X"
+                    value={dpi} onCommit={v => void apply(axesSetter!, i, v, editY)} disabled={busy} />
+                  <NumberField label={`Stage ${i + 1} Y DPI`} min={editor.minDpi} max={editor.maxDpi} step={editor.stepDpi} suffix="Y"
+                    value={editY} onCommit={v => void apply(axesSetter!, i, dpi, v)} disabled={busy} />
+                </span>
+              ) : canValue ? (
                 <>
                   <Slider label={`Stage ${i + 1} DPI`} min={editor.minDpi} max={sliderMax} step={editor.stepDpi}
                     value={Math.min(dpi, sliderMax)} onCommit={v => void apply('setDpiStageValue', i, v)} disabled={busy} />
@@ -173,7 +191,8 @@ function Sensitivity(section: Section) {
 const LOD_LEVELS = ['Low', 'Medium', 'High'] as const
 type Lod = (typeof LOD_LEVELS)[number]
 const SENSOR_MODES = [{ value: 'Eco', label: 'Eco' }, { value: 'High', label: 'High' }, { value: 'Ultra', label: 'Ultra' }] as const
-const LOD_MODE = [{ value: 'single', label: 'Single' }, { value: 'asymmetric', label: 'Asymmetric' }] as const
+// Razer's names (Focus Pro): Smart Tracking, or a lift-off and landing of your own.
+const LOD_MODE = [{ value: 'single', label: 'Smart Tracking' }, { value: 'asymmetric', label: 'Asymmetric Cut-off' }] as const
 
 function replacesLiftOff({ status, client }: Section): boolean {
   if (status.finalmousePawLodMm != null) return false
@@ -185,10 +204,22 @@ function isPulsarPro(status: MouseStatus): boolean {
   return status.connectionDetail?.includes('Pulsar Pro protocol') === true
 }
 
+/** Profile command 0x13 by each brand's own name for it (their hubs; Exo's generic name otherwise). */
 function performanceLabel(status: MouseStatus): string {
-  if (status.brand === 'CRDRAKO') return 'Competitive mode'
+  if (status.brand === 'CRDRAKO') return 'Competition mode'
+  if (status.brand === 'Lamzu') return '20K FPS'
+  if (status.brand === 'LunaFury') return 'Tracking mode'
   if (status.brand === 'Teevolution') return 'Highest performance'
+  if (status.brand === 'Pulsar') return isPulsarPro(status) ? 'Turbo mode' : 'Highest performance'
   return 'Performance mode'
+}
+
+/** Command 0x0b by each brand's own name for it. */
+function hyperLabel(status: MouseStatus): string {
+  if (status.brand === 'Lamzu') return 'Competition mode'
+  if (status.brand === 'LunaFury') return 'Competitive mode'
+  if (status.brand === 'WLMouse' || status.brand === 'CRDRAKO') return 'High-speed mode'
+  return 'Hyper mode'
 }
 
 function Sensor(section: Section) {
@@ -209,12 +240,13 @@ function Sensor(section: Section) {
     const label = performanceLabel(status)
     rows.push(
       <Row key="pm" label={label}>
-        <Switch label={label} checked={status.performanceMode} onChange={v => void apply('setPerformanceMode', v)} disabled={busy} />
+        {/* Lamzu's 20K FPS works only while Competition mode is on. */}
+        <Switch label={label} checked={status.performanceMode} onChange={v => void apply('setPerformanceMode', v)} disabled={busy || (status.brand === 'Lamzu' && status.hyperMode === false)} />
       </Row>,
     )
   }
   if (status.hyperMode != null && can(client, 'setHyperMode')) {
-    const label = status.brand === 'WLMouse' ? 'High-speed mode' : 'Hyper mode'
+    const label = hyperLabel(status)
     rows.push(
       <Row key="hm" label={label}>
         <Switch label={label} checked={status.hyperMode} onChange={v => void apply('setHyperMode', v)} disabled={busy} />
@@ -263,8 +295,8 @@ function liftOffRows({ status, client, apply, busy }: Section): ReactNode[] {
     const startLanding = Math.min(pair.landingRange.max, Math.max(pair.landingRange.min, Math.min(pair.landing, liftOff - 1)))
     if (canSingle) {
       rows.push(
-        <Row key="lodm" label="Lift-off mode">
-          <Segmented label="Lift-off mode" options={LOD_MODE} value={pair.enabled == null ? null : pair.enabled ? 'asymmetric' : 'single'}
+        <Row key="lodm" label="Tracking">
+          <Segmented label="Tracking" options={LOD_MODE} value={pair.enabled == null ? null : pair.enabled ? 'asymmetric' : 'single'}
             onChange={v => void (v === 'asymmetric'
               ? apply('setLiftOff', liftOff, startLanding)
               : apply('setLiftOffDistance', status.liftOffDistance ?? 'Medium'))}
@@ -274,12 +306,12 @@ function liftOffRows({ status, client, apply, busy }: Section): ReactNode[] {
     }
     if (pair.enabled === true || !canSingle) {
       rows.push(
-        <Row key="lodl" label="Lift-off">
-          <Slider label="Lift-off" min={pair.liftOffRange.min} max={pair.liftOffRange.max} step={1} value={liftOff} format={String}
+        <Row key="lodl" label="Lift-off distance">
+          <Slider label="Lift-off distance" min={pair.liftOffRange.min} max={pair.liftOffRange.max} step={1} value={liftOff} format={String}
             onCommit={v => void apply('setLiftOff', v, Math.max(pair.landingRange.min, Math.min(startLanding, v - 1)))} disabled={busy} />
         </Row>,
-        <Row key="lodg" label="Landing">
-          <Slider label="Landing" min={pair.landingRange.min} max={pair.landingRange.max} step={1} value={startLanding} format={String}
+        <Row key="lodg" label="Landing distance">
+          <Slider label="Landing distance" min={pair.landingRange.min} max={pair.landingRange.max} step={1} value={startLanding} format={String}
             onCommit={v => void apply('setLiftOff', liftOff, Math.min(v, liftOff - 1))} disabled={busy} />
         </Row>,
       )
@@ -368,8 +400,8 @@ function ButtonsAndWheel({ status, client, apply, busy }: Section) {
   }
   if (status.buttonCombination != null && can(client, 'setButtonCombination')) {
     rows.push(
-      <Row key="bc" label="Button combinations">
-        <Switch label="Button combinations" checked={status.buttonCombination} onChange={v => void apply('setButtonCombination', v)} disabled={busy} />
+      <Row key="bc" label="Button combination">
+        <Switch label="Button combination" checked={status.buttonCombination} onChange={v => void apply('setButtonCombination', v)} disabled={busy} />
       </Row>,
     )
   }

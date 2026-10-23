@@ -4,7 +4,10 @@ namespace ExoLauncher.Services;
 
 /// <summary>
 /// System > Graphics > Driver and profile. gpu.profile: Exo's profile for this PC (no
-/// action), apply (with gsync: the G-SYNC or No G-SYNC variant) or undo.
+/// action), apply (with gsync: the G-SYNC or No G-SYNC variant; on a Radeon, antiLag; on Intel,
+/// lowLatency) or undo. gpu.sensors: what the GPU reports right now. gpu.game: a game's Fluid
+/// Motion Frames choice on a Radeon (set when "afmf" is passed), or its XeSS frame generation on
+/// Intel (set when "frameGen" is passed).
 /// gpu.import: a Profile Inspector file for the global profile (pick, apply,
 /// undo, cancel, state). The file's path stays here: the page gets its
 /// profile name and the settings in plain words.
@@ -25,16 +28,29 @@ public sealed partial class WebHostBridge
         }
     }
 
+    // The System room's header and its profile tab both read the profile as it shows, and each read is a whole driver
+    // session (half a second or more): the second waited out the first. One read in flight answers both.
+    private readonly Lock _profileReadGate = new();
+    private Task<GpuProfileService.State>? _profileRead;
+
+    private Task<GpuProfileService.State> SharedProfileRead()
+    {
+        lock (_profileReadGate)
+        {
+            if (_profileRead is { IsCompleted: false } running) return running;
+            return _profileRead = Task.Run(GpuProfileService.Read);
+        }
+    }
+
     private async Task<object> GpuProfileAsync(JsonElement p, bool hasParams, CancellationToken ct)
     {
         var action = ReadString(p, hasParams, "action");
         var gsync = ReadBool(p, hasParams, "gsync") == true;
-        var state = await Task.Run(() => action switch
-        {
-            "apply" => GpuProfileService.Apply(gsync),
-            "undo" => GpuProfileService.Undo(),
-            _ => GpuProfileService.Read(),
-        }, ct).ConfigureAwait(false);
+        var antiLag = ReadString(p, hasParams, "antiLag");
+        var lowLatency = ReadString(p, hasParams, "lowLatency");
+        var state = action is "apply" or "undo"
+            ? await Task.Run(() => action == "apply" ? GpuProfileService.Apply(gsync, antiLag, lowLatency) : GpuProfileService.Undo(), ct).ConfigureAwait(false)
+            : await SharedProfileRead().WaitAsync(ct).ConfigureAwait(false);
         return new
         {
             ok = state.Ok,
@@ -48,7 +64,52 @@ public sealed partial class WebHostBridge
             canUndo = state.CanUndo,
             driverUpdated = state.DriverUpdated,
             items = state.Manual.Select(item => new { key = item.Key, label = item.Label, value = item.Value, why = item.Why, current = item.Current }).ToList(),
+            antiLag = state.AntiLag,
+            lowLatency = state.LowLatency,
+            summary = state.Summary,
         };
+    }
+
+    /// <summary>The main AMD GPU's sensors now (board power and fan included); ok false (nothing shown) on other GPUs or when ADLX can't read them.</summary>
+    private static async Task<object> GpuSensorsAsync(CancellationToken ct)
+    {
+        var sensors = await Task.Run(() => GraphicsService.Vendor() == "amd" ? Helpers.AmdAdlx.ReadSensors() : null, ct).ConfigureAwait(false);
+        if (sensors is null) return new { ok = false };
+        return new
+        {
+            ok = true,
+            temperature = sensors.TemperatureC,
+            hotspot = sensors.HotspotC,
+            watts = sensors.Watts,
+            clock = sensors.ClockMhz,
+            vramUsed = sensors.VramUsedMb,
+            vramTotal = sensors.VramTotalMb,
+            fan = sensors.FanRpm,
+            usage = sensors.UsagePercent,
+        };
+    }
+
+    /// <summary>
+    /// Game sheet > driver frame generation: on a Radeon, Fluid Motion Frames (supported, on for this game, whether AMD
+    /// Software runs); on Intel, XeSS frame generation's override (supported, the game's choice).
+    /// </summary>
+    private async Task<object> GpuGameAsync(JsonElement p, bool hasParams, CancellationToken ct)
+    {
+        var game = await FindGameAsync(ReadString(p, hasParams, "id"), ct).ConfigureAwait(false);
+        if (game is null) return new { ok = false, message = "Game not found." };
+        if (await Task.Run(() => GraphicsService.Vendor(), ct).ConfigureAwait(false) == "intel")
+        {
+            var intel = IntelProfileService.Shared;
+            if (ReadString(p, hasParams, "frameGen") is { } choice && !await Task.Run(() => intel.SetFrameGen(game.Id, choice), ct).ConfigureAwait(false))
+                return new { ok = false, message = "Could not save." };
+            var (canGenerate, frameGen) = await Task.Run(() => intel.FrameGen(game.Id), ct).ConfigureAwait(false);
+            return new { ok = true, vendor = "intel", supported = canGenerate, frameGen };
+        }
+        var radeon = RadeonProfileService.Shared;
+        if (ReadBool(p, hasParams, "afmf") is { } on && !await Task.Run(() => radeon.SetAfmf(game.Id, on), ct).ConfigureAwait(false))
+            return new { ok = false, message = "Could not save." };
+        var (supported, afmf, amdSoftware) = await Task.Run(() => radeon.Afmf(game.Id), ct).ConfigureAwait(false);
+        return new { ok = true, vendor = "amd", supported, afmf, amdSoftware };
     }
 
     private async Task<object> GpuImportAsync(JsonElement p, bool hasParams, CancellationToken ct)
@@ -123,13 +184,23 @@ public sealed partial class WebHostBridge
     /// <summary>
     /// System > Graphics > Driver and profile's driver row (<see cref="NvidiaDriverService"/>): "state" checks NVIDIA's newest Game Ready
     /// driver for this card against the installed one; "update" (after the user's consent) starts the
-    /// driver-only clean install, its progress arriving as gpu.driver events.
+    /// driver-only clean install, its progress arriving as gpu.driver events. A Radeon or an Intel GPU gets the
+    /// same row from <see cref="GpuDriverUpdate"/>, for the vendor whose GPU Exo talks to (else the first one Windows lists).
     /// </summary>
     private async Task<object> GpuDriverAsync(JsonElement p, bool hasParams, CancellationToken ct)
     {
         Action<NvidiaDriverService.Progress> post = progress => PostEvent("gpu.driver", DriverProgress(progress));
-        if (Interlocked.CompareExchange(ref _driverEvents, post, null) is null) NvidiaDriverService.Changed += post;
-        if (GraphicsService.Vendor() != "nvidia") return new { ok = true, nvidia = false };
+        if (Interlocked.CompareExchange(ref _driverEvents, post, null) is null)
+        {
+            NvidiaDriverService.Changed += post;
+            GpuDriverUpdate.Changed += post;
+        }
+        // While an update runs the row stays on its vendor: mid-install, Windows may list no GPU of that vendor.
+        var vendor = GpuDriverUpdate.Updating
+            ?? (NvidiaDriverService.Current.Stage is "downloading" or "unpacking" or "waiting" or "installing" ? "nvidia" : null)
+            ?? GraphicsService.Vendor() ?? GraphicsService.Vendors(GpuCapability.Adapters()).FirstOrDefault();
+        if (vendor is "amd" or "intel") return await VendorDriverAsync(vendor, ReadString(p, hasParams, "action") == "update", ct).ConfigureAwait(false);
+        if (vendor != "nvidia") return new { ok = true, vendor = (string?)null };
         var card = NvidiaDriverService.Card();
         var workstation = card is not null && NvidiaDriverService.Workstation(card);
         var latest = await NvidiaDriverService.LatestAsync(ReadString(p, hasParams, "branch") == "studio" ? "studio" : "game", ct).ConfigureAwait(false);
@@ -141,7 +212,7 @@ public sealed partial class WebHostBridge
         {
             ok = message is null,
             message,
-            nvidia = true,
+            vendor,
             card,
             workstation,
             installed,
@@ -149,6 +220,29 @@ public sealed partial class WebHostBridge
             update = latest is not null && installed is not null && NvidiaDriverService.Compare(latest.Version, installed) > 0,
             blocked = NvidiaDriverService.Blocked(),
             progress = DriverProgress(NvidiaDriverService.Current),
+        };
+    }
+
+    /// <summary>The row on a Radeon or an Intel GPU: AMD's or Intel's newest driver for the card (no Game Ready or Studio choice).</summary>
+    private static async Task<object> VendorDriverAsync(string vendor, bool update, CancellationToken ct)
+    {
+        var card = GpuDriverUpdate.Card(vendor);
+        var latest = await GpuDriverUpdate.LatestAsync(vendor, ct).ConfigureAwait(false);
+        string? message = null;
+        if (update) message = latest is null ? $"{(vendor == "amd" ? "AMD" : "Intel")}'s newest driver couldn't be found." : GpuDriverUpdate.Start(latest);
+        var installed = card is null ? null : GpuDriverUpdate.Installed(vendor, card);
+        return new
+        {
+            ok = message is null,
+            message,
+            vendor,
+            card,
+            workstation = false,
+            installed,
+            latest = latest is null ? null : new { version = latest.Version, size = latest.Size, released = latest.Released, kind = latest.Kind, page = latest.Page },
+            update = latest is not null && GpuDriverUpdate.Newer(latest.Version, installed),
+            blocked = GpuDriverUpdate.Blocked(),
+            progress = DriverProgress(GpuDriverUpdate.Current),
         };
     }
 

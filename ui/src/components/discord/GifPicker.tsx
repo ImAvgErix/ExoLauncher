@@ -1,9 +1,9 @@
-import { openToggle } from './openToggle'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { host } from '../../lib/host'
 import { report } from '../../lib/report'
 import { performanceMode, type DiscordFavoriteGif, type DiscordGif } from '../../lib/discord'
 import { Icons } from './icons'
+import { useDismiss } from '../../lib/dismiss'
 
 type Tab = 'trending' | 'favorites'
 type Shown = { key: string; url: string; src: string; width: number; height: number; video: boolean; title?: string }
@@ -90,12 +90,11 @@ export function GifPicker({ tabs, onPick, onClose }: { tabs?: ReactNode; onPick:
     return () => { live = false; window.clearTimeout(timer) }
   }, [query, tab, searching])
 
+  useDismiss(box, onClose)
   useEffect(() => {
-    const away = (event: PointerEvent) => { if (box.current && !box.current.contains(event.target as Node) && !openToggle(event.target)) onClose() }
     const escape = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose() }
-    document.addEventListener('pointerdown', away, true)
     document.addEventListener('keydown', escape)
-    return () => { document.removeEventListener('pointerdown', away, true); document.removeEventListener('keydown', escape) }
+    return () => document.removeEventListener('keydown', escape)
   }, [onClose])
 
   const starred = new Set((favorites ?? []).map(gif => gif.url))

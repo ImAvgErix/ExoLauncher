@@ -39,7 +39,7 @@ internal static partial class GpuProfile
 
     /// <summary>
     /// One AMD or Intel setting, in plain words, next to what their driver holds
-    /// (<see cref="Current"/>). Exo writes neither, so these are what to set by hand.
+    /// (<see cref="Current"/>): what to set by hand on a Radeon whose ADLX, or an Intel GPU whose IGCL, doesn't answer.
     /// </summary>
     internal sealed record Item(string Key, string Label, string Value, string Why, string? Current = null);
 
@@ -123,7 +123,7 @@ internal static partial class GpuProfile
         // games NVIDIA left it off for), maximum performance power, compute defaults.
         Default(0x000F00BA), Default(0x000F00BB), Default(0x000BFA21),     // rBAR switch, options, v2 switch (616.56+)
         Default(0x00198FFF), Set(0x00EAD189, 3),                   // shader cache on; compile shaders while idle (High: done sooner)
-        Default(0x00211020), Default(0x00C63A79), Default(0x00DB3858), Set(0x1057EB71, 1), // power: prefer maximum performance, no clock ramp-up lag
+        Default(0x00211020), Default(0x00C63A79), Default(0x00DB3858), Set(0x1057EB71, 1), // power: prefer maximum performance
         Default(0x10ECECC9), Default(0x50166C5E), Default(0x20C1221E),
         Default(0x202888C1), Default(0x209DF23E), Default(0x20378242), Default(0x206194D6), Default(0x206C28C4), Default(0x2072C5A3),
 
@@ -199,51 +199,55 @@ internal static partial class GpuProfile
     }
 
     /// <summary>applied (the driver holds every write), changed (Exo applied it and something moved since), or ready.</summary>
-    internal static string Status(IReadOnlyDictionary<uint, uint?> writes, IReadOnlyDictionary<uint, uint?> values, bool applied) =>
-        writes.All(write => values.GetValueOrDefault(write.Key) == write.Value) ? "applied" : applied ? "changed" : "ready";
+    internal static string Status<TKey, TValue>(IReadOnlyDictionary<TKey, TValue> writes, IReadOnlyDictionary<TKey, TValue> values, bool applied) where TKey : notnull =>
+        writes.All(write => EqualityComparer<TValue>.Default.Equals(values.GetValueOrDefault(write.Key), write.Value)) ? "applied" : applied ? "changed" : "ready";
 
     /// <summary>
     /// What Undo must put back: the first backup's value for every id it already
     /// holds (a re-apply or a switch of variant never overwrites the original),
     /// what the driver holds now for the rest.
     /// </summary>
-    internal static Dictionary<uint, uint?> MergeBackup(IReadOnlyDictionary<uint, uint?>? earlier, IReadOnlyDictionary<uint, uint?> now, IEnumerable<uint> ids)
+    internal static Dictionary<TKey, TValue> MergeBackup<TKey, TValue>(IReadOnlyDictionary<TKey, TValue>? earlier, IReadOnlyDictionary<TKey, TValue> now, IEnumerable<TKey> ids) where TKey : notnull
     {
-        var merged = earlier is null ? new Dictionary<uint, uint?>() : new Dictionary<uint, uint?>(earlier);
-        foreach (var id in ids) merged.TryAdd(id, now.GetValueOrDefault(id));
+        var merged = earlier is null ? new Dictionary<TKey, TValue>() : new Dictionary<TKey, TValue>(earlier);
+        foreach (var id in ids) merged.TryAdd(id, now.TryGetValue(id, out var value) ? value : default!);
         return merged;
     }
 
-    /// <summary>The AMD profile, shown as what to set in AMD Software next to what the driver holds.</summary>
+    /// <summary>The Radeon profile as what to set in AMD Software, next to what the driver holds: shown only when Exo can't reach ADLX.</summary>
     internal static IReadOnlyList<Item> Amd(Screen screen, IReadOnlyList<(string Label, string Value)> facts)
     {
         string? Now(string label) => facts.FirstOrDefault(fact => fact.Label == label).Value;
         var cap = FrameCap(screen.RefreshHz);
         return
         [
-            new("antiLag", "Anti-Lag", "On", "The CPU waits for the GPU instead of queueing frames: less input lag. Games with Anti-Lag 2 use their own.", Now("Anti-Lag")),
+            new("antiLag", "Anti-Lag", "On in each game", "The CPU waits for the GPU instead of queueing frames: less input lag. Set it per game: on everywhere it also runs in Windows' own apps and costs CPU. Games with Anti-Lag 2 use their own.", Now("Anti-Lag")),
             new("freeSync", "FreeSync", "On", "If the screen has it: no tearing and no V-Sync lag. Set it in AMD Software > Display."),
             new("frameCap", "Frame rate target", cap > 0 ? $"{cap} fps" : "Under the refresh rate",
                 "With FreeSync, keeps every frame inside its range. Off when the screen has no FreeSync.", Now("Frame rate target")),
             new("chill", "Radeon Chill", "Off", "Chill lowers the frame rate to save power, which costs frames and responsiveness.", Now("Radeon Chill")),
             new("boost", "Radeon Boost", "Off", "Boost drops the resolution while you move, which blurs motion.", Now("Radeon Boost")),
             new("enhancedSync", "Enhanced Sync", "Off", "Known to stutter. FreeSync with a frame cap is smoother."),
+            new("vsync", "Wait for Vertical Refresh", VSyncMode(VSyncGameDecides)!, "Each game's own V-Sync setting decides. Fluid Motion Frames needs it off.", Now("Wait for Vertical Refresh")),
             new("fluidMotion", "Fluid Motion Frames", "Off", "Driver frame generation adds lag to every game. Turn it on only in games where you want it.", Now("Fluid Motion Frames")),
             new("rsr", "Radeon Super Resolution", "Off", "Upscales every game from a lower resolution. A game's own FSR looks better.", Now("Radeon Super Resolution")),
+            new("ris", "Radeon Image Sharpening", "Off", "Sharpens every game on top of its own sharpening, which adds halos.", Now("Radeon Image Sharpening")),
         ];
     }
 
-    /// <summary>The Intel profile, shown as what to set in Intel Graphics Software next to what the driver holds.</summary>
-    internal static IReadOnlyList<Item> Intel(Screen screen, IReadOnlyList<(string Label, string Value)> facts)
+    /// <summary>The Intel profile as what to set in Intel Graphics Software: shown only when Exo can't reach IGCL.</summary>
+    internal static IReadOnlyList<Item> Intel(Screen screen)
     {
-        string? Now(string label) => facts.FirstOrDefault(fact => fact.Label == label).Value;
         var cap = FrameCap(screen.RefreshHz);
         return
         [
-            new("lowLatency", "Low latency mode", "On", "Fewer frames wait for the GPU: less input lag. Not On with boost, which keeps clocks high all the time.", Now("Low latency mode")),
+            new("lowLatency", "Low latency mode", "On", "Fewer frames wait for the GPU: less input lag. On with boost also keeps the GPU's clock up, which costs power."),
             new("vrr", "Adaptive Sync", "On", "If the screen has it: no tearing and no V-Sync lag."),
             new("frameCap", "Frame limit", cap > 0 ? $"{cap} fps" : "Under the refresh rate",
-                "With Adaptive Sync, keeps every frame inside its range. Off when the screen has none.", Now("Frame limit")),
+                "With Adaptive Sync, keeps every frame inside its range. Off when the screen has none."),
+            new("endurance", "Endurance Gaming", "Off", "Caps frames on battery to save power, which costs frames and responsiveness."),
+            new("sharpening", "Sharpening filter", "Off", "Sharpens every game on top of its own sharpening, which adds halos."),
+            new("shaders", "Download prebuilt shaders", "On", "The driver fetches Intel's compiled shaders, so games don't compile them while you play."),
         ];
     }
 

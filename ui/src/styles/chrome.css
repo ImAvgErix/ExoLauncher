@@ -5,7 +5,7 @@
   width: 100%;
   display: flex;
   flex-direction: column;
-  background: #000;
+  background: var(--color-bg);
   color: var(--color-fg);
   overflow: hidden;
 }
@@ -148,8 +148,8 @@
   grid-template-rows: 1fr;
   margin-bottom: 8px;
   animation: exo-dc-notice-in var(--dur-move) var(--ease-out) backwards;
-  transition: grid-template-rows 200ms var(--ease-out), margin-bottom 200ms var(--ease-out),
-    opacity var(--dur-base) var(--ease-out), translate 200ms var(--ease-out);
+  transition: grid-template-rows var(--dur-move) var(--ease-out), margin-bottom var(--dur-move) var(--ease-out),
+    opacity var(--dur-base) var(--ease-out), translate var(--dur-move) var(--ease-out);
 }
 
 .exo-dc-notice-slot.is-leaving {
@@ -169,8 +169,6 @@
   min-height: 0;
   overflow: hidden;
   border-radius: var(--exo-panel-radius);
-  background: var(--exo-float);
-  box-shadow: inset 0 0 0 1px var(--exo-float-line), 0 16px 40px rgb(0 0 0 / 0.6);
 }
 
 .exo-dc-notice-main {
@@ -323,27 +321,22 @@
   width: 100%;
 }
 
-/* Library menu rows (Sort, Add): one 38px row height for every item. */
+/* Menu rows; their size, corners and type are every menu's (system.css › Menus). */
 .exo-menu-item {
   position: relative;
   display: flex;
   align-items: center;
   gap: 10px;
   width: 100%;
-  min-height: 38px;
-  padding: 8px 10px;
-  border-radius: 10px;
-  font-size: var(--exo-type-control);
-  line-height: 1.3;
-  font-weight: 500;
-  color: var(--color-fg);
   background: transparent;
   user-select: none;
   transition: background-color 120ms var(--ease-out);
 }
 
+/* Focus lights a row only from the keyboard: a menu opened with the mouse focuses its first row too, which then
+   stayed lit beside the one under the pointer. */
 .exo-menu-item:hover,
-.exo-menu-item:focus {
+:root[data-exo-input="key"] .exo-menu-item:focus {
   background: var(--hover-fill);
 }
 
