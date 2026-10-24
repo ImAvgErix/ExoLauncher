@@ -203,9 +203,10 @@ public sealed partial class WebHostBridge
         if (vendor != "nvidia") return new { ok = true, vendor = (string?)null };
         var card = NvidiaDriverService.Card();
         var workstation = card is not null && NvidiaDriverService.Workstation(card);
-        var latest = await NvidiaDriverService.LatestAsync(ReadString(p, hasParams, "branch") == "studio" ? "studio" : "game", ct).ConfigureAwait(false);
+        var update = ReadString(p, hasParams, "action") == "update";
+        var latest = await NvidiaDriverService.LatestAsync(ReadString(p, hasParams, "branch") == "studio" ? "studio" : "game", ct, fresh: update).ConfigureAwait(false);
         string? message = null;
-        if (ReadString(p, hasParams, "action") == "update")
+        if (update)
             message = latest is null ? "NVIDIA's driver list couldn't be reached." : NvidiaDriverService.Start(latest);
         var installed = NvidiaDriverService.Installed();
         return new
@@ -227,7 +228,7 @@ public sealed partial class WebHostBridge
     private static async Task<object> VendorDriverAsync(string vendor, bool update, CancellationToken ct)
     {
         var card = GpuDriverUpdate.Card(vendor);
-        var latest = await GpuDriverUpdate.LatestAsync(vendor, ct).ConfigureAwait(false);
+        var latest = await GpuDriverUpdate.LatestAsync(vendor, ct, fresh: update).ConfigureAwait(false);
         string? message = null;
         if (update) message = latest is null ? $"{(vendor == "amd" ? "AMD" : "Intel")}'s newest driver couldn't be found." : GpuDriverUpdate.Start(latest);
         var installed = card is null ? null : GpuDriverUpdate.Installed(vendor, card);

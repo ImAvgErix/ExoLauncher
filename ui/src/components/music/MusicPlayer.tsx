@@ -258,7 +258,7 @@ function Main({ page, query, depth, artFrom, canBack, onBack }: {
   useTopOnChange(scroller, shownKey)
   return (
     <div className="exo-music-main" ref={scroller} aria-busy={!songs && !fresh}>
-      {canBack ? <button type="button" className="exo-ghost-btn exo-music-back" onClick={onBack} aria-label="Back"><ChevronLeft size={18} /></button> : null}
+      {canBack ? <button type="button" className="exo-set-btn exo-music-back" onClick={onBack} aria-label="Back"><ChevronLeft size={18} /></button> : null}
       {error && !songs ? <p className="exo-music-error" role="alert">{error}</p> : null}
       {/* The first page while the service starts (Spotify can take a while after Exo opens): say so, not a black page. */}
       {!songs && !shown && !error ? <p className="exo-music-wait" role="status">Loading {adapter.name}…</p> : null}
@@ -314,10 +314,10 @@ function LibraryHead({ filters, picked, sorts, selected, onPick, onSort, onCreat
     <div className="exo-music-side-head">
       <h2 className="exo-music-side-title">Your library</h2>
       {has('folders') ? (
-        <Menu label="Create" anchor="--exo-music-create" offset={4} triggerClassName="exo-ghost-btn exo-music-create" trigger={<Plus size={16} />}
+        <Menu label="Create" anchor="--exo-music-create" offset={4} triggerClassName="exo-set-btn exo-music-create" trigger={<Plus size={16} />}
           items={[{ id: 'playlist', label: 'Create playlist' }, { id: 'folder', label: 'Create folder' }]} onAction={id => onCreate(id === 'folder' ? 'folder' : 'playlist')} />
       ) : has('playlists') ? (
-        <button type="button" className="exo-ghost-btn exo-music-create" aria-label="New playlist" onClick={() => onCreate('playlist')}><Plus size={16} /></button>
+        <button type="button" className="exo-set-btn exo-music-create" aria-label="New playlist" onClick={() => onCreate('playlist')}><Plus size={16} /></button>
       ) : null}
       {items.length ? (
         <Menu label="Show and sort your library" anchor="--exo-music-sort" offset={4} triggerClassName="exo-music-sort"
@@ -444,7 +444,7 @@ function LibraryNote({ error, loaded, failed, copied, onRetry }: {
   if (error) {
     return (
       <p className="exo-music-error exo-music-retry" role="alert">{error}
-        <button type="button" className="button button--secondary button--sm" onClick={onRetry}>Retry</button>
+        <button type="button" className="exo-set-btn" onClick={onRetry}>Retry</button>
       </p>
     )
   }
@@ -490,7 +490,7 @@ function LibraryRow({ card, index, current, menu, renaming, confirming, onOpen, 
         </button>
       )}
       {menu && !renaming ? (
-        <Menu label={`More for ${card.title}`} anchor={`--exo-lib-${index}`} offset={4} triggerClassName="exo-ghost-btn exo-music-library-more"
+        <Menu label={`More for ${card.title}`} anchor={`--exo-lib-${index}`} offset={4} triggerClassName="exo-set-btn exo-music-library-more"
           trigger={<More size={16} />} items={menu} filter={{ section: 'Move to folder', label: 'Find a folder' }} onAction={onChoose} />
       ) : null}
       {confirming ? <Confirm text={deleteText(card)} action={folder || card.owned ? 'Delete' : 'Remove'} onConfirm={onRemove} onCancel={onCancel} /> : null}
@@ -530,7 +530,7 @@ function kindLabel(card: PlayerCard, podcasts: boolean) {
 function IconToggle({ label, on, disabled, className, onPress, children }: {
   label: string; on?: boolean; disabled?: boolean; className?: string; onPress: () => void; children: ReactNode
 }) {
-  return <button type="button" className={`exo-ghost-btn exo-music-toggle${on ? ' is-on' : ''}${className ? ' ' + className : ''}`} aria-label={label} aria-pressed={on} disabled={disabled} onClick={onPress}>{children}</button>
+  return <button type="button" className={`exo-set-btn exo-music-toggle${on ? ' is-on' : ''}${className ? ' ' + className : ''}`} aria-label={label} aria-pressed={on} disabled={disabled} onClick={onPress}>{children}</button>
 }
 
 /** The playing song's heart, and YouTube Music's thumbs down beside it. */
@@ -647,7 +647,7 @@ function BarSide({ panel, onPanel, children }: { panel: Panel; onPanel: (panel: 
         {extra.length ? (
           <span className="exo-music-bar-narrow">
             <Menu label="More panels" anchor="--exo-music-panels" offset={4}
-              triggerClassName={`exo-ghost-btn exo-music-toggle${extra.some(([name]) => name === panel) ? ' is-on' : ''}`} trigger={<More size={16} />}
+              triggerClassName={`exo-set-btn exo-music-toggle${extra.some(([name]) => name === panel) ? ' is-on' : ''}`} trigger={<More size={16} />}
               items={extra.map(([name]) => ({ id: name, label: panelName(name), on: panel === name }))} onAction={id => onPanel(id as Exclude<Panel, null>)} />
           </span>
         ) : null}

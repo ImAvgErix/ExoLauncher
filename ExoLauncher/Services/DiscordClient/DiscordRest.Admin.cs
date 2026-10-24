@@ -15,6 +15,26 @@ internal sealed partial class DiscordRest
     internal Task<Reply> SaveGuildAsync(string guildId, JsonObject changes, CancellationToken ct) =>
         SendAsync(HttpMethod.Patch, $"guilds/{Id(guildId)}", changes, ct);
 
+    /// <summary>A server's public profile (name, icon, tag and badge, counts, description, traits), as a tag's card shows it.</summary>
+    internal Task<Reply> GuildProfileAsync(string guildId, CancellationToken ct) =>
+        SendAsync(HttpMethod.Get, $"guilds/{Id(guildId)}/profile", null, ct);
+
+    /// <summary>Require 2FA for moderator actions (level 1) or not (0); the owner verifies first.</summary>
+    internal Task<Reply> GuildMfaAsync(string guildId, bool required, CancellationToken ct) =>
+        SendAsync(HttpMethod.Post, $"guilds/{Id(guildId)}/mfa", new JsonObject { ["level"] = required ? 1 : 0 }, ct);
+
+    /// <summary>Transfer Ownership: to a member, with the emailed code when the owner has no 2FA (with 2FA the owner verifies instead).</summary>
+    internal Task<Reply> TransferOwnershipAsync(string guildId, string userId, string? code, CancellationToken ct) =>
+        SendAsync(HttpMethod.Patch, $"guilds/{Id(guildId)}", new JsonObject { ["owner_id"] = Id(userId), ["code"] = code }, ct);
+
+    /// <summary>Emails the owner the code Transfer Ownership asks for (an owner without 2FA).</summary>
+    internal Task<Reply> TransferCodeAsync(string guildId, CancellationToken ct) =>
+        SendAsync(HttpMethod.Put, $"guilds/{Id(guildId)}/pincode", null, ct);
+
+    /// <summary>Delete Server, as Discord's client sends it (no body); an owner with 2FA verifies first.</summary>
+    internal Task<Reply> DeleteGuildAsync(string guildId, CancellationToken ct) =>
+        SendAsync(HttpMethod.Post, $"guilds/{Id(guildId)}/delete", null, ct);
+
     /// <summary>Create Role: Discord's "new role", no color, no permissions.</summary>
     internal Task<Reply> CreateRoleAsync(string guildId, string name, CancellationToken ct) =>
         SendAsync(HttpMethod.Post, $"guilds/{Id(guildId)}/roles", new JsonObject
@@ -35,6 +55,13 @@ internal sealed partial class DiscordRest
     internal Task<Reply> RolePositionsAsync(string guildId, IEnumerable<(string Id, int Position)> positions, CancellationToken ct) =>
         SendAsync(HttpMethod.Patch, $"guilds/{Id(guildId)}/roles",
             new JsonArray([.. positions.Select(p => (JsonNode)new JsonObject { ["id"] = Id(p.Id), ["position"] = p.Position })]), ct);
+
+    /// <summary>A role's Linked Roles requirements: groups of accounts to connect, each with its checks.</summary>
+    internal Task<Reply> RoleLinksAsync(string guildId, string roleId, CancellationToken ct) =>
+        SendAsync(HttpMethod.Get, $"guilds/{Id(guildId)}/roles/{Id(roleId)}/connections/configuration", null, ct);
+
+    internal Task<Reply> SaveRoleLinksAsync(string guildId, string roleId, JsonArray groups, CancellationToken ct) =>
+        SendAsync(HttpMethod.Put, $"guilds/{Id(guildId)}/roles/{Id(roleId)}/connections/configuration", groups, ct);
 
     internal Task<Reply> RoleMemberCountsAsync(string guildId, CancellationToken ct) =>
         SendAsync(HttpMethod.Get, $"guilds/{Id(guildId)}/roles/member-counts", null, ct);
@@ -117,6 +144,34 @@ internal sealed partial class DiscordRest
 
     internal Task<Reply> RevokeInviteAsync(string code, CancellationToken ct) =>
         SendAsync(HttpMethod.Delete, $"invites/{Uri.EscapeDataString(code)}", null, ct);
+
+    /// <summary>Discord's Create Invite Link: how long it lasts (seconds, 0 never), how many uses (0 no limit), temporary membership.</summary>
+    internal Task<Reply> CreateInviteAsync(string channelId, int maxAge, int maxUses, bool temporary, CancellationToken ct) =>
+        SendAsync(HttpMethod.Post, $"channels/{Id(channelId)}/invites", new JsonObject { ["max_age"] = maxAge, ["max_uses"] = maxUses, ["temporary"] = temporary }, ct);
+
+    /// <summary>Security actions: pause invites and/or DMs for some hours (both off resumes them), as Discord's sends them.</summary>
+    internal Task<Reply> IncidentActionsAsync(string guildId, bool invites, bool dms, int hours, CancellationToken ct)
+    {
+        var until = invites || dms ? DateTimeOffset.UtcNow.AddHours(hours).ToString("o", System.Globalization.CultureInfo.InvariantCulture) : null;
+        return SendAsync(HttpMethod.Put, $"guilds/{Id(guildId)}/incident-actions", new JsonObject
+        {
+            ["invites_disabled_until"] = invites ? until : null,
+            ["dms_disabled_until"] = dms ? until : null,
+            ["lockdown_duration_hours"] = invites || dms ? hours : null,
+        }, ct);
+    }
+
+    /// <summary>Create Webhook in a channel, named as Discord's are (Spidey Bot or Captain Hook).</summary>
+    internal Task<Reply> CreateWebhookAsync(string channelId, CancellationToken ct) =>
+        SendAsync(HttpMethod.Post, $"channels/{Id(channelId)}/webhooks", new JsonObject { ["name"] = Random.Shared.Next(2) == 0 ? "Spidey Bot" : "Captain Hook" }, ct);
+
+    /// <summary>A webhook's name, picture (data URL, or null to remove) or channel.</summary>
+    internal Task<Reply> EditWebhookAsync(string webhookId, JsonObject changes, CancellationToken ct) =>
+        SendAsync(HttpMethod.Patch, $"webhooks/{Id(webhookId)}", changes, ct);
+
+    /// <summary>One webhook with its token (Copy Webhook URL's).</summary>
+    internal Task<Reply> WebhookAsync(string webhookId, CancellationToken ct) =>
+        SendAsync(HttpMethod.Get, $"webhooks/{Id(webhookId)}", null, ct);
 
     internal Task<Reply> WebhooksAsync(string guildId, CancellationToken ct) =>
         SendAsync(HttpMethod.Get, $"guilds/{Id(guildId)}/webhooks", null, ct);

@@ -7,18 +7,25 @@ import { Attachments, fit, MovingImage, size, sized } from './Attachments'
 import { LottieSticker } from './LottieSticker'
 import { performanceMode, avatarUrl, displayName, jumpToMessage, openDiscord, type DiscordEmbed, type DiscordInvite, type DiscordMessage } from '../../lib/discord'
 import { Reactions, ReactionsDialog, useNitro } from './Reactions'
-import { EmojiPicker } from './EmojiPicker'
+import { EmojiPicker, noteReaction, QuickEmoji, useQuickReactions, type QuickReaction } from './EmojiPicker'
+import { Confirm } from './admin'
 import { Icons } from './icons'
+import { RoleIcon } from './presence'
+import { SubContext, Submenu } from './UserMenu'
+import { reminderTimes, saveMessage, unsaveMessage, useSaved } from '../../lib/discordSaved'
+import { usePageTheme } from '../../lib/appearance'
+import { Play } from '../../brand/icons'
 import { showImage, showProfile } from './extras'
 import { inviteCode, Link, Markdown, MarkdownLine, type MarkdownContext } from './markdown'
 import { accountSettings, useAccountSettings } from '../../lib/discordPrefs'
-import { EPHEMERAL, LOADING } from '../../lib/discordApps'
+import { EPHEMERAL, LOADING, SILENT } from '../../lib/discordApps'
 import { MessageComponents } from './Components'
 import { MessageApps } from './AppCommands'
 import { CompanyLogo } from '../../brand/CompanyLogo'
 import { openLink } from '../../lib/music'
 import { Decoration, lookOf, StyledName } from './collectibles'
 import { useDismiss } from '../../lib/dismiss'
+import { GuildTag } from './guildTag'
 
 /**
  * A GIF link: plays by itself while Exo is active when Play GIFs when Discord is focused is on (not in
@@ -84,10 +91,17 @@ function EmbedFields({ fields, ctx }: { fields: NonNullable<DiscordEmbed['fields
 }
 
 function EmbedHead({ embed }: { embed: DiscordEmbed }) {
+  const author = embed.author
+  const icon = author?.proxy_icon_url ?? author?.icon_url
   return (
     <>
       {embed.provider?.name ? <p className="exo-dc-embed-small">{embed.provider.name}</p> : null}
-      {embed.author?.name ? <p className="exo-dc-embed-author">{embed.author.name}</p> : null}
+      {author?.name ? (
+        <p className="exo-dc-embed-author">
+          {icon ? <img className="exo-dc-embed-icon" src={sized(icon, 24, 24, { width: 24, height: 24 })} alt="" draggable={false} /> : null}
+          {author.url ? <Link url={author.url}>{author.name}</Link> : author.name}
+        </p>
+      ) : null}
       {embed.title ? (
         <p className="exo-dc-embed-title">{embed.url ? <Link url={embed.url}>{embed.title}</Link> : embed.title}</p>
       ) : null}
@@ -95,8 +109,66 @@ function EmbedHead({ embed }: { embed: DiscordEmbed }) {
   )
 }
 
+// The players Discord plays inside link previews (YouTube, Twitch, Vimeo, TikTok, SoundCloud), started with Discord's
+// own parameters: YouTube and Twitch play at once, and Twitch's player is told the page it's in (it plays nowhere else).
+const PLAYERS = new Set(['www.youtube.com', 'www.youtube-nocookie.com', 'player.twitch.tv', 'clips.twitch.tv', 'player.vimeo.com', 'www.tiktok.com', 'w.soundcloud.com'])
+function playerUrl(raw: string | undefined) {
+  let url: URL
+  try { url = new URL(raw ?? '') } catch { return null }
+  if (url.protocol !== 'https:' || !PLAYERS.has(url.hostname)) return null
+  if (url.hostname.includes('youtube')) url.searchParams.set('autoplay', '1')
+  if (url.hostname.endsWith('twitch.tv')) { url.searchParams.delete('parent'); url.searchParams.set('parent', location.hostname); url.searchParams.set('autoplay', 'true') }
+  return url.toString()
+}
+
+// Sandboxed as Discord's: no way out of the frame but a link the person opens. The page sends no referrer, but players
+// need to know the site they're on (YouTube refuses to play without it): just Exo's origin, nothing more.
+const PLAYER_SANDBOX = 'allow-forms allow-modals allow-popups allow-popups-to-escape-sandbox allow-same-origin allow-scripts'
+const PLAYER_REFERRER = 'strict-origin-when-cross-origin'
+
+// A video link's preview: its picture with Play, then the site's own player in its place, as Discord plays it.
+function EmbedPlayer({ image, video, player }: { image: NonNullable<DiscordEmbed['image']>; video: NonNullable<DiscordEmbed['video']>; player: string }) {
+  const [playing, setPlaying] = useState(false)
+  const box = fit(video.width ?? image.width, video.height ?? image.height, 400, 300)
+  if (playing) return <iframe className="exo-dc-embed-player" src={player} {...box} sandbox={PLAYER_SANDBOX} referrerPolicy={PLAYER_REFERRER} allow="autoplay; fullscreen; encrypted-media; picture-in-picture" allowFullScreen title="Video" />
+  return (
+    <button type="button" className="exo-dc-embed-play" aria-label="Play" onClick={() => setPlaying(true)}>
+      <img className="exo-dc-embed-image is-video" src={sized(image.proxy_url ?? image.url!, image.width, image.height, { width: 400, height: 300 })} alt="" loading="lazy" draggable={false} data-dc-link={image.url} {...box} />
+      <span className="exo-dc-embed-play-mark" aria-hidden="true"><Play size={22} /></span>
+    </button>
+  )
+}
+
+// Spotify's and Apple Music's own players for their links, as Discord shows them: a track, an episode or show, an
+// album, artist or playlist, each at its player's height (Apple Music's in the page's light or dark).
+function musicPlayer(link: string | undefined, theme: string): { src: string; height: number } | null {
+  let url: URL
+  try { url = new URL(link ?? '') } catch { return null }
+  if (url.hostname === 'open.spotify.com') {
+    const found = /^\/(?:intl-[\w-]+\/)?(track|album|playlist|episode|show|artist)\/(\w+)/.exec(url.pathname)
+    if (!found) return null
+    const heights: Record<string, number> = { track: 80, episode: 232, show: 232 }
+    return { src: `https://open.spotify.com/embed/${found[1]}/${found[2]}`, height: heights[found[1]] ?? 352 }
+  }
+  if (url.hostname === 'music.apple.com') {
+    const parts = url.pathname.slice(1).split('/')
+    const kind = (/^[a-z]{2}(-[a-z]{2})?$/.test(parts[0] ?? '') ? parts[1] : parts[0])?.toLowerCase()
+    const song = url.searchParams.get('i')
+    const height = song || kind === 'song' ? 175 : kind === 'music-video' ? 371 : 450
+    return { src: `https://embed.music.apple.com/${url.pathname.slice(1)}?theme=${theme === 'light' ? 'light' : 'dark'}&i=${encodeURIComponent(song ?? '')}`, height }
+  }
+  return null
+}
+
+function MusicPlayer({ player }: { player: { src: string; height: number } }) {
+  return <iframe className="exo-dc-embed-music" src={player.src} style={{ height: player.height }} sandbox={PLAYER_SANDBOX} referrerPolicy={PLAYER_REFERRER} allow="encrypted-media; fullscreen; clipboard-write" title="Player" />
+}
+
 // An embed's picture at most 400 by 300; a video's (YouTube's) in the video's own shape with its thumbnail's bars cropped, as Discord shows it.
 function EmbedImage({ image, video }: { image: NonNullable<DiscordEmbed['image']>; video?: DiscordEmbed['video'] }) {
+  // A site's player (no file of Discord's own to play): Play swaps the picture for it.
+  const player = video && !video.proxy_url ? playerUrl(video.url) : null
+  if (video && player) return <EmbedPlayer image={image} video={video} player={player} />
   const shape = video?.width && video.height ? video : image
   const src = image.proxy_url ?? image.url!
   return (
@@ -105,7 +177,41 @@ function EmbedImage({ image, video }: { image: NonNullable<DiscordEmbed['image']
   )
 }
 
+// Embeds that share a link (a post's several pictures) as one preview with each picture, as Discord merges them.
+function mergeEmbeds(embeds: DiscordEmbed[]) {
+  const out: DiscordEmbed[] = []
+  const at = new Map<string, number>()
+  for (const embed of embeds) {
+    const first = embed.url ? at.get(embed.url) : undefined
+    if (first === undefined) {
+      if (embed.url) at.set(embed.url, out.length)
+      out.push(embed)
+    } else if (embed.image) {
+      const into = out[first]
+      out[first] = { ...into, images: [...(into.images ?? (into.image ? [into.image] : [])), embed.image] }
+    }
+  }
+  return out
+}
+
+// Up to four of a preview's pictures in Discord's grid: two side by side, the first beside two, or two by two.
+function EmbedGallery({ images }: { images: NonNullable<DiscordEmbed['images']> }) {
+  const shown = images.filter(i => i.url).slice(0, 4)
+  const items = shown.map(i => ({ src: i.proxy_url ?? i.url!, original: i.url! }))
+  return (
+    <div className={`exo-dc-embed-gallery is-${shown.length}`}>
+      {shown.map((image, index) => (
+        <img key={index} src={sized(items[index].src, image.width, image.height, { width: 400, height: 300 })} alt="" loading="lazy" draggable={false}
+          data-dc-link={image.url} onClick={() => showImage(items[index].src, items[index].original, false, { items, index })} />
+      ))}
+    </div>
+  )
+}
+
 function EmbedCard({ embed, ctx }: { embed: DiscordEmbed; ctx: MarkdownContext }) {
+  const theme = usePageTheme()
+  const music = musicPlayer(embed.url, theme)
+  if (music) return <MusicPlayer player={music} />
   const image = embed.image ?? (embed.type === 'video' ? embed.thumbnail : undefined)
   const thumb = embed.type === 'video' ? undefined : embed.thumbnail
   const color = embed.color === undefined ? undefined : `#${embed.color.toString(16).padStart(6, '0')}`
@@ -115,11 +221,25 @@ function EmbedCard({ embed, ctx }: { embed: DiscordEmbed; ctx: MarkdownContext }
         <EmbedHead embed={embed} />
         {embed.description ? <Markdown text={embed.description} ctx={ctx} /> : null}
         {embed.fields?.length ? <EmbedFields fields={embed.fields} ctx={ctx} /> : null}
-        {image?.url ? <EmbedImage image={image} video={embed.type === 'video' ? embed.video : undefined} /> : null}
-        {embed.footer?.text ? <p className="exo-dc-embed-small">{embed.footer.text}</p> : null}
+        {(embed.images?.length ?? 0) > 1 ? <EmbedGallery images={embed.images!} />
+          : image?.url ? <EmbedImage image={image} video={embed.type === 'video' ? embed.video : undefined} /> : null}
+        <EmbedFoot embed={embed} />
       </div>
       {thumb?.url ? <img className="exo-dc-embed-thumb" src={sized(thumb.proxy_url ?? thumb.url, thumb.width, thumb.height, { width: 80, height: 80 })} alt="" loading="lazy" draggable={false} data-dc-link={thumb.url} /> : null}
     </div>
+  )
+}
+
+// The footer: its icon and words, then when the embed is from, as Discord joins them with a dot.
+function EmbedFoot({ embed }: { embed: DiscordEmbed }) {
+  const icon = embed.footer?.proxy_icon_url ?? embed.footer?.icon_url
+  const when = embed.timestamp ? time(embed.timestamp, true) : null
+  if (!embed.footer?.text && !when) return null
+  return (
+    <p className="exo-dc-embed-small exo-dc-embed-foot">
+      {icon ? <img className="exo-dc-embed-icon is-foot" src={sized(icon, 20, 20, { width: 20, height: 20 })} alt="" draggable={false} /> : null}
+      <span>{[embed.footer?.text, when].filter(Boolean).join(' • ')}</span>
+    </p>
   )
 }
 
@@ -183,6 +303,10 @@ export type MessageActions = {
   canManageMessages?: boolean
   /** Pin Messages here (always in a DM). */
   canPin?: boolean
+  /** An announcement channel: its messages can be published to the servers following it. */
+  announcement?: boolean
+  /** A message action Discord didn't take: its reason, under the message box. */
+  onError?: (message: string) => void
   /** A message Discord didn't take: send it again, or drop it. */
   onRetry?: (message: DiscordMessage) => void
   onDiscard?: (message: DiscordMessage) => void
@@ -252,7 +376,7 @@ function UserMessage({ message, grouped, ctx, mine, canSend, editing, actions, n
             // Their picture with their avatar decoration, moving while the message is pointed at.
             <span className="exo-dc-avatar exo-dc-msg-face is-clickable" data-dc-user={message.author.id} data-dc-name={name} data-dc-username={message.author.username}
               onClick={event => { const box = event.currentTarget.getBoundingClientRect(); showProfile(message.author.id, ctx.guildId, box.right + 8, box.top, message.author) }}>
-              <img src={avatarUrl(message.author)} alt="" draggable={false} loading="lazy" />
+              <img src={ctx.avatars?.get(message.author.id) ?? avatarUrl(message.author)} alt="" draggable={false} loading="lazy" />
               <Decoration look={lookOf(message.author, message.member)} size={40} scope=".exo-dc-msg" />
             </span>
           )}
@@ -274,6 +398,7 @@ function MessageBody({ message, name, head, ctx, editing, actions, onViewReactio
           <AuthorName message={message} name={name} ctx={ctx} />
           {message.author.bot ? <span className="exo-dc-tag">App</span> : null}
           <time className="exo-dc-msg-time">{time(message.timestamp, true)}</time>
+          {(message.flags ?? 0) & SILENT ? <span className="exo-dc-msg-silent" role="img" aria-label="This is a @silent message."><Icons.BellOff size={14} /></span> : null}
         </p>
       ) : null}
       {editing ? <InlineEdit message={message} onDone={actions.onEditDone} />
@@ -292,12 +417,17 @@ function MessageBody({ message, name, head, ctx, editing, actions, onViewReactio
 // The author's name in their role color (Role Colors in Accessibility can show it beside the name or not at all).
 function AuthorName({ message, name, ctx }: { message: DiscordMessage; name: string; ctx: MarkdownContext }) {
   const color = ctx.colors.get(message.author.id)
+  const look = lookOf(message.author, message.member)
   return (
+    <>
     <strong className="is-clickable exo-dc-name" style={color ? { color, '--exo-dc-role': color } as React.CSSProperties : undefined}
       data-dc-user={message.author.id} data-dc-name={name} data-dc-username={message.author.username}
       onClick={event => showProfile(message.author.id, ctx.guildId, event.clientX + 12, event.clientY, message.author)}>
-      <StyledName name={name} look={lookOf(message.author, message.member)} scope=".exo-dc-msg" />
+      <StyledName name={name} look={look} scope=".exo-dc-msg" />
     </strong>
+    <RoleIcon icon={ctx.roleIcons?.get(message.author.id)} />
+    <GuildTag look={look} />
+    </>
   )
 }
 
@@ -308,7 +438,7 @@ function MessageContent({ message, ctx }: { message: Pick<DiscordMessage, 'conte
   // A jam link alone shows as its card, as a link with a preview shows as the preview.
   const text = message.content && !linksOnly(message) && message.content.trim() !== jam
   // SUPPRESS_EMBEDS (4): the sender removed the link previews.
-  const embeds = (message.flags ?? 0) & 4 ? [] : message.embeds
+  const embeds = (message.flags ?? 0) & 4 ? [] : mergeEmbeds(message.embeds)
   return (
     <>
       {text ? <Markdown text={message.content} ctx={ctx} tail={edited} /> : edited}
@@ -364,7 +494,7 @@ function SpotifyJam({ url }: { url: string }) {
       <div className="exo-dc-jam-row">
         <CompanyLogo company="spotify" size={40} />
         <span className="exo-dc-jam-what"><strong>Spotify Jam</strong><span>Listen together</span></span>
-        <button type="button" className="button button--primary" onClick={() => openLink(url)}>Join</button>
+        <button type="button" className="exo-set-btn is-primary" onClick={() => openLink(url)}>Join</button>
       </div>
     </div>
   )
@@ -408,7 +538,7 @@ function InviteCard({ code, mine }: { code: string; mine: boolean }) {
         <p className="exo-dc-jam-label">{mine ? 'You sent an invite, but' : "You've been invited, but"}</p>
         <div className="exo-dc-jam-row">
           <span className="exo-dc-invite-icon" aria-hidden="true" />
-          <span className="exo-dc-jam-what"><strong>Invalid Invite</strong><span>{mine ? 'Try sending a new invite' : 'Ask for a new invite'}</span></span>
+          <span className="exo-dc-jam-what"><strong>Invalid invite</strong><span>{mine ? 'Try sending a new invite' : 'Ask for a new invite'}</span></span>
         </div>
       </div>
     )
@@ -430,12 +560,12 @@ function InviteCard({ code, mine }: { code: string; mine: boolean }) {
           : <span className="exo-dc-invite-icon" aria-hidden="true">{invite?.name ? initials(invite.name) : null}</span>}
         <span className="exo-dc-jam-what">
           <strong className="exo-dc-invite-name">
-            <span>{invite ? invite.name : 'Resolving Invite'}</span>
+            <span>{invite ? invite.name : 'Resolving invite'}</span>
             {invite?.verified || invite?.partnered ? <span className="exo-dc-invite-badge" aria-label={invite.verified ? 'Verified' : 'Partnered'}><Icons.Verified size={16} filled /></span> : null}
           </strong>
           {invite ? <span className="exo-dc-invite-counts">{count(invite.online, 'Online')}{count(invite.members, 'Members')}</span> : null}
         </span>
-        {invite ? <button type="button" className={`button ${invite.joined ? 'button--secondary' : 'button--primary'}`} onClick={join}>{invite.joined ? 'Joined' : 'Join'}</button> : null}
+        {invite ? <button type="button" className={`exo-set-btn${invite.joined ? '' : ' is-primary'}`} onClick={join}>{invite.joined ? 'Joined' : 'Join'}</button> : null}
       </div>
     </div>
   )
@@ -590,12 +720,45 @@ function ReactButton({ message, ctx, actions, burst = false }: { message: Discor
   const [open, setOpen] = useState(false)
   return (
     <>
-      <button type="button" aria-label={burst ? 'Add Super Reaction' : 'Add Reaction'} onClick={() => setOpen(value => !value)}>{burst ? <Icons.Super size={18} /> : <Icons.React size={18} />}</button>
+      <button type="button" aria-label={burst ? 'Add super reaction' : 'Add reaction'} onClick={() => setOpen(value => !value)}>{burst ? <Icons.Super size={18} /> : <Icons.React size={18} />}</button>
       {open ? (
         <EmojiPicker guildId={ctx.guildId} reacting onClose={() => setOpen(false)}
           onPick={emoji => { setOpen(false); actions.onReact(message, emoji.reaction, true, burst) }} />
       ) : null}
     </>
+  )
+}
+
+// Whether you reacted to this message with a quick reaction's emoji already (a press then takes it back).
+const reacted = (message: DiscordMessage, quick: QuickReaction) => !!message.reactions?.some(r => r.me
+  && (quick.custom ? r.emoji.id === quick.custom.id : !r.emoji.id && r.emoji.name === quick.emoji))
+
+// One quick reaction: a press adds it, or takes yours back, as Discord's hover bar and menu do.
+function QuickButton({ quick, message, actions, menu, onDone }: { quick: QuickReaction; message: DiscordMessage; actions: MessageActions; menu?: boolean; onDone?: () => void }) {
+  const mine = reacted(message, quick)
+  return (
+    <button type="button" role={menu ? 'menuitem' : undefined} className="exo-dc-quick-react" aria-label={`${mine ? 'Click to remove' : 'Click to react'} :${quick.name}:`}
+      aria-pressed={mine} onClick={() => { if (!mine) noteReaction(quick.key); actions.onReact(message, quick.reaction, !mine, false); onDone?.() }}>
+      <QuickEmoji quick={quick} />
+    </button>
+  )
+}
+
+// The hover bar's three reactions used most, before Add Reaction.
+function QuickReactions({ message, ctx, actions }: { message: DiscordMessage; ctx: MarkdownContext; actions: MessageActions }) {
+  const quick = useQuickReactions(ctx.guildId, false)
+  if (!quick.length) return null
+  return <>{quick.map(q => <QuickButton key={q.reaction} quick={q} message={message} actions={actions} />)}<span className="exo-dc-msg-actions-line" aria-hidden="true" /></>
+}
+
+// The menu's row of four, above Add Reaction.
+function QuickRow({ message, ctx, actions, onClose }: { message: DiscordMessage; ctx: MarkdownContext; actions: MessageActions; onClose: () => void }) {
+  const quick = useQuickReactions(ctx.guildId, true).slice(0, 4)
+  if (!quick.length) return null
+  return (
+    <div className="exo-dc-quick-row" role="group" aria-label="Quick reactions">
+      {quick.map(q => <QuickButton key={q.reaction} quick={q} message={message} actions={actions} menu onDone={onClose} />)}
+    </div>
   )
 }
 
@@ -611,6 +774,8 @@ function ActionsBar({ message, ctx, mine, canSend, actions, onViewReactions }: {
   const [more, setMore] = useState(false)
   // Add Reaction from the menu opens the reaction picker on the bar, as Discord's menu does.
   const [reacting, setReacting] = useState(false)
+  // Remove Embeds or Remove All Reactions, asked first as Discord asks (Shift skips it).
+  const [asking, setAsking] = useState<Ask | null>(null)
   // Where a right-click opened the menu (null: under the More button).
   const [at, setAt] = useState<{ left: number; top: number } | null>(null)
   const nitro = useNitro(ctx.guildId)
@@ -626,6 +791,7 @@ function ActionsBar({ message, ctx, mine, canSend, actions, onViewReactions }: {
   const editable = mine && (message.type === 0 || message.type === 19)
   return (
     <div className="exo-dc-msg-actions" ref={bar}>
+      <QuickReactions message={message} ctx={ctx} actions={actions} />
       <ReactButton message={message} ctx={ctx} actions={actions} />
       {nitro ? <ReactButton message={message} ctx={ctx} actions={actions} burst /> : null}
       {canSend ? <button type="button" aria-label="Reply" onClick={() => actions.onReply(message)}><Icons.Reply size={18} /></button> : null}
@@ -637,14 +803,63 @@ function ActionsBar({ message, ctx, mine, canSend, actions, onViewReactions }: {
           onPick={emoji => { setReacting(false); actions.onReact(message, emoji.reaction, true, false) }} />
       ) : null}
       {more ? <MessageMenu message={message} ctx={ctx} mine={mine} canSend={canSend} actions={actions} at={at} editable={editable}
-        onClose={() => setMore(false)} onReact={() => { setMore(false); setReacting(true) }} onViewReactions={onViewReactions} /> : null}
+        onClose={() => setMore(false)} onReact={() => { setMore(false); setReacting(true) }} onViewReactions={onViewReactions}
+        onAsk={(ask, now) => { setMore(false); if (now) void messageAction(message, mine, ask, actions); else setAsking(ask) }} /> : null}
+      {asking ? <AskConfirm ask={asking} onClose={() => setAsking(null)} onConfirm={() => { setAsking(null); void messageAction(message, mine, asking, actions) }} /> : null}
     </div>
   )
 }
 
 // The message's More menu (and right-click), in Discord's order: Add Reaction, Edit, Reply, Forward, Apps, Create Thread,
 // View Reactions; Copy Text, Pin, Mark Unread, Copy Message Link, Delete; Copy Message ID in Developer Mode.
-function MessageMenu({ message, ctx, mine, canSend, actions, at, editable, onClose, onReact, onViewReactions }: {
+type Ask = 'removeEmbeds' | 'clearReactions'
+
+// Discord's Speak Message: "Name said …" (or "Name replied to Other …"), mentions, channels and emoji read as words,
+// links as their site, in a voice for the app's language. Pressed again while it speaks, it stops.
+let speaking: string | null = null
+function speakMessage(message: DiscordMessage, ctx: MarkdownContext) {
+  const synth = window.speechSynthesis
+  if (!synth) return
+  synth.cancel()
+  if (speaking === message.id) { speaking = null; return }
+  const nameOf = (id: string) => { const u = ctx.users.get(id); return u ? u.global_name ?? u.username : 'someone' }
+  const body = message.content
+    .replace(/https?:\/\/[^\s>]+/g, url => { try { return new URL(url).hostname.replace(/^www\./, '') } catch { return url } })
+    .replace(/<@!?(\d+)>/g, (_, id: string) => `@${nameOf(id)}`)
+    .replace(/<@&(\d+)>/g, (_, id: string) => `@${ctx.roles?.[id]?.name ?? 'unknown-role'}`)
+    .replace(/<#(\d+)>/g, () => 'a channel')
+    .replace(/<a?:(\w+):\d+>/g, (_, name: string) => `Emoji ${name}`)
+    .replace(/<\/([^\s:>]+):\d+>/g, (_, name: string) => `/${name}`)
+  const who = displayName(message)
+  const replied = message.referenced_message ? displayName(message.referenced_message) : null
+  const line = new SpeechSynthesisUtterance(replied ? `${who} replied to ${replied} ${body}` : `${who} said ${body}`)
+  line.lang = document.documentElement.lang || navigator.language
+  line.onend = () => { if (speaking === message.id) speaking = null }
+  speaking = message.id
+  synth.speak(line)
+}
+
+// Publish, Remove Embeds or Remove All Reactions; Discord's own line when it doesn't take (the menu is gone by then).
+async function messageAction(message: DiscordMessage, mine: boolean, action: Ask | 'publish', actions: MessageActions) {
+  const result = await host.discordMessageAction(message.channel_id, message.id, action, { mine, flags: message.flags ?? 0 }).catch(() => null)
+  if (!result?.ok) actions.onError?.(result?.message ?? 'Discord did not take that.')
+}
+
+// Discord's confirmations for Remove Embeds and Remove All Reactions.
+function AskConfirm({ ask, onClose, onConfirm }: { ask: Ask; onClose: () => void; onConfirm: () => void }) {
+  return ask === 'removeEmbeds' ? (
+    <Confirm title="Are you sure?" action="Remove all embeds" onClose={onClose} onConfirm={onConfirm}>
+      <p>This will remove all embeds on this message for everyone.</p>
+      <p className="exo-dc-note">Hold Shift when removing embeds to skip this.</p>
+    </Confirm>
+  ) : (
+    <Confirm title="Remove all reactions" action="Remove all reactions" onClose={onClose} onConfirm={onConfirm}>
+      <p>Are you sure you want to remove all reactions on this message?</p>
+    </Confirm>
+  )
+}
+
+function MessageMenu({ message, ctx, mine, canSend, actions, at, editable, onClose, onReact, onViewReactions, onAsk }: {
   message: DiscordMessage
   ctx: MarkdownContext
   mine: boolean
@@ -655,29 +870,91 @@ function MessageMenu({ message, ctx, mine, canSend, actions, at, editable, onClo
   onClose: () => void
   onReact: () => void
   onViewReactions: () => void
+  /** Remove Embeds or Remove All Reactions; now: Shift held, no question. */
+  onAsk: (ask: Ask, now: boolean) => void
 }) {
   // Developer Mode (Discord settings > Developer) adds Copy Message ID.
+  // Publish: an announcement channel's message by you (or a moderator's), not published yet (Discord's CROSSPOSTED, 1).
+  const publishable = actions.announcement === true && (mine || actions.canManageMessages === true) && ((message.flags ?? 0) & 1) === 0
   const developer = useAccountSettings().developerMode
   const link = `https://discord.com/channels/${ctx.guildId ?? '@me'}/${message.channel_id}/${message.id}`
   const copy = (text: string) => { void navigator.clipboard.writeText(text).catch(() => { }); onClose() }
   const run = (action: (message: DiscordMessage) => void) => () => { onClose(); action(message) }
   return (
     <div role="menu" {...menuPlace(at)}>
-      <button type="button" role="menuitem" onClick={onReact}><Icons.React size={16} />Add Reaction</button>
-      {editable ? <button type="button" role="menuitem" onClick={run(actions.onEdit)}><Icons.Edit size={16} />Edit Message</button> : null}
+      <QuickRow message={message} ctx={ctx} actions={actions} onClose={onClose} />
+      <button type="button" role="menuitem" onClick={onReact}><Icons.React size={16} />Add reaction</button>
+      {editable ? <button type="button" role="menuitem" onClick={run(actions.onEdit)}><Icons.Edit size={16} />Edit message</button> : null}
       {canSend ? <button type="button" role="menuitem" onClick={run(actions.onReply)}><Icons.Reply size={16} />Reply</button> : null}
       <button type="button" role="menuitem" onClick={run(actions.onForward)}><Icons.Forward size={16} />Forward</button>
+      {publishable ? <button type="button" role="menuitem" onClick={() => { onClose(); void messageAction(message, mine, 'publish', actions) }}><Icons.Announcement size={16} />Publish</button> : null}
       <MessageApps channelId={message.channel_id} messageId={message.id} onRun={onClose} />
-      {actions.onThread && !message.thread ? <button type="button" role="menuitem" onClick={run(actions.onThread)}><Icons.Threads size={16} />Create Thread</button> : null}
-      {message.reactions?.length ? <button type="button" role="menuitem" onClick={() => { onClose(); onViewReactions() }}><Icons.ViewReactions size={16} />View Reactions</button> : null}
+      {actions.onThread && !message.thread ? <button type="button" role="menuitem" onClick={run(actions.onThread)}><Icons.Threads size={16} />Create thread</button> : null}
+      <ReactionItems message={message} actions={actions} onClose={onClose} onViewReactions={onViewReactions} onAsk={onAsk} />
+      <SpeakItem message={message} ctx={ctx} onClose={onClose} />
+      <SavedItems message={message} onClose={onClose} onError={actions.onError} />
       <span className="exo-dc-menu-line" role="separator" />
-      {message.content ? <button type="button" role="menuitem" onClick={() => copy(message.content)}><Icons.Copy size={16} />Copy Text</button> : null}
-      {actions.canPin !== false ? <button type="button" role="menuitem" onClick={run(actions.onPin)}><Icons.Pin size={16} />{message.pinned ? 'Unpin Message' : 'Pin Message'}</button> : null}
-      <button type="button" role="menuitem" onClick={run(actions.onMarkUnread)}><Icons.Unread size={16} />Mark Unread</button>
-      <button type="button" role="menuitem" onClick={() => copy(link)}><Icons.Link size={16} />Copy Message Link</button>
-      {mine || actions.canManageMessages ? <button type="button" role="menuitem" className="is-danger" onClick={run(actions.onDelete)}><Icons.Delete size={16} />Delete Message</button> : null}
-      {developer ? <button type="button" role="menuitem" onClick={() => copy(message.id)}><Icons.CopyId size={16} />Copy Message ID</button> : null}
+      {message.content ? <button type="button" role="menuitem" onClick={() => copy(message.content)}><Icons.Copy size={16} />Copy text</button> : null}
+      {actions.canPin !== false ? <button type="button" role="menuitem" onClick={run(actions.onPin)}><Icons.Pin size={16} />{message.pinned ? 'Unpin message' : 'Pin message'}</button> : null}
+      <button type="button" role="menuitem" onClick={run(actions.onMarkUnread)}><Icons.Unread size={16} />Mark unread</button>
+      <button type="button" role="menuitem" onClick={() => copy(link)}><Icons.Link size={16} />Copy message link</button>
+      <RemoveItems message={message} mine={mine} actions={actions} onDelete={run(actions.onDelete)} onAsk={onAsk} />
+      {developer ? <button type="button" role="menuitem" onClick={() => copy(message.id)}><Icons.CopyId size={16} />Copy message ID</button> : null}
     </div>
+  )
+}
+
+// Bookmark Message (or Remove Bookmark), and Remind Me with Discord's times; a reminder set shows when it's due, with Mark
+// Complete and Edit Reminder.
+function SavedItems({ message, onClose, onError }: { message: DiscordMessage; onClose: () => void; onError?: (why: string) => void }) {
+  const saved = useSaved()
+  const [sub, setSub] = useState<string | null>(null)
+  if (message.pending || message.failed) return null
+  const due = saved.reminders.get(message.id)
+  const done = (work: Promise<string | null>) => { onClose(); void work.then(why => { if (why) onError?.(why) }) }
+  const bookmarked = saved.bookmarks.has(message.id)
+  return (
+    <SubContext.Provider value={{ open: sub, show: setSub }}>
+      <button type="button" role="menuitem" onClick={() => done(bookmarked ? unsaveMessage(message.channel_id, message.id) : saveMessage(message.channel_id, message.id))}>
+        <Icons.Bookmark size={16} />{bookmarked ? 'Remove bookmark' : 'Bookmark message'}
+      </button>
+      {due ? <button type="button" role="menuitem" onClick={() => done(unsaveMessage(message.channel_id, message.id))}><Icons.Check size={16} />Mark complete</button> : null}
+      <Submenu label={due ? `Edit reminder (${new Date(due).toLocaleString(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit' })})` : 'Remind me'}>
+        {reminderTimes().map(time => <button key={time.label} type="button" role="menuitem" onClick={() => done(saveMessage(message.channel_id, message.id, time.at))}>{time.label}</button>)}
+      </Submenu>
+    </SubContext.Provider>
+  )
+}
+
+// Speak Message (Stop speaking message while it speaks), for a message with words.
+function SpeakItem({ message, ctx, onClose }: { message: DiscordMessage; ctx: MarkdownContext; onClose: () => void }) {
+  if (!message.content || !('speechSynthesis' in window)) return null
+  return (
+    <button type="button" role="menuitem" onClick={() => { onClose(); speakMessage(message, ctx) }}>
+      <Icons.Speak size={16} />{speaking === message.id ? 'Stop speaking message' : 'Speak message'}
+    </button>
+  )
+}
+
+// View Reactions, and for a moderator Remove All Reactions.
+function ReactionItems({ message, actions, onClose, onViewReactions, onAsk }: { message: DiscordMessage; actions: MessageActions; onClose: () => void; onViewReactions: () => void; onAsk: (ask: Ask, now: boolean) => void }) {
+  if (!message.reactions?.length) return null
+  return (
+    <>
+      <button type="button" role="menuitem" onClick={() => { onClose(); onViewReactions() }}><Icons.ViewReactions size={16} />View reactions</button>
+      {actions.canManageMessages ? <button type="button" role="menuitem" className="is-danger" onClick={event => onAsk('clearReactions', event.shiftKey)}>Remove all reactions</button> : null}
+    </>
+  )
+}
+
+// Your message's (or a moderator's) Remove Embeds while its embeds show (not SUPPRESS_EMBEDS, 4), and Delete.
+function RemoveItems({ message, mine, actions, onDelete, onAsk }: { message: DiscordMessage; mine: boolean; actions: MessageActions; onDelete: () => void; onAsk: (ask: Ask, now: boolean) => void }) {
+  if (!mine && !actions.canManageMessages) return null
+  return (
+    <>
+      {message.embeds.length && ((message.flags ?? 0) & 4) === 0 ? <button type="button" role="menuitem" className="is-danger" onClick={event => onAsk('removeEmbeds', event.shiftKey)}>Remove embeds</button> : null}
+      <button type="button" role="menuitem" className="is-danger" onClick={onDelete}><Icons.Delete size={16} />Delete message</button>
+    </>
   )
 }
 

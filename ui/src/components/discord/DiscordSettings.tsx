@@ -24,32 +24,32 @@ const GROUPS: { title?: string; items: { id: DiscordSettingsSection; label: stri
   {
     items: [
       { id: 'account', label: 'Account' },
-      { id: 'privacy', label: 'Data & Privacy' },
-      { id: 'messaging', label: 'Messaging Permissions' },
+      { id: 'privacy', label: 'Data & privacy' },
+      { id: 'messaging', label: 'Messaging permissions' },
       { id: 'notifications', label: 'Notifications' },
     ],
   },
   {
     title: 'Experience',
     items: [
-      { id: 'voice', label: 'Voice & Video' },
+      { id: 'voice', label: 'Voice & video' },
       { id: 'appearance', label: 'Appearance' },
       { id: 'accessibility', label: 'Accessibility' },
       { id: 'system', label: 'System' },
-      { id: 'language', label: 'Language & Time' },
+      { id: 'language', label: 'Language & time' },
     ],
   },
   {
-    title: 'Games & Apps',
+    title: 'Games & apps',
     items: [
-      { id: 'activity', label: 'Activity Privacy' },
-      { id: 'apps', label: 'Connected Apps' },
+      { id: 'activity', label: 'Activity privacy' },
+      { id: 'apps', label: 'Connected apps' },
     ],
   },
   {
     items: [
       { id: 'developer', label: 'Developer' },
-      { id: 'logout', label: 'Log Out' },
+      { id: 'logout', label: 'Log out' },
     ],
   },
 ]

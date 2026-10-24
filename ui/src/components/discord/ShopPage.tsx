@@ -26,8 +26,8 @@ type Tab = 'featured' | Kind | 'collection'
 type Shop = { categories: DiscordShopCategory[]; owned: DiscordShopProduct[] }
 
 export const KINDS: Record<number, Kind> = { 0: 'decoration', 1: 'effect', 2: 'nameplate' }
-const KIND_NAMES: Record<Kind, string> = { decoration: 'Avatar Decoration', effect: 'Profile Effect', nameplate: 'Nameplate' }
-const TABS: [Tab, string][] = [['featured', 'Featured'], ['decoration', 'Avatar Decorations'], ['effect', 'Profile Effects'], ['nameplate', 'Nameplates'], ['collection', 'Your Collection']]
+const KIND_NAMES: Record<Kind, string> = { decoration: 'Avatar decoration', effect: 'Profile effect', nameplate: 'Nameplate' }
+const TABS: [Tab, string][] = [['featured', 'Featured'], ['decoration', 'Avatar decorations'], ['effect', 'Profile effects'], ['nameplate', 'Nameplates'], ['collection', 'Your collection']]
 
 let shopLoad: Promise<Shop> | null = null
 function loadShop(again = false) {
@@ -142,12 +142,12 @@ export function ShopPage({ me }: { me: Me | null }) {
         </span>
         <label className="exo-dc-friend-search exo-dc-shop-search">
           <Icons.Search size={16} />
-          <input placeholder="Search the Shop" value={query} onChange={event => setQuery(event.target.value)} aria-label="Search the Shop" />
+          <input placeholder="Search the shop" value={query} onChange={event => setQuery(event.target.value)} aria-label="Search the shop" />
         </label>
       </header>
       <div className="exo-dc-shop-body">
         {error ? <p className="exo-dc-note" role="alert">{error} <button type="button" className="exo-dc-link" onClick={reload}>Try again</button></p> : null}
-        {!shop && !error ? <p className="exo-dc-note" role="status">Loading the Shop</p> : null}
+        {!shop && !error ? <p className="exo-dc-note" role="status">Loading the shop</p> : null}
         {shop && tab === 'featured' ? shop.categories.map(category => {
           const products = category.products.filter(match)
           return products.length ? (
@@ -181,7 +181,7 @@ function useNitro() {
 }
 
 function Collection({ products, card }: { products: DiscordShopProduct[]; card: (product: DiscordShopProduct) => React.ReactNode }) {
-  const groups: [Kind, string][] = [['decoration', 'Avatar Decorations'], ['effect', 'Profile Effects'], ['nameplate', 'Nameplates']]
+  const groups: [Kind, string][] = [['decoration', 'Avatar decorations'], ['effect', 'Profile effects'], ['nameplate', 'Nameplates']]
   if (!products.length) return <p className="exo-dc-note">Collectibles you own show here.</p>
   return (
     <>
@@ -378,8 +378,8 @@ function ProductDialog({ product, mine, nitro, owned, worn, onClose, onWorn, onB
                 const what = items.length > 1 ? ` ${KIND_NAMES[KINDS[item.type]]}` : ''
                 return on
                   ? <button key={item.sku_id} type="button" className="exo-set-btn" disabled={busy} onClick={() => put(item, false)}>Remove{what}</button>
-                  : <button key={item.sku_id} type="button" className="button button--primary" disabled={busy} onClick={() => put(item, true)}>Use{what}</button>
-              }) : <button type="button" className="button button--primary" onClick={() => { setError(null); setStep('checkout') }}>Buy</button>}
+                  : <button key={item.sku_id} type="button" className="exo-set-btn is-primary" disabled={busy} onClick={() => put(item, true)}>Use{what}</button>
+              }) : <button type="button" className="exo-set-btn is-primary" onClick={() => { setError(null); setStep('checkout') }}>Buy</button>}
             </div>
           )}
         </div>
@@ -471,16 +471,16 @@ function Checkout({ product, onBack, onBought }: { product: DiscordShopProduct; 
     <div className="exo-dc-shop-checkout">
       <div className="exo-dc-shop-line">
         <span>Pay with</span>
-        <Menu label="Pay with" anchor="--exo-dc-pay-with" offset={4} triggerClassName="exo-set-btn" trigger={card ? card.label : 'Choose a card'}
+        <Menu label="Pay with" anchor="--exo-dc-pay-with" offset={4} triggerClassName="exo-set-btn" trigger={card ? card.label: 'Choose a card'}
           items={usable.map(c => ({ id: c.id, label: c.expires ? `${c.label} · ${c.expires}` : c.label }))} checked={source ?? ''} disabled={busy}
           onAction={id => { setError(null); setSource(id) }} />
         <button type="button" className="exo-set-btn" disabled={busy} onClick={() => setAdding(true)}>Add a card</button>
       </div>
-      {price?.currency ? <Bill price={price} currency={price.currency} /> : <p className="exo-dc-pay-note" role="status">Getting Discord's price</p>}
+      {price?.currency ? <Bill price={price} currency={price.currency} /> : <p className="exo-dc-pay-note" role="status">Getting discord's price</p>}
       {error ? <p className="exo-dc-pay-note is-bad" role="alert">{error}</p> : null}
       <div className="exo-dc-shop-actions">
         <button type="button" className="exo-set-btn" disabled={busy} onClick={onBack}>Back</button>
-        <button type="button" className="button button--primary" disabled={busy || !total || !bank.ready} onClick={buy}>{busy ? 'Buying' : total ? `Buy for ${total}` : 'Buy'}</button>
+        <button type="button" className="exo-set-btn is-primary" disabled={busy || !total || !bank.ready} onClick={buy}>{busy ? 'Buying' : total ? `Buy for ${total}` : 'Buy'}</button>
       </div>
       {bank.frame}
     </div>

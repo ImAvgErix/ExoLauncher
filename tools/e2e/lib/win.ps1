@@ -15,6 +15,9 @@
   udp                        UDP endpoints Exo holds (a voice call holds some).
   shown -Name <process>      That process's windows a person could see: visible, not minimized or cloaked, on a monitor.
   precompiled                Which of Exo's own assemblies shipped without ReadyToRun code.
+  snip -Name <Return|Escape> Waits for Exo Capture's snip overlay to show (uncloaked), then gives it that key as a
+                             message to its own window (no system-wide input): Return snips the screen under the
+                             cursor, Escape cancels. Prints when it showed (Unix ms).
 #>
 param(
     [Parameter(Mandatory)][string]$Command,
@@ -73,6 +76,20 @@ public static class ExoWin {
       return true;
     }, IntPtr.Zero);
     return list;
+  }
+  [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern IntPtr FindWindow(string cls, string title);
+  [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr h, uint msg, IntPtr w, IntPtr l);
+  /** Exo Capture's snip overlay once it shows: { at (Unix ms), hwnd }, or null after the timeout. */
+  public static long[] SnipShown(int timeoutMs) {
+    var clock = System.Diagnostics.Stopwatch.StartNew();
+    while (clock.ElapsedMilliseconds < timeoutMs) {
+      IntPtr h = FindWindow("ExoCapturePopup", "Exo Capture snip");
+      int cloaked = 1;
+      if (h != IntPtr.Zero && IsWindowVisible(h) && DwmGetWindowAttribute(h, 14, out cloaked, 4) == 0 && cloaked == 0)
+        return new long[] { DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), h.ToInt64() };
+      System.Threading.Thread.Sleep(1);
+    }
+    return null;
   }
   public static List<IntPtr> Monitors() {
     var list = new List<IntPtr>();
@@ -188,6 +205,15 @@ switch ($Command) {
             finally { $stream.Dispose() }
         })
         [ordered]@{ checked = $names; plain = $plain } | ConvertTo-Json -Compress
+    }
+    'snip' {
+        # Ready: the type above is compiled; the caller starts the snip after this line.
+        [Console]::Out.WriteLine('{"ready":' + [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() + '}'); [Console]::Out.Flush()
+        $shown = [ExoWin]::SnipShown(15000)
+        if (-not $shown) { '{"shown":false}'; break }
+        # WM_KEYDOWN, VK_RETURN (13) or VK_ESCAPE (27).
+        [ExoWin]::PostMessage([IntPtr]$shown[1], 0x100, [IntPtr]$(if ($Name -eq 'Return') { 13 } else { 27 }), [IntPtr]0) | Out-Null
+        [ordered]@{ shown = $true; at = $shown[0] } | ConvertTo-Json -Compress
     }
     default { throw "unknown command $Command" }
 }

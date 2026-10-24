@@ -130,7 +130,7 @@ export function GifPicker({ tabs, onPick, onClose }: { tabs?: ReactNode; onPick:
               <GifMedia gif={gif} />
             </button>
             <button type="button" className={`exo-dc-gif-star${starred.has(gif.url) ? ' is-on' : ''}`} aria-pressed={starred.has(gif.url)}
-              aria-label={starred.has(gif.url) ? 'Remove from Favorites' : 'Add to Favorites'} onClick={() => toggle(gif)}>
+              aria-label={starred.has(gif.url) ? 'Remove from favorites' : 'Add to favorites'} onClick={() => toggle(gif)}>
               <Icons.Star size={16} filled={starred.has(gif.url)} />
             </button>
           </span>

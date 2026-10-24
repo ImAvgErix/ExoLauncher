@@ -276,4 +276,45 @@ public sealed class DiscordUserSettingsTests
         var wrapper = DiscordProto.Fields(status).Single(f => f.Number == 1).Value;
         return System.Text.Encoding.UTF8.GetString(DiscordProto.Fields(wrapper).Single().Value);
     }
+
+    // The custom status (status 11 > custom_status 2): written where Discord reads it, the status beside it kept, cleared
+    // by leaving it out, refused past 128 characters, gone once its Clear after passes; and sent as Discord's presence does.
+    [Fact]
+    public void ACustomStatusIsWrittenBesideTheStatusAndReadBack()
+    {
+        var until = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() + 3_600_000;
+        var patch = DiscordUserSettings.Patch(Sample, Changes($$$"""{"customStatus": {"text": "Ranked tonight", "emojiName": "🎮", "expiresAtMs": {{{until}}}}}"""))!;
+        var merged = ReplaceSections(Sample, patch);
+        Assert.Equal("dnd", ReadStatus(merged));
+        var custom = DiscordUserSettings.Decode(merged)["customStatus"]!;
+        Assert.Equal("Ranked tonight", custom["text"]!.GetValue<string>());
+        Assert.Equal("🎮", custom["emojiName"]!.GetValue<string>());
+        Assert.Null(custom["emojiId"]);
+        Assert.Equal(until, custom["expiresAtMs"]!.GetValue<long>());
+        var cleared = ReplaceSections(merged, DiscordUserSettings.Patch(merged, Changes("""{"customStatus": null}"""))!);
+        Assert.Null(DiscordUserSettings.Decode(cleared)["customStatus"]);
+        Assert.Equal("dnd", ReadStatus(cleared));
+    }
+
+    [Fact]
+    public void ACustomStatusDiscordWouldRefuseOrThatClearedIsNone()
+    {
+        Assert.Null(DiscordUserSettings.Patch(Sample, Changes($$$"""{"customStatus": {"text": "{{{new string('a', 129)}}}"}}""")));
+        var past = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() + 60_000;
+        var patch = DiscordUserSettings.Patch(Sample, Changes($$$"""{"customStatus": {"text": "brb", "expiresAtMs": {{{past}}}}}"""))!;
+        Assert.Null(DiscordUserSettings.CustomStatus(ReplaceSections(Sample, patch), past + 1));
+    }
+
+    [Fact]
+    public void ThePresenceCarriesTheCustomStatusAsDiscordsClientSendsIt()
+    {
+        var custom = new System.Text.Json.Nodes.JsonObject { ["text"] = "brb", ["emojiId"] = "42", ["emojiName"] = "wave", ["expiresAtMs"] = 5000L };
+        var activity = DiscordSession.CustomActivity(custom, 1000)!;
+        Assert.Equal("Custom Status", activity["name"]!.GetValue<string>());
+        Assert.Equal(4, activity["type"]!.GetValue<int>());
+        Assert.Equal("brb", activity["state"]!.GetValue<string>());
+        Assert.Equal("42", activity["emoji"]!["id"]!.GetValue<string>());
+        Assert.Equal(5000L, activity["timestamps"]!["end"]!.GetValue<long>());
+        Assert.Null(DiscordSession.CustomActivity(custom, 6000));
+    }
 }

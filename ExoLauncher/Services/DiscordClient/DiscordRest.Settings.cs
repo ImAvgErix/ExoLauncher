@@ -11,6 +11,10 @@ internal sealed partial class DiscordRest
 {
     internal Task<Reply> MeAsync(CancellationToken ct) => SendAsync(HttpMethod.Get, "users/@me", null, ct);
 
+    /// <summary>Your server tag: a server's (on), or none (off), as Discord's Profiles saves it.</summary>
+    internal Task<Reply> SetServerTagAsync(string? guildId, CancellationToken ct) =>
+        SendAsync(HttpMethod.Put, "users/@me/clan", new JsonObject { ["identity_guild_id"] = guildId is null ? null : Id(guildId), ["identity_enabled"] = guildId is not null }, ct);
+
     /// <summary>Display name or avatar (a data: URI, or null to remove it).</summary>
     internal Task<Reply> UpdateMeAsync(JsonObject body, CancellationToken ct) => SendAsync(HttpMethod.Patch, "users/@me", body, ct);
 

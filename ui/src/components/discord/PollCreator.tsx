@@ -78,7 +78,7 @@ export function PollCreator({ channelId, onClose }: { channelId: string; onClose
             <Switch checked={multiple} label="Allow multiple answers" onChange={setMultiple} />
             Allow multiple answers
           </span>
-          <button type="button" className="button button--primary" disabled={!ready} onClick={post}>{busy ? 'Posting…' : 'Post'}</button>
+          <button type="button" className="exo-set-btn is-primary" disabled={!ready} onClick={post}>{busy ? 'Posting…' : 'Post'}</button>
         </footer>
         {error ? <p className="exo-dc-note" role="alert">{error}</p> : null}
       </div>
@@ -87,7 +87,8 @@ export function PollCreator({ channelId, onClose }: { channelId: string; onClose
 }
 
 /** Discord's + beside the message box: Upload a File, or Create Poll. */
-export function PlusMenu({ channelId, disabled, onFiles }: { channelId: string; disabled: boolean; onFiles: () => void }) {
+// text: what's in the message box, which Upload your message as a file turns into message.txt (offered when there's some).
+export function PlusMenu({ channelId, disabled, text, onFiles, onTextFile }: { channelId: string; disabled: boolean; text: string; onFiles: () => void; onTextFile: () => void }) {
   const [open, setOpen] = useState(false)
   const [poll, setPoll] = useState(false)
   const menu = useRef<HTMLDivElement>(null)
@@ -104,8 +105,9 @@ export function PlusMenu({ channelId, disabled, onFiles }: { channelId: string; 
         onClick={() => setOpen(value => !value)}><Icons.Add size={22} /></button>
       {open ? (
         <div ref={menu} className="exo-dc-menu exo-dc-plus-menu" role="menu">
-          <button type="button" role="menuitem" onClick={() => { setOpen(false); onFiles() }}><Icons.Upload size={16} />Upload a File</button>
-          <button type="button" role="menuitem" onClick={() => { setOpen(false); setPoll(true) }}><Icons.Poll size={16} />Create Poll</button>
+          <button type="button" role="menuitem" onClick={() => { setOpen(false); onFiles() }}><Icons.Upload size={16} />Upload a file</button>
+          {text.trim() ? <button type="button" role="menuitem" onClick={() => { setOpen(false); onTextFile() }}><Icons.Upload size={16} />Upload your message as a file</button> : null}
+          <button type="button" role="menuitem" onClick={() => { setOpen(false); setPoll(true) }}><Icons.Poll size={16} />Create poll</button>
         </div>
       ) : null}
       {poll ? <PollCreator channelId={channelId} onClose={() => setPoll(false)} /> : null}

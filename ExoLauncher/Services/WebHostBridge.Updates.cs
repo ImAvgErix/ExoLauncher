@@ -16,6 +16,7 @@ public sealed partial class WebHostBridge
             Latest = check.RemoteVersion,
             Current = check.LocalVersion,
             Message = check.Message,
+            Upcoming = check.Upcoming,
             // In-app only — no browser URL for install.
             InApp = true,
         };

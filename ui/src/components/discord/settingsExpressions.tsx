@@ -59,7 +59,7 @@ export function Emoji({ guildId, tier }: { guildId: string; tier: number }) {
       <p className="exo-dc-note">Add up to {slots} custom emoji that anyone can use in this server. Animated GIF emoji may be used by members with Discord Nitro.
         Names need at least 2 letters, numbers or underscores; files must be under 256 KB.</p>
       <div className="exo-dc-page-bar">
-        <button type="button" className="button button--primary" disabled={busy || full} onClick={() => void add()}>Upload Emoji</button>
+        <button type="button" className="exo-set-btn is-primary" disabled={busy || full} onClick={() => void add()}>Upload emoji</button>
         <span className="exo-dc-mod-meta">{list.filter(e => !e.animated).length} of {slots} emoji, {list.filter(e => e.animated).length} of {slots} animated</span>
       </div>
       {error ? <p className="exo-dc-note is-bad" role="alert">{error}</p> : null}
@@ -115,7 +115,7 @@ export function Stickers({ guildId, tier }: { guildId: string; tier: number }) {
       <h1>Stickers</h1>
       <p className="exo-dc-note">Upload stickers for everyone in this server: PNG, APNG or GIF, 320x320, under 512 KB.</p>
       <div className="exo-dc-page-bar">
-        <button type="button" className="button button--primary" disabled={list.length >= slots} onClick={() => setEditing('new')}>Upload Sticker</button>
+        <button type="button" className="exo-set-btn is-primary" disabled={list.length >= slots} onClick={() => setEditing('new')}>Upload sticker</button>
         <span className="exo-dc-mod-meta">{list.length} of {slots} slots</span>
       </div>
       <ReadError error={stickers.error} onRetry={stickers.reload} />
@@ -135,7 +135,7 @@ export function Stickers({ guildId, tier }: { guildId: string; tier: number }) {
       </div>
       {editing ? <StickerDialog guildId={guildId} sticker={editing === 'new' ? null : editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); stickers.reload() }} /> : null}
       {deleting ? (
-        <Confirm title="Delete Sticker" action="Delete" error={error} busy={busy} onConfirm={() => remove(deleting)} onClose={() => { setDeleting(null); setError(null) }}>
+        <Confirm title="Delete sticker" action="Delete" error={error} busy={busy} onConfirm={() => remove(deleting)} onClose={() => { setDeleting(null); setError(null) }}>
           <p>Are you sure you want to delete {deleting.name}? It can't be brought back.</p>
         </Confirm>
       ) : null}
@@ -169,15 +169,15 @@ function StickerDialog({ guildId, sticker, onClose, onSaved }: { guildId: string
   }
   const ready = name.trim().length >= 2 && tags.trim().length > 0 && (sticker !== null || file !== null)
   return (
-    <Confirm title={sticker ? 'Edit Sticker' : 'Upload Sticker'} action={sticker ? 'Save Changes' : 'Upload'} danger={false} busy={busy || !ready} error={error}
+    <Confirm title={sticker ? 'Edit sticker' : 'Upload sticker'} action={sticker ? 'Save changes' : 'Upload'} danger={false} busy={busy || !ready} error={error}
       onConfirm={() => void save()} onClose={onClose}>
       <div className="exo-dc-sticker-preview">
         {file ? <img src={file.preview} alt="" draggable={false} /> : sticker ? <img src={stickerUrl(sticker)} alt="" draggable={false} /> : null}
-        {sticker ? null : <button type="button" className="exo-dc-tab is-raised" onClick={() => void choose()}>{file ? 'Change File' : 'Browse'}</button>}
+        {sticker ? null : <button type="button" className="exo-dc-tab is-raised" onClick={() => void choose()}>{file ? 'Change file' : 'Browse'}</button>}
       </div>
-      <label className="exo-dc-side-label" htmlFor="exo-dc-sticker-name">Sticker Name</label>
+      <label className="exo-dc-side-label" htmlFor="exo-dc-sticker-name">Sticker name</label>
       <input id="exo-dc-sticker-name" className="exo-dc-modal-input" value={name} maxLength={30} onChange={event => setName(event.target.value)} />
-      <label className="exo-dc-side-label" htmlFor="exo-dc-sticker-tags">Related Emoji</label>
+      <label className="exo-dc-side-label" htmlFor="exo-dc-sticker-tags">Related emoji</label>
       <input id="exo-dc-sticker-tags" className="exo-dc-modal-input" value={tags} maxLength={200} placeholder="An emoji name, like smile" onChange={event => setTags(event.target.value)} />
       <label className="exo-dc-side-label" htmlFor="exo-dc-sticker-description">Description</label>
       <input id="exo-dc-sticker-description" className="exo-dc-modal-input" value={description} maxLength={100} onChange={event => setDescription(event.target.value)} />

@@ -26,14 +26,14 @@ export function HostedRoom({ name, surface, label, state, message, installLabel,
         {state === 'notInstalled' ? (
           <div className="exo-hosted-room-state" role="status">
             <p>{name} isn't installed</p>
-            <Button size="sm" variant="secondary" onPress={onInstall}>{installLabel}</Button>
+            <Button size="sm" className="exo-set-btn" onPress={onInstall}>{installLabel}</Button>
           </div>
         ) : state === 'installing' ? (
           <p className="exo-hosted-room-state" role="status">{message ?? `Installing ${name}…`}</p>
         ) : state === 'closed' || state === 'error' ? (
           <div className="exo-hosted-room-state" role="alert">
             <p>{message ?? (state === 'closed' ? `${name} closed.` : `${name} could not load.`)}</p>
-            <Button size="sm" variant="secondary" onPress={onRetry}>{retryLabel}</Button>
+            <Button size="sm" className="exo-set-btn" onPress={onRetry}>{retryLabel}</Button>
             {extra}
           </div>
         ) : state === 'loading' ? (

@@ -24,6 +24,8 @@ public sealed class AppUpdateService
     private static readonly TimeSpan ReleaseCacheAge = TimeSpan.FromMinutes(10);
     private sealed record CachedRelease(ParsedRelease Release, DateTimeOffset FetchedAt);
     private volatile CachedRelease? _cachedRelease;
+    private sealed record CachedNotes(string Tag, ExoWhatsNewRelease Notes);
+    private volatile CachedNotes? _cachedNotes;
 
     public AppUpdateService()
         : this(SharedHttp, GetDefaultUpdatesDirectory(), TimeProvider.System, allowCurlFallback: true)
@@ -78,6 +80,8 @@ public sealed class AppUpdateService
         public string? Sha256 { get; init; }
         public bool ShouldExit { get; init; }
         public bool Installed { get; init; }
+        /// <summary>The offered version's What's New; null when its release has none or it failed validation.</summary>
+        internal ExoWhatsNewRelease? Upcoming { get; init; }
     }
 
     /// <param name="fresh">A check the user asked for skips the release cache.</param>
@@ -141,6 +145,7 @@ public sealed class AppUpdateService
                 DownloadUrl = available ? release.DownloadUrl : null,
                 DownloadSize = release.Size,
                 Sha256 = release.Sha256,
+                Upcoming = available ? await LoadWhatsNewAsync(release, ct).ConfigureAwait(false) : null,
                 Message = available
                     ? $"Version {remote} is available (you have v{local})."
                     : $"Version {remote} is out, but it cannot be verified yet. Check again later.",
@@ -355,6 +360,11 @@ public sealed class AppUpdateService
         }
     }
 
+    /// <summary>The release asset tools/Build-Release.ps1 writes beside the installer: that version's What's New.</summary>
+    internal const string WhatsNewAssetName = "whats-new.json";
+    internal const int MaxWhatsNewBytes = 64 * 1024;
+    internal const int MaxWhatsNewItems = 30;
+
     internal static bool IsUpdateAssetName(string name)
     {
         if (string.IsNullOrWhiteSpace(name)) return false;
@@ -552,14 +562,19 @@ public sealed class AppUpdateService
         string? DownloadUrl,
         string? AssetName,
         long? Size,
-        string? Sha256);
+        string? Sha256,
+        string? WhatsNewUrl = null);
 
     private static bool HasVerifiedInstallerMetadata(ParsedRelease release) =>
         release.Size is > 0 and <= ResumableDownload.MaxInstallerBytes && NormalizeSha(release.Sha256) is not null &&
         IsReleaseAssetUri(release.DownloadUrl, release.Tag, release.AssetName);
 
     internal static bool IsReleaseAssetUri(string? url, string tag, string? name) =>
-        name is not null && IsUpdateAssetName(name) && Uri.TryCreate(url, UriKind.Absolute, out var uri) &&
+        name is not null && IsUpdateAssetName(name) && IsAssetOfRelease(url, tag, name);
+
+    /// <summary>github.com/ImAvgErix/ExoLauncher/releases/download/&lt;tag&gt;/&lt;name&gt; over plain HTTPS, nothing else.</summary>
+    internal static bool IsAssetOfRelease(string? url, string tag, string name) =>
+        Uri.TryCreate(url, UriKind.Absolute, out var uri) &&
         uri.Scheme == Uri.UriSchemeHttps && uri.IsDefaultPort && string.IsNullOrEmpty(uri.UserInfo) &&
         uri.Host.Equals("github.com", StringComparison.OrdinalIgnoreCase) &&
         uri.AbsolutePath.Equals("/ImAvgErix/ExoLauncher/releases/download/" + Uri.EscapeDataString(tag) + "/" + name, StringComparison.Ordinal);
@@ -628,6 +643,78 @@ public sealed class AppUpdateService
         }
         catch (OperationCanceledException) { throw; }
         catch { return release; }
+    }
+
+    /// <summary>
+    /// The offered release's whats-new.json, through the installer's own host and redirect rules, at most 64 KB.
+    /// Anything wrong (no asset, an error, a timeout, a file that fails ParseWhatsNew) is no notes, never a failed check.
+    /// </summary>
+    private async Task<ExoWhatsNewRelease?> LoadWhatsNewAsync(ParsedRelease release, CancellationToken ct)
+    {
+        if (release.WhatsNewUrl is null) return null;
+        if (_cachedNotes is { } cached && cached.Tag == release.Tag) return cached.Notes;
+        try
+        {
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            timeout.CancelAfter(TimeSpan.FromSeconds(8));
+            using var request = new HttpRequestMessage(HttpMethod.Get, release.WhatsNewUrl);
+            using var response = await SendFollowingAllowedRedirectsAsync(request, timeout.Token).ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode) return null;
+            var text = await ReadBoundedTextAsync(response.Content, MaxWhatsNewBytes, timeout.Token).ConfigureAwait(false);
+            var notes = ParseWhatsNew(text, release.Tag);
+            if (notes is not null) _cachedNotes = new CachedNotes(release.Tag, notes);
+            return notes;
+        }
+        catch (Exception ex) when (!ct.IsCancellationRequested)
+        {
+            AppLog.Debug("What's New for the update unavailable: " + ex.GetType().Name);
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// A whats-new.json: { "version": "X.Y.Z" (the release's tag), "items": [1 to 30 of { "icon": a short Latin name,
+    /// "title": up to 80 characters, "detail": up to 240 }] }. Null for anything else: the UI shows only what passed.
+    /// </summary>
+    internal static ExoWhatsNewRelease? ParseWhatsNew(string json, string tag)
+    {
+        try
+        {
+            if (json.Length > MaxWhatsNewBytes) return null;
+            using var doc = JsonDocument.Parse(json, new JsonDocumentOptions { MaxDepth = 8 });
+            var root = doc.RootElement;
+            if (root.ValueKind != JsonValueKind.Object ||
+                !root.TryGetProperty("version", out var v) || v.ValueKind != JsonValueKind.String ||
+                !root.TryGetProperty("items", out var list) || list.ValueKind != JsonValueKind.Array)
+                return null;
+            var version = v.GetString()!;
+            if (version.Length > 20 || !version.All(c => char.IsAsciiDigit(c) || c == '.') ||
+                !Version.TryParse(version, out _) || version != Normalize(tag))
+                return null;
+            var count = list.GetArrayLength();
+            if (count is < 1 or > MaxWhatsNewItems) return null;
+            var items = new ExoWhatsNewItem[count];
+            var index = 0;
+            foreach (var entry in list.EnumerateArray())
+            {
+                if (entry.ValueKind != JsonValueKind.Object) return null;
+                var icon = Text(entry, "icon", 32);
+                var title = Text(entry, "title", 80);
+                var detail = Text(entry, "detail", 240);
+                if (icon is null || title is null || detail is null || !icon.All(char.IsAsciiLetter)) return null;
+                items[index++] = new ExoWhatsNewItem { Icon = icon, Title = title, Detail = detail };
+            }
+            return new ExoWhatsNewRelease { Version = version, Items = items };
+        }
+        catch (Exception ex) when (ex is JsonException or InvalidOperationException or ArgumentException)
+        {
+            return null;
+        }
+
+        static string? Text(JsonElement entry, string name, int max) =>
+            entry.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String &&
+            value.GetString() is { } text && text.Length <= max && !string.IsNullOrWhiteSpace(text) &&
+            !text.Any(char.IsControl) ? text : null;
     }
 
     /// <summary>Json is null on any failure; Responded is true once GitHub sent an HTTP response.</summary>
@@ -728,23 +815,30 @@ public sealed class AppUpdateService
             string? assetName = null;
             long? downloadSize = null;
             string? sha256 = null;
+            string? whatsNewUrl = null;
+            var verified = false;
             if (root.TryGetProperty("assets", out var assets) && assets.ValueKind == JsonValueKind.Array)
             {
                 foreach (var a in assets.EnumerateArray())
                 {
                     var name = a.TryGetProperty("name", out var n) ? n.GetString() : null;
-                    if (string.IsNullOrWhiteSpace(name) || !IsUpdateAssetName(name)) continue;
                     var url = a.TryGetProperty("browser_download_url", out var u) ? u.GetString() : null;
-                    if (string.IsNullOrWhiteSpace(url)) continue;
+                    if (string.IsNullOrWhiteSpace(name) || string.IsNullOrWhiteSpace(url)) continue;
+                    if (name == WhatsNewAssetName)
+                    {
+                        if (IsAssetOfRelease(url, tag, name)) whatsNewUrl = url;
+                        continue;
+                    }
+                    if (verified || !IsUpdateAssetName(name)) continue;
                     downloadUrl = url;
                     assetName = name;
                     downloadSize = a.TryGetProperty("size", out var s) && s.TryGetInt64(out var sz) ? sz : null;
                     sha256 = a.TryGetProperty("digest", out var d) ? NormalizeSha(d.GetString()) : null;
-                    if (sha256 is not null && downloadSize is > 0 && IsReleaseAssetUri(url, tag, name)) break;
+                    verified = sha256 is not null && downloadSize is > 0 && IsReleaseAssetUri(url, tag, name);
                 }
             }
 
-            parsed = new ParsedRelease(tag, downloadUrl, assetName, downloadSize, sha256);
+            parsed = new ParsedRelease(tag, downloadUrl, assetName, downloadSize, sha256, whatsNewUrl);
             return true;
         }
         catch (Exception ex) when (ex is JsonException or InvalidOperationException or FormatException)

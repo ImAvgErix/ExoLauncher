@@ -3,7 +3,8 @@
 // contrast from the screen, the other theme's colors, broken pictures, unnamed controls, console errors).
 import { sleep } from '../cdp.mjs'
 import { pixelContrast } from './contrast.mjs'
-import { a11yScan, brokenImages, layoutScan, roomState, settle, themeLeakScan } from './page.mjs'
+import { writeFile } from 'node:fs/promises'
+import { a11yScan, brokenImages, layoutFaults, layoutScan, roomState, settle, themeLeakScan } from './page.mjs'
 
 export const ROOMS = ['Library', 'Store', 'Discord', 'Music', 'System', 'Devices']
 export const THEMES = ['void', 'dark', 'light']
@@ -102,7 +103,7 @@ export function kit(t) {
       if (layout.sideScroll) failures.push(`${label}: the page scrolls sideways`)
       if (layout.offscreen.length) failures.push(`${label}: controls cut off by the window: ${layout.offscreen.slice(0, 4).join(' | ')}`)
       if (layout.covered.length) c.warn(`${label}: controls under something: ${layout.covered.slice(0, 4).join(' | ')}`)
-      if (layout.cutText.length) c.warn(`${label}: words cut off: ${layout.cutText.slice(0, 4).join(' | ')}`)
+      failures.push(...await k.layout(c, label))
       const contrast = await pixelContrast(t.shell)
       c.metric(`${label}.labels`, contrast.checked)
       if (contrast.unreadable.length) failures.push(`${label}: unreadable words: ${contrast.unreadable.slice(0, 4).map(b => `"${b.text}" ${b.ratio}:1`).join(' | ')}`)
@@ -115,6 +116,29 @@ export function kit(t) {
       const a11y = await t.shell.call(a11yScan)
       if (a11y.unnamed.length) c.warn(`${label}: controls without a name: ${a11y.unnamed.slice(0, 5).join(', ')}`)
       return failures
+    },
+
+    /**
+     * Layout faults in the view (page.mjs › layoutFaults): controls over each other, controls cut by what holds them,
+     * words cut off. Each of the first eight is cropped into the report with its place; returns the failures.
+     */
+    async layout(c, label) {
+      const faults = await t.shell.call(layoutFaults)
+      if (!faults.length) return []
+      c.evidence[`${label}.layout`] = faults
+      const vw = await t.shell.eval('innerWidth'), vh = await t.shell.eval('innerHeight')
+      for (const [i, f] of faults.slice(0, 8).entries()) {
+        const rs = [f.ra, f.rb].filter(Boolean)
+        const x = Math.max(0, Math.min(...rs.map(r => r.x)) - 24), y = Math.max(0, Math.min(...rs.map(r => r.y)) - 24)
+        const w = Math.min(vw, Math.max(...rs.map(r => r.x + r.w)) + 24) - x, h = Math.min(vh, Math.max(...rs.map(r => r.y + r.h)) + 24) - y
+        if (w < 4 || h < 4) continue
+        const shot = await t.shell.s.send('Page.captureScreenshot', { format: 'png', clip: { x, y, width: w, height: h, scale: 1 } }).catch(() => null)
+        if (shot) await writeFile(c.file(`${label.replace(/W+/g, '-')}-${f.kind}-${i + 1}`), Buffer.from(shot.data, 'base64'))
+      }
+      const say = (f) => f.kind === 'overlap' ? `${f.a} overlaps ${f.b} by ${f.by} (${JSON.stringify(f.ra)} / ${JSON.stringify(f.rb)})`
+        : f.kind === 'clipped' ? `${f.a} is cut by ${f.b} (${JSON.stringify(f.ra)} in ${JSON.stringify(f.rb)})`
+          : `words cut off ${f.by}: ${f.a} (${JSON.stringify(f.ra)})`
+      return faults.map(f => `${label}: ${say(f)}`)
     },
 
     /** The page's own counters (Chromium): JS heap, DOM nodes, listeners, layouts, style recalcs. */

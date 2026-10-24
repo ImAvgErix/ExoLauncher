@@ -16,9 +16,9 @@ type Audio = Awaited<ReturnType<typeof host.discordAudio>>
 type Save = (change: Partial<DiscordClientSettings>) => Promise<string | null>
 
 const VOICE_SOUNDS: [string, string][] = [
-  ['deafen', 'Deafen'], ['undeafen', 'Undeafen'], ['mute', 'Mute'], ['unmute', 'Unmute'], ['camera_on', 'Camera On'], ['camera_off', 'Camera Off'],
-  ['disconnect', 'Voice Disconnected'], ['ptt_start', 'PTT Activate'], ['ptt_stop', 'PTT Deactivate'], ['user_join', 'User Join'],
-  ['user_leave', 'User Leave'], ['call_calling', 'Outgoing Ring'],
+  ['deafen', 'Deafen'], ['undeafen', 'Undeafen'], ['mute', 'Mute'], ['unmute', 'Unmute'], ['camera_on', 'Camera on'], ['camera_off', 'Camera off'],
+  ['disconnect', 'Voice disconnected'], ['ptt_start', 'PTT activate'], ['ptt_stop', 'PTT deactivate'], ['user_join', 'User join'],
+  ['user_leave', 'User leave'], ['call_calling', 'Outgoing ring'],
 ]
 
 /** Discord settings > Voice & Video: devices and volumes, the input profile and its dials, Push to Talk, attenuation, the camera and the call's sounds. */
@@ -26,7 +26,7 @@ export function VoicePage() {
   const { settings, save, error, reload } = useClientSettings()
   return (
     <>
-      <h1>Voice & Video</h1>
+      <h1>Voice & video</h1>
       <LoadError error={error} onRetry={reload} />
       <Devices />
       {settings ? <InputProfile settings={settings} save={save} /> : null}
@@ -57,7 +57,7 @@ function Devices() {
     if (list.length === 0) return <span className="exo-dc-settings-value">{side === 'input' ? 'No microphone found' : 'No speakers found'}</span>
     const chosen = (side === 'input' ? audio.input : audio.output) ?? ''
     return (
-      <Menu label={side === 'input' ? 'Input Device' : 'Output Device'} anchor={side === 'input' ? '--exo-dc-in' : '--exo-dc-out'} offset={4}
+      <Menu label={side === 'input' ? 'Input device' : 'Output device'} anchor={side === 'input' ? '--exo-dc-in' : '--exo-dc-out'} offset={4}
         triggerClassName="exo-shelf-sort-trigger exo-dc-settings-device" trigger={list.find(d => d.id === chosen)?.name ?? 'Default'}
         items={[{ id: '', label: 'Default' }, ...list.map(d => ({ id: d.id, label: d.name }))]} checked={chosen}
         onAction={id => save(side === 'input' ? { input: id } : { output: id })} />
@@ -67,11 +67,11 @@ function Devices() {
     <Category title="Voice">
       {error ? <p className="exo-dc-settings-note" role="alert">{error}</p> : null}
       <Row label="Microphone">{device('input')}</Row>
-      <SliderRow label="Microphone Volume" min={0} max={200} value={audio.inputVolume} render={v => `${v}%`} onCommit={v => save({ inputVolume: v })} />
+      <SliderRow label="Microphone volume" min={0} max={200} value={audio.inputVolume} render={v => `${v}%`} onCommit={v => save({ inputVolume: v })} />
       <Row label="Speaker">{device('output')}</Row>
-      <SliderRow label="Speaker Volume" min={0} max={200} value={audio.outputVolume} render={v => `${v}%`} onCommit={v => save({ outputVolume: v })} />
-      <ToggleRow label="Mute Soundboards" detail="Sounds others play in a call stay silent for you." checked={audio.soundboardMuted} onChange={on => save({ soundboardMuted: on })} />
-      <SliderRow label="Soundboard Volume" min={0} max={100} value={audio.soundboardVolume} disabled={audio.soundboardMuted} render={v => `${v}%`} onCommit={v => save({ soundboardVolume: v })} />
+      <SliderRow label="Speaker volume" min={0} max={200} value={audio.outputVolume} render={v => `${v}%`} onCommit={v => save({ outputVolume: v })} />
+      <ToggleRow label="Mute soundboards" detail="Sounds others play in a call stay silent for you." checked={audio.soundboardMuted} onChange={on => save({ soundboardMuted: on })} />
+      <SliderRow label="Soundboard volume" min={0} max={100} value={audio.soundboardVolume} disabled={audio.soundboardMuted} render={v => `${v}%`} onCommit={v => save({ soundboardVolume: v })} />
     </Category>
   )
 }
@@ -90,20 +90,20 @@ function InputProfile({ settings, save }: { settings: DiscordClientSettings; sav
       <VoiceCheck onLearned={() => void save({})} />
       <NoiseSuppression settings={settings} save={save} />
       <OnlyMyVoice settings={settings} save={save} />
-      <ToggleRow label="Noise Suppression for Others" detail="Takes background noise out of everyone else's voice, for you. Each person talking uses about as much of your PC as your own mic's."
+      <ToggleRow label="Noise suppression for others" detail="Takes background noise out of everyone else's voice, for you. Each person talking uses about as much of your PC as your own mic's."
         checked={settings.othersNoiseSuppression} onChange={value => save({ othersNoiseSuppression: value })} />
-      <ToggleRow label="Even Out Voices" detail="Brings everyone's voice to about the same loudness, for you, so one loud mic doesn't drown out the rest. Your volume for each person still applies."
+      <ToggleRow label="Even out voices" detail="Brings everyone's voice to about the same loudness, for you, so one loud mic doesn't drown out the rest. Your volume for each person still applies."
         checked={settings.evenVoices} onChange={value => save({ evenVoices: value })} />
-      <ToggleRow label="Echo Cancellation" detail="Takes your speakers out of your mic, so nobody hears themselves. Not needed, so not run, on headphones."
+      <ToggleRow label="Echo cancellation" detail="Takes your speakers out of your mic, so nobody hears themselves. Not needed, so not run, on headphones."
         checked={settings.echoCancellation} onChange={value => save({ echoCancellation: value })} />
       <Sensitivity settings={settings} save={save} live={live} />
-      <ToggleRow label="Push to Talk" detail="Activates your mic only when you hold down a designated key." checked={settings.pushToTalk} onChange={value => save({ pushToTalk: value })} />
+      <ToggleRow label="Push to talk" detail="Activates your mic only when you hold down a designated key." checked={settings.pushToTalk} onChange={value => save({ pushToTalk: value })} />
       {settings.pushToTalk ? (
         <>
-          <Row label="Push to Talk Keybind" detail="You can add multiple Push to Talk binds under System > Custom Keybinds.">
-            <KeybindRecorder label="Push to Talk Keybind" keys={ptt?.keys ?? []} onChange={setPtt} />
+          <Row label="Push to talk keybind" detail="You can add multiple push to talk binds under system > custom keybinds.">
+            <KeybindRecorder label="Push to talk keybind" keys={ptt?.keys ?? []} onChange={setPtt} />
           </Row>
-          <SliderRow label="Push to Talk Release Delay" min={0} max={2000} step={10} value={settings.pttDelay}
+          <SliderRow label="Push to talk release delay" min={0} max={2000} step={10} value={settings.pttDelay}
             render={v => (v >= 1000 ? `${(v / 1000).toFixed(2)}s` : `${v} ms`)} onCommit={v => void save({ pttDelay: v })} />
         </>
       ) : null}
@@ -128,7 +128,7 @@ function NoiseSuppression({ settings, save }: { settings: DiscordClientSettings;
     { value: 'none', label: 'None' },
   ]
   return (
-    <ChoiceRow label="Noise Suppression" detail={suppressionDetail[value]} value={value} choices={choices}
+    <ChoiceRow label="Noise suppression" detail={suppressionDetail[value]} value={value} choices={choices}
       onChange={next => void save(next === 'none' ? { noiseSuppression: false } : { noiseSuppression: true, noiseSuppressionKind: next })} />
   )
 }
@@ -139,11 +139,11 @@ function OnlyMyVoice({ settings, save }: { settings: DiscordClientSettings; save
   const forget = () => void host.discordMyVoice('forget').then(() => save({ onlyMyVoice: false })).catch(() => { })
   return (
     <>
-      <ToggleRow label="Only My Voice" checked={learned && settings.onlyMyVoice} disabled={!learned}
-        detail={learned ? 'Holds back voices that aren’t yours: someone else in the room, a TV or a stream.' : 'Record a Voice Check, then choose Use as My Voice.'}
+      <ToggleRow label="Only my voice" checked={learned && settings.onlyMyVoice} disabled={!learned}
+        detail={learned ? 'Holds back voices that aren’t yours: someone else in the room, a TV or a stream.' : 'Record a voice check, then choose use as my voice.'}
         onChange={value => save({ onlyMyVoice: value })} />
       {learned ? (
-        <Row label="Your voice" detail="Learned from a Voice Check. It stays on this PC.">
+        <Row label="Your voice" detail="Learned from a voice check. It stays on this PC.">
           <button type="button" className="exo-set-btn" onClick={forget}>Forget</button>
         </Row>
       ) : null}
@@ -171,7 +171,7 @@ function VoiceCheck({ onLearned }: { onLearned: () => void }) {
   }
   return (
     <>
-      <Row label="Voice Check" detail={left !== null ? `Talk now… ${left}` : 'Talk for a few seconds, then hear yourself as the call hears you.'} error={result && !result.ok ? result.message : null}>
+      <Row label="Voice check" detail={left !== null ? `Talk now… ${left}` : 'Talk for a few seconds, then hear yourself as the call hears you.'} error={result && !result.ok ? result.message : null}>
         <button type="button" className="exo-set-btn" disabled={left !== null} onClick={record}>{result?.ok ? 'Again' : 'Record'}</button>
       </Row>
       {result?.ok ? <VoiceCheckResults result={result} onLearned={onLearned} /> : null}
@@ -212,13 +212,13 @@ function VoiceCheckResults({ result, onLearned }: { result: VoiceCheckResult; on
         <strong>Before and after</strong>
         <span>Peak {db(result.peakDb)} · room {db(result.noiseDb)}, {db(result.noiseAfterDb)} after · your voice {db(result.voiceDb)}</span>
         {advice && !fixed ? <span className="exo-dc-voice-check-advice">{advice.text}</span> : null}
-        {fixed ? <span>Microphone Volume is now {volume}%. Record again to hear it.</span> : null}
-        {learning === 'busy' ? <span>Learning your voice…</span> : learning === 'done' ? <span>Exo knows your voice now. Turn on Only My Voice below.</span> : learning ? <span className="exo-dc-voice-check-advice">{learning}</span> : null}
+        {fixed ? <span>Microphone volume is now {volume}%. Record again to hear it.</span> : null}
+        {learning === 'busy' ? <span>Learning your voice…</span> : learning === 'done' ? <span>Exo knows your voice now. Turn on only my voice below.</span> : learning ? <span className="exo-dc-voice-check-advice">{learning}</span> : null}
       </span>
       <span className="exo-dc-voice-check-takes">
         <Takes before={result.before} after={result.after} />
-        {advice?.target !== undefined && !fixed ? <button type="button" className="exo-set-btn is-primary" onClick={fix}>Fix Microphone Volume</button> : null}
-        {(result.voicedShare ?? 0) >= 0.3 && learning !== 'busy' && learning !== 'done' ? <button type="button" className="exo-set-btn" onClick={learn}>Use as My Voice</button> : null}
+        {advice?.target !== undefined && !fixed ? <button type="button" className="exo-set-btn is-primary" onClick={fix}>Fix microphone volume</button> : null}
+        {(result.voicedShare ?? 0) >= 0.3 && learning !== 'busy' && learning !== 'done' ? <button type="button" className="exo-set-btn" onClick={learn}>Use as my voice</button> : null}
       </span>
     </div>
   )
@@ -284,12 +284,12 @@ function Sensitivity({ settings, save, live }: { settings: DiscordClientSettings
         <Switch checked={settings.autoSensitivity} label="Automatically determine input sensitivity" onChange={value => void save({ autoSensitivity: value })} />
       </Row>
       <div className="exo-dc-settings-row is-stacked">
-        <span className="exo-dc-settings-copy"><strong>Input Sensitivity</strong>{settings.autoSensitivity ? null : <span>{shown} dB</span>}</span>
+        <span className="exo-dc-settings-copy"><strong>Input sensitivity</strong>{settings.autoSensitivity ? null : <span>{shown} dB</span>}</span>
         <div className={`exo-dc-settings-meter${level.voiced ? ' is-voiced' : ''}`} role="meter" aria-label="Microphone level"
           aria-valuemin={-100} aria-valuemax={0} aria-valuenow={Math.round(level.gateLevel)} aria-valuetext={level.voiced ? 'Speaking' : 'Not speaking'}>
           <span className="exo-dc-settings-meter-track"><span className="exo-dc-settings-meter-level" style={fill(level.gateLevel)} /></span>
           {settings.autoSensitivity ? null : (
-            <Slider className="is-bare" min={-100} max={0} value={shown} aria-label="Input Sensitivity"
+            <Slider className="is-bare" min={-100} max={0} value={shown} aria-label="Input sensitivity"
               onChange={event => setThreshold(Number(event.target.value))}
               onPointerUp={event => commit(Number(event.currentTarget.value))} onKeyUp={event => commit(Number(event.currentTarget.value))} />
           )}
@@ -318,8 +318,8 @@ function useMicLevel() {
 function Advanced({ settings, save }: { settings: DiscordClientSettings; save: Save }) {
   return (
     <Category title="Advanced">
-      <h3 className="exo-dc-settings-fieldset">Global Attenuation</h3>
-      <SliderRow label="Attenuation Strength" detail="Lower the volume of other applications by this percent when someone is speaking. Set to 0% to completely disable global attenuation."
+      <h3 className="exo-dc-settings-fieldset">Global attenuation</h3>
+      <SliderRow label="Attenuation strength" detail="Lower the volume of other applications by this percent when someone is speaking. Set to 0% to completely disable global attenuation."
         min={0} max={100} value={settings.attenuation} render={v => `${v}%`} onCommit={v => void save({ attenuation: v })} />
       <ToggleRow label="When I speak" checked={settings.attenuateSelf} disabled={settings.attenuation === 0} onChange={value => save({ attenuateSelf: value })} />
       <ToggleRow label="When others speak" checked={settings.attenuateOthers} disabled={settings.attenuation === 0} onChange={value => save({ attenuateOthers: value })} />
@@ -354,10 +354,10 @@ function Camera() {
     <Category title="Camera">
       <div className="exo-dc-settings-preview">
         {testing ? <video ref={video} autoPlay muted playsInline /> : null}
-        <button type="button" className="exo-set-btn" onClick={() => { setError(null); setTesting(t => !t) }}>{testing ? 'Stop Video' : 'Test Video'}</button>
+        <button type="button" className="exo-set-btn" onClick={() => { setError(null); setTesting(t => !t) }}>{testing ? 'Stop video' : 'Test video'}</button>
         {error ? <em role="alert">{error}</em> : null}
       </div>
-      <Row label="Camera" detail={cameras.length > 0 && named.length === 0 ? 'Test Video once to choose among your cameras.' : undefined}>
+      <Row label="Camera" detail={cameras.length > 0 && named.length === 0 ? 'Test video once to choose among your cameras.' : undefined}>
         {cameras.length === 0 ? <span className="exo-dc-settings-value">No camera found</span> : (
           <Choice label="Camera" value={prefs.cameraId ?? ''} onChange={id => setDiscordPrefs({ cameraId: id || null })}
             choices={[{ value: '', label: 'Default' }, ...named.map((c, i) => ({ value: c.deviceId, label: c.label || `Camera ${i + 1}` }))]} />

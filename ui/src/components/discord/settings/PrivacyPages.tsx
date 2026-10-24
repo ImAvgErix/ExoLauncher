@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { host } from '../../../lib/host'
-import type { DiscordHome } from '../../../lib/discord'
+import type { DiscordHome, DiscordRestricted } from '../../../lib/discord'
+import { Avatar } from '../presence'
 import { changeAccountSettings, useAccountSettings, useStreamerHides, type AccountSettings, type DiscordAuthorizedApp, type DiscordConnection } from '../../../lib/discordPrefs'
 import { connectionLabel } from '../profileParts'
 import { Confirm } from '../admin'
@@ -24,7 +25,7 @@ function FilterSet({ kind, settings, adult }: { kind: FilterKind; settings: Acco
   const servers = [...(adult ? [{ value: REDACTION.show as number, label: 'Show' }] : []), { value: REDACTION.blur, label: 'Blur' }]
   const save = (key: ReturnType<typeof field>) => (value: number) => changeAccountSettings({ [key]: value })
   return (
-    <Category title={kind === 'explicit' ? 'Mature Sexual Media' : 'Graphic Media'}
+    <Category title={kind === 'explicit' ? 'Mature sexual media' : 'Graphic media'}
       detail={kind === 'explicit'
         ? 'Helps detect image-based media that may contain sexually explicit or suggestive material involving adults.'
         : 'Helps detect image-based media that may contain violent or potentially disturbing visual content.'}>
@@ -63,8 +64,8 @@ export function MessagingPage({ guilds }: { guilds: DiscordHome['guilds'] }) {
   }
   return (
     <>
-      <h1>Messaging Permissions</h1>
-      <Category title="Content Filters">
+      <h1>Messaging permissions</h1>
+      <Category title="Content filters">
         <FilterSet kind="explicit" settings={settings} adult={adult} />
         <FilterSet kind="gore" settings={settings} adult={adult} />
         <AccountToggle label="Allow access to age-restricted commands from apps in DMs" detail="Allows people 18+ to access commands marked as age-restricted in DMs. Applies to all apps."
@@ -72,18 +73,18 @@ export function MessagingPage({ guilds }: { guilds: DiscordHome['guilds'] }) {
         <AccountToggle label="Allow access to age-restricted servers on iOS" detail="Access age-restricted servers (18+) on iOS devices, after joining them on desktop."
           settings={settings} field="viewNsfwGuilds" disabled={!adult} />
       </Category>
-      <Category title="Spam Filters">
-        <ChoiceRow label="Automatically filter suspected spam messages" detail="Discord can filter out some messages that contain spam. These messages go to your Spam inbox."
+      <Category title="Spam filters">
+        <ChoiceRow label="Automatically filter suspected spam messages" detail="Discord can filter out some messages that contain spam. These messages go to your spam inbox."
           value={spamFilter(settings, adult)} onChange={value => changeAccountSettings({ dmSpamFilterV2: value })}
-          choices={[{ value: 3, label: 'Filter all spam' }, { value: 2, label: 'Filter messages from non-friends (Recommended)' }, { value: 1, label: "Don't filter spam" }]} />
+          choices={[{ value: 3, label: 'Filter all spam' }, { value: 2, label: 'Filter messages from non-friends (recommended)' }, { value: 1, label: "Don't filter spam" }]} />
       </Category>
-      <Category title="Direct Message (DM) Permissions">
-        <ToggleRow label="Direct Messages" detail="Allow DMs from other server members" checked={!dmsRestricted}
+      <Category title="Direct message (DM) permissions">
+        <ToggleRow label="Direct messages" detail="Allow DMs from other server members" checked={!dmsRestricted}
           onChange={value => { setAskAll({ kind: 'dms', restricted: !value }) }} />
         <ToggleRow label="Message requests" detail="Filter messages from server members you may not know." checked={!dmsRestricted && !settings.defaultMessageRequestRestricted}
           disabled={dmsRestricted} onChange={value => { setAskAll({ kind: 'requests', restricted: !value }) }} />
         {askAll ? (
-          <div className="exo-dc-settings-ask exo-glass" role="alertdialog" aria-label={askAll.kind === 'dms' ? 'Server Privacy' : 'Message Requests'}>
+          <div className="exo-dc-settings-ask exo-glass" role="alertdialog" aria-label={askAll.kind === 'dms' ? 'Server privacy' : 'Message requests'}>
             <span>Do you want to also apply this change to all your existing servers?</span>
             <button type="button" className="exo-set-btn" onClick={() => applyDefault(false)}>No</button>
             <button type="button" className="exo-set-btn is-primary" onClick={() => applyDefault(true)}>Yes</button>
@@ -91,19 +92,64 @@ export function MessagingPage({ guilds }: { guilds: DiscordHome['guilds'] }) {
         ) : null}
         {dmError ? <p className="exo-dc-settings-note" role="alert">{dmError}</p> : null}
       </Category>
-      <Category title="Friend Request Permissions">
+      <Category title="Friend request permissions">
         <ToggleRow label="Everyone" checked={everyone} onChange={value => changeAccountSettings({ friendSourceFlags: value ? 14 : 14 & ~8 })} />
         <ToggleRow label="Friend of friends" checked={everyone || (flags & 2) !== 0} disabled={everyone} onChange={value => setFlag(2, value)} />
-        <ToggleRow label="Server members" detail="Server members can only send you friend requests from servers where you also allow Direct Messages."
+        <ToggleRow label="Server members" detail="Server members can only send you friend requests from servers where you also allow direct messages."
           checked={everyone || (flags & 4) !== 0} disabled={everyone} onChange={value => setFlag(4, value)} />
         <AccountToggle label="Show personalized messages" detail="Show personalized messages on incoming friend requests. If you accept, the message will still appear in your DMs."
           settings={settings} field="hideFriendRequestNotes" invert />
       </Category>
-      <Category title="Messaging in Connected Games">
+      <Category title="Messaging in connected games">
         <AccountToggle label="Allow friends from games to send direct messages and invites" detail="Let friends from connected games send DMs and invite me to play games, even when the game we play isn't open."
           settings={settings} field="allowGameFriendDmsInDiscord" />
       </Category>
+      <IgnoreAndBlock />
     </>
+  )
+}
+
+type Restricted = { blocked: DiscordRestricted[]; ignored: DiscordRestricted[] }
+
+/** Discord's Ignore & Block: the people you blocked and ignored, each with Unblock or Unignore; shown while there are any. */
+function IgnoreAndBlock() {
+  const [lists, setLists] = useState<Restricted | null>(null)
+  const load = () => host.discordFriends().then(result => setLists(result.restricted ?? null)).catch(() => { })
+  useEffect(() => { void load() }, [])
+  if (!lists || (!lists.blocked.length && !lists.ignored.length)) return null
+  return (
+    <Category title="Ignore & Block">
+      {lists.blocked.length ? <RestrictedList title="Blocked accounts" people={lists.blocked} action="Unblock" run={userId => host.discordFriend('remove', { userId })} onDone={load} /> : null}
+      {lists.ignored.length ? <RestrictedList title="Ignored accounts" people={lists.ignored} action="Unignore" run={userId => host.discordFriend('unignore', { userId })} onDone={load} /> : null}
+    </Category>
+  )
+}
+
+// Five at a time, then See more, as Discord lists them; a press that Discord refused says why under the row.
+function RestrictedList({ title, people, action, run, onDone }: { title: string; people: DiscordRestricted[]; action: string; run: (userId: string) => Promise<{ ok: boolean; message?: string | null }>; onDone: () => void }) {
+  const [shown, setShown] = useState(5)
+  const [busy, setBusy] = useState<string | null>(null)
+  const [error, setError] = useState<{ id: string; message: string } | null>(null)
+  const act = (id: string) => {
+    setBusy(id)
+    setError(null)
+    void run(id).then(result => { if (!result.ok) setError({ id, message: result.message ?? "Discord didn't take that." }); onDone() },
+      () => setError({ id, message: "Discord didn't take that." })).finally(() => setBusy(null))
+  }
+  return (
+    <div className="exo-dc-settings-people" role="group" aria-label={title}>
+      <h3>{title}</h3>
+      {people.slice(0, shown).map(person => (
+        <div key={person.id} className="exo-dc-settings-row">
+          <span className="exo-dc-settings-person">
+            <Avatar src={person.avatar} name={person.name} status={null} size={32} />
+            <span className="exo-dc-settings-copy"><strong>{person.name}</strong>{person.username ? <span>{person.username}</span> : null}{error?.id === person.id ? <em role="alert">{error.message}</em> : null}</span>
+          </span>
+          <button type="button" className="exo-set-btn" disabled={busy === person.id} onClick={() => act(person.id)}>{action}</button>
+        </div>
+      ))}
+      {people.length > shown ? <button type="button" className="exo-set-btn" onClick={() => setShown(n => n + 5)}>See {Math.min(5, people.length - shown)} more</button> : null}
+    </div>
   )
 }
 
@@ -136,8 +182,8 @@ export function DataPrivacyPage() {
     .then(result => { consent.reload(); return result.ok ? null : result.message ?? "Discord didn't save that." }, () => "Discord didn't save that.")
   return (
     <>
-      <h1>Data & Privacy</h1>
-      <Category title="How Discord Uses My Data">
+      <h1>Data & privacy</h1>
+      <Category title="How Discord uses my data">
         <LoadError error={consent.error} onRetry={consent.reload} />
         <Row label="Use data to make Discord work" detail="Discord needs to store and process some data in order to provide you the basic Discord service, such as your messages, what servers you're in and your Direct Messages." />
         <ToggleRow label="Use data to improve Discord" detail="Allow Discord to use and process my information to understand and improve Discord's services."
@@ -154,16 +200,16 @@ export function DataPrivacyPage() {
           </div>
         ) : null}
         {consentError ? <p className="exo-dc-settings-note" role="alert">{consentError}</p> : null}
-        <AccountToggle label="Use my Discord activity to personalize Sponsored Content" detail="Allows Discord to personalize Sponsored Content, like Quests, using your Discord activity, such as the games you play."
+        <AccountToggle label="Use my Discord activity to personalize sponsored content" detail="Allows Discord to personalize sponsored content, like Quests, using your Discord activity, such as the games you play."
           settings={settings} field="dropsOptedOut" invert />
-        <AccountToggle label="Use third-party data to personalize Sponsored Content" detail="Allows Discord to personalize Sponsored Content, like Quests, using data Discord receives from advertisers and third-party data providers."
+        <AccountToggle label="Use third-party data to personalize sponsored content" detail="Allows Discord to personalize sponsored content, like Quests, using data Discord receives from advertisers and third-party data providers."
           settings={settings} field="quests3pDataOptedOut" invert disabled={settings.dropsOptedOut} />
-        <LinkRow label="Request my data" detail="Get a copy of the data Discord keeps for your account, by email." button="Request Data" url="https://discord.com/settings/data-and-privacy" />
+        <LinkRow label="Request my data" detail="Get a copy of the data Discord keeps for your account, by email." button="Request data" url="https://discord.com/settings/data-and-privacy" />
       </Category>
-      <Category title="Profile Privacy" detail="Control who can see your profile info — like your bio and connected accounts.">
+      <Category title="Profile privacy" detail="Control who can see your profile info — like your bio and connected accounts.">
         <ChoiceRow label="Share my full profile with" value={settings.profileVisibility === 0 ? 3 : settings.profileVisibility}
           onChange={value => changeAccountSettings({ profileVisibility: value })}
-          choices={[{ value: 3, label: 'Friends & All Servers' }, { value: 2, label: 'Friends & Small Servers Only' }, { value: 1, label: 'Friends Only' }]} />
+          choices={[{ value: 3, label: 'Friends & all servers' }, { value: 2, label: 'Friends & small servers only' }, { value: 1, label: 'Friends only' }]} />
         <AccountToggle label="Share when I update my profile" detail="Allow friends to receive a push notification when you update your profile."
           settings={settings} field="notifyFriendsOnProfileUpdate" />
       </Category>
@@ -182,19 +228,19 @@ export function ActivityPage() {
   const settings = useAccountSettings()
   return (
     <>
-      <h1>Activity Privacy</h1>
-      <Category title="What Activity I Share">
+      <h1>Activity privacy</h1>
+      <Category title="What activity I share">
         <AccountToggle label="Share my activity" detail="Display the game or app you're using as your status." settings={settings} field="showCurrentGame" />
         <AccountToggle label="Share when I come online" detail="Allow friends to receive a push notification when you come online." settings={settings} field="notifyFriendsOnComeOnline" />
         <AccountToggle label="Share when I start streaming" detail="Allow members that you interact with the most to get a notification when you start streaming in small servers."
           settings={settings} field="notifyServerMembersOnGoLive" />
       </Category>
-      <Category title="Where I Share Activity">
+      <Category title="Where I share activity">
         <ChoiceRow label="Automatically share my activity when joining a server" detail="Your activity is always shared with your friends."
           value={activityDefault(settings)} onChange={value => changeAccountSettings({ defaultGuildsActivityRestrictedV2: value })}
           choices={[{ value: 1, label: 'Share in all servers' }, { value: 2, label: 'Share in servers with 200 or fewer members' }, { value: 3, label: 'Do not share in any servers' }]} />
       </Category>
-      <Category title="Who Can Join My Games" detail="Some games allow users to join the game you're playing when viewing your activity.">
+      <Category title="Who can join my games" detail="Some games allow users to join the game you're playing when viewing your activity.">
         <AccountToggle label="Allow friends to join my game" detail="Allow friends to join my game without sending a request." settings={settings} field="allowActivityPartyPrivacyFriends" />
         <AccountToggle label="Allow voice channel participants to join my game"
           detail="Allow anyone in a shared voice channel to join my game without sending a request. This feature only works in non-Community enabled servers."
@@ -223,7 +269,7 @@ export function ConnectedAppsPage() {
   }
   return (
     <>
-      <h1>Connected Apps</h1>
+      <h1>Connected apps</h1>
       <Category title="Connections" detail="These are accounts from other platforms. Connecting them here can unlock new features on Discord.">
         <LoadError error={connections.error} onRetry={connections.reload} />
         {connections.value?.length === 0 ? <p className="exo-dc-settings-note">No accounts connected.</p> : null}
@@ -233,7 +279,7 @@ export function ConnectedAppsPage() {
         ))}
         <LinkRow label="Add connections" detail="Connecting an account signs in to that service on Discord's site." button="Add" url="https://discord.com/settings/connections" />
       </Category>
-      <Category title="Authorized Apps" detail="These include third-party services you've given permission to access your Discord account. You can review what each app can do and revoke access anytime.">
+      <Category title="Authorized apps" detail="These include third-party services you've given permission to access your Discord account. You can review what each app can do and revoke access anytime.">
         <LoadError error={apps.error} onRetry={apps.reload} />
         {failed ? <p className="exo-dc-settings-note" role="alert">{failed}</p> : null}
         {apps.value?.length === 0 ? <p className="exo-dc-settings-note">You haven&apos;t authorized any apps.</p> : null}
@@ -243,7 +289,7 @@ export function ConnectedAppsPage() {
           </Row>
         ))}
         {asking ? (
-          <Confirm title="Deauthorize Application" action="Deauthorize" onClose={() => setAsking(null)} onConfirm={() => deauthorize(asking.id)}>
+          <Confirm title="Deauthorize application" action="Deauthorize" onClose={() => setAsking(null)} onConfirm={() => deauthorize(asking.id)}>
             <p>This action will remove the link between your Discord account and {asking.name ?? 'this app'}</p>
           </Confirm>
         ) : null}

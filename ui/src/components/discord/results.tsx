@@ -20,7 +20,7 @@ export function useOutside(onClose: () => void) {
  * A found message (search, pins, the Inbox): where it is (when not here), who and when, the text, and
  * Jump, which opens it in its conversation; onRemove adds the Inbox's × (the pins' Unpin), told whether Shift was held.
  */
-export function Result({ message, place, here, ctx, onJumped, onRemove, removeLabel = 'Remove from Inbox' }: {
+export function Result({ message, place, here, ctx, onJumped, onRemove, removeLabel = 'Remove from inbox' }: {
   message: DiscordMessage; place: DiscordPlace | null; here: string; ctx: MarkdownContext; onJumped: () => void; onRemove?: (shift: boolean) => void; removeLabel?: string
 }) {
   const reachable = place !== null || message.channel_id === here

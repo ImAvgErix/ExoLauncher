@@ -265,7 +265,7 @@ function ShowMore({ page, data, shown, more, onMore }: {
   return (
     <>
       {shown < total && first >= Math.min(pageSize, total) ? (
-        <button type="button" className="button button--secondary button--sm exo-music-more" disabled={loading} onClick={() => void load()}>
+        <button type="button" className="exo-set-btn exo-music-more" disabled={loading} onClick={() => void load()}>
           {loading ? 'Loading' : 'Show more'}
         </button>
       ) : null}
@@ -376,12 +376,12 @@ function HeaderActions({ page, header, canPlay, onPlay, onFailed }: {
   const words = artist ? (has('station') ? ['Favorite', 'Favorited'] : ['Follow', 'Following']) : has('library') ? ['Add to library', 'In library'] : ['Save', 'Saved']
   return (
     <div className="exo-music-header-actions">
-      <button type="button" className="button button--primary" disabled={!canPlay} onClick={onPlay}><Play size={16} /> Play</button>
+      <button type="button" className="exo-set-btn is-primary" disabled={!canPlay} onClick={onPlay}><Play size={16} /> Play</button>
       {header.station && has('station') ? (
-        <button type="button" className="button button--secondary" onClick={() => void run(runAction(adapter, 'station', { uri: header.station }))}>Station</button>
+        <button type="button" className="exo-set-btn" onClick={() => void run(runAction(adapter, 'station', { uri: header.station }))}>Station</button>
       ) : null}
       {save ? (
-        <button type="button" className="button button--secondary" aria-pressed={saved}
+        <button type="button" className="exo-set-btn" aria-pressed={saved}
           onClick={() => void run(runAction(adapter, save, { uri: header.uri, on: !saved }), () => setSaved(!saved))}>
           {words[saved ? 1 : 0]}
         </button>
@@ -457,7 +457,7 @@ function PageMenu({ page, header }: { page: Page; header: PlayerHeader }) {
   }
   return (
     <>
-      <Menu label={`More for ${header.title || page.title}`} anchor={`--exo-music-head-${menuId}`} offset={4} triggerClassName="exo-ghost-btn exo-music-page-more"
+      <Menu label={`More for ${header.title || page.title}`} anchor={`--exo-music-head-${menuId}`} offset={4} triggerClassName="exo-set-btn exo-music-page-more"
         trigger={<More size={16} />} items={items} onAction={id => void choose(id)} />
       {header.downloaded === true || header.downloaded === 'downloading'
         ? <span className="exo-music-state is-on"><Download size={14} /> {header.downloaded === true ? 'Downloaded' : 'Downloading'}</span> : null}
@@ -715,7 +715,7 @@ export function TrackList({ tracks, onPlay, showAlbum = false, numbered = false,
             ) : <span />}
             {items.length ? (
               <Menu label={`More for ${track.title}`} anchor={`--exo-track-${menuBase}-${index}`} offset={4}
-                triggerClassName="exo-ghost-btn exo-music-track-more" trigger={<More size={16} />} items={items}
+                triggerClassName="exo-set-btn exo-music-track-more" trigger={<More size={16} />} items={items}
                 filter={{ section: 'Add to playlist', label: 'Find a playlist' }} onAction={id => void choose(track, id)} />
             ) : <span />}
             <TrackTime track={track} done={done?.uri === track.uri ? done : null} />

@@ -1,18 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { LauncherSettings } from '../../lib/host'
-import { RELEASES, unseenRelease, WHATS_NEW, type WhatsNewRelease } from '../../lib/whatsNew'
+import { missedReleases, releasesThrough, WHATS_NEW, type WhatsNewRelease } from '../../lib/whatsNew'
 
 /**
- * The What's New sheet's release while it is open. The running version's notes open once, while unseen and nothing
- * in `busy` holds (booting, away from the Library, a game's page, a menu or dialog open); Settings › About opens them
- * again. Closing marks the version seen.
+ * The What's New sheet's releases while it is open, newest first. What changed since the version last seen opens
+ * once, while unseen and nothing in `busy` holds (booting, away from the Library, a game's page, a menu or dialog
+ * open); Settings › About and the update prompt open every release up to the running one. Closing marks the version seen.
  */
 export function useWhatsNew(settings: LauncherSettings | null, busy: readonly boolean[], persist: (patch: Partial<LauncherSettings>) => void) {
-  const [open, setOpen] = useState<WhatsNewRelease | null>(null)
+  const [open, setOpen] = useState<'missed' | 'all' | null>(null)
   const shown = useRef(false)
   const version = settings?.appVersion
-  const due = settings ? unseenRelease(settings.appVersion, settings.whatsNewSeen) : null
   const seen = settings?.whatsNewSeen
+  const due = !!version && missedReleases(version, seen).length > 0
   const free = !busy.includes(true)
 
   useEffect(() => {
@@ -21,7 +21,7 @@ export function useWhatsNew(settings: LauncherSettings | null, busy: readonly bo
     const timer = window.setTimeout(() => {
       if (shown.current || document.querySelector('[aria-modal="true"]:not([hidden], [hidden] *, [inert] *)')) return
       shown.current = true
-      setOpen(due)
+      setOpen('missed')
     }, 600)
     return () => window.clearTimeout(timer)
   }, [due, free])
@@ -29,16 +29,17 @@ export function useWhatsNew(settings: LauncherSettings | null, busy: readonly bo
   useEffect(() => {
     const show = () => {
       shown.current = true
-      setOpen(RELEASES.find(release => release.version === version) ?? RELEASES[0] ?? null)
+      setOpen('all')
     }
     window.addEventListener(WHATS_NEW, show)
     return () => window.removeEventListener(WHATS_NEW, show)
-  }, [version])
+  }, [])
 
   const close = useCallback(() => {
     setOpen(null)
     if (version && seen !== version) persist({ whatsNewSeen: version })
   }, [version, seen, persist])
 
-  return [open, close] as const
+  const releases: WhatsNewRelease[] | null = !open || !version ? null : open === 'missed' ? missedReleases(version, seen) : releasesThrough(version)
+  return [releases, close] as const
 }

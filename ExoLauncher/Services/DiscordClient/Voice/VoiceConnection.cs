@@ -197,6 +197,11 @@ internal sealed class VoiceConnection : IAsyncDisposable
                     if (id.GetString() is { } user) _dave?.AddUser(user);
                 if (_screen) AppLog.Info($"Discord video: {d.GetProperty("user_ids").GetArrayLength()} joined your stream's connection.");
                 break;
+            // Client flags: someone else with CLIPS_ENABLED (1) records the call, which Discord tells everyone in it.
+            case 18:
+                if (d.TryGetProperty("user_id", out var flagged) && flagged.GetString() != _userId && d.TryGetProperty("flags", out var flags) && flags.TryGetInt32(out var bits) && (bits & 1) != 0)
+                    Changed?.Invoke("clips", new { userId = flagged.GetString() });
+                break;
             case 13:
                 if (d.GetProperty("user_id").GetString() is { } gone) Forget(gone);
                 if (_screen) AppLog.Info("Discord video: someone left your stream's connection.");

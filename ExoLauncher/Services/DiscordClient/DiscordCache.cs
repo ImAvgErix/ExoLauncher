@@ -14,9 +14,10 @@ namespace ExoLauncher.Services.DiscordClient;
 /// </summary>
 internal sealed partial class DiscordCache
 {
-    private const ulong Administrator = 1UL << 3, ViewChannel = 1UL << 10, SendMessages = 1UL << 11, ReadHistory = 1UL << 16, Connect = 1UL << 20;
+    internal const ulong Administrator = 1UL << 3;
+    private const ulong ViewChannel = 1UL << 10, SendMessages = 1UL << 11, ReadHistory = 1UL << 16, Connect = 1UL << 20;
     private const ulong All = ulong.MaxValue;
-    private const ulong ManageChannels = 1UL << 4, ManageEvents = 1UL << 33;
+    private const ulong ManageChannels = 1UL << 4, ManageEvents = 1UL << 33, SetVoiceStatus = 1UL << 48;
     // Kick, Ban, Manage Server or Timeout: who Discord shows its Members page to.
     private const ulong Moderation = 1UL << 1 | 1UL << 2 | 1UL << 5 | 1UL << 40;
 
@@ -40,14 +41,20 @@ internal sealed partial class DiscordCache
         // Channel settings: age-restricted, slowmode seconds, a voice channel's user limit.
         public bool Nsfw;
         public int RateLimit, UserLimit;
+        // A voice channel's status (Set Channel Status), as Discord sends it (CHANNEL_INFO, VOICE_CHANNEL_STATUS_UPDATE).
+        public string? Status;
         // A thread closed to new messages (thread_metadata.locked).
         public bool Locked;
         // A forum's or media channel's tags: id, name and emoji (a server emoji's id, or a Unicode one).
         public List<(string Id, string Name, string? EmojiId, string? EmojiName)> Tags = [];
         public List<Overwrite> Overwrites = [];
         public List<string> Recipients = [];
+        // A group DM's owner (who may rename it, change its icon, remove people and hand it on).
+        public string? OwnerId;
         // A DM from someone the user hasn't accepted yet (Discord's message requests): it doesn't notify.
         public bool MessageRequest;
+        // A DM Discord filed as spam (is_spam): listed under Message Requests › Spam, as Discord does.
+        public bool Spam;
     }
 
     private sealed class Guild
@@ -55,6 +62,8 @@ internal sealed partial class DiscordCache
         public required string Id;
         public string Name = "";
         public string? Icon;
+        // The server's banner hash (a_ when it moves), shown over the top of its channel list.
+        public string? Banner;
         public string? OwnerId;
         public string? RulesChannelId;
         public string? AfkChannelId;
@@ -63,8 +72,9 @@ internal sealed partial class DiscordCache
         public Dictionary<string, ulong> Roles = [];
         // How each role shows: color, order, name, and whether it gets its own group in the member list.
         public Dictionary<string, RoleStyle> Styles = [];
-        // What Exo has seen of members: user id -> (roles, nickname).
+        // What Exo has seen of members: user id -> (roles, nickname), and the picture each set for this server (its hash).
         public Dictionary<string, (List<string> Roles, string? Nick)> Members = [];
+        public Dictionary<string, string> Avatars = [];
         // Members Exo has seen timed out: user id -> until when.
         public Dictionary<string, DateTimeOffset> TimedOut = [];
         // Ids asked of Discord (op 8) and when, and ids Discord said aren't members (webhooks, people who left): never asked again.
@@ -96,7 +106,8 @@ internal sealed partial class DiscordCache
 
     private sealed record Emoji(string Id, string Name, bool Animated, bool Available);
 
-    internal sealed record RoleStyle(int Color, int Position, string Name, bool Hoist, bool Managed = false);
+    // Icon: a role icon's hash (role-icons on the CDN); Emoji: a Unicode emoji in its place.
+    internal sealed record RoleStyle(int Color, int Position, string Name, bool Hoist, bool Managed = false, string? Icon = null, string? Emoji = null);
 
     internal sealed record VoiceMember(string ChannelId, string Name, string? Avatar, bool Mute, bool Deaf, bool Video = false, bool Stream = false,
         bool ServerMute = false, bool ServerDeaf = false);
@@ -122,6 +133,8 @@ internal sealed partial class DiscordCache
     // category, then the server, then the server's default), and the servers where @everyone and role mentions don't count.
     private readonly Dictionary<string, int> _notify = [];
     private readonly HashSet<string> _suppressEveryone = [], _suppressRoles = [];
+    // Servers whose muted channels the sidebar leaves out (Hide Muted Channels).
+    private readonly HashSet<string> _hideMuted = [];
     // Servers whose own-roles changed from a member that arrived, told to the page once the event is applied.
     private readonly HashSet<string> _myRolesMoved = [];
     internal const int OptInEnabled = 4096, OptInChannelsOn = 16384;
@@ -135,9 +148,12 @@ internal sealed partial class DiscordCache
 
     /// <summary>What Discord shows under a name: the custom status, else the activity (no verb, as Discord writes it),
     /// with its type for the icon, and the activity itself for Active Now.</summary>
-    internal sealed record Presence(string Status, string? Activity, int? Kind, Rich? Rich);
+    // All: every activity but the custom status, as a profile shows them (Rich is the first).
+    internal sealed record Presence(string Status, string? Activity, int? Kind, Rich? Rich, IReadOnlyList<Rich>? All = null);
 
-    internal sealed record Rich(int Type, string Name, string? Details, string? State, long? Start, string? Image);
+    // End: when it ends (Spotify's song); Url: a stream's page; SyncId: Spotify's track id; Album: the large picture's words.
+    internal sealed record Rich(int Type, string Name, string? Details, string? State, long? Start, string? Image, long? End = null, string? Url = null,
+        string? SyncId = null, string? Album = null);
     private string _myStatus = "online";
     // The server list as Discord keeps it (guild_folders): folders and servers on their own, top to bottom. _order is its
     // servers that are here; servers it lacks go on top, as Discord's SortedGuildStore adds them.
@@ -150,17 +166,21 @@ internal sealed partial class DiscordCache
     /// <summary>The user has Nitro, so their own server emoji work everywhere; without it, other servers' emoji go as pictures.</summary>
     internal bool Premium { get; private set; }
 
+    /// <summary>The account has 2FA on: only then may an owner require it of moderators (or delete a server Discord's quick way).</summary>
+    internal bool MfaEnabled { get; private set; }
+
     internal void LoadReady(JsonElement d)
     {
         lock (_gate)
         {
             _guilds.Clear(); _private.Clear(); _users.Clear(); _read.Clear(); _muted.Clear(); _collapsed.Clear(); _flags.Clear(); _guildFlags.Clear(); _order = []; _unavailable.Clear();
-            _notify.Clear(); _suppressEveryone.Clear(); _suppressRoles.Clear();
+            _notify.Clear(); _suppressEveryone.Clear(); _suppressRoles.Clear(); _hideMuted.Clear();
             // A new session: DM calls that ended meanwhile are gone (Discord sends a CALL_CREATE for each one still on).
             _calls.Clear();
             Me = ReadUser(d.GetProperty("user"));
             Remember(Me);
             Premium = Int(d.GetProperty("user"), "premium_type") > 0;
+            MfaEnabled = Bool(d.GetProperty("user"), "mfa_enabled");
             foreach (var user in Array(d, "users")) Remember(ReadUser(user));
             var merged = Array(d, "merged_members").ToList();
             var index = 0;
@@ -290,6 +310,31 @@ internal sealed partial class DiscordCache
                         events.Add(("discord.changed", new { guildId = gone }));
                     }
                     break;
+                // Voice channel statuses: all of a server's (asked with op 43), or one changed.
+                case "CHANNEL_INFO":
+                    if (Str(d, "guild_id") is { } ig && _guilds.TryGetValue(ig, out var iguild))
+                    {
+                        foreach (var c in iguild.Channels.Values) c.Status = null;
+                        foreach (var info in Array(d, "channels"))
+                            if (Str(info, "id") is { } icid && iguild.Channels.TryGetValue(icid, out var ichannel)) ichannel.Status = Str(info, "status");
+                        events.Add(("discord.changed", new { guildId = ig }));
+                    }
+                    break;
+                case "VOICE_CHANNEL_STATUS_UPDATE":
+                    if (Str(d, "guild_id") is { } sg && _guilds.TryGetValue(sg, out var sguild) && Str(d, "id") is { } scid && sguild.Channels.TryGetValue(scid, out var schannel))
+                    {
+                        schannel.Status = Str(d, "status");
+                        events.Add(("discord.changed", new { guildId = sg }));
+                    }
+                    break;
+                // Someone joined or left a group DM: its members and the DM list follow.
+                case "CHANNEL_RECIPIENT_ADD" or "CHANNEL_RECIPIENT_REMOVE" when Str(d, "channel_id") is { } gdm && _private.TryGetValue(gdm, out var gdmChannel)
+                    && d.TryGetProperty("user", out var gdmUser) && Str(gdmUser, "id") is { } gdmUserId:
+                    Remember(ReadUser(gdmUser));
+                    gdmChannel.Recipients.Remove(gdmUserId);
+                    if (type == "CHANNEL_RECIPIENT_ADD") gdmChannel.Recipients.Add(gdmUserId);
+                    events.Add(("discord.changed", new { guildId = (string?)null }));
+                    break;
                 case "CHANNEL_CREATE":
                 case "CHANNEL_UPDATE":
                 case "CHANNEL_DELETE":
@@ -409,6 +454,7 @@ internal sealed partial class DiscordCache
                     {
                         Remember(ReadUser(d));
                         Me = _users[self];
+                        if (d.TryGetProperty("mfa_enabled", out _)) MfaEnabled = Bool(d, "mfa_enabled");
                         events.Add(("discord.changed", new { guildId = (string?)null }));
                     }
                     break;
@@ -499,7 +545,10 @@ internal sealed partial class DiscordCache
             else if (mentioned) _read[channelId] = (read.Last, read.Mentions + 1);
             if (d.TryGetProperty("author", out var who) && Str(who, "id") is not null) Remember(ReadUser(who));
             if (channel.GuildId is { } mg2 && _guilds.TryGetValue(mg2, out var mguild2) && d.TryGetProperty("member", out var msgMember) && author is not null)
+            {
                 mguild2.Members[author] = (Array(msgMember, "roles").Select(Id).OfType<string>().ToList(), Str(msgMember, "nick"));
+                RememberAvatar(mguild2, author, msgMember);
+            }
             events.Add(("discord.unread", UnreadNow(channelId)));
             if (fresh && Notifies(d, channel, author, mentioned) && Remembered(id!)) events.Add(("discord.notify", Notice(d, channel)));
         }
@@ -587,10 +636,34 @@ internal sealed partial class DiscordCache
     internal bool CanSend(string channelId)
     {
         lock (_gate)
-            return Find(channelId) is { } c && (c.GuildId is null || (Perms(c) & (ViewChannel | SendMessages)) == (ViewChannel | SendMessages));
+            // A message request takes no reply until it's accepted, as in Discord.
+            return Find(channelId) is { } c && (c.GuildId is null ? !c.MessageRequest && !c.Spam : (Perms(c) & (ViewChannel | SendMessages)) == (ViewChannel | SendMessages));
     }
 
     /// <summary>Manage Messages in a server channel: others' reactions can be taken off.</summary>
+    /// <summary>Whether this DM is a message request or Discord's spam, waiting for Accept or Ignore.</summary>
+    internal bool IsRequest(string channelId)
+    {
+        lock (_gate) return _private.TryGetValue(channelId, out var c) && (c.MessageRequest || c.Spam);
+    }
+
+    /// <summary>Whether the user owns this group DM (its owner's actions are theirs).</summary>
+    internal bool OwnsGroup(string channelId)
+    {
+        lock (_gate) return _private.TryGetValue(channelId, out var c) && c.Recipients.Count > 1 && c.OwnerId is not null && c.OwnerId == Me?.Id;
+    }
+
+    /// <summary>A message request answered: accepted, it becomes a DM like any other; ignored, it leaves the list.</summary>
+    internal void Answer(string channelId, bool accepted)
+    {
+        lock (_gate)
+        {
+            if (!_private.TryGetValue(channelId, out var c)) return;
+            if (accepted) { c.MessageRequest = false; c.Spam = false; }
+            else _private.Remove(channelId);
+        }
+    }
+
     internal bool CanManageMessages(string channelId)
     {
         lock (_gate) return Find(channelId) is { GuildId: not null } c && (Perms(c) & ManageMessages) != 0;
@@ -614,6 +687,14 @@ internal sealed partial class DiscordCache
                     look = c.Recipients.Count == 1 ? LookOf(c.Recipients[0]) : null,
                     avatar = c.Recipients.Count == 1 ? Avatar(c.Recipients[0]) : c.Icon is null ? null : $"https://cdn.discordapp.com/channel-icons/{c.Id}/{c.Icon}.webp?size=256&quality=lossless",
                     group = c.Recipients.Count > 1,
+                    // A group DM's owner and the people in it (you aside), for its member list.
+                    ownerId = c.Recipients.Count > 1 ? c.OwnerId : null,
+                    members = c.Recipients.Count > 1
+                        ? c.Recipients.Select(id => (object)new { id, name = _users.GetValueOrDefault(id)?.Name ?? "Someone", username = _users.GetValueOrDefault(id)?.Username, avatar = Avatar(id), status = _presence.GetValueOrDefault(id)?.Status ?? "offline" }).ToArray()
+                        : null,
+                    // A message request or spam: under Message Requests, not the DM list, until accepted.
+                    request = c.MessageRequest,
+                    spam = c.Spam,
                     unread = Unread(c),
                     mentions = _read.GetValueOrDefault(c.Id).Mentions,
                     muted = IsMuted(c.Id),
@@ -701,8 +782,17 @@ internal sealed partial class DiscordCache
                         afk = c.Id == guild.AfkChannelId,
                         active = c.LastMessageId is { } lastId ? (long?)((long)(Snowflake(lastId) >> 22) + 1420070400000L) : null,
                         members = IsVoice(c.Type)
-                            ? guild.Voice.Where(v => v.Value.ChannelId == c.Id).Select(v => new { id = v.Key, name = v.Value.Name, avatar = v.Value.Avatar, look = LookOf(v.Key), mute = v.Value.Mute, deaf = v.Value.Deaf, video = v.Value.Video, stream = v.Value.Stream }).ToArray()
+                            ? guild.Voice.Where(v => v.Value.ChannelId == c.Id).Select(v => new
+                            {
+                                id = v.Key, name = v.Value.Name, avatar = v.Value.Avatar, look = LookOf(v.Key), mute = v.Value.Mute, deaf = v.Value.Deaf,
+                                video = v.Value.Video, stream = v.Value.Stream, serverMute = v.Value.ServerMute, serverDeaf = v.Value.ServerDeaf,
+                            }).ToArray()
                             : null,
+                        // A voice channel's user limit, for Discord's "2/5" beside its name.
+                        userLimit = IsVoice(c.Type) && c.UserLimit > 0 ? c.UserLimit : (int?)null,
+                        // Its status under its name, and whether the user may set it (Set Voice Channel Status) once in it.
+                        status = IsVoice(c.Type) && !string.IsNullOrWhiteSpace(c.Status) ? c.Status : null,
+                        canSetStatus = IsVoice(c.Type) && (perms & SetVoiceStatus) != 0,
                     });
                 }
             }
@@ -711,7 +801,16 @@ internal sealed partial class DiscordCache
             {
                 var children = visible.Where(c => c.ParentId == category.Id).ToList();
                 if (children.Count == 0) continue;
-                list.Add(new { id = category.Id, name = category.Name ?? "", type = 4, kind = "category", collapsed = _collapsed.Contains(category.Id), optedIn = OptedIn(category.Id) });
+                // Its menu's mute, notifications and Edit Category, as a channel's.
+                list.Add(new
+                {
+                    id = category.Id, name = category.Name ?? "", type = 4, kind = "category", collapsed = _collapsed.Contains(category.Id), optedIn = OptedIn(category.Id),
+                    muted = IsMuted(category.Id),
+                    mutedUntil = IsMuted(category.Id) && _muteEnds.TryGetValue(category.Id, out var folderMuteEnd) ? folderMuteEnd.ToUnixTimeMilliseconds() : (long?)null,
+                    notify = _notify.TryGetValue(category.Id, out var folderOwn) ? folderOwn : (int?)null,
+                    notifyDefault = InheritedNotify(category, guild),
+                    canEdit = (Perms(category) & (ManageChannels | ManageRoles)) != 0,
+                });
                 Add(children);
             }
             var perms = GuildPerms(guild);
@@ -727,6 +826,8 @@ internal sealed partial class DiscordCache
                 threads,
                 roles,
                 icon = guild.Icon is { } icon ? $"https://cdn.discordapp.com/icons/{guild.Id}/{icon}.webp?size=256&quality=lossless" : null,
+                // The hash only: the page asks the CDN for the size its slot needs.
+                banner = guild.Banner,
                 channels = list,
                 canManage = (perms & ManageChannels) != 0,
                 canManageEvents = (perms & ManageEvents) != 0,
@@ -734,6 +835,8 @@ internal sealed partial class DiscordCache
                 moderation = ModerationOf(guild, perms),
                 // Opt-in mode: the sidebar shows only the channels (or categories) the user follows.
                 optIn = OptInMode(guild.Id),
+                // Hide Muted Channels: the sidebar leaves muted channels out.
+                hideMuted = _hideMuted.Contains(guild.Id),
                 events = guild.Events.Count,
                 // Discord's rows over the channels: which this server has, and which the user may open.
                 rows = new
@@ -807,17 +910,21 @@ internal sealed partial class DiscordCache
         }
     }
 
-    /// <summary>A channel's own notification setting: 0 all messages, 1 only mentions, 2 nothing, 3 as its category or server.</summary>
-    /// <summary>A server's Suppress @everyone and @here / Suppress All Role @mentions, once Discord took the change.</summary>
-    internal void SetSuppress(string guildId, bool? everyone, bool? roles)
+    /// <summary>
+    /// A server's Suppress @everyone and @here, Suppress All Role @mentions and Hide Muted Channels, once Discord took
+    /// the change.
+    /// </summary>
+    internal void SetSuppress(string guildId, bool? everyone, bool? roles, bool? hideMuted = null)
     {
         lock (_gate)
         {
             if (everyone is { } e) { if (e) _suppressEveryone.Add(guildId); else _suppressEveryone.Remove(guildId); }
             if (roles is { } r) { if (r) _suppressRoles.Add(guildId); else _suppressRoles.Remove(guildId); }
+            if (hideMuted is { } h) { if (h) _hideMuted.Add(guildId); else _hideMuted.Remove(guildId); }
         }
     }
 
+    /// <summary>A channel's own notification setting: 0 all messages, 1 only mentions, 2 nothing, 3 as its category or server.</summary>
     internal void SetNotifyLevel(string channelId, int level)
     {
         lock (_gate) { if (level is >= 0 and <= 2) _notify[channelId] = level; else _notify.Remove(channelId); }
@@ -996,6 +1103,18 @@ internal sealed partial class DiscordCache
             Bool(v, "self_mute") || Bool(v, "mute"), Bool(v, "self_deaf") || Bool(v, "deaf"), Bool(v, "self_video"), Bool(v, "self_stream"), Bool(v, "mute"), Bool(v, "deaf"));
     }
 
+    /// <summary>Whether the user may set this voice channel's status (in it, with Set Voice Channel Status) or clear it (Manage Channels).</summary>
+    internal bool CanSetVoiceStatus(string channelId, bool clearing)
+    {
+        lock (_gate)
+        {
+            if (Find(channelId) is not { } c || !IsVoice(c.Type) || c.GuildId is not { } g || !_guilds.TryGetValue(g, out var guild)) return false;
+            var perms = Perms(c);
+            return (perms & ManageChannels) != 0 && clearing
+                || (perms & SetVoiceStatus) != 0 && Me is not null && guild.Voice.GetValueOrDefault(Me.Id)?.ChannelId == channelId;
+        }
+    }
+
     /// <summary>The voice channel a user is in on a server (null: none).</summary>
     internal string? VoiceChannelOf(string guildId, string userId)
     {
@@ -1072,6 +1191,19 @@ internal sealed partial class DiscordCache
                     dmId = _private.Values.FirstOrDefault(c => c.Recipients.Count == 1 && c.Recipients[0] == r.Key)?.Id,
                 };
             }).OrderBy(f => f.name, StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
+    /// <summary>The people the user blocked and ignored, as Discord's Ignore & Block lists them.</summary>
+    internal object Restricted()
+    {
+        lock (_gate)
+        {
+            object[] People(HashSet<string> ids) => [.. ids
+                .Select(id => (Id: id, User: _users.GetValueOrDefault(id)))
+                .OrderBy(p => p.User?.Name ?? "", StringComparer.OrdinalIgnoreCase)
+                .Select(p => (object)new { id = p.Id, name = p.User?.Name ?? "Someone", username = p.User?.Username, avatar = Avatar(p.Id) })];
+            return new { blocked = People(_blocked), ignored = People(_ignored) };
+        }
     }
 
     internal string MyStatus
@@ -1155,10 +1287,11 @@ internal sealed partial class DiscordCache
             a.TryGetProperty("emoji", out var em) && em.ValueKind == JsonValueKind.Object && Str(em, "id") is null ? Str(em, "name") : null,
             Str(a, "state"),
         }.Where(x => !string.IsNullOrEmpty(x)))).FirstOrDefault(x => x.Length > 0);
-        var rich = activities.Where(a => Int(a, "type") is >= 0 and <= 5 and not 4 && Str(a, "name") is not null).Select(ReadRich).FirstOrDefault();
+        var all = activities.Where(a => Int(a, "type") is >= 0 and <= 5 and not 4 && Str(a, "name") is not null).Select(ReadRich).Take(6).ToList();
+        var rich = all.FirstOrDefault();
         // Discord's line: the custom status, else Spotify's artist, else the activity's name.
         var line = custom ?? (rich is null ? null : rich.Type == 2 && rich.State is { Length: > 0 } artist ? artist : rich.Name);
-        return new Presence(Str(p, "status") ?? "offline", line, custom is not null ? 4 : rich?.Type, rich);
+        return new Presence(Str(p, "status") ?? "offline", line, custom is not null ? 4 : rich?.Type, rich, all);
     }
 
     /// <summary>
@@ -1182,11 +1315,25 @@ internal sealed partial class DiscordCache
             return new
             {
                 roles,
-                presence = presence is null ? null : new { status = presence.Status, activity = presence.Activity, activityType = presence.Kind, rich = presence.Rich },
+                presence = presence is null ? null : new { status = presence.Status, activity = presence.Activity, activityType = presence.Kind, rich = presence.Rich, activities = presence.All },
+                voice = VoiceOf(userId, guildId),
                 // Discord's relationship with you: 0 none, 1 friends, 2 blocked, 3 their request, 4 yours (the profile's friend button).
                 relationship = _blocked.Contains(userId) ? 2 : _relationships.GetValueOrDefault(userId),
             };
         }
+    }
+
+    // The voice channel someone is in on a server you share (this one first), as their profile's In Voice card shows it.
+    private object? VoiceOf(string userId, string? guildId)
+    {
+        var shared = _guilds.Values.Where(g => g.Voice.ContainsKey(userId)).OrderByDescending(g => g.Id == guildId);
+        foreach (var g in shared)
+        {
+            var at = g.Voice[userId].ChannelId;
+            if (!g.Channels.TryGetValue(at, out var channel) || (Perms(channel) & ViewChannel) == 0) continue;
+            return new { guildId = g.Id, guild = g.Name, channelId = at, channel = channel.Name, count = g.Voice.Count(v => v.Value.ChannelId == at) };
+        }
+        return null;
     }
 
     // A member's presence as the server's member list last sent it.
@@ -1200,8 +1347,9 @@ internal sealed partial class DiscordCache
 
     private static Rich ReadRich(JsonElement a)
     {
-        long? start = a.TryGetProperty("timestamps", out var ts) && ts.ValueKind == JsonValueKind.Object && ts.TryGetProperty("start", out var st) && st.TryGetInt64(out var ms) ? ms : null;
-        var large = a.TryGetProperty("assets", out var assets) && assets.ValueKind == JsonValueKind.Object ? Str(assets, "large_image") : null;
+        long? Stamp(string name) => a.TryGetProperty("timestamps", out var ts) && ts.ValueKind == JsonValueKind.Object && ts.TryGetProperty(name, out var at) && at.TryGetInt64(out var ms) ? ms : null;
+        var hasAssets = a.TryGetProperty("assets", out var assets) && assets.ValueKind == JsonValueKind.Object;
+        var large = hasAssets ? Str(assets, "large_image") : null;
         // Spotify art, Discord's media proxy, or the application's own asset.
         var image = large switch
         {
@@ -1211,7 +1359,8 @@ internal sealed partial class DiscordCache
             _ when Str(a, "application_id") is { } app => $"https://cdn.discordapp.com/app-assets/{app}/{large}.png",
             _ => null,
         };
-        return new Rich(Int(a, "type"), Str(a, "name") ?? "", Str(a, "details"), Str(a, "state"), start, image);
+        return new Rich(Int(a, "type"), Str(a, "name") ?? "", Str(a, "details"), Str(a, "state"), Stamp("start"), image, Stamp("end"),
+            Str(a, "url") is { } url && url.StartsWith("https://", StringComparison.Ordinal) ? url : null, Str(a, "sync_id"), hasAssets ? Str(assets, "large_text") : null);
     }
 
     private object PresenceEvent(string userId)
@@ -1246,12 +1395,20 @@ internal sealed partial class DiscordCache
                     {
                         id = user.Id,
                         name = Str(member, "nick") ?? user.Name,
-                        avatar = user.Avatar is { } hash ? $"https://cdn.discordapp.com/avatars/{user.Id}/{hash}.webp?size=256&quality=lossless" : Avatar(user.Id),
+                        // Their picture on this server when they set one (Discord's server avatar), else their own.
+                        avatar = Str(member, "avatar") is { } own ? $"https://cdn.discordapp.com/guilds/{guild.Id}/users/{user.Id}/avatars/{own}.webp?size=256&quality=lossless"
+                            : user.Avatar is { } hash ? $"https://cdn.discordapp.com/avatars/{user.Id}/{hash}.webp?size=256&quality=lossless" : Avatar(user.Id),
+                        // Discord's crown and boost gem beside the name.
+                        owner = user.Id == guild.OwnerId,
+                        boosting = Str(member, "premium_since"),
                         color = ColorOf(guild, roles),
+                        roleIcon = RoleIconOf(guild, roles),
                         look = LookOf(user.Id, ReadLook(member)),
                         bot = Bool(u, "bot"),
                         status = presence.ValueKind == JsonValueKind.Object ? Str(presence, "status") ?? "offline" : "offline",
                         activity = presence.ValueKind == JsonValueKind.Object ? Array(presence, "activities").Select(a => Int(a, "type") == 4 ? Str(a, "state") : Str(a, "name")).FirstOrDefault(a => a is not null) : null,
+                        // Discord's "In voice" in place of what they're doing: the voice channel they're in on this server.
+                        inVoice = guild.Voice.TryGetValue(user.Id, out var talking) && guild.Channels.TryGetValue(talking.ChannelId, out var room) ? room.Name : null,
                     });
                 }
             }
@@ -1296,13 +1453,40 @@ internal sealed partial class DiscordCache
     }
 
     private static RoleStyle ReadStyle(JsonElement r) =>
-        new(Int(r, "color"), Int(r, "position"), Str(r, "name") ?? "", Bool(r, "hoist"), Bool(r, "managed"));
+        new(Int(r, "color"), Int(r, "position"), Str(r, "name") ?? "", Bool(r, "hoist"), Bool(r, "managed"), Str(r, "icon"), Str(r, "unicode_emoji"));
+
+    /// <summary>
+    /// The icon beside a member's name, as Discord shows it in a server with role icons (ROLE_ICONS): their highest role's
+    /// that has one, a picture or a Unicode emoji, with the role's name.
+    /// </summary>
+    private static object? RoleIconOf(Guild guild, IEnumerable<string> roles)
+    {
+        if (!guild.Features.Contains("ROLE_ICONS")) return null;
+        var top = roles.Select(id => (Id: id, Style: guild.Styles.GetValueOrDefault(id))).Where(r => r.Style is { } s && (s.Icon is not null || s.Emoji is not null))
+            .OrderByDescending(r => r.Style!.Position).FirstOrDefault();
+        if (top.Style is not { } style) return null;
+        return new { name = style.Name, url = style.Icon is { } icon ? $"https://cdn.discordapp.com/role-icons/{top.Id}/{icon}.webp?size=40&quality=lossless" : null, emoji = style.Emoji };
+    }
+
+    /// <summary>Each known member's role icon (see RoleIconOf), for the names in chat.</summary>
+    internal Dictionary<string, object> RoleIcons(string guildId, IEnumerable<string> userIds)
+    {
+        lock (_gate)
+        {
+            var icons = new Dictionary<string, object>();
+            if (!_guilds.TryGetValue(guildId, out var guild)) return icons;
+            foreach (var id in userIds.Distinct())
+                if (guild.Members.TryGetValue(id, out var member) && RoleIconOf(guild, member.Roles) is { } icon) icons[id] = icon;
+            return icons;
+        }
+    }
 
     private void RememberMember(Guild guild, JsonElement m)
     {
         if (!m.TryGetProperty("user", out var u) || Str(u, "id") is not { } id) return;
         Remember(ReadUser(u));
         guild.Members[id] = (Array(m, "roles").Select(Id).OfType<string>().ToList(), Str(m, "nick"));
+        RememberAvatar(guild, id, m);
         // The user's own member, wherever it arrives: a server Discord sends after READY carries no roles of theirs,
         // and without them they'd have @everyone's permissions only (no role channels, no moderator actions).
         if (id == Me?.Id) guild.MyRolesKnown = true;
@@ -1313,6 +1497,26 @@ internal sealed partial class DiscordCache
         }
         if (DateTimeOffset.TryParse(Str(m, "communication_disabled_until"), System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var until)) guild.TimedOut[id] = until;
         else guild.TimedOut.Remove(id);
+    }
+
+    private static void RememberAvatar(Guild guild, string userId, JsonElement member)
+    {
+        if (Str(member, "avatar") is { } hash) guild.Avatars[userId] = hash;
+        else guild.Avatars.Remove(userId);
+    }
+
+    /// <summary>The pictures these people set for this server (Discord's server avatars), for their messages.</summary>
+    internal Dictionary<string, string> MemberAvatars(string guildId, IEnumerable<string> userIds)
+    {
+        lock (_gate)
+        {
+            var avatars = new Dictionary<string, string>();
+            if (!_guilds.TryGetValue(guildId, out var guild)) return avatars;
+            foreach (var id in userIds.Distinct())
+                if (guild.Avatars.TryGetValue(id, out var hash))
+                    avatars[id] = $"https://cdn.discordapp.com/guilds/{guild.Id}/users/{id}/avatars/{hash}.webp?size=80&quality=lossless";
+            return avatars;
+        }
     }
 
     // Discord's member list operations on the list: SYNC a range, INSERT, UPDATE, DELETE, INVALIDATE. The list keeps
@@ -1446,6 +1650,57 @@ internal sealed partial class DiscordCache
                 .Select(m => (object)new { id = m.Id, username = m.User.Username ?? m.User.Name, global_name = m.Nick ?? m.User.Name, avatar = m.User.Avatar })
                 .ToList();
         }
+    }
+
+    /// <summary>Roles whose names match, for @ in the message box: every role but @everyone, highest first, as Discord suggests them.</summary>
+    internal List<object> FindRoles(string guildId, string query, int limit)
+    {
+        lock (_gate)
+        {
+            if (!_guilds.TryGetValue(guildId, out var guild) || query.Length == 0) return [];
+            var q = query.ToLowerInvariant();
+            return guild.Styles
+                .Where(r => r.Key != guildId)
+                .Select(r => (Id: r.Key, Style: r.Value, Rank: NameRank(r.Value.Name, q)))
+                .Where(r => r.Rank < 2)
+                .OrderBy(r => r.Rank).ThenByDescending(r => r.Style.Position)
+                .Take(limit)
+                .Select(r => (object)new { id = r.Id, name = r.Style.Name, color = r.Style.Color > 0 ? DiscordColors.Readable(r.Style.Color) : null })
+                .ToList();
+        }
+    }
+
+    /// <summary>Channels the user sees whose names match, for # in the message box, with their category's name.</summary>
+    internal List<object> FindChannels(string guildId, string query, int limit)
+    {
+        lock (_gate)
+        {
+            if (!_guilds.TryGetValue(guildId, out var guild) || query.Length == 0) return [];
+            var q = query.ToLowerInvariant();
+            return guild.Channels.Values
+                .Where(c => c.Type is 0 or 2 or 5 or 13 or 15 or 16)
+                .Where(c => c.Name is not null && Visible(c.Id))
+                .Select(c => (Channel: c, Rank: NameRank(c.Name!, q)))
+                .Where(c => c.Rank < 2)
+                .OrderBy(c => c.Rank).ThenBy(c => c.Channel.Position)
+                .Take(limit)
+                .Select(c => (object)new
+                {
+                    id = c.Channel.Id,
+                    name = c.Channel.Name,
+                    type = c.Channel.Type,
+                    kind = c.Channel.Type is 2 or 13 ? "voice" : c.Channel.Type is 15 or 16 ? "forum" : "text",
+                    category = c.Channel.ParentId is { } parent && guild.Channels.TryGetValue(parent, out var category) ? category.Name : null,
+                })
+                .ToList();
+        }
+    }
+
+    // How a name matches what was typed: 0 starts with it, 1 has it, 2 doesn't.
+    private static int NameRank(string name, string q)
+    {
+        var lower = name.ToLowerInvariant();
+        return lower.StartsWith(q, StringComparison.Ordinal) ? 0 : lower.Contains(q, StringComparison.Ordinal) ? 1 : 2;
     }
 
     /// <summary>A visible forum's tags, for its post list.</summary>
@@ -1621,6 +1876,7 @@ internal sealed partial class DiscordCache
             Id = Str(g, "id") ?? "",
             Name = Str(props, "name") ?? existing?.Name ?? "",
             Icon = Str(props, "icon") ?? (props.TryGetProperty("icon", out _) ? null : existing?.Icon),
+            Banner = Str(props, "banner") ?? (props.TryGetProperty("banner", out _) ? null : existing?.Banner),
             OwnerId = Str(props, "owner_id") ?? existing?.OwnerId,
             RulesChannelId = props.TryGetProperty("rules_channel_id", out _) ? Str(props, "rules_channel_id") : existing?.RulesChannelId,
             AfkChannelId = props.TryGetProperty("afk_channel_id", out _) ? Str(props, "afk_channel_id") : existing?.AfkChannelId,
@@ -1694,6 +1950,8 @@ internal sealed partial class DiscordCache
             UserLimit = Int(c, "user_limit"),
             Locked = c.TryGetProperty("thread_metadata", out var meta) && Bool(meta, "locked"),
             MessageRequest = Bool(c, "is_message_request"),
+            OwnerId = Str(c, "owner_id"),
+            Spam = Bool(c, "is_spam"),
             Tags = [.. Array(c, "available_tags").Select(t => (Str(t, "id") ?? "", Str(t, "name") ?? "", Str(t, "emoji_id"), Str(t, "emoji_name")))],
         };
         foreach (var o in Array(c, "permission_overwrites"))
@@ -1722,6 +1980,7 @@ internal sealed partial class DiscordCache
             SetNotify(guildId, entry);
             if (Bool(entry, "suppress_everyone")) _suppressEveryone.Add(guildId); else _suppressEveryone.Remove(guildId);
             if (Bool(entry, "suppress_roles")) _suppressRoles.Add(guildId); else _suppressRoles.Remove(guildId);
+            if (Bool(entry, "hide_muted_channels")) _hideMuted.Add(guildId); else _hideMuted.Remove(guildId);
             // The entry carries all of the server's overrides: a channel left out is no longer muted or collapsed.
             if (entry.TryGetProperty("channel_overrides", out _) && _guilds.TryGetValue(guildId, out var guild))
                 foreach (var channelId in guild.Channels.Keys)

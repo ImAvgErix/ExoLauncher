@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { DiscordChannel } from '../../lib/discord'
 import { Switch } from '../Switch'
 import { Choice } from '../settings/Choice'
-import { admin, colorOf, Confirm, Field, ReadError, useAdmin } from './admin'
+import { admin, colorOf, Confirm, Field, PickChips, ReadError, useAdmin } from './admin'
 
 type Action = { type: number; metadata?: { custom_message?: string; channel_id?: string; duration_seconds?: number } }
 type Meta = { keyword_filter?: string[]; regex_patterns?: string[]; allow_list?: string[]; presets?: number[]; mention_total_limit?: number; mention_raid_protection_enabled?: boolean }
@@ -21,7 +21,7 @@ const KINDS: Record<number, { name: string; event: number; max: number; actions:
 const ORDER = [5, 3, 4, 1, 6]
 const ACTION_NAMES: Record<number, string> = { 1: 'Block message', 2: 'Send alert', 3: 'Timeout member', 4: 'Block member interactions' }
 // Discord's lists: PROFANITY 1, SEXUAL_CONTENT 2, SLURS 3.
-const PRESETS = [{ id: 1, name: 'Severe Profanity' }, { id: 3, name: 'Insults & Slurs' }, { id: 2, name: 'Sexual Content' }]
+const PRESETS = [{ id: 1, name: 'Severe profanity' }, { id: 3, name: 'Insults & slurs' }, { id: 2, name: 'Sexual content' }]
 const DURATIONS = [{ value: '60', label: '60 seconds' }, { value: '300', label: '5 minutes' }, { value: '600', label: '10 minutes' }, { value: '3600', label: '1 hour' }, { value: '86400', label: '1 day' }, { value: '604800', label: '1 week' }]
 
 // Words are separated by commas or lines; a regex only by lines (a pattern may hold a comma).
@@ -91,12 +91,12 @@ export function AutoMod({ guildId, channels }: { guildId: string; channels: Disc
               </Field>
             ))}
             {editing && !editing.id && editing.trigger_type === type ? editor
-              : own.length < kind.max && rules.data ? <button type="button" className="exo-dc-tab is-raised" onClick={() => start(type)}>{own.length ? 'Create another rule' : 'Set Up'}</button> : null}
+              : own.length < kind.max && rules.data ? <button type="button" className="exo-dc-tab is-raised" onClick={() => start(type)}>{own.length ? 'Create another rule' : 'Set up'}</button> : null}
           </section>
         )
       })}
       {deleting ? (
-        <Confirm title="Delete Rule" action="Delete Rule" busy={busy} onConfirm={() => remove(deleting)} onClose={() => setDeleting(null)}>
+        <Confirm title="Delete rule" action="Delete rule" busy={busy} onConfirm={() => remove(deleting)} onClose={() => setDeleting(null)}>
           <p>Are you sure you want to delete {deleting.name}? AutoMod stops acting on it right away.</p>
         </Confirm>
       ) : null}
@@ -124,21 +124,21 @@ function RuleEditor({ rule, roles, channels, busy, error, onCancel, onSave }: {
   const ready = draft.name.trim().length > 0 && draft.actions.length > 0 && (!alert || !!alert.metadata?.channel_id)
   return (
     <div ref={box} className="exo-dc-rule-editor" role="group" aria-label={`Edit ${draft.name}`}>
-      <Field label="Rule Name">
-        <input className="exo-dc-modal-input exo-dc-field" value={draft.name} maxLength={100} aria-label="Rule Name" onChange={event => setDraft(d => ({ ...d, name: event.target.value }))} />
+      <Field label="Rule name">
+        <input className="exo-dc-modal-input exo-dc-field" value={draft.name} maxLength={100} aria-label="Rule name" onChange={event => setDraft(d => ({ ...d, name: event.target.value }))} />
       </Field>
       <TriggerFields type={draft.trigger_type} meta={meta} setMeta={setMeta} />
       <ActionFields kind={kind.actions} actions={draft.actions} channels={channels} onChange={actions => setDraft(d => ({ ...d, actions }))} />
-      <Exempt label="Allow these roles" ids={draft.exempt_roles} options={roles.map(r => ({ id: r.id, name: r.name, color: colorOf(r.color) }))}
+      <PickChips label="Allow these roles" ids={draft.exempt_roles} options={roles.map(r => ({ id: r.id, name: r.name, color: colorOf(r.color) }))}
         onChange={exempt_roles => setDraft(d => ({ ...d, exempt_roles }))} />
       {draft.event_type === 1 ? (
-        <Exempt label="Allow in these channels" ids={draft.exempt_channels} options={channels.filter(c => c.kind !== 'category').map(c => ({ id: c.id, name: `#${c.name}` }))}
+        <PickChips label="Allow in these channels" ids={draft.exempt_channels} options={channels.filter(c => c.kind !== 'category').map(c => ({ id: c.id, name: `#${c.name}` }))}
           onChange={exempt_channels => setDraft(d => ({ ...d, exempt_channels }))} />
       ) : null}
       {error ? <p className="exo-dc-field-error" role="alert">{error}</p> : null}
       <div className="exo-dc-modal-row">
         <button type="button" className="exo-dc-tab" onClick={onCancel}>Cancel</button>
-        <button type="button" className="button button--primary" disabled={!ready || busy} onClick={() => onSave(draft)}>{busy ? 'Saving' : 'Save Rule'}</button>
+        <button type="button" className="exo-set-btn is-primary" disabled={!ready || busy} onClick={() => onSave(draft)}>{busy ? 'Saving' : 'Save rule'}</button>
       </div>
     </div>
   )
@@ -180,7 +180,7 @@ function TriggerFields({ type, meta, setMeta }: { type: number; meta: Meta; setM
       )) : (
         <>
           <ListField label="Words" detail="Separate words or phrases with a comma. Use * for partial matches." values={meta.keyword_filter} onChange={keyword_filter => setMeta({ keyword_filter })} />
-          <ListField label="Regex patterns" detail="One Rust-flavored regex per line, up to 10." values={meta.regex_patterns} regex onChange={regex_patterns => setMeta({ regex_patterns })} />
+          <ListField label="Regex patterns" detail="One rust-flavored regex per line, up to 10." values={meta.regex_patterns} regex onChange={regex_patterns => setMeta({ regex_patterns })} />
         </>
       )}
       <ListField label="Allowed words" detail="Words or phrases this rule never blocks, comma separated." values={meta.allow_list} onChange={allow_list => setMeta({ allow_list })} />
@@ -228,19 +228,3 @@ function ActionFields({ kind, actions, channels, onChange }: { kind: number[]; a
   )
 }
 
-function Exempt({ label, ids, options, onChange }: { label: string; ids: string[]; options: { id: string; name: string; color?: string }[]; onChange: (ids: string[]) => void }) {
-  return (
-    <section className="exo-dc-perm-group" aria-label={label}>
-      <h3>{label}</h3>
-      <div className="exo-dc-chip-list">
-        {options.map(option => (
-          <label key={option.id} className="exo-dc-check-chip">
-            <input type="checkbox" checked={ids.includes(option.id)} onChange={event => onChange(event.target.checked ? [...ids, option.id] : ids.filter(id => id !== option.id))} />
-            {option.color ? <span className="exo-dc-role-dot" style={{ background: option.color }} aria-hidden="true" /> : null}
-            {option.name}
-          </label>
-        ))}
-      </div>
-    </section>
-  )
-}

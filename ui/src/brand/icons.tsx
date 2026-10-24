@@ -229,6 +229,11 @@ export const Apps = icon('apps', 'apps')
 export const Shop = icon('shop', 'building-store')
 /** A Nitro price. */
 export const Nitro = icon('nitro', 'diamond')
+// A server's owner (the crown beside their name) and someone boosting the server (Discord's boost gem).
+export const Crown = icon('crown', 'crown')
+// Message requests: DMs from people you aren't friends with, waiting for Accept.
+export const Mail = icon('mail', 'mail')
+export const Boost = icon('boost', 'diamonds')
 export const Poll = icon('poll', 'chart-bar')
 export const Award = icon('award', 'award')
 export const Trophy = icon('trophy', 'trophy')
@@ -250,6 +255,9 @@ export const Burst = icon('burst', 'sparkle-highlight')
 export const AddCircle = icon('add-circle', 'circle-plus')
 export const HashLock = marked('hash-lock', 'hash', 'lock-filled')
 export const VolumeLock = marked('volume-lock', 'volume', 'lock-filled')
+export const ZoomIn = icon('zoom-in', 'zoom-in')
+export const Speaker = icon('speaker', 'speakerphone')
+export const ZoomOut = icon('zoom-out', 'zoom-out')
 
 // ── Capture and the snip editor ─────────────────────────────────────────────────────────
 export const Record = icon('record', 'player-record')

@@ -97,7 +97,7 @@ These extensions have their own privacy policies. A music page that asks for you
 
 | Destination | What is sent | When |
 | --- | --- | --- |
-| GitHub (ExoLauncher releases) | Version lookup; update download | When Exo starts, and when you press **Check for updates**. The download happens only when you press **Install update**. Update checks cannot be turned off. |
+| GitHub (ExoLauncher releases) | Version lookup and, when a newer version is out, its What's New list; update download | When Exo starts, and when you press **Check for updates**. The download happens only when you press **Install update**. Update checks cannot be turned off. |
 | GitHub (Legendary, gogdl and Nile releases, Exo's own build of DeepFilterNet from Exo's release, and NVIDIA's TitaNet voice model from sherpa-onnx's release) | Download of a fixed version, checked against its SHA-256 | When a feature first needs the tool, DeepFilterNet the first time Exo's own Discord client starts with noise suppression on, and the voice model the first time you choose Use as My Voice |
 | Epic, GOG, Amazon (through Legendary, gogdl, Nile) | Your own store sign-in, library, installs, updates | When you sign in, refresh, install or play |
 | Epic account and library services | Your Legendary/Heroic or Epic Games Launcher sign-in, used to read your Epic playtime, and Legendary's sign-in, exchanged for a one-time code that signs the gifts page in to Epic's store | When your library refreshes, and when Exo looks for gifts, if you're signed in to Epic on this PC |

@@ -286,7 +286,7 @@ export function JamPanel({ join, onJoin }: { join?: string | null; onJoin?: () =
           ? <p className="exo-music-empty">Not available on this account</p>
           : (
             <>
-              <button type="button" className="button button--primary exo-music-jam-start" disabled={busy} onClick={() => void run('jamStart')}>Start a Jam</button>
+              <button type="button" className="exo-set-btn is-primary exo-music-jam-start" disabled={busy} onClick={() => void run('jamStart')}>Start a Jam</button>
               <JamJoin busy={busy} onJoin={token => void run('jamJoin', { name: token })} />
             </>
           )
@@ -295,11 +295,11 @@ export function JamPanel({ join, onJoin }: { join?: string | null; onJoin?: () =
         <>
           <div className="exo-music-jam-actions">
             {session.link ? (
-              <button type="button" className={`button button--secondary button--sm${copied ? ' is-done' : ''}`} onClick={() => void copy(session.link)}>
+              <button type="button" className={`exo-set-btn${copied ? ' is-done' : ''}`} onClick={() => void copy(session.link)}>
                 <LinkIcon size={14} /> {copied ? 'Copied' : 'Copy invite link'}
               </button>
             ) : null}
-            <button type="button" className="button button--secondary button--sm" disabled={busy}
+            <button type="button" className="exo-set-btn" disabled={busy}
               onClick={() => void run(session.owner ? 'jamEnd' : 'jamLeave')}>{session.owner ? 'End' : 'Leave'}</button>
           </div>
           {session.link ? <Qr text={session.link} label="Jam invite code" className="exo-music-jam-qr" /> : null}
@@ -327,7 +327,7 @@ export function JamPanel({ join, onJoin }: { join?: string | null; onJoin?: () =
                   <span className="exo-music-row-sub">{member.host ? 'Host' : member.me ? 'You' : 'Guest'}</span>
                 </span>
                 {session.canRemove && !member.me && !member.host ? (
-                  <button type="button" className="exo-ghost-btn exo-music-toggle" aria-label={`Remove ${member.name}`} disabled={busy}
+                  <button type="button" className="exo-set-btn exo-music-toggle" aria-label={`Remove ${member.name}`} disabled={busy}
                     onClick={() => void run('jamRemove', { uid: member.id })}><Close size={14} /></button>
                 ) : null}
               </li>
@@ -368,7 +368,7 @@ function JamJoin({ busy, onJoin }: { busy: boolean; onJoin: (token: string) => v
         <LinkIcon size={14} />
         <input value={link} placeholder="Paste a Jam link" aria-label="Jam link" onChange={event => { setLink(event.target.value); setWrong(false) }} />
       </label>
-      <button type="submit" className="button button--secondary button--sm" disabled={busy || reading || !link.trim()}>Join</button>
+      <button type="submit" className="exo-set-btn" disabled={busy || reading || !link.trim()}>Join</button>
       {wrong ? <p className="exo-music-error" role="alert">That is not a Jam link. Paste the whole link someone shared.</p> : null}
     </form>
   )

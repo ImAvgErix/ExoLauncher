@@ -58,8 +58,8 @@ export function ForwardDialog({ message, onClose }: { message: DiscordMessage; o
   }
   return (
     <ModalBack onClose={onClose}>
-      <div className="exo-dc-modal exo-dc-forward-dialog" role="dialog" aria-label="Forward To" onClick={event => event.stopPropagation()}>
-        <h2>Forward To</h2>
+      <div className="exo-dc-modal exo-dc-forward-dialog" role="dialog" aria-label="Forward to" onClick={event => event.stopPropagation()}>
+        <h2>Forward to</h2>
         <input className="exo-dc-modal-input" placeholder="Search" value={query} autoFocus aria-label="Search conversations" onChange={event => setQuery(event.target.value)} />
         <div className="exo-dc-forward-list" role="listbox" aria-multiselectable="true" aria-label="Conversations">
           {targets === null ? <p className="exo-dc-note">Loading</p> : null}
@@ -81,7 +81,7 @@ export function ForwardDialog({ message, onClose }: { message: DiscordMessage; o
         {error ? <p className="is-bad" role="alert">{error}</p> : null}
         <footer className="exo-dc-delete-foot">
           <button type="button" className="exo-dc-tab" onClick={onClose}>Cancel</button>
-          <button type="button" className="button button--primary exo-dc-blurple" disabled={busy || picked.length === 0} onClick={() => void send()}>
+          <button type="button" className="exo-set-btn is-primary" disabled={busy || picked.length === 0} onClick={() => void send()}>
             {picked.length > 1 ? `Send to ${picked.length}` : 'Send'}
           </button>
         </footer>
@@ -92,7 +92,7 @@ export function ForwardDialog({ message, onClose }: { message: DiscordMessage; o
 
 /** Create Thread from a message: a name (the message's start by default), then the thread opens. */
 export function NewThreadDialog({ message, onClose, onCreated }: { message: DiscordMessage; onClose: () => void; onCreated: (thread: { id: string; name: string }) => void }) {
-  const [name, setName] = useState(() => message.content.replace(/\s+/g, ' ').trim().slice(0, 40) || 'New Thread')
+  const [name, setName] = useState(() => message.content.replace(/\s+/g, ' ').trim().slice(0, 40) || 'New thread')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   useEscape(onClose)
@@ -106,14 +106,14 @@ export function NewThreadDialog({ message, onClose, onCreated }: { message: Disc
   }
   return (
     <ModalBack onClose={onClose}>
-      <div className="exo-dc-modal" role="dialog" aria-label="Create Thread" onClick={event => event.stopPropagation()}>
-        <h2>Create Thread</h2>
+      <div className="exo-dc-modal" role="dialog" aria-label="Create thread" onClick={event => event.stopPropagation()}>
+        <h2>Create thread</h2>
         <input className="exo-dc-modal-input" value={name} maxLength={100} autoFocus aria-label="Thread name"
           onChange={event => setName(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') void create() }} />
         {error ? <p className="is-bad" role="alert">{error}</p> : null}
         <footer className="exo-dc-delete-foot">
           <button type="button" className="exo-dc-tab" onClick={onClose}>Cancel</button>
-          <button type="button" className="button button--primary exo-dc-blurple" disabled={busy || !name.trim()} onClick={() => void create()}>Create</button>
+          <button type="button" className="exo-set-btn is-primary" disabled={busy || !name.trim()} onClick={() => void create()}>Create</button>
         </footer>
       </div>
     </ModalBack>

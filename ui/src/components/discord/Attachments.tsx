@@ -5,7 +5,7 @@ import { mediaFilter, useAccountSettings, type MediaFilter } from '../../lib/dis
 import { shouldReduceMotion } from '../../lib/motionPreference'
 import { usePageActive } from '../../lib/pageActivity'
 import { VoiceMessage } from './VoiceMessage'
-import { showImage } from './extras'
+import { showImage, type ViewerItem } from './extras'
 import { Icons } from './icons'
 import { open, spoilersShown } from './markdown'
 
@@ -23,27 +23,32 @@ export function fit(width?: number | null, height?: number | null, maxW = 550, m
   return { width: Math.round(width * scale), height: Math.round(height * scale) }
 }
 
+// The largest side Discord's media proxy is asked for (Discord's own cap).
+const PROXY_MAX = 4096
+
 /**
- * A picture from Discord's media proxy at the size it is shown (covering box, at the screen's pixel density), as
- * Discord's client asks for it: WebP unless it moves, lossless for a PNG. The original (often 4K or larger, many
- * megabytes) would otherwise paint top-down for seconds, cut off where it had got to.
+ * A picture from Discord's media proxy at the size it is shown, at the screen's pixel density, as Discord's client
+ * asks for it (width, height and keep_aspect_ratio, the proxy scaling it down sharply rather than the page): WebP
+ * unless it moves, lossless for a PNG. A known box is the picture's own shown size; without one (a mosaic cell) it
+ * covers Discord's 550 by 350. The original (often 4K or larger, many megabytes) would otherwise paint top-down for
+ * seconds, and one about twice the box was squeezed by the page and looked soft.
  */
-export function sized(src: string, width?: number | null, height?: number | null, box = { width: 550, height: 350 }, animated = false, still = false) {
+export function sized(src: string, width?: number | null, height?: number | null, box?: { width: number; height: number }, animated = false, still = false) {
   let url: URL
   try { url = new URL(src) } catch { return src }
   if (!/(^|\.)discordapp\.net$/.test(url.hostname)) return src
   // still: a GIF or animated picture as its first frame (Discord's media proxy sends a WebP still unless asked to animate).
   if (still) { url.searchParams.set('format', 'webp'); url.searchParams.delete('animated') }
   if (!width || !height) return still ? url.toString() : src
-  const scale = Math.min(1, Math.max(box.width / width, box.height / height) * (window.devicePixelRatio || 1))
+  const shown = box ? Math.min(box.width / width, box.height / height) : Math.max(550 / width, 350 / height)
+  const scale = Math.min(Math.min(shown, 1) * (window.devicePixelRatio || 1), PROXY_MAX / width, PROXY_MAX / height)
   if (!still && !animated && !/\.gif$/i.test(url.pathname)) {
     url.searchParams.set('format', 'webp')
     if (/\.(png|avif)$/i.test(url.pathname)) url.searchParams.set('quality', 'lossless')
   }
-  if (scale < 1) {
-    url.searchParams.set('width', String(Math.round(width * scale)))
-    url.searchParams.set('height', String(Math.round(height * scale)))
-  }
+  url.searchParams.set('width', String(Math.max(1, Math.ceil(width * scale))))
+  url.searchParams.set('height', String(Math.max(1, Math.ceil(height * scale))))
+  url.searchParams.set('keep_aspect_ratio', 'true')
   return url.toString()
 }
 
@@ -60,7 +65,7 @@ export function MovingImage({ src, width, height, moving, alt, link, box }: {
   const [hover, setHover] = useState(false)
   const play = moving && (hover || (gifAutoPlay && active && !performanceMode() && !shouldReduceMotion()))
   return (
-    <img src={sized(src, width, height, undefined, play, moving && !play)} alt={alt} loading="lazy" draggable={false} data-dc-link={link ?? undefined} {...box}
+    <img src={sized(src, width, height, box.width && box.height ? { width: box.width, height: box.height } : undefined, play, moving && !play)} alt={alt} loading="lazy" draggable={false} data-dc-link={link ?? undefined} {...box}
       onPointerEnter={moving ? () => setHover(true) : undefined} onPointerLeave={moving ? () => setHover(false) : undefined} />
   )
 }
@@ -100,7 +105,7 @@ function mediaOf(file: DiscordAttachment, inline: boolean): 'image' | 'video' | 
  * your settings block it; with Show image descriptions, an ALT tag that shows what the sender wrote. In a
  * mosaic it fills its cell.
  */
-function Media({ file, media, guildId, moderator, cell }: { file: DiscordAttachment; media: 'image' | 'video'; guildId: string | null; moderator?: boolean; cell?: boolean }) {
+function Media({ file, media, guildId, moderator, cell, pictures }: { file: DiscordAttachment; media: 'image' | 'video'; guildId: string | null; moderator?: boolean; cell?: boolean; pictures?: DiscordAttachment[] }) {
   const settings = useAccountSettings()
   const [alt, setAlt] = useState(false)
   const box = cell ? { width: undefined, height: undefined } : fit(file.width, file.height)
@@ -111,7 +116,7 @@ function Media({ file, media, guildId, moderator, cell }: { file: DiscordAttachm
   const src = file.proxy_url ?? file.url
   // Attachment flag 32: an animated WebP or AVIF, which keeps its own format to keep moving.
   const shown = media === 'image'
-    ? <button type="button" className="exo-dc-media" onClick={() => showImage(src, file.url)} aria-label={file.description ? `Image: ${file.description}` : 'Open image'}>
+    ? <button type="button" className="exo-dc-media" onClick={() => showImage(src, file.url, false, pictures && { items: pictures.map(viewerItem), index: pictures.indexOf(file) })} aria-label={file.description ? `Image: ${file.description}` : 'Open image'}>
         <MovingImage src={src} width={file.width} height={file.height} moving={(flags & 32) !== 0 || /\.gif$/i.test(file.filename)} alt={file.description ?? ''} link={file.url} box={box} />
       </button>
     : <video className="exo-dc-media" src={src} controls preload="metadata" {...box} />
@@ -125,15 +130,19 @@ function Media({ file, media, guildId, moderator, cell }: { file: DiscordAttachm
   )
 }
 
+const viewerItem = (file: DiscordAttachment): ViewerItem => ({ src: file.proxy_url ?? file.url, original: file.url, alt: file.description })
+
 // Discord's mosaic: how many pictures go in each row, by how many there are (three is one tall and two stacked).
 const ROWS: Record<number, number[]> = { 2: [2], 4: [2, 2], 5: [2, 3], 6: [3, 3], 7: [1, 3, 3], 8: [2, 3, 3], 9: [3, 3, 3], 10: [1, 3, 3, 3] }
 
 function Mosaic({ files, guildId, moderator }: { files: { file: DiscordAttachment; media: 'image' | 'video' }[]; guildId: string | null; moderator?: boolean }) {
   if (files.length === 1) return <Media file={files[0].file} media={files[0].media} guildId={guildId} moderator={moderator} />
+  // The viewer goes through the message's pictures (a video plays where it is).
+  const pictures = files.filter(f => f.media === 'image').map(f => f.file)
   if (files.length === 3) {
     return (
       <div className="exo-dc-mosaic is-three">
-        {files.map(f => <Media key={f.file.id} file={f.file} media={f.media} guildId={guildId} moderator={moderator} cell />)}
+        {files.map(f => <Media key={f.file.id} file={f.file} media={f.media} guildId={guildId} moderator={moderator} cell pictures={pictures} />)}
       </div>
     )
   }
@@ -144,7 +153,7 @@ function Mosaic({ files, guildId, moderator }: { files: { file: DiscordAttachmen
         const cells = files.slice(at, at += count)
         return (
           <div key={row} className={`exo-dc-mosaic-row is-${cells.length}`}>
-            {cells.map(f => <Media key={f.file.id} file={f.file} media={f.media} guildId={guildId} moderator={moderator} cell />)}
+            {cells.map(f => <Media key={f.file.id} file={f.file} media={f.media} guildId={guildId} moderator={moderator} cell pictures={pictures} />)}
           </div>
         )
       })}

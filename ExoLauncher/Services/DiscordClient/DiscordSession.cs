@@ -182,8 +182,20 @@ internal sealed partial class DiscordSession
 
     // A new connection: the servers' open channels are asked for again, so the member lists and live messages the
     // room still shows keep coming (the room stays on screen through a reconnect and doesn't open them again).
+    // Servers whose voice channel statuses were asked of Discord this connection (op 43), as Discord's client asks once
+    // when it first shows a server's channels.
+    private readonly HashSet<string> _statusAsked = [];
+
+    /// <summary>Asks Discord for a server's voice channel statuses, once a connection (they arrive as CHANNEL_INFO).</summary>
+    internal void AskVoiceStatuses(string guildId)
+    {
+        lock (_statusAsked) if (!_statusAsked.Add(guildId)) return;
+        _ = SendAsync(43, new JsonObject { ["guild_id"] = guildId, ["fields"] = new JsonArray("status", "voice_start_time") });
+    }
+
     private void Resubscribe()
     {
+        lock (_statusAsked) _statusAsked.Clear();
         KeyValuePair<string, string>[] open;
         lock (_listChannel) open = [.. _listChannel];
         foreach (var (guildId, channelId) in open) Subscribe(guildId, channelId, [(0, 99)]);
@@ -352,6 +364,7 @@ internal sealed partial class DiscordSession
             PublishBadge();
             Resubscribe();
             _ = Task.Run(RefreshPlayingAsync);
+            _ = Task.Run(LoadRemindersAsync);
             return;
         }
         if (type == "RESUMED")
@@ -362,6 +375,8 @@ internal sealed partial class DiscordSession
             return;
         }
         if (OnVoiceDispatch(type, data) || OnAppsDispatch(type, data)) return;
+        // A message saved or let go (here or in another app): its reminders are timed again.
+        if (type is "SAVED_MESSAGE_CREATE" or "SAVED_MESSAGE_DELETE") _ = Task.Run(LoadRemindersAsync);
         var unread = false;
         foreach (var (name, payload) in Cache.Apply(type, data))
         {
@@ -525,18 +540,43 @@ internal sealed partial class DiscordSession
         catch (Exception ex) when (ex is not OutOfMemoryException) { AppLog.Debug("Discord client: activity not sent (" + ex.GetType().Name + ")."); }
     }
 
-    /// <summary>This session's presence (op 3): the status, and the game being played when the account shares it.</summary>
+    // Sends the presence again when the custom status clears itself (its Clear after), as Discord's client drops it then.
+    private CancellationTokenSource? _customExpiry;
+
+    /// <summary>
+    /// This session's presence (op 3): the status, the account's custom status (as Discord's client always sends it, so
+    /// Exo being the active app never hides it), and the game being played when the account shares it.
+    /// </summary>
     private async Task SendPresenceAsync()
     {
         var activities = new JsonArray();
-        if (_playing is { } game)
-        {
-            // Unknown until read: never shared on a guess.
-            var settings = _userSettings ?? (await UserSettingsAsync(null, _stop.Token).ConfigureAwait(false)).Values;
-            if (settings?["showCurrentGame"] is JsonValue share && share.TryGetValue(out bool on) && on)
-                activities.Add(new JsonObject { ["name"] = game, ["type"] = 0 });
-        }
+        // Unknown until read: never shared on a guess.
+        var settings = _userSettings ?? (await UserSettingsAsync(null, _stop.Token).ConfigureAwait(false)).Values;
+        var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        if (CustomActivity(settings?["customStatus"], now) is { } custom) activities.Add(custom);
+        if (_playing is { } game && settings?["showCurrentGame"] is JsonValue share && share.TryGetValue(out bool on) && on)
+            activities.Add(new JsonObject { ["name"] = game, ["type"] = 0 });
         await SendAsync(3, new JsonObject { ["status"] = Cache.MyStatus, ["since"] = 0, ["activities"] = activities, ["afk"] = false }).ConfigureAwait(false);
+        var expiry = new CancellationTokenSource();
+        Interlocked.Exchange(ref _customExpiry, expiry)?.Cancel();
+        if (settings?["customStatus"]?["expiresAtMs"] is JsonValue end && end.TryGetValue(out long until) && until > now)
+            _ = Task.Delay(TimeSpan.FromMilliseconds(Math.Min(until - now + 1000, int.MaxValue)), expiry.Token)
+                .ContinueWith(_ => SendPresenceAsync(), expiry.Token, TaskContinuationOptions.OnlyOnRanToCompletion, TaskScheduler.Default);
+    }
+
+    /// <summary>The custom status as Discord's client sends it in a presence (an activity of type 4), or null when there is none or it has cleared.</summary>
+    internal static JsonObject? CustomActivity(JsonNode? custom, long now)
+    {
+        if (custom is not JsonObject c) return null;
+        var expires = c["expiresAtMs"] is JsonValue e && e.TryGetValue(out long at) ? at : 0;
+        if (expires != 0 && expires <= now) return null;
+        var activity = new JsonObject { ["name"] = "Custom Status", ["type"] = 4 };
+        if (c["text"]?.GetValue<string>() is { Length: > 0 } text) activity["state"] = text;
+        var emojiName = c["emojiName"]?.GetValue<string>();
+        if (c["emojiId"]?.GetValue<string>() is { } id) activity["emoji"] = new JsonObject { ["id"] = id, ["name"] = emojiName, ["animated"] = false };
+        else if (emojiName is { Length: > 0 }) activity["emoji"] = new JsonObject { ["name"] = emojiName };
+        if (expires != 0) activity["timestamps"] = new JsonObject { ["end"] = expires };
+        return activity;
     }
 
     /// <summary>Asks Discord for members by id (op 8), as its client does for message authors it hasn't listed yet.</summary>

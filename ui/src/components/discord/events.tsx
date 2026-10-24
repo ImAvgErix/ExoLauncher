@@ -14,9 +14,10 @@ import { useDismiss } from '../../lib/dismiss'
 type Item = { event: DiscordEvent; interested: boolean }
 
 /** Discord's Events dialog: the server's upcoming events, Interested, Copy Link and the ⋯ menu; Create Event for managers. */
-export function EventsDialog({ guildId, list, onClose }: { guildId: string; list: DiscordChannels | null; onClose: () => void }) {
+/** create: opened from the server menu's Create Event, straight to a new event. */
+export function EventsDialog({ guildId, list, create = false, onClose }: { guildId: string; list: DiscordChannels | null; create?: boolean; onClose: () => void }) {
   const [reload, setReload] = useState(0)
-  const [editing, setEditing] = useState<DiscordEvent | 'new' | null>(null)
+  const [editing, setEditing] = useState<DiscordEvent | 'new' | null>(create ? 'new' : null)
   const { data, error } = useServer(guildId, 'events', reload)
   const events = data?.events
   const again = () => setReload(r => r + 1)
@@ -28,7 +29,7 @@ export function EventsDialog({ guildId, list, onClose }: { guildId: string; list
         <div className="exo-dc-events-head">
           <Icons.Events size={20} />
           <strong>{events ? `${events.length} ${events.length === 1 ? 'Event' : 'Events'}` : 'Events'}</strong>
-          {list?.canManageEvents ? <button type="button" className="button button--primary exo-dc-blurple" onClick={() => setEditing('new')}>Create Event</button> : null}
+          {list?.canManageEvents ? <button type="button" className="exo-set-btn is-primary" onClick={() => setEditing('new')}>Create event</button> : null}
           <button type="button" className="exo-dc-icon-btn exo-dc-events-close" aria-label="Close" onClick={onClose}><Close size={16} /></button>
         </div>
         {error ? <p className="exo-dc-note" role="alert">{error}</p> : null}
@@ -76,7 +77,7 @@ function EventCard({ item, guildId, list, onChanged, onEdit }: { item: Item; gui
         <button type="button" className="exo-dc-tab is-raised" onClick={() => {
           void navigator.clipboard.writeText(link(guildId, event)).catch(() => { })
           setCopied(true)
-        }}>{copied ? 'Copied' : 'Copy Link'}</button>
+        }}>{copied ? 'Copied' : 'Copy link'}</button>
         <button type="button" className={`exo-dc-tab is-raised${interested ? ' is-good' : ''}`} aria-pressed={interested}
           onClick={() => run(host.discordServer('rsvp', { guildId, eventId: event.id, interested: !interested }))}>{interested ? <Icons.Check size={14} /> : null}Interested</button>
       </div>
@@ -110,19 +111,19 @@ function EventMenu({ event, guildId, canManage, run, onEdit }: {
       {menu ? (
         <SubContext.Provider value={{ open: sub, show: setSub }}>
         <div className="exo-dc-menu is-right" role="menu">
-          <Submenu label="Add to Calendar"><Calendar event={event} guildId={guildId} onDone={file => { setSaved(file); close() }} /></Submenu>
-          {canManage && event.status === 1 ? <button type="button" role="menuitem" onClick={() => status(2)}>Start Event</button> : null}
-          {canManage && event.status === 2 ? <button type="button" role="menuitem" onClick={() => status(3)}>End Event</button> : null}
-          {canManage ? <button type="button" role="menuitem" onClick={() => { close(); onEdit() }}>Edit Event</button> : null}
+          <Submenu label="Add to calendar"><Calendar event={event} guildId={guildId} onDone={file => { setSaved(file); close() }} /></Submenu>
+          {canManage && event.status === 1 ? <button type="button" role="menuitem" onClick={() => status(2)}>Start event</button> : null}
+          {canManage && event.status === 2 ? <button type="button" role="menuitem" onClick={() => status(3)}>End event</button> : null}
+          {canManage ? <button type="button" role="menuitem" onClick={() => { close(); onEdit() }}>Edit event</button> : null}
           {canManage && event.status === 1 ? (
-            <button type="button" role="menuitem" className="is-danger" onClick={() => confirm ? status(4) : setConfirm(true)}>{confirm ? 'Click again to cancel the event' : 'Cancel Event'}</button>
+            <button type="button" role="menuitem" className="is-danger" onClick={() => confirm ? status(4) : setConfirm(true)}>{confirm ? 'Click again to cancel the event' : 'Cancel event'}</button>
           ) : null}
-          <button type="button" role="menuitem" onClick={() => copy(link(guildId, event))}>Copy Event Link</button>
-          {developer ? <button type="button" role="menuitem" onClick={() => copy(event.id)}><Icons.CopyId size={16} />Copy Event ID</button> : null}
+          <button type="button" role="menuitem" onClick={() => copy(link(guildId, event))}>Copy event link</button>
+          {developer ? <button type="button" role="menuitem" onClick={() => copy(event.id)}><Icons.CopyId size={16} />Copy event ID</button> : null}
         </div>
         </SubContext.Provider>
       ) : null}
-      {saved ? <span className="exo-dc-event-saved" role="status">Saved to Downloads</span> : null}
+      {saved ? <span className="exo-dc-event-saved" role="status">Saved to downloads</span> : null}
     </span>
   )
 }
@@ -138,10 +139,10 @@ function Calendar({ event, guildId, onDone }: { event: DiscordEvent; guildId: st
   const go = (url: string) => { open(url); onDone(false) }
   return (
     <>
-      <button type="button" role="menuitem" onClick={() => go(`https://calendar.google.com/calendar/render?${q({ action: 'TEMPLATE', text: event.name, dates: `${stamp(start)}/${stamp(end)}`, details, location: place })}`)}>Add to Google Calendar</button>
+      <button type="button" role="menuitem" onClick={() => go(`https://calendar.google.com/calendar/render?${q({ action: 'TEMPLATE', text: event.name, dates: `${stamp(start)}/${stamp(end)}`, details, location: place })}`)}>Add to Google calendar</button>
       <button type="button" role="menuitem" onClick={() => void host.discordServer('ics', { guildId, eventId: event.id }).then(result => onDone(result.ok)).catch(() => onDone(false))}>Download ICS file</button>
-      <button type="button" role="menuitem" onClick={() => go(`https://calendar.yahoo.com/?${q({ v: '60', title: event.name, st: stamp(start), et: stamp(end), desc: details, in_loc: place })}`)}>Add to Yahoo</button>
-      <button type="button" role="menuitem" onClick={() => go(`https://outlook.live.com/calendar/0/deeplink/compose?${q({ path: '/calendar/action/compose', rru: 'addevent', subject: event.name, startdt: start.toISOString(), enddt: end.toISOString(), body: details, location: place })}`)}>Add to Outlook</button>
+      <button type="button" role="menuitem" onClick={() => go(`https://calendar.yahoo.com/?${q({ v: '60', title: event.name, st: stamp(start), et: stamp(end), desc: details, in_loc: place })}`)}>Add to yahoo</button>
+      <button type="button" role="menuitem" onClick={() => go(`https://outlook.live.com/calendar/0/deeplink/compose?${q({ path: '/calendar/action/compose', rru: 'addevent', subject: event.name, startdt: start.toISOString(), enddt: end.toISOString(), body: details, location: place })}`)}>Add to outlook</button>
     </>
   )
 }
@@ -176,8 +177,8 @@ function EventEditor({ guildId, list, event, onClose, onSaved }: { guildId: stri
   }
   return (
     <ModalBack top onClose={onClose}>
-      <div ref={box} className="exo-dc-modal" role="dialog" aria-modal="true" aria-label={event ? 'Edit Event' : 'Create Event'} tabIndex={-1} onClick={e => e.stopPropagation()}>
-        <strong>{event ? 'Edit Event' : 'Create Event'}</strong>
+      <div ref={box} className="exo-dc-modal" role="dialog" aria-modal="true" aria-label={event ? 'Edit event' : 'Create event'} tabIndex={-1} onClick={e => e.stopPropagation()}>
+        <strong>{event ? 'Edit event' : 'Create event'}</strong>
         <Where voices={voices} where={where} location={location} onWhere={setWhere} onLocation={setLocation} />
         <label className="exo-dc-side-label" htmlFor="exo-dc-event-name">Event topic</label>
         <input id="exo-dc-event-name" className="exo-dc-modal-input" placeholder="What's your event?" value={name} autoFocus onChange={e => setName(e.target.value)} />
@@ -188,7 +189,7 @@ function EventEditor({ guildId, list, event, onClose, onSaved }: { guildId: stri
         {error ? <p className="is-bad" role="alert">{error}</p> : null}
         <div className="exo-dc-modal-row">
           <button type="button" className="exo-dc-tab" onClick={onClose}>Cancel</button>
-          <button type="button" className="button button--primary" disabled={!ready || busy} onClick={() => void save()}>{event ? 'Save Event' : 'Create Event'}</button>
+          <button type="button" className="exo-set-btn is-primary" disabled={!ready || busy} onClick={() => void save()}>{event ? 'Save event' : 'Create event'}</button>
         </div>
       </div>
     </ModalBack>
@@ -225,7 +226,7 @@ function Where({ voices, where, location, onWhere, onLocation }: {
         </button>
       ))}
       <button type="button" className="exo-dc-card" aria-pressed={where === 'elsewhere'} onClick={() => onWhere('elsewhere')}>
-        <span className="exo-dc-friend-names"><strong>Somewhere Else</strong><span>Text channel, external link or in-person location</span></span>
+        <span className="exo-dc-friend-names"><strong>Somewhere else</strong><span>Text channel, external link or in-person location</span></span>
       </button>
       {where === 'elsewhere' ? <input className="exo-dc-modal-input" placeholder="Enter a location" aria-label="Location" value={location} onChange={e => onLocation(e.target.value)} /> : null}
     </>

@@ -4,12 +4,28 @@ import { focusableSelector, trapTab } from '../../lib/focusTrap'
 import { report } from '../../lib/report'
 import { ModalBack } from './SettingsLayer'
 
+/** Discord wants the person to verify first: the check's id (the ticket stays in Exo's host) and the ways Discord offers. */
+export type MfaAsk = { id: string; methods: string[] }
+
 /** One discord.admin reply: data is Discord's own (or Exo's summary for the person menu and Edit Channel). */
-export type AdminReply<T> = { ok: boolean; message?: string | null; data?: T | null }
+export type AdminReply<T> = { ok: boolean; message?: string | null; data?: T | null; mfa?: MfaAsk | null }
+
+type MfaShow = (ask: MfaAsk, done: (reply: AdminReply<unknown>) => void) => void
+let mfaShow: MfaShow | null = null
+
+/** The room's verify dialog (MfaHost) takes Discord's checks while it is mounted. */
+export function onMfaAsk(show: MfaShow) {
+  mfaShow = show
+  return () => { if (mfaShow === show) mfaShow = null }
+}
 
 export async function admin<T = unknown>(action: string, params: Record<string, unknown>): Promise<AdminReply<T>> {
   try {
-    return await host.discordAdmin(action, params) as AdminReply<T>
+    const reply = await host.discordAdmin(action, params) as AdminReply<T>
+    // Discord's "it's really you" check: its dialog, then the same request's own answer (or the cancel).
+    const show = mfaShow
+    if (reply.mfa && show) return await new Promise<AdminReply<unknown>>(resolve => show(reply.mfa!, resolve)) as AdminReply<T>
+    return reply
   } catch (error) {
     report(error, 'discord.admin.' + action)
     return { ok: false, message: 'Discord did not answer. Try again.' }
@@ -41,7 +57,7 @@ export function dropUpload(uploadId: string | undefined) {
 /** A read that failed: why, and Try Again. A page keeps showing what it had. */
 export function ReadError({ error, onRetry }: { error: string | null; onRetry: () => void }) {
   if (!error) return null
-  return <p className="exo-dc-note is-bad" role="alert">{error} <button type="button" className="exo-dc-tab is-raised" onClick={onRetry}>Try Again</button></p>
+  return <p className="exo-dc-note is-bad" role="alert">{error} <button type="button" className="exo-dc-tab is-raised" onClick={onRetry}>Try again</button></p>
 }
 
 // Open dialogs and menus, the newest last: Escape and Tab belong to the top one only.
@@ -113,6 +129,31 @@ export function Field({ label, detail, children, stacked, error }: { label: stri
   )
 }
 
+/** Choices to pick any of, as chips: AutoMod's exemptions, an onboarding answer's channels and roles. */
+export function PickChips({ label, detail, ids, options, onChange }: {
+  label: string
+  detail?: string
+  ids: string[]
+  options: { id: string; name: string; color?: string }[]
+  onChange: (ids: string[]) => void
+}) {
+  return (
+    <section className="exo-dc-perm-group" aria-label={label}>
+      <h3>{label}</h3>
+      {detail ? <p className="exo-dc-note">{detail}</p> : null}
+      <div className="exo-dc-chip-list">
+        {options.map(option => (
+          <button key={option.id} type="button" className="exo-shelf-chip" aria-pressed={ids.includes(option.id)}
+            onClick={() => onChange(ids.includes(option.id) ? ids.filter(id => id !== option.id) : [...ids, option.id])}>
+            {option.color ? <span className="exo-dc-role-dot" style={{ background: option.color }} aria-hidden="true" /> : null}
+            {option.name}
+          </button>
+        ))}
+      </div>
+    </section>
+  )
+}
+
 /** Discord's bar for unsaved changes: Reset and Save Changes, with the error under it when Discord refused. */
 export function SaveBar({ shown, busy, error, onReset, onSave }: { shown: boolean; busy: boolean; error: string | null; onReset: () => void; onSave: () => void }) {
   const unsaved = useContext(UnsavedContext)
@@ -128,7 +169,7 @@ export function SaveBar({ shown, busy, error, onReset, onSave }: { shown: boolea
     <div key={nudge} className={`exo-dc-savebar exo-glass${nudge ? ' is-nudged' : ''}`} role="status">
       <span>{error ?? 'Careful — you have unsaved changes!'}</span>
       <button type="button" className="exo-dc-tab" disabled={busy} onClick={onReset}>Reset</button>
-      <button type="button" className="button button--primary" disabled={busy} onClick={onSave}>Save Changes</button>
+      <button type="button" className="exo-set-btn is-primary" disabled={busy} onClick={onSave}>Save changes</button>
     </div>
   )
 }
@@ -154,7 +195,7 @@ export function Confirm({ title, children, action, danger = true, busy, error, o
         {error ? <p className="is-bad" role="alert">{error}</p> : null}
         <div className="exo-dc-modal-row">
           <button type="button" className="exo-dc-tab" onClick={onClose}>Cancel</button>
-          <button type="button" className={`button button--primary${danger ? ' exo-dc-danger-btn' : ''}`} disabled={busy} onClick={onConfirm}>{action}</button>
+          <button type="button" className={`exo-set-btn ${danger ? 'is-danger' : 'is-primary'}`} disabled={busy} onClick={onConfirm}>{action}</button>
         </div>
       </div>
     </ModalBack>
@@ -164,7 +205,7 @@ export function Confirm({ title, children, action, danger = true, busy, error, o
 /** Discord's ask before accepting a request from someone you share no server with (it refuses the plain accept, 80013). */
 export function StrangerConfirm({ name, busy, error, onConfirm, onClose }: { name: string; busy?: boolean; error?: string | null; onConfirm: () => void; onClose: () => void }) {
   return (
-    <Confirm title="Accept Friend Request?" action="Accept" danger={false} busy={busy} error={error} onConfirm={onConfirm} onClose={onClose}>
+    <Confirm title="Accept friend request?" action="Accept" danger={false} busy={busy} error={error} onConfirm={onConfirm} onClose={onClose}>
       <p>You don't share a server with <strong>{name}</strong>. Only accept friend requests from people you know.</p>
     </Confirm>
   )

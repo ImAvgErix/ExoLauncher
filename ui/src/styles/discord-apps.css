@@ -551,6 +551,7 @@
 .exo-dc-app-check {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 8px;
   color: var(--color-fg);
 }

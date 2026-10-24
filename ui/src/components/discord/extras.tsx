@@ -12,6 +12,8 @@ import { onScreen, pressedArt, transition, visible } from '../../lib/viewTransit
 import { shouldReduceMotion } from '../../lib/motionPreference'
 import { ModalBack } from './SettingsLayer'
 import { useDismiss } from '../../lib/dismiss'
+import { openLink } from '../../lib/music'
+import { saveImage } from './ImageMenu'
 
 // The room's overlays are asked for by event, so any message or list can open them. The person as the
 // message or list shows them stands in when Discord doesn't send their profile.
@@ -44,10 +46,18 @@ export function useProfileReadAhead(guildId: string | null) {
 /** The picture opened in the viewer, where it flies back to on close. */
 let imageFrom: Element | null = null
 
-/** Opens a picture (or a GIF, which plays) full size over the room, flying up from where it was pressed. */
-export function showImage(src: string, original: string, video = false) {
+/** A picture in the viewer: what shows, the original (saved and opened), and what its sender wrote of it. */
+export type ViewerItem = { src: string; original: string; alt?: string | null }
+type Viewing = { items: ViewerItem[]; index: number; video?: boolean }
+
+/**
+ * Opens a picture (or a GIF, which plays) full size over the room, flying up from where it was pressed; with the
+ * message's other pictures (gallery), Previous and Next go through them, as Discord's viewer does.
+ */
+export function showImage(src: string, original: string, video = false, gallery?: { items: ViewerItem[]; index: number }) {
   imageFrom = pressedArt('img, video')
-  void transition(() => window.dispatchEvent(new CustomEvent('exo-dc-image', { detail: { src, original, video } })),
+  const detail: Viewing = gallery && gallery.items.length > 1 ? gallery : { items: [{ src, original }], index: 0, video }
+  void transition(() => window.dispatchEvent(new CustomEvent('exo-dc-image', { detail })),
     { morph: { name: 'exo-dc-image', from: imageFrom, to: () => visible('.exo-dc-lightbox > :is(img, video)') } })
 }
 
@@ -132,8 +142,8 @@ function ProfilePopout({ at, meId, onClose, onMessage }: { at: ProfileAt; meId: 
             <RoleList data={data} guildId={at.guildId} />
             {user.id === meId ? null : <NoteField userId={user.id} note={data.note} />}
             {user.id === meId
-              ? <button type="button" className="button button--primary exo-dc-pf-message" onClick={() => { onClose(); requestDiscordSettings('profiles') }}>Edit Profile</button>
-              : <button type="button" className="button button--primary exo-dc-pf-message" onClick={() => onMessage(user.id)}>Message</button>}
+              ? <button type="button" className="exo-set-btn is-primary exo-dc-pf-message" onClick={() => { onClose(); requestDiscordSettings('profiles') }}>Edit profile</button>
+              : <button type="button" className="exo-set-btn is-primary exo-dc-pf-message" onClick={() => onMessage(user.id)}>Message</button>}
           </div>
           <ProfileEffectOf data={data} guildId={at.guildId} />
         </>
@@ -156,7 +166,7 @@ function PopoutFriend({ data, onError }: { data: Loaded; onError: (error: string
       .then(result => { if (result.ok) setRelation(relation === 3 ? 1 : 4); else if (result.stranger) setStranger(true); else onError(result.message ?? why) }, () => onError(why))
       .finally(() => setBusy(false))
   }
-  const label = relation === 3 ? 'Accept Friend Request' : relation === 4 ? 'Friend Request Sent' : 'Add Friend'
+  const label = relation === 3 ? 'Accept friend request' : relation === 4 ? 'Friend request sent' : 'Add friend'
   return (
     <>
       <button type="button" className="exo-dc-pf-more is-inline" aria-label={label} disabled={busy || relation === 4} onClick={() => send()}>
@@ -167,25 +177,53 @@ function PopoutFriend({ data, onError }: { data: Loaded; onError: (error: string
   )
 }
 
-/** A picture full size over the room, as Discord opens it; its right-click menu copies, saves and opens it. */
+/**
+ * A picture full size over the room, as Discord's viewer opens it: Zoom (or a click on the picture) shows it at its
+ * own size to scroll around, then Save image, Open in browser and Close; the message's other pictures are a
+ * Previous and Next (or the arrow keys) away. Its right-click menu copies, saves and opens it.
+ */
 export function ImageHost() {
-  const [image, setImage] = useState<{ src: string; original: string; video?: boolean } | null>(null)
+  const [view, setView] = useState<Viewing | null>(null)
+  const [zoomed, setZoomed] = useState(false)
   useEffect(() => {
-    const show = (event: Event) => setImage((event as CustomEvent).detail)
+    const show = (event: Event) => { setZoomed(false); setView((event as CustomEvent<Viewing>).detail) }
     window.addEventListener('exo-dc-image', show)
     return () => window.removeEventListener('exo-dc-image', show)
   }, [])
   const close = () => {
     const to = imageFrom
-    void transition(() => setImage(null), { back: true, morph: { name: 'exo-dc-image', from: visible('.exo-dc-lightbox > :is(img, video)'), to: () => onScreen(to) ? to : null } })
+    void transition(() => setView(null), { back: true, morph: { name: 'exo-dc-image', from: visible('.exo-dc-lightbox > :is(img, video)'), to: () => onScreen(to) ? to : null } })
   }
   useEscape(close)
-  if (!image) return null
+  const count = view?.items.length ?? 0
+  const step = useCallback((by: number) => { setZoomed(false); setView(v => v && { ...v, index: (v.index + by + v.items.length) % v.items.length }) }, [])
+  useEffect(() => {
+    if (count < 2) return
+    const arrow = (event: KeyboardEvent) => { if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') { event.preventDefault(); step(event.key === 'ArrowLeft' ? -1 : 1) } }
+    document.addEventListener('keydown', arrow)
+    return () => document.removeEventListener('keydown', arrow)
+  }, [count, step])
+  if (!view) return null
+  const item = view.items[view.index]
+  const keep = (action: () => void) => (event: React.MouseEvent) => { event.stopPropagation(); action() }
   return (
-    <div className="exo-dc-lightbox" role="dialog" aria-label="Image" onClick={close}>
-      {image.video
-        ? <video src={image.src} autoPlay loop muted playsInline data-dc-link={image.original} onClick={event => event.stopPropagation()} />
-        : <img src={image.src} alt="" draggable={false} data-dc-link={image.original} onClick={event => event.stopPropagation()} />}
+    <div className={`exo-dc-lightbox${zoomed ? ' is-zoomed' : ''}`} role="dialog" aria-label={count > 1 ? `Image ${view.index + 1} of ${count}` : 'Image'} onClick={close}>
+      {view.video
+        ? <video src={item.src} autoPlay loop muted playsInline data-dc-link={item.original} onClick={event => event.stopPropagation()} />
+        : <img key={item.src} src={item.src} alt={item.alt ?? ''} draggable={false} data-dc-link={item.original} onClick={keep(() => setZoomed(z => !z))} />}
+      <div className="exo-dc-lightbox-tools">
+        {view.video ? null : <button type="button" className="exo-dc-icon-btn" aria-label={zoomed ? 'Zoom out' : 'Zoom in'} onClick={keep(() => setZoomed(z => !z))}>{zoomed ? <Icons.ZoomOut size={20} /> : <Icons.ZoomIn size={20} />}</button>}
+        {view.video ? null : <button type="button" className="exo-dc-icon-btn" aria-label="Save image" onClick={keep(() => saveImage(item.src))}><Icons.SaveImage size={20} /></button>}
+        <button type="button" className="exo-dc-icon-btn" aria-label="Open in browser" onClick={keep(() => openLink(item.original))}><Icons.Open size={20} /></button>
+        <button type="button" className="exo-dc-icon-btn" aria-label="Close" onClick={keep(close)}><Icons.Close size={20} /></button>
+      </div>
+      {count > 1 ? (
+        <>
+          <button type="button" className="exo-dc-icon-btn exo-dc-lightbox-step is-previous" aria-label="Previous" onClick={keep(() => step(-1))}><Icons.Previous size={24} /></button>
+          <button type="button" className="exo-dc-icon-btn exo-dc-lightbox-step is-next" aria-label="Next" onClick={keep(() => step(1))}><Icons.Next size={24} /></button>
+          <span className="exo-dc-lightbox-count" aria-hidden="true">{view.index + 1} / {count}</span>
+        </>
+      ) : null}
     </div>
   )
 }
@@ -213,7 +251,7 @@ export function AddServer({ refused, onJoined, onClose }: { refused: boolean | {
   return (
     <ModalBack onClose={onClose}>
       <div className="exo-dc-modal" role="dialog" aria-label="Join a server" onClick={event => event.stopPropagation()}>
-        <strong>Join a Server</strong>
+        <strong>Join a server</strong>
         <p>Enter an invite below to join an existing server.</p>
         <label className="exo-dc-side-label" htmlFor="exo-dc-invite">Invite link</label>
         <input id="exo-dc-invite" className="exo-dc-modal-input" placeholder="https://discord.gg/hTKzmak" value={invite} autoFocus
@@ -221,7 +259,7 @@ export function AddServer({ refused, onJoined, onClose }: { refused: boolean | {
         {error ? <p className="is-bad" role="alert">{error}</p> : null}
         <div className="exo-dc-modal-row">
           <button type="button" className="exo-dc-tab" onClick={onClose}>Back</button>
-          <button type="button" className="button button--primary" disabled={!invite.trim() || busy} onClick={() => void join()}>Join Server</button>
+          <button type="button" className="exo-set-btn is-primary" disabled={!invite.trim() || busy} onClick={() => void join()}>Join server</button>
         </div>
       </div>
     </ModalBack>

@@ -57,6 +57,9 @@ export type AccountSettings = {
   friendSourceFlags: number
   defaultGuildsActivityRestricted: number
   messageRequestRestrictedGuildIds: string[]
+  /** Servers where your activity status isn't shared, and where people can't join your activity. */
+  activityRestrictedGuildIds: string[]
+  activityJoiningRestrictedGuildIds: string[]
   defaultMessageRequestRestricted: boolean
   dropsOptedOut: boolean
   allowGameFriendDmsInDiscord: boolean
@@ -76,7 +79,12 @@ export type AccountSettings = {
   audioUsers: Record<string, AudioUser>
   /** Stream Volume and Mute for each person's Go Live sound changed from 100 and unmuted. */
   audioStreams: Record<string, AudioUser>
+  /** The custom status (null: none), until expiresAtMs when it clears itself. */
+  customStatus: CustomStatus | null
 }
+
+/** A custom status as Discord keeps it: its words, an emoji (a server one's id with its name, or a Unicode one). */
+export type CustomStatus = { text: string; emojiId: string | null; emojiName: string | null; expiresAtMs: number | null }
 
 export type AudioUser = { muted: boolean; volume: number }
 
@@ -98,7 +106,7 @@ export type DiscordAccount = {
   premium: boolean
 }
 
-export type DiscordAccountAction = 'me' | 'name' | 'profile' | 'avatar' | 'banner' | 'consent' | 'setConsent' | 'sessions' | 'logoutSessions' | 'apps' | 'deauthorize' | 'connections'
+export type DiscordAccountAction = 'me' | 'name' | 'profile' | 'avatar' | 'banner' | 'consent' | 'setConsent' | 'sessions' | 'logoutSessions' | 'apps' | 'deauthorize' | 'connections' | 'tags' | 'setTag'
 
 /** What Exo keeps for its Discord client (Voice & Video, Keybinds, Notifications, Sounds). */
 export type DiscordClientSettings = {
@@ -153,9 +161,10 @@ const ACCOUNT_DEFAULTS: AccountSettings = {
   notifyFriendsOnProfileUpdate: true, notifyFriendsOnComeOnline: true, notifyServerMembersOnGoLive: true,
   allowActivityPartyPrivacyFriends: true, allowActivityPartyPrivacyVoiceChannel: true, restrictedGuildIds: [],
   defaultGuildsRestricted: false, friendSourceFlags: 14, defaultGuildsActivityRestricted: 0, messageRequestRestrictedGuildIds: [],
+  activityRestrictedGuildIds: [], activityJoiningRestrictedGuildIds: [],
   defaultMessageRequestRestricted: false, dropsOptedOut: false, allowGameFriendDmsInDiscord: true, defaultGuildsRestrictedV2: null,
   defaultGuildsActivityRestrictedV2: 0, quests3pDataOptedOut: false, profileVisibility: 0, hideFriendRequestNotes: false,
-  showCurrentGame: true, locale: '', developerMode: false, timestampHourCycle: 0, audioUsers: {}, audioStreams: {},
+  showCurrentGame: true, locale: '', developerMode: false, timestampHourCycle: 0, audioUsers: {}, audioStreams: {}, customStatus: null,
 }
 
 let account: AccountSettings = ACCOUNT_DEFAULTS

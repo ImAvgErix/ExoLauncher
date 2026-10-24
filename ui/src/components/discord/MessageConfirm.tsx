@@ -9,18 +9,18 @@ export type ConfirmKind = 'delete' | 'pin' | 'unpin'
 function words(kind: ConfirmKind, channel: string | null) {
   if (kind === 'pin') {
     return {
-      title: 'Pin It. Pin It Good.', action: 'Oh yeah. Pin it', danger: false, tip: null,
+      title: 'Pin it. Pin it good.', action: 'Oh yeah. Pin it', danger: false, tip: null,
       body: `Hey, just double checking that you want to pin this message to ${channel ? `#${channel}` : 'the current channel'} for posterity and greatness?`,
     }
   }
   if (kind === 'unpin') {
     return {
-      title: 'Unpin Message', action: 'Remove it please!', danger: true, body: 'You sure you want to remove this pinned message?',
+      title: 'Unpin message', action: 'Remove it please!', danger: true, body: 'You sure you want to remove this pinned message?',
       tip: 'You can hold down shift when clicking unpin message to bypass this confirmation entirely.',
     }
   }
   return {
-    title: 'Delete Message', action: 'Delete', danger: true, body: 'Are you sure you want to delete this message?',
+    title: 'Delete message', action: 'Delete', danger: true, body: 'Are you sure you want to delete this message?',
     tip: 'Tip: hold Shift when you press Delete Message to skip this.',
   }
 }

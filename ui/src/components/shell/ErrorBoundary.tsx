@@ -48,10 +48,10 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
         <h2>This part of Exo stopped</h2>
         <p>{fallbackBody(this.props.label)}</p>
         <div className="flex flex-wrap items-center justify-center gap-2">
-          <Button type="button" size="sm" className="exo-ghost-btn is-primary" onPress={this.reset}>
+          <Button type="button" size="sm" className="exo-set-btn is-primary" onPress={this.reset}>
             Try again
           </Button>
-          <Button type="button" variant="ghost" size="sm" className="exo-ghost-btn" onPress={this.openLogs}>
+          <Button type="button" size="sm" className="exo-set-btn" onPress={this.openLogs}>
             Open logs
           </Button>
         </div>

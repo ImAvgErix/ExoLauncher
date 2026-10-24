@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Close } from '../../brand/icons'
+import { Switch } from '../Switch'
 import { host } from '../../lib/host'
 import { report } from '../../lib/report'
 import type { DiscordChannel, DiscordChannels, DiscordMemberRow, DiscordResource, DiscordRole } from '../../lib/discord'
@@ -11,15 +11,16 @@ import { showProfile } from './extras'
 import { Markdown } from './markdown'
 import { ChannelIcon } from './Sidebar'
 import { openUserMenu } from './UserMenu'
-import { useLayer } from './admin'
+import { Confirm, useLayer } from './admin'
 import { ModalBack } from './SettingsLayer'
 import { useDismiss } from '../../lib/dismiss'
+import { changeAccountSettings, useAccountSettings } from '../../lib/discordPrefs'
 
 /** Discord's rows over a server's channels, opened in place of a channel. */
 export const PAGES = { guide: 'page:guide', browse: 'page:browse', members: 'page:members' } as const
 export const isPage = (id: string | null) => !!id && id.startsWith('page:')
 
-const LABELS = { guide: 'Server Guide', browse: 'Browse Channels', members: 'Members' } as const
+const LABELS = { guide: 'Server Guide', browse: 'Browse channels', members: 'Members' } as const
 const ROW_ICONS = { guide: Icons.Guide, browse: Icons.Browse, members: Icons.Members }
 
 // Server Guide, then Events (Discord's dialog, "N Events" when there are some), Browse Channels and Members.
@@ -58,12 +59,14 @@ function Row({ page, open, onPick }: { page: keyof typeof LABELS; open: string |
   )
 }
 
-export function ServerPage({ page, guildId, list, onPick, meId, channelName, active }: {
+export function ServerPage({ page, guildId, list, onPick, meId, meName, channelName, active }: {
   page: string
   guildId: string
   list: DiscordChannels | null
   onPick: (id: string) => void
   meId: string | null
+  /** Your name, where a welcome message says [@username]. */
+  meName: string | null
   channelName: (id: string) => string | null
   active: boolean
 }) {
@@ -76,7 +79,7 @@ export function ServerPage({ page, guildId, list, onPick, meId, channelName, act
         <strong>{LABELS[key]}</strong>
       </header>
       <div className="exo-dc-page">
-        {key === 'guide' ? <Guide guildId={guildId} list={list} onPick={onPick} side={{ meId, channelName, active }} /> : null}
+        {key === 'guide' ? <Guide guildId={guildId} list={list} onPick={onPick} side={{ meId, meName, channelName, active }} /> : null}
         {key === 'browse' ? <Browse guildId={guildId} list={list} onPick={onPick} /> : null}
         {key === 'members' ? <Members guildId={guildId} canPrune={list?.moderation?.prune === true} /> : null}
       </div>
@@ -103,7 +106,7 @@ export function useServer(guildId: string, action: 'guide' | 'events', reload = 
   return { data, error }
 }
 
-type SideProps = { meId: string | null; channelName: (id: string) => string | null; active: boolean }
+type SideProps = { meId: string | null; meName: string | null; channelName: (id: string) => string | null; active: boolean }
 
 // Discord's Server Guide: the server's banner, its resources, and a card with who's around.
 // A resource opens beside the guide, as Discord's does.
@@ -120,7 +123,7 @@ function Guide({ guildId, list, onPick, side }: { guildId: string; list: Discord
       <GuideHead list={list} />
       <div className="exo-dc-guide-body">
         <div className="exo-dc-guide-main">
-          <GetStarted guide={guide} onPick={onPick} />
+          <GetStarted guide={guide} meName={side.meName} onPick={onPick} />
           {data.resources?.length ? <strong className="exo-dc-guide-label">Resources</strong> : null}
           {data.resources?.map(resource => <Resource key={resource.channelId} resource={resource} guildId={guildId} side={side} onOpen={setOpened} />)}
         </div>
@@ -128,8 +131,7 @@ function Guide({ guildId, list, onPick, side }: { guildId: string; list: Discord
       </div>
       {channel ? (
         <aside className="exo-dc-guide-side" aria-label={channel.name}>
-          <button type="button" className="exo-dc-icon-btn exo-dc-guide-close" aria-label="Close" onClick={() => setOpened(null)}><Close size={16} /></button>
-          <Chat key={channel.id} channel={channel} guildId={guildId} serverName={list?.name ?? null} meId={side.meId} channelName={side.channelName} active={side.active} />
+          <Chat key={channel.id} channel={channel} guildId={guildId} serverName={list?.name ?? null} meId={side.meId} channelName={side.channelName} active={side.active} onHide={() => setOpened(null)} />
         </aside>
       ) : null}
     </div>
@@ -137,10 +139,10 @@ function Guide({ guildId, list, onPick, side }: { guildId: string; list: Discord
 }
 
 // The welcome message and the new member to-dos.
-function GetStarted({ guide, onPick }: { guide: ServerReply['guide']; onPick: (id: string) => void }) {
+function GetStarted({ guide, meName, onPick }: { guide: ServerReply['guide']; meName: string | null; onPick: (id: string) => void }) {
   return (
     <>
-      {guide?.welcome_message?.message ? <p className="exo-dc-page-text">{guide.welcome_message.message}</p> : null}
+      {guide?.welcome_message?.message ? <p className="exo-dc-page-text">{welcome(guide.welcome_message.message, meName)}</p> : null}
       {guide?.new_member_actions?.length ? <strong className="exo-dc-guide-label">Get started</strong> : null}
       {guide?.new_member_actions?.map(action => (
         <button key={action.channel_id} type="button" className="exo-dc-card" onClick={() => onPick(action.channel_id)}>
@@ -150,6 +152,11 @@ function GetStarted({ guide, onPick }: { guide: ServerReply['guide']; onPick: (i
       ))}
     </>
   )
+}
+
+// Discord's welcome message names whoever reads it where it says [@username].
+function welcome(message: string, name: string | null) {
+  return message.split(/\[@username\]/g).flatMap((part, i) => i === 0 ? [part] : [<strong key={i}>@{name ?? 'you'}</strong>, part])
 }
 
 // A resource: its icon, title, and its description or else the channel's first message.
@@ -202,7 +209,8 @@ function GuideCard({ name, online, total, founded }: { name: string; online: num
   )
 }
 
-// Discord's Browse Channels: search, Create, and each category with Follow Category and a checkbox per channel.
+// Discord's Browse Channels: search, Create, and each category with Follow category and a switch per channel (Exo's
+// switch, as in Settings), its channels a list with hairlines between them.
 function Browse({ guildId, list, onPick }: { guildId: string; list: DiscordChannels | null; onPick: (id: string) => void }) {
   const [query, setQuery] = useState('')
   const [creating, setCreating] = useState(false)
@@ -219,19 +227,19 @@ function Browse({ guildId, list, onPick }: { guildId: string; list: DiscordChann
       <div className="exo-dc-page-bar">
         <label className="exo-dc-friend-search exo-dc-grow">
           <Icons.Search size={16} />
-          <input placeholder="Search Channels" value={query} onChange={event => setQuery(event.target.value)} aria-label="Search channels" />
+          <input placeholder="Search channels" value={query} onChange={event => setQuery(event.target.value)} aria-label="Search channels" />
         </label>
-        {list.canManage ? <button type="button" className="button button--primary exo-dc-blurple" onClick={() => setCreating(true)}>+ Create</button> : null}
+        {list.canManage ? <button type="button" className="exo-set-btn is-primary" onClick={() => setCreating(true)}>Create</button> : null}
       </div>
       {groups.filter(g => g.channels.length).map(group => (
         <section key={group.category?.id ?? 'loose'} className="exo-dc-browse-group" aria-label={group.category?.name ?? 'Channels'}>
           {group.category ? (
             <div className="exo-dc-browse-head">
               <strong>{group.category.name}</strong>
-              <label className="exo-dc-switch">
-                Follow Category
-                <input type="checkbox" role="switch" checked={!list.optIn || group.category.optedIn === true} onChange={event => follow(group.category!.id, event.target.checked)} />
-              </label>
+              <span className="exo-dc-browse-follow">
+                Follow category
+                <Switch checked={!list.optIn || group.category.optedIn === true} label={`Follow ${group.category.name}`} onChange={on => follow(group.category!.id, on)} />
+              </span>
             </div>
           ) : null}
           {group.channels.map(c => (
@@ -241,7 +249,7 @@ function Browse({ guildId, list, onPick }: { guildId: string; list: DiscordChann
                 <span className="exo-dc-friend-names"><strong>{c.name}</strong>{c.active && c.kind !== 'voice' ? <span>Active {since(c.active)}</span> : null}</span>
               </button>
               {c.kind !== 'voice' ? <button type="button" className="exo-dc-tab is-raised exo-dc-browse-view" onClick={() => onPick(c.id)}>View</button> : null}
-              <input type="checkbox" aria-label={`Show ${c.name} in the channel list`} checked={!list.optIn || c.optedIn === true} onChange={event => follow(c.id, event.target.checked)} />
+              <Switch checked={!list.optIn || c.optedIn === true} label={`Show ${c.name} in the channel list`} onChange={on => follow(c.id, on)} />
             </div>
           ))}
         </section>
@@ -278,13 +286,13 @@ function ago(ms: number) {
 
 const PAGE_SIZES = [12, 25, 50, 100]
 const SORTS = [
-  { id: 1, label: 'Member Since (Newest first)' },
-  { id: 2, label: 'Member Since (Oldest first)' },
-  { id: 3, label: 'Joined Discord (Newest first)' },
-  { id: 4, label: 'Joined Discord (Oldest first)' },
+  { id: 1, label: 'Member since (newest first)' },
+  { id: 2, label: 'Member since (oldest first)' },
+  { id: 3, label: 'Joined Discord (newest first)' },
+  { id: 4, label: 'Joined Discord (oldest first)' },
 ]
 // Discord's join_source_type.
-const JOIN_METHODS = ['Unknown', 'Bot', 'Integration', 'Server Discovery', 'Student Hub', 'Invite', 'Vanity URL', 'Manual Member Verification', 'Linked channel']
+const JOIN_METHODS = ['Unknown', 'Bot', 'Integration', 'Server Discovery', 'Student Hub', 'Invite', 'Vanity URL', 'Manual member verification', 'Linked channel']
 
 type Loaded = { rows: DiscordMemberRow[]; total: number; roles: Record<string, DiscordRole>; done: boolean }
 // Discord's chunk: 250 members a request.
@@ -303,17 +311,22 @@ function useMemberSearch(guildId: string, sort: number, search: string, reload: 
     guildId, sort, ...(search ? { query: search } : {}),
     ...(after ? { afterJoined: Date.parse(after.member.joined_at), afterUser: after.member.user.id } : {}),
   })
+  // A new server's members aren't searchable at once: Discord says it's still indexing, and the page asks again
+  // every few seconds (as Discord's client does) with the reason showing meanwhile.
+  const [tries, setTries] = useState(0)
   useEffect(() => {
     let live = true
+    let again = 0
     setError(null)
     host.discordServer('members', { guildId, sort, ...(search ? { query: search } : {}) }).then(result => {
       if (!live) return
-      if (!result.ok) { setError(result.message ?? 'Discord did not send this.'); return }
+      if (result.indexing && tries < 20) { setError(result.message ?? 'Discord is still getting this server’s members ready.'); again = window.setTimeout(() => setTries(n => n + 1), 3000); return }
+      if (!result.ok) { report(new Error(result.message ?? 'no answer'), 'ServerPage.members'); setError(result.message ?? 'Discord did not send this.'); return }
       const rows = result.members?.members ?? []
       setLoaded({ rows, total: result.members?.total_result_count ?? rows.length, roles: result.roles ?? {}, done: rows.length < CHUNK })
     }).catch((err: unknown) => { report(err, 'ServerPage.members'); if (live) setError('Discord did not send this.') })
-    return () => { live = false }
-  }, [guildId, sort, search, reload])
+    return () => { live = false; window.clearTimeout(again) }
+  }, [guildId, sort, search, reload, tries])
   const more = () => {
     const last = loaded?.rows.at(-1)
     if (busy.current || !loaded || loaded.done || !last) return
@@ -321,7 +334,7 @@ function useMemberSearch(guildId: string, sort: number, search: string, reload: 
     const of = asked
     void ask(last).then(result => {
       if (of !== current.current) return
-      if (!result.ok) { setError(result.message ?? 'Discord did not send more members.'); return }
+      if (!result.ok) { report(new Error(result.message ?? 'no answer'), 'ServerPage.members'); setError(result.message ?? 'Discord did not send more members.'); return }
       const page = result.members?.members ?? []
       setLoaded(l => l && { ...l, rows: [...l.rows, ...page.filter(r => !l.rows.some(o => o.member.user.id === r.member.user.id))], roles: { ...l.roles, ...result.roles }, done: page.length < CHUNK })
     }).catch((err: unknown) => { report(err, 'ServerPage.members'); setError('Discord did not send more members.') }).finally(() => { busy.current = false })
@@ -368,7 +381,7 @@ export function Members({ guildId, canPrune }: { guildId: string; canPrune: bool
   return (
     <>
       <div className="exo-dc-page-bar">
-        <strong>Recent Members</strong>
+        <strong>Recent members</strong>
         <span className="exo-dc-pager">
           <label className="exo-dc-friend-search">
             <Icons.Search size={16} />
@@ -393,8 +406,8 @@ export function Members({ guildId, canPrune }: { guildId: string; canPrune: bool
       {panel === 'prune' ? <Prune guildId={guildId} onClose={() => setPanel(null)} onPruned={() => { setPanel(null); setReload(r => r + 1) }} /> : null}
       <div className="exo-dc-table" role="table" aria-label="Members">
         <div className="exo-dc-table-row is-head" role="row">
-          <span role="columnheader">Name</span><span role="columnheader">Member Since</span><span role="columnheader">Joined Discord</span>
-          <span role="columnheader">Join Method</span><span role="columnheader">Roles</span><span role="columnheader" aria-label="Actions" />
+          <span role="columnheader">Name</span><span role="columnheader">Member since</span><span role="columnheader">Joined Discord</span>
+          <span role="columnheader">Join method</span><span role="columnheader">Roles</span><span role="columnheader" aria-label="Actions" />
         </div>
         {all.slice(at * size, at * size + size).map(row => <MemberRow key={row.member.user.id} row={row} roles={roles} guildId={guildId} />)}
       </div>
@@ -452,7 +465,7 @@ function Prune({ guildId, onClose, onPruned }: { guildId: string; onClose: () =>
         <p>{error ?? (count === null ? 'Counting' : `${count} ${count === 1 ? 'member' : 'members'} will be removed.`)}</p>
         <div className="exo-dc-modal-row">
           <button type="button" className="exo-dc-tab" onClick={onClose}>Cancel</button>
-          <button type="button" className="button button--primary exo-dc-danger-btn" disabled={busy || !count} onClick={() => void prune()}>Prune</button>
+          <button type="button" className="exo-set-btn is-danger" disabled={busy || !count} onClick={() => void prune()}>Prune</button>
         </div>
       </div>
     </ModalBack>
@@ -499,14 +512,59 @@ function MemberActions({ userId, name, username, guildId }: { userId: string; na
 }
 
 /** Discord's Create Channel, from a category's +. */
-export function CreateChannel({ guildId, parentId, category, onCreated, onClose }: {
+type RestrictedList = 'restrictedGuildIds' | 'messageRequestRestrictedGuildIds' | 'activityRestrictedGuildIds' | 'activityJoiningRestrictedGuildIds'
+
+/**
+ * Discord's Privacy Settings for one server: direct messages and message requests from its members, and sharing your
+ * activity status and activity joining there. Each is this server's place in a list on your account.
+ */
+export function ServerPrivacy({ guildId, name, onClose }: { guildId: string; name: string; onClose: () => void }) {
+  const settings = useAccountSettings()
+  const [error, setError] = useState<string | null>(null)
+  const on = (list: RestrictedList) => !settings[list].includes(guildId)
+  const set = (list: RestrictedList, allowed: boolean) => {
+    setError(null)
+    const rest = settings[list].filter(id => id !== guildId)
+    void changeAccountSettings({ [list]: allowed ? rest : [...rest, guildId] }).then(setError)
+  }
+  const dms = on('restrictedGuildIds')
+  return (
+    <Confirm title="Privacy settings" action="Done" danger={false} error={error} onConfirm={onClose} onClose={onClose}>
+      <p>{name}</p>
+      <div className="exo-dc-form-rows">
+        <span className="exo-dc-form-switch">
+          <span><strong>Direct messages</strong><span>Allow DMs from other members in this server</span></span>
+          <Switch checked={dms} label="Direct messages" onChange={value => set('restrictedGuildIds', value)} />
+        </span>
+        <span className="exo-dc-form-switch">
+          <span><strong>Message requests</strong><span>Filter messages from server members you may not know.</span></span>
+          <Switch checked={dms && on('messageRequestRestrictedGuildIds')} disabled={!dms} label="Message requests" onChange={value => set('messageRequestRestrictedGuildIds', value)} />
+        </span>
+        <span className="exo-dc-form-switch">
+          <span><strong>Activity status</strong><span>Share your activity status in this server.</span></span>
+          <Switch checked={on('activityRestrictedGuildIds')} label="Activity status" onChange={value => set('activityRestrictedGuildIds', value)} />
+        </span>
+        <span className="exo-dc-form-switch">
+          <span><strong>Activity joining</strong><span>Allow users to join your activity in this server.</span></span>
+          <Switch checked={on('activityJoiningRestrictedGuildIds')} label="Activity joining" onChange={value => set('activityJoiningRestrictedGuildIds', value)} />
+        </span>
+      </div>
+    </Confirm>
+  )
+}
+
+export function CreateChannel({ guildId, parentId, category, asCategory = false, onCreated, onClose }: {
   guildId: string
   parentId: string | null
+  /** The category it goes in ('' for none). */
   category: string
+  /** Discord's Create Category instead: a name only. */
+  asCategory?: boolean
   onCreated: (channelId: string) => void
   onClose: () => void
 }) {
   const [kind, setKind] = useState<'text' | 'voice'>('text')
+  const what = asCategory ? 'category' : 'channel'
   const [name, setName] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -514,33 +572,33 @@ export function CreateChannel({ guildId, parentId, category, onCreated, onClose 
     if (!name.trim() || busy) return
     setBusy(true)
     try {
-      const result = await host.discordServer('createChannel', { guildId, ...(parentId ? { parentId } : {}), name: name.trim(), kind })
+      const result = await host.discordServer('createChannel', { guildId, ...(parentId ? { parentId } : {}), name: name.trim(), kind: asCategory ? 'category' : kind })
       if (result.ok && result.channelId) onCreated(result.channelId)
-      else setError(result.message ?? 'Discord did not make that channel.')
+      else setError(result.message ?? `Discord did not make that ${what}.`)
     } catch (err) {
       report(err, 'CreateChannel')
-      setError('Discord did not make that channel.')
+      setError(`Discord did not make that ${what}.`)
     } finally { setBusy(false) }
   }
   return (
     <ModalBack onClose={onClose}>
-      <div className="exo-dc-modal" role="dialog" aria-label="Create Channel" onClick={event => event.stopPropagation()} onKeyDown={event => { if (event.key === 'Escape') onClose() }}>
-        <strong>Create Channel</strong>
-        <p>in {category}</p>
-        <p className="exo-dc-side-label">Channel type</p>
-        {(['text', 'voice'] as const).map(k => (
+      <div className="exo-dc-modal" role="dialog" aria-label={`Create ${what}`} onClick={event => event.stopPropagation()} onKeyDown={event => { if (event.key === 'Escape') onClose() }}>
+        <strong>Create {what}</strong>
+        {category ? <p>in {category}</p> : null}
+        {asCategory ? null : <p className="exo-dc-side-label">Channel type</p>}
+        {(asCategory ? [] : ['text', 'voice'] as const).map(k => (
           <button key={k} type="button" className="exo-dc-card" aria-pressed={kind === k} onClick={() => setKind(k)}>
             <span className="exo-dc-hash" aria-hidden="true">{k === 'voice' ? <Icons.Voice size={18} /> : <Icons.Hash size={18} />}</span>
             <span className="exo-dc-friend-names"><strong>{k === 'text' ? 'Text' : 'Voice'}</strong><span>{k === 'text' ? 'Send messages, images, GIFs, emoji, opinions, and puns' : 'Hang out together with voice, video, and screen share'}</span></span>
           </button>
         ))}
-        <label className="exo-dc-side-label" htmlFor="exo-dc-new-channel">Channel name</label>
-        <input id="exo-dc-new-channel" className="exo-dc-modal-input" placeholder="new-channel" value={name} autoFocus
+        <label className="exo-dc-side-label" htmlFor="exo-dc-new-channel">{asCategory ? 'Category name' : 'Channel name'}</label>
+        <input id="exo-dc-new-channel" className="exo-dc-modal-input" placeholder={asCategory ? 'New category' : 'new-channel'} value={name} autoFocus
           onChange={event => setName(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') void create() }} />
         {error ? <p className="is-bad" role="alert">{error}</p> : null}
         <div className="exo-dc-modal-row">
           <button type="button" className="exo-dc-tab" onClick={onClose}>Cancel</button>
-          <button type="button" className="button button--primary" disabled={!name.trim() || busy} onClick={() => void create()}>Create Channel</button>
+          <button type="button" className="exo-set-btn is-primary" disabled={!name.trim() || busy} onClick={() => void create()}>Create {what}</button>
         </div>
       </div>
     </ModalBack>

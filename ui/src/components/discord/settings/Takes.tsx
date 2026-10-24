@@ -32,8 +32,8 @@ export function Takes({ before, after }: { before?: string; after?: string }) {
     void audio.play().catch(() => { setPlaying(null); setError(true) })
   }
   return (<>
-    <button type="button" className="exo-set-btn" aria-pressed={playing === 'before'} onClick={() => play('before', before)}>{playing === 'before' ? 'Stop' : 'Play Before'}</button>
-    <button type="button" className="exo-set-btn" aria-pressed={playing === 'after'} onClick={() => play('after', after)}>{playing === 'after' ? 'Stop' : 'Play After'}</button>
+    <button type="button" className="exo-set-btn" aria-pressed={playing === 'before'} onClick={() => play('before', before)}>{playing === 'before' ? 'Stop' : 'Play before'}</button>
+    <button type="button" className="exo-set-btn" aria-pressed={playing === 'after'} onClick={() => play('after', after)}>{playing === 'after' ? 'Stop' : 'Play after'}</button>
     {error ? <span className="exo-dc-tune-finding is-bad" role="alert">Exo couldn’t play it.</span> : null}
   </>)
 }

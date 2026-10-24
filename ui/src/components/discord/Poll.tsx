@@ -104,8 +104,8 @@ export function Poll({ message, meId }: { message: DiscordMessage; meId: string 
       <footer className="exo-dc-poll-foot">
         <span>{total} {total === 1 ? 'vote' : 'votes'}{timeLeft(poll, now) ? ` · ${timeLeft(poll, now)}` : ''}</span>
         <span className="exo-dc-poll-actions">
-          {!closed && voted ? <button type="button" className="exo-dc-tab" disabled={busy} onClick={() => send([])}>Remove Vote</button> : null}
-          {!closed && message.author.id === meId ? <button type="button" className="exo-dc-tab" disabled={busy} onClick={() => send('end')}>End Poll</button> : null}
+          {!closed && voted ? <button type="button" className="exo-dc-tab" disabled={busy} onClick={() => send([])}>Remove vote</button> : null}
+          {!closed && message.author.id === meId ? <button type="button" className="exo-dc-tab" disabled={busy} onClick={() => send('end')}>End poll</button> : null}
           {!showing ? <button type="button" className="exo-dc-tab is-raised" disabled={busy || picked.size === 0} onClick={() => send([...picked])}>Vote</button> : null}
         </span>
       </footer>

@@ -124,7 +124,7 @@ export function ShareScreen() {
   useEscape(() => setMenu(false))
   return (
     <span ref={box} className="exo-dc-share">
-      <button type="button" className={`exo-dc-voice-btn${on ? ' is-live' : ''}`} aria-label={on ? 'Your stream' : 'Share Your Screen'}
+      <button type="button" className={`exo-dc-voice-btn${on ? ' is-live' : ''}`} aria-label={on ? 'Your stream' : 'Share your screen'}
         aria-expanded={on ? menu : picking !== null} aria-haspopup={on ? 'menu' : 'dialog'}
         onClick={event => on ? setMenu(open => !open) : setPicking(event.currentTarget.closest<HTMLElement>('.exo-dc') ?? document.body)}>
         <Icons.Streaming size={20} />
@@ -132,8 +132,8 @@ export function ShareScreen() {
       {on && menu ? (
         <div className="exo-dc-menu exo-dc-golive-menu" role="menu">
           <span className="exo-dc-golive-menu-head">{live.title ?? 'Your stream'}<small>{live.stats ? formatStats(live.stats) : 'Connecting…'}</small></span>
-          <button type="button" role="menuitem" onClick={() => { setMenu(false); setPreviewShown(!shown) }}>{shown ? 'Hide Preview' : 'Show Preview'}</button>
-          <button type="button" role="menuitem" className="is-danger" onClick={() => { setMenu(false); void stopGoLive() }}>Stop Streaming</button>
+          <button type="button" role="menuitem" onClick={() => { setMenu(false); setPreviewShown(!shown) }}>{shown ? 'Hide preview' : 'Show preview'}</button>
+          <button type="button" role="menuitem" className="is-danger" onClick={() => { setMenu(false); void stopGoLive() }}>Stop streaming</button>
         </div>
       ) : null}
       {picking ? createPortal(<GoLiveDialog onClose={() => setPicking(null)} onLive={() => { setPicking(null); setPreviewShown(true) }} />, picking) : null}
@@ -164,8 +164,8 @@ export function MyStreamTile({ meId }: { meId: string | null }) {
       {!feed.live && picture ? <img className="exo-dc-voice-video" src={picture} alt="What your stream shows" draggable={false} /> : null}
       <span className="exo-dc-live">LIVE</span>
       <span className="exo-dc-my-stream-actions">
-        <button type="button" className="exo-dc-tab" onClick={() => setPreviewShown(false)}>Hide Preview</button>
-        <button type="button" className="exo-dc-tab exo-dc-golive-stop" onClick={() => void stopGoLive()}>Stop Streaming</button>
+        <button type="button" className="exo-dc-tab" onClick={() => setPreviewShown(false)}>Hide preview</button>
+        <button type="button" className="exo-dc-tab exo-dc-golive-stop" onClick={() => void stopGoLive()}>Stop streaming</button>
       </span>
       <span className="exo-dc-voice-tile-name"><span className="exo-dc-voice-tile-label">{live.title ?? 'Your stream'}{live.stats ? <small> · {formatStats(live.stats)}</small> : null}</span></span>
     </article>

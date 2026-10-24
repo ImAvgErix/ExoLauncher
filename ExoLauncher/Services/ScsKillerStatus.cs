@@ -145,10 +145,12 @@ internal sealed partial class ScsKillerStatus : IDisposable
     // ------------------------------------------------------------------ compile time
 
     /// <summary>
-    /// Seconds each listed game takes to compile on this PC, by the engine's id: its last compile's
-    /// time, else the engine's estimate (its plan at this PC's measured rate); a game with neither is
-    /// sized from its shader count at the median seconds per shader of the games that have both, else
-    /// takes the median game. System > Shaders adds these up for the queue's time.
+    /// Seconds each listed game takes to compile on this PC, by the engine's id: the engine's estimate
+    /// (reading and preparing its files, then its plan at the rate its own cold compiles measured, else a
+    /// stand-in). A game without one yet (no plan) is sized from its shader count at the median seconds
+    /// per shader of the games that have both, else takes the median game. The last compile's own time
+    /// isn't read: a rewarm onto a cache that still held the game took seconds. System > Shaders fills
+    /// these in where the engine's snapshot has no estimate, as rough ones.
     /// </summary>
     internal IReadOnlyDictionary<string, double> CompileSeconds()
     {
@@ -158,11 +160,11 @@ internal sealed partial class ScsKillerStatus : IDisposable
             if (!File.Exists(path)) return new Dictionary<string, double>();
             using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
             using var doc = JsonDocument.Parse(stream);
-            var games = new List<(string, TimeSpan?, TimeSpan?, long?)>();
+            var games = new List<(string, TimeSpan?, long?)>();
             if (doc.RootElement.TryGetProperty("Games", out var array) && array.ValueKind == JsonValueKind.Array)
                 foreach (var state in array.EnumerateArray())
                     if (state.TryGetProperty("Game", out var game) && Text(game, "Id") is { } id)
-                        games.Add((id, Span(Text(state, "LastWarmTime")), Span(Text(state, "EstimatedWarmTime")),
+                        games.Add((id, Span(Text(state, "EstimatedWarmTime")),
                             state.TryGetProperty("ShaderCount", out var count) && count.ValueKind == JsonValueKind.Number && count.TryGetInt64(out var n) ? n : null));
             return CompileSeconds(games);
         }
@@ -172,9 +174,9 @@ internal sealed partial class ScsKillerStatus : IDisposable
         }
     }
 
-    internal static Dictionary<string, double> CompileSeconds(IEnumerable<(string Id, TimeSpan? Last, TimeSpan? Estimated, long? Shaders)> games)
+    internal static Dictionary<string, double> CompileSeconds(IEnumerable<(string Id, TimeSpan? Estimated, long? Shaders)> games)
     {
-        var list = games.Select(g => (g.Id, Known: g.Last is { TotalSeconds: > 0 } last ? last.TotalSeconds : g.Estimated is { TotalSeconds: > 0 } est ? est.TotalSeconds : (double?)null,
+        var list = games.Select(g => (g.Id, Known: g.Estimated is { TotalSeconds: > 0 } est ? est.TotalSeconds : (double?)null,
             Shaders: g.Shaders is > 0 ? g.Shaders : null)).ToList();
         var perShader = Median(list.Where(g => g.Known is not null && g.Shaders is not null).Select(g => g.Known!.Value / g.Shaders!.Value));
         var typical = Median(list.Where(g => g.Known is not null).Select(g => g.Known!.Value));

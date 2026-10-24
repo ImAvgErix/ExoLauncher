@@ -29,6 +29,8 @@ public sealed partial class WebHostBridge
         var action = ReadString(p, hasParams, "action") ?? "";
         // Edit Channel's actions name a channel; everything else names a server.
         if (action.StartsWith("channel", StringComparison.Ordinal)) return await DiscordChannelAdminAsync(session, action, p, hasParams, ct).ConfigureAwait(false);
+        // The answer to Discord's "it's really you" check: it finishes the request that asked for it.
+        if (action == "mfa") return await AdminMfaAsync(session, p, hasParams, ct).ConfigureAwait(false);
         if (ReadString(p, hasParams, "guildId") is not { Length: > 0 } rawGuild) return new { ok = false, message = "Pick a server." };
         var guild = DiscordRest.Id(rawGuild);
         if (session.Cache.ServerPermissions(guild) is not { } perms) return new { ok = false, message = "That server isn't one of yours." };
@@ -38,7 +40,10 @@ public sealed partial class WebHostBridge
             "person" => AdminPerson(call),
             "guild" => Answer(await session.Rest.GuildCountsAsync(guild, ct).ConfigureAwait(false)),
             "saveGuild" => call.Can(ManageGuild) ? await AdminSaveGuildAsync(call).ConfigureAwait(false) : NotAllowed,
-            "roles" or "createRole" or "saveRole" or "deleteRole" or "moveRoles" or "roleMembers" or "searchMembers" or "addRoleMembers" => await AdminRolesAsync(call, action).ConfigureAwait(false),
+            "guildMfa" or "pruneAdmins" or "deleteGuild" or "transfer" or "transferCode" => await AdminOwnerAsync(call, action).ConfigureAwait(false),
+            "raidAlerts" => call.Can(ManageGuild) ? await AdminRaidAlertsAsync(call).ConfigureAwait(false) : NotAllowed,
+            _ when PageActions.Contains(action) => await AdminPagesAsync(call, action).ConfigureAwait(false),
+            "roles" or "createRole" or "saveRole" or "deleteRole" or "moveRoles" or "roleMembers" or "searchMembers" or "addRoleMembers" or "roleLinks" or "saveRoleLinks" => await AdminRolesAsync(call, action).ConfigureAwait(false),
             "addRole" or "removeRole" or "nick" or "timeout" or "kick" or "ban" or "voice" => await AdminPeopleAsync(call, action).ConfigureAwait(false),
             "emojis" or "uploadEmoji" or "renameEmoji" or "deleteEmoji" or "stickers" or "uploadSticker" or "editSticker" or "deleteSticker" =>
                 call.Can(ManageExpressions | CreateExpressions) ? await AdminExpressionsAsync(call, action).ConfigureAwait(false) : NotAllowed,
@@ -46,7 +51,61 @@ public sealed partial class WebHostBridge
         };
     }
 
-    private static object Answer(DiscordRest.Reply reply) => new { ok = reply.Error is null, message = reply.Error, data = reply.Body };
+    // mfa: Discord wants the person to verify first; the page answers with action "mfa" and this id.
+    private static object Answer(DiscordRest.Reply reply) => new
+    {
+        ok = reply.Error is null,
+        message = reply.Error,
+        data = reply.Body,
+        mfa = reply.Mfa is { } ask ? new { id = ask.Id, methods = ask.Methods } : null,
+    };
+
+    // Verify with a code (step finish), text one to the phone (sms), or give up (cancel). The ticket and token stay in DiscordRest.
+    private static async Task<object> AdminMfaAsync(DiscordSession session, JsonElement p, bool hasParams, CancellationToken ct)
+    {
+        if (ReadString(p, hasParams, "id") is not { Length: 32 } id || !id.All(char.IsAsciiHexDigit)) return new { ok = false, message = "That check ran out of time. Try again." };
+        switch (ReadString(p, hasParams, "step"))
+        {
+            case "cancel":
+                session.Rest.CancelMfa(id);
+                return new { ok = true, message = (string?)null };
+            case "sms":
+                return Answer(await session.Rest.SendMfaSmsAsync(id, ct).ConfigureAwait(false));
+            case "finish" when ReadString(p, hasParams, "method") is { } method && ReadString(p, hasParams, "code")?.Trim() is { Length: > 0 and <= 128 } code:
+                return Answer(await session.Rest.FinishMfaAsync(id, method, code, ct).ConfigureAwait(false));
+        }
+        return new { ok = false, message = "Type the code first." };
+    }
+
+    // What only the owner may do, as Discord offers it: require 2FA of moderators (with 2FA on their own account),
+    // restrict prune to admins (not on a Community server) and delete the server.
+    private static async Task<object> AdminOwnerAsync(AdminCall call, string action)
+    {
+        var cache = call.Session.Cache;
+        if (cache.ServerOf(call.Guild) is not { Owner: true } server) return new { ok = false, message = "Only the server owner can do that." };
+        var rest = call.Session.Rest;
+        var on = ReadBool(call.P, call.HasParams, "on") == true;
+        switch (action)
+        {
+            case "guildMfa" when !cache.MfaEnabled:
+                return new { ok = false, message = "To change this setting, first enable 2FA on your account." };
+            case "guildMfa":
+                return Answer(await rest.GuildMfaAsync(call.Guild, on, call.Ct).ConfigureAwait(false));
+            case "pruneAdmins" when !server.Features.Contains("COMMUNITY"):
+                // Discord saves it as a server feature: the features it has, with this one added or taken.
+                if (on) server.Features.Add("PRUNE_REQUIRES_ADMIN"); else server.Features.Remove("PRUNE_REQUIRES_ADMIN");
+                var features = new JsonArray([.. server.Features.Order(StringComparer.Ordinal).Select(f => (JsonNode)f)]);
+                return Answer(await rest.SaveGuildAsync(call.Guild, new JsonObject { ["features"] = features }, call.Ct).ConfigureAwait(false));
+            case "deleteGuild":
+                return Answer(await rest.DeleteGuildAsync(call.Guild, call.Ct).ConfigureAwait(false));
+            case "transferCode":
+                return Answer(await rest.TransferCodeAsync(call.Guild, call.Ct).ConfigureAwait(false));
+            case "transfer" when call.IdOf("userId") is { } heir && heir != cache.Me?.Id:
+                var pin = call.Text("code")?.Trim() is { Length: > 0 and <= 16 } c ? c : null;
+                return Answer(await rest.TransferOwnershipAsync(call.Guild, heir, pin, call.Ct).ConfigureAwait(false));
+        }
+        return NotAllowed;
+    }
 
     // The person menu: what Exo knows of them, at once. Someone not seen as a member yet is asked of the gateway, as
     // Discord's client asks for a member it lacks; the member arrives as discord.colors (a tenth of a second, not a
@@ -76,7 +135,7 @@ public sealed partial class WebHostBridge
                     if (v.ValueKind == JsonValueKind.Null) body[field.Name] = null;
                     else if (TakeUpload(v.GetString()) is { } upload) body[field.Name] = DataUrl(upload);
                     break;
-                case "afk_channel_id" or "system_channel_id":
+                case "afk_channel_id" or "system_channel_id" or "safety_alerts_channel_id" or "rules_channel_id" or "public_updates_channel_id":
                     body[field.Name] = v.ValueKind == JsonValueKind.Null ? null : DiscordRest.Id(v.GetString() ?? "");
                     break;
                 case "afk_timeout" when v.TryGetInt32(out var afk) && afk is 60 or 300 or 900 or 1800 or 3600: body["afk_timeout"] = afk; break;
@@ -84,6 +143,8 @@ public sealed partial class WebHostBridge
                 case "default_message_notifications" when v.TryGetInt32(out var n) && n is 0 or 1: body["default_message_notifications"] = n; break;
                 case "verification_level" when v.TryGetInt32(out var level) && level is >= 0 and <= 4: body["verification_level"] = level; break;
                 case "explicit_content_filter" when v.TryGetInt32(out var filter) && filter is >= 0 and <= 2: body["explicit_content_filter"] = filter; break;
+                // Access's Age-Restricted Server: the owner's content level, age restricted (3) or not (0).
+                case "owner_configured_content_level" when v.TryGetInt32(out var content) && content is 0 or 3: body["owner_configured_content_level"] = content; break;
             }
         }
         if (body.Count == 0) return new { ok = false, message = "Nothing changed." };
@@ -115,6 +176,10 @@ public sealed partial class WebHostBridge
                 return Answer(await rest.DeleteRoleAsync(call.Guild, role, call.Ct).ConfigureAwait(false));
             case "saveRole" when role is not null && cache.CanEditRole(call.Guild, role):
                 return await AdminSaveRoleAsync(call, role).ConfigureAwait(false);
+            case "roleLinks" when role is not null:
+                return Answer(await rest.RoleLinksAsync(call.Guild, role, call.Ct).ConfigureAwait(false));
+            case "saveRoleLinks" when role is not null && role != call.Guild && cache.CanEditRole(call.Guild, role):
+                return Answer(await rest.SaveRoleLinksAsync(call.Guild, role, RoleLinks(call.Element("groups")), call.Ct).ConfigureAwait(false));
             case "moveRoles" when call.Element("positions") is { ValueKind: JsonValueKind.Array } list:
                 var positions = list.EnumerateArray().Select(e => (Id: DiscordRest.Id(e.GetProperty("id").GetString() ?? ""), Position: e.GetProperty("position").GetInt32()))
                     .Where(e => e.Id != call.Guild).ToList();
@@ -128,6 +193,39 @@ public sealed partial class WebHostBridge
                 return Answer(await rest.AddRoleMembersAsync(call.Guild, role, users, call.Ct).ConfigureAwait(false));
         }
         return NotAllowed;
+    }
+
+    // Linked Roles' requirements, as Discord's Links tab saves them: groups (one for All, one per account for Any) of up
+    // to 10 requirements: an account to connect (Discord's connection type, or "application" with the app's id) and, for
+    // one of its numbers or checks (Discord's, or an app's own keys), how it compares (1 equal, 2 not equal, 3 less than,
+    // 4 greater than) with what.
+    internal static JsonArray RoleLinks(JsonElement? groups)
+    {
+        static string? Text(JsonElement e, string name) => e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
+        var result = new JsonArray();
+        var count = 0;
+        if (groups is not { ValueKind: JsonValueKind.Array } list) return result;
+        foreach (var group in list.EnumerateArray().Where(g => g.ValueKind == JsonValueKind.Array))
+        {
+            var items = new JsonArray();
+            foreach (var item in group.EnumerateArray().Where(i => i.ValueKind == JsonValueKind.Object))
+            {
+                if (count >= 10 || Text(item, "connection_type") is not { Length: >= 2 and <= 40 } type || !type.All(c => char.IsAsciiLetterLower(c) || char.IsAsciiDigit(c) || c is '_' or '-')) continue;
+                var named = Text(item, "connection_metadata_field");
+                var field = named is { Length: > 0 and <= 50 } f && f.All(c => char.IsAsciiLetterLower(c) || char.IsAsciiDigit(c) || c == '_') ? f : null;
+                // A key that isn't one leaves the requirement out, rather than asking for the account alone.
+                if (named is not null && field is null) continue;
+                var op = item.TryGetProperty("operator", out var o) && o.TryGetInt32(out var oi) && oi is >= 1 and <= 4 ? oi : (int?)null;
+                var value = Text(item, "value") is { Length: > 0 and <= 20 } v && v.TrimStart('-') is { Length: > 0 } digits && digits.All(char.IsAsciiDigit) && v.LastIndexOf('-') <= 0 ? v : null;
+                var app = Text(item, "application_id") is { Length: > 0 and <= 20 } a && a.All(char.IsAsciiDigit) ? a : null;
+                // A check needs all three: the field, how it compares and the value; an app, its id.
+                if ((field is not null && (op is null || value is null)) || (type == "application" && app is null)) continue;
+                items.Add(new JsonObject { ["connection_type"] = type, ["connection_metadata_field"] = field, ["operator"] = field is null ? null : op, ["value"] = field is null ? null : value, ["application_id"] = app });
+                count++;
+            }
+            if (items.Count > 0) result.Add(items);
+        }
+        return result;
     }
 
     // A role's name, color, Display separately, Allow anyone to @mention and permissions.
@@ -256,9 +354,35 @@ public sealed partial class WebHostBridge
                 var webhooks = call.Can(ManageWebhooks) ? await rest.WebhooksAsync(call.Guild, call.Ct).ConfigureAwait(false) : null;
                 var integrations = call.Can(ManageGuild) ? await rest.IntegrationsAsync(call.Guild, call.Ct).ConfigureAwait(false) : null;
                 var failed = webhooks?.Error ?? integrations?.Error;
-                return new { ok = failed is null, message = failed, data = new { webhooks = webhooks?.Body, integrations = integrations?.Body } };
+                // A webhook's token is its password: it stays here (Copy Webhook URL copies it natively).
+                return new { ok = failed is null, message = failed, data = new { webhooks = WithoutTokens(webhooks?.Body), integrations = integrations?.Body } };
             case "deleteWebhook" when call.Can(ManageWebhooks) && call.IdOf("webhookId") is { } hook:
                 return Answer(await rest.DeleteWebhookAsync(hook, call.Ct).ConfigureAwait(false));
+            case "createWebhook" when call.IdOf("channelId") is { } hookChannel && InGuild(call, hookChannel) && (call.Session.Cache.ChannelPermissions(hookChannel) & ManageWebhooks) != 0:
+                var created = await rest.CreateWebhookAsync(hookChannel, call.Ct).ConfigureAwait(false);
+                return new { ok = created.Error is null, message = created.Error, data = WithoutTokens(created.Body) };
+            case "editWebhook" when call.Can(ManageWebhooks) && call.IdOf("webhookId") is { } edited:
+                return await AdminEditWebhookAsync(call, edited).ConfigureAwait(false);
+            case "copyWebhook" when call.Can(ManageWebhooks) && call.IdOf("webhookId") is { } copied:
+                // Still on the UI thread, which owns the clipboard.
+                var one = await rest.WebhookAsync(copied, call.Ct).ConfigureAwait(true);
+                if (one.Body is not { ValueKind: JsonValueKind.Object } hookBody || !hookBody.TryGetProperty("token", out var token) || token.GetString() is not { Length: > 0 } secret)
+                    return new { ok = false, message = one.Error ?? "Discord didn't send this webhook's link." };
+                var package = new Windows.ApplicationModel.DataTransfer.DataPackage();
+                package.SetText($"https://discord.com/api/webhooks/{copied}/{secret}");
+                Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(package);
+                Windows.ApplicationModel.DataTransfer.Clipboard.Flush();
+                return new { ok = true, message = (string?)null };
+            case "createInvite" when call.IdOf("channelId") is { } inviteChannel && InGuild(call, inviteChannel) && (call.Session.Cache.ChannelPermissions(inviteChannel) & 1UL) != 0:
+                // Discord's choices: expire after 30 minutes to 7 days or never, up to 100 uses or no limit.
+                var maxAge = (int)(ReadDouble(call.P, call.HasParams, "maxAge") ?? 604800);
+                var maxUses = (int)(ReadDouble(call.P, call.HasParams, "maxUses") ?? 0);
+                if (maxAge is not (1800 or 3600 or 21600 or 43200 or 86400 or 604800 or 0) || maxUses is not (0 or 1 or 5 or 10 or 25 or 50 or 100)) return new { ok = false, message = "Pick one of Discord's choices." };
+                return Answer(await rest.CreateInviteAsync(inviteChannel, maxAge, maxUses, ReadBool(call.P, call.HasParams, "temporary") == true, call.Ct).ConfigureAwait(false));
+            case "incidents" when call.Can(ManageGuild):
+                var hours = (int)(ReadDouble(call.P, call.HasParams, "hours") ?? 2);
+                if (hours is not (1 or 2 or 4 or 6 or 12 or 24)) return new { ok = false, message = "Pick how long." };
+                return Answer(await rest.IncidentActionsAsync(call.Guild, ReadBool(call.P, call.HasParams, "invites") == true, ReadBool(call.P, call.HasParams, "dms") == true, hours, call.Ct).ConfigureAwait(false));
             case "deleteIntegration" when call.Can(ManageGuild) && call.IdOf("integrationId") is { } integration:
                 return Answer(await rest.DeleteIntegrationAsync(call.Guild, integration, call.Ct).ConfigureAwait(false));
             case "automod" when call.Can(ManageGuild): return Answer(await rest.AutoModRulesAsync(call.Guild, call.Ct).ConfigureAwait(false));
@@ -274,6 +398,45 @@ public sealed partial class WebHostBridge
                 return Answer(await rest.UnbanAsync(call.Guild, banned, call.Ct).ConfigureAwait(false));
         }
         return NotAllowed;
+    }
+
+    // Activity Alerts, as Discord saves the switch: a Community server turns RAID_ALERTS_DISABLED off to have them,
+    // any other server turns NON_COMMUNITY_RAID_ALERTS on.
+    private static async Task<object> AdminRaidAlertsAsync(AdminCall call)
+    {
+        if (call.Session.Cache.ServerOf(call.Guild) is not { } server) return NotAllowed;
+        var on = ReadBool(call.P, call.HasParams, "on") == true;
+        var features = server.Features;
+        if (features.Contains("COMMUNITY")) { if (on) features.Remove("RAID_ALERTS_DISABLED"); else features.Add("RAID_ALERTS_DISABLED"); }
+        else if (on) features.Add("NON_COMMUNITY_RAID_ALERTS"); else features.Remove("NON_COMMUNITY_RAID_ALERTS");
+        var list = new JsonArray([.. features.Order(StringComparer.Ordinal).Select(f => (JsonNode)f)]);
+        return Answer(await call.Session.Rest.SaveGuildAsync(call.Guild, new JsonObject { ["features"] = list }, call.Ct).ConfigureAwait(false));
+    }
+
+    private static bool InGuild(AdminCall call, string channelId) =>
+        call.Session.Cache.CanSee(channelId) && call.Session.Cache.GuildOf(channelId) == call.Guild;
+
+    // Discord's webhooks without their tokens (one webhook, or a list).
+    private static JsonNode? WithoutTokens(JsonElement? body)
+    {
+        if (body is not { } b) return null;
+        var node = JsonNode.Parse(b.GetRawText());
+        foreach (var hook in node is JsonArray list ? list.OfType<JsonObject>() : node is JsonObject one ? [one] : [])
+            hook.Remove("token");
+        return node;
+    }
+
+    // Edit Webhook: its name, picture (an upload, or none) and channel, each checked.
+    private static async Task<object> AdminEditWebhookAsync(AdminCall call, string webhookId)
+    {
+        var body = new JsonObject();
+        if (call.Text("name")?.Trim() is { Length: > 0 and <= 80 } name) body["name"] = name;
+        if (ReadBool(call.P, call.HasParams, "removeAvatar") == true) body["avatar"] = null;
+        else if (TakeUpload(call.Text("uploadId")) is { } picture) body["avatar"] = DataUrl(picture);
+        if (call.IdOf("channelId") is { } channel && InGuild(call, channel) && (call.Session.Cache.ChannelPermissions(channel) & ManageWebhooks) != 0) body["channel_id"] = channel;
+        if (body.Count == 0) return new { ok = false, message = "Nothing changed." };
+        var saved = await call.Session.Rest.EditWebhookAsync(webhookId, body, call.Ct).ConfigureAwait(false);
+        return new { ok = saved.Error is null, message = saved.Error, data = WithoutTokens(saved.Body) };
     }
 
     // Every ban, a thousand at a time after the last one (Discord's page), up to ten thousand.

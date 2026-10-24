@@ -128,7 +128,7 @@ export function SongsPage({ scroller }: { scroller: RefObject<HTMLDivElement | n
     <section className="exo-music-section exo-music-songs" aria-busy={!list || list.key !== listKey}>
       <header className="exo-music-songs-head">
         <h2>Songs</h2>
-        <button type="button" className="button button--primary button--sm" disabled={!tracks[0]?.playable}
+        <button type="button" className="exo-set-btn is-primary" disabled={!tracks[0]?.playable}
           onClick={() => tracks[0] && playFrom(tracks[0], 0)}><Play size={14} /> Play</button>
         <label className="exo-music-search exo-music-songs-filter">
           <Search size={15} />

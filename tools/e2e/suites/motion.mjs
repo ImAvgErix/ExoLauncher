@@ -67,11 +67,11 @@ export async function run(t) {
     return [...judge(c, menu, refresh, 'menu'), ...judge(c, palette, refresh, 'search')]
   })
 
-  await run.check('motion', 'durations', 'no animation runs longer than 0.7 s (loops aside)', async (c) => {
+  await run.check('motion', 'durations', 'no animation runs longer than 0.7 s (loops and timers aside)', async (c) => {
     const seen = new Map()
     for (const room of ['Store', 'Library']) {
       await t.shell.click((n) => [...document.querySelectorAll('.exo-titlebar button')].find(b => (b.getAttribute('aria-label') || b.textContent || '').trim().replace(/\s*\d+$/, '') === n), room)
-      for (let i = 0; i < 6; i++) { for (const a of await t.shell.call(animations)) if (!a.loops) seen.set(`${a.name}@${a.target}`, Math.max(seen.get(`${a.name}@${a.target}`) ?? 0, a.duration)); await sleep(80) }
+      for (let i = 0; i < 6; i++) { for (const a of await t.shell.call(animations)) if (!a.loops && !a.timer) seen.set(`${a.name}@${a.target}`, Math.max(seen.get(`${a.name}@${a.target}`) ?? 0, a.duration)); await sleep(80) }
       await k.settle()
     }
     const long = [...seen].filter(([, d]) => d > 700).map(([n, d]) => `${n} ${d} ms`)

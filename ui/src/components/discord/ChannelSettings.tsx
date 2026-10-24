@@ -53,7 +53,7 @@ export function ChannelSettings({ channelId, onClose }: { channelId: string; onC
   return (
     <UnsavedProvider value={unsaved}>
     <SettingsLayer onClose={close}>
-    <div ref={box} className="exo-dc-settings" role="dialog" aria-modal="true" aria-label="Edit Channel" tabIndex={-1}>
+    <div ref={box} className="exo-dc-settings" role="dialog" aria-modal="true" aria-label="Edit channel" tabIndex={-1}>
       <span className="exo-glass is-panel exo-sheet-glass" aria-hidden="true" />
       <nav className="exo-dc-settings-nav" aria-label="Channel settings sections">
         <h2>{data ? `${isVoice(data.type) ? '' : '#'}${data.name}` : 'Channel'}</h2>
@@ -65,7 +65,7 @@ export function ChannelSettings({ channelId, onClose }: { channelId: string; onC
               </button>
             </li>
           ))}
-          {data?.canManage ? <li><button type="button" className="is-danger" onClick={() => setDeleting(true)}>Delete Channel</button></li> : null}
+          {data?.canManage ? <li><button type="button" className="is-danger" onClick={() => setDeleting(true)}>Delete channel</button></li> : null}
         </ul>
       </nav>
       <div className="exo-dc-settings-body">
@@ -78,7 +78,7 @@ export function ChannelSettings({ channelId, onClose }: { channelId: string; onC
         </div>
       </div>
       {deleting && data ? (
-        <Confirm title="Delete Channel" action="Delete Channel" error={error} onConfirm={remove} onClose={() => setDeleting(false)}>
+        <Confirm title="Delete channel" action="Delete channel" error={error} onConfirm={remove} onClose={() => setDeleting(false)}>
           <p>Are you sure you want to delete {isVoice(data.type) ? data.name : `#${data.name}`}? This cannot be undone.</p>
         </Confirm>
       ) : null}
@@ -95,6 +95,8 @@ function Overview({ settings, onSaved }: { settings: Settings; onSaved: () => vo
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const voice = isVoice(settings.type)
+  // A category has only its name here (its permissions are their own page), as Discord's Edit Category.
+  const category = settings.type === 4
   const value = {
     name: draft.name ?? settings.name, topic: 'topic' in draft ? draft.topic : settings.topic, slow: draft.rate_limit_per_user ?? settings.rateLimit,
     nsfw: draft.nsfw ?? settings.nsfw, bitrate: draft.bitrate ?? settings.bitrate, limit: draft.user_limit ?? settings.userLimit,
@@ -110,34 +112,48 @@ function Overview({ settings, onSaved }: { settings: Settings; onSaved: () => vo
   return (
     <>
       <h1>Overview</h1>
-      <Field label="Channel Name">
-        <input className="exo-dc-modal-input exo-dc-field" value={value.name} maxLength={100} aria-label="Channel Name" onChange={event => set({ name: event.target.value })} />
+      <Field label={category ? 'Category name' : 'Channel name'}>
+        <input className="exo-dc-modal-input exo-dc-field" value={value.name} maxLength={100} aria-label={category ? 'Category name' : 'Channel name'} onChange={event => set({ name: event.target.value })} />
       </Field>
+      {category ? null : <ChannelFields value={value} voice={voice} maxBitrate={settings.maxBitrate} set={set} />}
+      <SaveBar shown={Object.keys(draft).length > 0} busy={busy} error={error} onReset={() => { setDraft({}); setError(null) }} onSave={() => void save()} />
+    </>
+  )
+}
+
+// A channel's own settings below its name: topic (not a voice channel's), slowmode, age-restricted, a voice channel's bitrate and user limit.
+function ChannelFields({ value, voice, maxBitrate, set }: {
+  value: { topic?: string | null; slow: number; nsfw: boolean; bitrate: number; limit: number }
+  voice: boolean
+  maxBitrate: number
+  set: (change: Draft) => void
+}) {
+  return (
+    <>
       {voice ? null : (
-        <Field label="Channel Topic" detail="Let everyone know how to use this channel." stacked>
-          <textarea className="exo-dc-modal-input exo-dc-field is-wide" rows={3} maxLength={1024} value={value.topic ?? ''} aria-label="Channel Topic"
+        <Field label="Channel topic" detail="Let everyone know how to use this channel." stacked>
+          <textarea className="exo-dc-modal-input exo-dc-field is-wide" rows={3} maxLength={1024} value={value.topic ?? ''} aria-label="Channel topic"
             onChange={event => set({ topic: event.target.value || null })} />
         </Field>
       )}
-      <Field label="Slowmode" detail="Members will be restricted to sending one message and creating one thread per this interval, unless they have Bypass Slowmode, Manage Channel or Manage Messages permissions.">
+      <Field label="Slowmode" detail="Members will be restricted to sending one message and creating one thread per this interval, unless they have bypass slowmode, manage channel or manage messages permissions.">
         <Choice label="Slowmode" value={String(value.slow)} choices={SLOWMODE} onChange={seconds => set({ rate_limit_per_user: Number(seconds) })} />
       </Field>
-      <Field label="Age-Restricted Channel" detail="Users will need to confirm they are of over legal age to view the content in this channel. Age-restricted channels are exempt from the explicit content filter.">
-        <Switch checked={value.nsfw} label="Age-Restricted Channel" onChange={nsfw => set({ nsfw })} />
+      <Field label="Age-restricted channel" detail="Users will need to confirm they are of over legal age to view the content in this channel. Age-restricted channels are exempt from the explicit content filter.">
+        <Switch checked={value.nsfw} label="Age-restricted channel" onChange={nsfw => set({ nsfw })} />
       </Field>
       {voice ? (
         <>
           <Field label="Bitrate" detail={`${Math.round(value.bitrate / 1000)} kbps. Going above 64 kbps may adversely affect people on poor connections.`}>
-            <Slider className="exo-dc-range" min={8000} max={settings.maxBitrate} step={1000} value={value.bitrate} aria-label="Bitrate"
+            <Slider className="exo-dc-range" min={8000} max={maxBitrate} step={1000} value={value.bitrate} aria-label="Bitrate"
               onChange={event => set({ bitrate: Number(event.target.value) })} />
           </Field>
-          <Field label="User Limit" detail={value.limit ? `${value.limit} users. Limits the number of users that can connect to this voice channel.` : 'No limit. Limits the number of users that can connect to this voice channel.'}>
-            <Slider className="exo-dc-range" min={0} max={99} value={value.limit} aria-label="User Limit"
+          <Field label="User limit" detail={value.limit ? `${value.limit} users. Limits the number of users that can connect to this voice channel.` : 'No limit. Limits the number of users that can connect to this voice channel.'}>
+            <Slider className="exo-dc-range" min={0} max={99} value={value.limit} aria-label="User limit"
               onChange={event => set({ user_limit: Number(event.target.value) })} />
           </Field>
         </>
       ) : null}
-      <SaveBar shown={Object.keys(draft).length > 0} busy={busy} error={error} onReset={() => { setDraft({}); setError(null) }} onSave={() => void save()} />
     </>
   )
 }

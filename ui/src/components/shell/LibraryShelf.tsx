@@ -33,7 +33,7 @@ export function LibraryTools({ selecting, onSelecting, sort, onSort, hidden, onH
 }) {
   return (
     <div className="exo-library-tools">
-      <button type="button" className={`exo-ghost-btn${selecting ? ' is-primary' : ''}`} onClick={() => onSelecting(!selecting)}>
+      <button type="button" className={`exo-set-btn${selecting ? ' is-primary' : ''}`} onClick={() => onSelecting(!selecting)}>
         {selecting ? 'Done' : 'Select'}
       </button>
       <Menu
@@ -98,7 +98,7 @@ export function LibraryEmpty({ error, onRetry, onAddGame, onActivateKey, onStore
       <div className="exo-empty" role="alert">
         <h2>Library unavailable</h2>
         <p>{error}</p>
-        <Button type="button" size="sm" className="exo-ghost-btn is-primary" onPress={onRetry}>
+        <Button type="button" size="sm" className="exo-set-btn is-primary" onPress={onRetry}>
           Retry
         </Button>
       </div>
@@ -109,15 +109,15 @@ export function LibraryEmpty({ error, onRetry, onAddGame, onActivateKey, onStore
       <h2>No games yet</h2>
       <p>Sign in to a store in Settings, or add a game.</p>
       <div className="exo-empty-actions">
-        <button type="button" className="exo-ghost-btn" onClick={onStoreSettings}>
+        <button type="button" className="exo-set-btn" onClick={onStoreSettings}>
           <Settings size={14} />
           Store settings
         </button>
-        <button type="button" className="exo-ghost-btn" onClick={onAddGame}>
+        <button type="button" className="exo-set-btn" onClick={onAddGame}>
           <Gamepad size={14} />
           Add a game
         </button>
-        <button type="button" className="exo-ghost-btn" onClick={onActivateKey}>
+        <button type="button" className="exo-set-btn" onClick={onActivateKey}>
           <Key size={14} />
           Activate key
         </button>

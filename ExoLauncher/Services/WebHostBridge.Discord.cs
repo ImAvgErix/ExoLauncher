@@ -75,10 +75,14 @@ public sealed partial class WebHostBridge
         return DiscordSession.Current is { } session ? session.Cache.Home() : new { me = (object?)null, dms = Array.Empty<object>(), guilds = Array.Empty<object>() };
     }
 
-    private static object DiscordChannels(JsonElement p, bool hasParams) =>
-        DiscordSession.Current is { } session && ReadString(p, hasParams, "guildId") is { } guildId
-            ? session.Cache.Channels(DiscordRest.Id(guildId))
-            : new { name = (string?)null, channels = Array.Empty<object>() };
+    private static object DiscordChannels(JsonElement p, bool hasParams)
+    {
+        if (DiscordSession.Current is not { } session || ReadString(p, hasParams, "guildId") is not { } guildId) return new { name = (string?)null, channels = Array.Empty<object>() };
+        var id = DiscordRest.Id(guildId);
+        // The server's voice channel statuses come with its channels the first time they show, as in Discord.
+        session.AskVoiceStatuses(id);
+        return session.Cache.Channels(id);
+    }
 
     private static async Task<object> DiscordMessagesAsync(JsonElement p, bool hasParams, CancellationToken ct)
     {
@@ -100,12 +104,15 @@ public sealed partial class WebHostBridge
         {
             if (Channel(fwd, true) is not { } source || ReadString(fwd, true, "messageId") is not { } fid || content.Length > 4000)
                 return new { ok = false, message = "That message can't be forwarded." };
-            var forwarded = await c.Session.Rest.PostMessageAsync(c.Id, "", null, c.Guild, ct, forward: new DiscordRest.Forward(source.Id, DiscordRest.Id(fid), source.Guild)).ConfigureAwait(false);
-            if (forwarded.Error is null && content.Length > 0) forwarded = await c.Session.Rest.PostMessageAsync(c.Id, content, null, c.Guild, ct).ConfigureAwait(false);
+            // A note starting with @silent sends the forward silently too (the note goes silent as well, which Discord's own skips).
+            var note = DiscordRest.Silent(content);
+            var forwarded = await c.Session.Rest.PostMessageAsync(c.Id, "", null, c.Guild, ct, forward: new DiscordRest.Forward(source.Id, DiscordRest.Id(fid), source.Guild), quiet: note.Silent).ConfigureAwait(false);
+            if (forwarded.Error is null && note.Content.Length > 0) forwarded = await c.Session.Rest.PostMessageAsync(c.Id, content, null, c.Guild, ct).ConfigureAwait(false);
             return new { ok = forwarded.Error is null, message = forwarded.Error };
         }
         var files = TakeUploads(p, hasParams);
-        if (content.Length > 4000 || content.Length == 0 && files.Count == 0) return new { ok = false, message = "Write something first." };
+        if (content.Length > 4000) return new { ok = false, message = "Your message is too long." };
+        if (DiscordRest.Silent(content).Content.Length == 0 && files.Count == 0) return new { ok = false, message = "Write something first." };
         var reply = await c.Session.Rest.PostMessageAsync(c.Id, content, ReadString(p, hasParams, "replyTo") is { } r ? DiscordRest.Id(r) : null, c.Guild, ct, files,
             replyPing: ReadBool(p, hasParams, "ping") != false).ConfigureAwait(false);
         return new { ok = reply.Error is null, message = reply.Error, sent = reply.Error is null ? reply.Body : null };
@@ -223,11 +230,14 @@ public sealed partial class WebHostBridge
     {
         var files = new List<DiscordRest.Upload>();
         if (!hasParams || !p.TryGetProperty("uploads", out var ids) || ids.ValueKind != JsonValueKind.Array) return files;
+        // Each file's alt text (Modify Attachment's Description), by its upload id.
+        var described = p.TryGetProperty("descriptions", out var d) && d.ValueKind == JsonValueKind.Object ? d : default;
         lock (Uploads)
             foreach (var id in ids.EnumerateArray().Select(e => e.GetString()).OfType<string>().Take(10))
                 if (Uploads.Remove(id, out var upload))
                 {
-                    files.Add(new DiscordRest.Upload(upload.Name, upload.Type, upload.Data.ToArray()));
+                    var alt = described.ValueKind == JsonValueKind.Object && described.TryGetProperty(id, out var text) && text.ValueKind == JsonValueKind.String ? text.GetString()?.Trim() : null;
+                    files.Add(new DiscordRest.Upload(upload.Name, upload.Type, upload.Data.ToArray(), alt is { Length: > 0 and <= 1024 } ? alt : null));
                     upload.Data.Dispose();
                 }
         return files;
@@ -305,8 +315,9 @@ public sealed partial class WebHostBridge
         return new { ok = reply.Error is null, message = reply.Error };
     }
 
+    // Friends and requests; restricted: the people blocked and ignored (Ignore & Block).
     private static object DiscordFriends() =>
-        DiscordSession.Current is { } session ? new { friends = session.Cache.Friends() } : new { friends = Array.Empty<object>() };
+        DiscordSession.Current is { } session ? new { friends = session.Cache.Friends(), restricted = session.Cache.Restricted() } : new { friends = Array.Empty<object>(), restricted = (object?)null };
 
     /// <summary>Friend requests: add or accept by id, ignore or cancel, remove, add by username; block, ignore and unignore; or open a DM with someone.</summary>
     private static async Task<object> DiscordFriendAsync(JsonElement p, bool hasParams, CancellationToken ct)
@@ -335,14 +346,21 @@ public sealed partial class WebHostBridge
                 return new { ok = true, relationship, ignored, bot };
             case "add" when ReadString(p, hasParams, "username")?.Trim().TrimStart('@') is { Length: >= 2 and <= 32 } name:
                 reply = await session.Rest.AddFriendAsync(name, ct).ConfigureAwait(false); break;
-            case "dm" when user is not null:
-                reply = await session.Rest.OpenDmAsync(user, ct).ConfigureAwait(false);
+            // A DM with someone (userId), or a group with several friends (userIds, 2 to 9).
+            case "dm" when user is not null || GroupOf(p, hasParams) is { Count: >= 2 }:
+                reply = await session.Rest.OpenDmAsync(user is not null ? [user] : GroupOf(p, hasParams)!, ct).ConfigureAwait(false);
                 var channel = reply.Body is { ValueKind: JsonValueKind.Object } body && body.TryGetProperty("id", out var id) ? id.GetString() : null;
                 return new { ok = channel is not null, message = reply.Error, channelId = channel };
             default: return new { ok = false };
         }
         return new { ok = reply.Error is null, message = reply.Error };
     }
+
+    // The friends picked for a new group DM: up to 9 ids, each a snowflake.
+    private static List<string>? GroupOf(JsonElement p, bool hasParams) =>
+        hasParams && p.TryGetProperty("userIds", out var ids) && ids.ValueKind == JsonValueKind.Array
+            ? [.. ids.EnumerateArray().Select(i => i.GetString()).OfType<string>().Where(i => i.Length is > 0 and <= 20 && i.All(char.IsAsciiDigit)).Distinct().Take(9)]
+            : null;
 
     private static async Task<object> DiscordMarkReadAsync(JsonElement p, bool hasParams, CancellationToken ct)
     {
@@ -374,8 +392,10 @@ public sealed partial class WebHostBridge
             ReadString(p, hasParams, "query")?.Trim() is not { Length: > 0 and <= 32 } query)
             return new { users = Array.Empty<object>() };
         var guild = DiscordRest.Id(raw);
+        // # in the message box: channels. @: people (Discord asked for more as you type), then roles.
+        if (ReadBool(p, hasParams, "channels") == true) return new { users = Array.Empty<object>(), channels = session.Cache.FindChannels(guild, query, 8) };
         if (ReadBool(p, hasParams, "ask") == true) session.SearchMembers(guild, query);
-        return new { users = session.Cache.FindMembers(guild, query, 8) };
+        return new { users = session.Cache.FindMembers(guild, query, 8), roles = session.Cache.FindRoles(guild, query, 5) };
     }
 
     // Where each message is (channel, server, a thread's parent), for the rows of search, pins and the Inbox.
@@ -394,16 +414,20 @@ public sealed partial class WebHostBridge
         return places;
     }
 
-    /// <summary>Name colors for message authors; authors not seen yet are asked of Discord and arrive as discord.colors.</summary>
+    /// <summary>
+    /// Name colors and server pictures for message authors; authors not seen yet are asked of Discord and arrive as
+    /// discord.colors.
+    /// </summary>
     private static object DiscordColors(JsonElement p, bool hasParams)
     {
         if (DiscordSession.Current is not { } session || ReadString(p, hasParams, "guildId") is not { } raw ||
             !p.TryGetProperty("userIds", out var ids) || ids.ValueKind != JsonValueKind.Array)
             return new { colors = new Dictionary<string, string?>() };
         var guild = DiscordRest.Id(raw);
-        var (colors, unknown) = session.Cache.Colors(guild, ids.EnumerateArray().Select(i => i.GetString()).OfType<string>().Select(DiscordRest.Id).Take(200), Environment.TickCount64);
+        var people = ids.EnumerateArray().Select(i => i.GetString()).OfType<string>().Select(DiscordRest.Id).Take(200).ToList();
+        var (colors, unknown) = session.Cache.Colors(guild, people, Environment.TickCount64);
         session.RequestMembers(guild, unknown);
-        return new { colors };
+        return new { colors, avatars = session.Cache.MemberAvatars(guild, people), icons = session.Cache.RoleIcons(guild, people) };
     }
 
     private static async Task<object> DiscordPinsAsync(JsonElement p, bool hasParams, CancellationToken ct)
@@ -639,6 +663,15 @@ public sealed partial class WebHostBridge
             // Discord says the invite is unknown or expired, so the card says so.
             case "invite" when InviteCode(ReadString(p, hasParams, "invite")) is { } info:
                 return await DiscordInviteAsync(session, info, ct).ConfigureAwait(false);
+            // A server tag's card: the server's public profile, which Discord shows for any server, joined or not.
+            case "profile" when ReadString(p, hasParams, "guildId") is { } profiled:
+                reply = await session.Rest.GuildProfileAsync(DiscordRest.Id(profiled), ct).ConfigureAwait(false);
+                return new { ok = reply.Error is null, message = reply.Error, profile = reply.Body };
+            // Set Channel Status (in the voice channel, up to 500 characters) or Clear Channel Status (Manage Channels too).
+            case "voiceStatus" when ReadString(p, hasParams, "channelId") is { } statusChannel && (ReadString(p, hasParams, "text") ?? "").Trim() is { Length: <= 500 } status:
+                if (!session.Cache.CanSetVoiceStatus(DiscordRest.Id(statusChannel), status.Length == 0)) return new { ok = false, message = "You can't set this channel's status." };
+                reply = await session.Rest.VoiceStatusAsync(DiscordRest.Id(statusChannel), status, ct).ConfigureAwait(false);
+                return new { ok = reply.Error is null, message = reply.Error };
             case "leave" when ReadString(p, hasParams, "guildId") is { } leave:
                 reply = await session.Rest.LeaveGuildAsync(DiscordRest.Id(leave), ct).ConfigureAwait(false);
                 return new { ok = reply.Error is null, message = reply.Error };
@@ -656,13 +689,15 @@ public sealed partial class WebHostBridge
                 var level = ReadInt(p, "level", 0, 2, -1);
                 var everyone = ReadBool(p, hasParams, "suppressEveryone");
                 var roles = ReadBool(p, hasParams, "suppressRoles");
+                var hideMuted = ReadBool(p, hasParams, "hideMuted");
                 var change = new System.Text.Json.Nodes.JsonObject();
                 if (level >= 0) change["message_notifications"] = level;
                 if (everyone is { } e) change["suppress_everyone"] = e;
                 if (roles is { } r) change["suppress_roles"] = r;
+                if (hideMuted is { } h) change["hide_muted_channels"] = h;
                 if (change.Count == 0) return new { ok = false, message = (string?)null };
                 reply = await session.Rest.GuildSettingsAsync(notifyId, change, ct).ConfigureAwait(false);
-                if (reply.Error is null) { if (level >= 0) session.Cache.SetNotifyLevel(notifyId, level); session.Cache.SetSuppress(notifyId, everyone, roles); }
+                if (reply.Error is null) { if (level >= 0) session.Cache.SetNotifyLevel(notifyId, level); session.Cache.SetSuppress(notifyId, everyone, roles, hideMuted); }
                 return new { ok = reply.Error is null, message = reply.Error };
             case "showAll" when ReadString(p, hasParams, "guildId") is { } showAll:
                 // Discord's Show All Channels: opt-in mode off (all) or on (followed only), the guild flag alone.
@@ -688,7 +723,7 @@ public sealed partial class WebHostBridge
                     ReadString(p, hasParams, "query") is { Length: <= 100 } query ? query : null, after, ct).ConfigureAwait(false);
                 // The person menu on this page then knows each member's roles.
                 if (reply.Body is { } found) session.Cache.RememberMembers(DiscordRest.Id(members), found);
-                return new { ok = reply.Error is null, message = reply.Error, members = reply.Body, roles = session.Cache.Roles(DiscordRest.Id(members)) };
+                return new { ok = reply.Error is null, message = reply.Error, indexing = reply.Error == DiscordRest.MembersIndexing, members = reply.Body, roles = session.Cache.Roles(DiscordRest.Id(members)) };
             case "events" when ReadString(p, hasParams, "guildId") is { } events:
                 return await DiscordEventsAsync(session, DiscordRest.Id(events), ct).ConfigureAwait(false);
             case "createEvent" when ReadString(p, hasParams, "guildId") is { } eventGuild && ReadString(p, hasParams, "name") is { Length: > 0 } eventName
@@ -708,8 +743,10 @@ public sealed partial class WebHostBridge
                 return new { ok = reply.Error is null, message = reply.Error };
             case "ics" when ReadString(p, hasParams, "guildId") is { } ig && ReadString(p, hasParams, "eventId") is { } icsEvent:
                 return await DiscordEventIcsAsync(session, ig, icsEvent, ct).ConfigureAwait(false);
+            // A text or voice channel (in a category, or none), or a category of its own.
             case "createChannel" when ReadString(p, hasParams, "guildId") is { } inGuild && ReadString(p, hasParams, "name") is { Length: > 0 } name:
-                reply = await session.Rest.CreateChannelAsync(inGuild, name, ReadString(p, hasParams, "kind") == "voice" ? 2 : 0, ReadString(p, hasParams, "parentId"), ct).ConfigureAwait(false);
+                var kind = ReadString(p, hasParams, "kind") switch { "voice" => 2, "category" => 4, _ => 0 };
+                reply = await session.Rest.CreateChannelAsync(inGuild, name, kind, kind == 4 ? null : ReadString(p, hasParams, "parentId"), ct).ConfigureAwait(false);
                 var created = reply.Body is { ValueKind: JsonValueKind.Object } made && made.TryGetProperty("id", out var mid) ? mid.GetString() : null;
                 // Known at once, so the room opens it instead of waiting for the gateway's CHANNEL_CREATE.
                 if (created is not null && reply.Body is { } channel) session.Cache.Apply("CHANNEL_CREATE", channel);
@@ -823,6 +860,20 @@ public sealed partial class WebHostBridge
             case "close":
                 var closed = await c.Session.Rest.CloseDmAsync(c.Id, ct).ConfigureAwait(false);
                 return new { ok = closed.Error is null, message = closed.Error };
+            // A message request (or Discord's spam): Accept makes it a DM; Ignore takes it away.
+            case "accept" or "ignore" when c.Session.Cache.IsRequest(c.Id):
+                var accept = ReadString(p, hasParams, "action") == "accept";
+                var answered = accept ? await c.Session.Rest.AcceptRequestAsync(c.Id, ct).ConfigureAwait(false) : await c.Session.Rest.IgnoreRequestAsync(c.Id, ct).ConfigureAwait(false);
+                if (answered.Error is null)
+                {
+                    c.Session.Cache.Answer(c.Id, accept);
+                    DiscordSession.Publish("discord.changed", new { guildId = (string?)null });
+                }
+                return new { ok = answered.Error is null, message = answered.Error };
+            // A group DM: anyone in it may Edit Group (name, icon); its owner alone Remove From Group and Make Group Owner.
+            case "editGroup" when c.Guild is null && c.Session.Cache.RecipientsOf(c.Id).Count > 1:
+            case "removeMember" or "makeOwner" when c.Guild is null && c.Session.Cache.OwnsGroup(c.Id):
+                return await DiscordGroupAsync(c, ReadString(p, hasParams, "action")!, p, hasParams, ct).ConfigureAwait(false);
             case "add" when ReadString(p, hasParams, "userId") is { } user:
                 var people = c.Session.Cache.RecipientsOf(c.Id);
                 var added = await c.Session.Rest.AddToDmAsync(c.Id, people, DiscordRest.Id(user), people.Count > 1, ct).ConfigureAwait(false);
@@ -983,12 +1034,44 @@ public sealed partial class WebHostBridge
             case "delete":
                 var deleted = await c.Session.Rest.DeleteChannelAsync(c.Id, ct).ConfigureAwait(false);
                 return new { ok = deleted.Error is null, message = deleted.Error };
+            // An invite to the channel: 7 days and no use limit, or Edit Invite Link's choices (Discord's only).
             case "invite":
-                var invite = await c.Session.Rest.InviteAsync(c.Id, ct).ConfigureAwait(false);
+                var maxAge = (int)(ReadDouble(p, hasParams, "maxAge") ?? 604800);
+                var maxUses = (int)(ReadDouble(p, hasParams, "maxUses") ?? 0);
+                if (maxAge is not (1800 or 3600 or 21600 or 43200 or 86400 or 604800 or 0) || maxUses is not (0 or 1 or 5 or 10 or 25 or 50 or 100))
+                    return new { ok = false, message = "Pick one of Discord's choices." };
+                var invite = await c.Session.Rest.CreateInviteAsync(c.Id, maxAge, maxUses, ReadBool(p, hasParams, "temporary") == true, ct).ConfigureAwait(false);
                 var code = invite.Body is { ValueKind: JsonValueKind.Object } body && body.TryGetProperty("code", out var cd) ? cd.GetString() : null;
                 return new { ok = code is not null, message = invite.Error, url = code is null ? null : "https://discord.gg/" + code };
         }
         return new { ok = false };
+    }
+
+    // The group owner's actions; a new icon is a PNG, JPEG, GIF or WebP data URI of up to 10 MB, as Discord takes one.
+    private static async Task<object> DiscordGroupAsync(DiscordChannelRef c, string action, JsonElement p, bool hasParams, CancellationToken ct)
+    {
+        var member = ReadString(p, hasParams, "userId") is { } u ? DiscordRest.Id(u) : null;
+        DiscordRest.Reply reply;
+        switch (action)
+        {
+            case "editGroup":
+                var name = ReadString(p, hasParams, "name")?.Trim();
+                if (name is { Length: > 100 }) return new { ok = false, message = "Group names can be up to 100 characters." };
+                var icon = ReadString(p, hasParams, "icon");
+                if (icon is not null && (icon.Length > 14_000_000 || !System.Text.RegularExpressions.Regex.IsMatch(icon, "^data:image/(png|jpeg|gif|webp);base64,")))
+                    return new { ok = false, message = "Pick a PNG, JPEG, GIF or WebP picture." };
+                reply = await c.Session.Rest.EditGroupAsync(c.Id, name, icon, ReadBool(p, hasParams, "removeIcon") == true, ct).ConfigureAwait(false);
+                break;
+            case "removeMember" when member is not null && member != c.Session.Cache.Me?.Id:
+                reply = await c.Session.Rest.RemoveFromGroupAsync(c.Id, member, ct).ConfigureAwait(false);
+                break;
+            case "makeOwner" when member is not null && c.Session.Cache.RecipientsOf(c.Id).Contains(member):
+                reply = await c.Session.Rest.GroupOwnerAsync(c.Id, member, ct).ConfigureAwait(false);
+                break;
+            default:
+                return new { ok = false };
+        }
+        return new { ok = reply.Error is null, message = reply.Error };
     }
 
     private sealed record DiscordChannelRef(DiscordSession Session, string Id, string? Guild);

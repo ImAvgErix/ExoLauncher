@@ -2,12 +2,15 @@ import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, use
 import { host, onHostEvent } from '../../lib/host'
 import { report } from '../../lib/report'
 import { shouldReduceMotion } from '../../lib/motionPreference'
-import { applyPollVote, applyReaction, avatarHashOf, hasJump, idBefore, snowflakeTime, takeJump, type DiscordChannel, type DiscordHome, type DiscordMessage, type DiscordUser, type PendingUpload } from '../../lib/discord'
+import { applyPollVote, applyReaction, avatarHashOf, hasJump, idBefore, snowflakeTime, takeJump, type DiscordChannel, type DiscordHome, type DiscordRoleIcon, type DiscordMessage, type DiscordUser, type PendingUpload } from '../../lib/discord'
+import { SILENT } from '../../lib/discordApps'
 import { Message, type MessageActions } from './Message'
-import { Composer } from './Composer'
+import { RequestBanner } from './MessageRequests'
+import { Composer, fileDescriptions } from './Composer'
 import { ChatHeader } from './ChatHeader'
 import { MemberList } from './MemberList'
 import { DmProfile } from './DmProfile'
+import { GroupMembers } from './GroupDm'
 import { MessageConfirm, type ConfirmKind } from './MessageConfirm'
 import { ForwardDialog, NewThreadDialog } from './MessageTools'
 import { Icons } from './icons'
@@ -16,6 +19,19 @@ import { useAccountSettings, useDiscordPrefs } from '../../lib/discordPrefs'
 import { applyMessage, byId, forgetMessages, FRESH_MS, isAfter, isAsking, keepMessages, keptMessages, mergeNewest, newestMessages, PAGE } from './messageCache'
 
 const GROUP_MS = 7 * 60 * 1000
+
+// Discord's groups: the same author within 7 minutes, a plain message that isn't a reply. A @silent message after a normal
+// one starts a group (its mark shows on the name line), and so does a message that pings after a @silent one.
+function continues(before: DiscordMessage | undefined, message: DiscordMessage) {
+  if (!before || before.author.id !== message.author.id || message.referenced_message || message.type !== 0) return false
+  if (new Date(message.timestamp).getTime() - new Date(before.timestamp).getTime() >= GROUP_MS) return false
+  const quiet = (m: DiscordMessage) => ((m.flags ?? 0) & SILENT) !== 0
+  if (quiet(message)) return quiet(before)
+  return !quiet(before) || (!message.mentions.length && !message.mention_roles?.length && !message.mention_everyone)
+}
+/** The most messages a conversation holds at once (as Discord does): a page scrolled to lets go of the far end, which
+    loads again scrolling back, so history read far back costs what four pages do. */
+const KEEP = PAGE * 4
 const UPLOAD_LIMIT = 25 * 1024 * 1024
 
 type Load = { state: 'loading' | 'ready' | 'error'; message?: string | null }
@@ -34,7 +50,8 @@ export function Chat({ channel, guildId, meId, me, hidden, channelName, roles, a
   roles?: Record<string, { name: string; color: string | null }>
   active: boolean
   /** A DM: start (or join) its call. */
-  onCall?: () => void
+  /** A DM's Start Voice Call; video: Start Video Call. */
+  onCall?: (video: boolean) => void
   inCall?: boolean
   serverName?: string | null
   onOpenThread?: (thread: DiscordChannel) => void
@@ -56,6 +73,9 @@ export function Chat({ channel, guildId, meId, me, hidden, channelName, roles, a
   const [editing, setEditing] = useState<DiscordMessage | null>(null)
   const [error, setError] = useState<string | null>(null)
   const acked = useRef<string | null>(null)
+  // What Exo has marked read here this visit: the new-messages bar counts only what came after it, as Discord's counts
+  // the read state's unreads (gone once read at the bottom); the NEW line stays where it was.
+  const [readTo, setReadTo] = useState<string | null>(null)
   // After Mark Unread the conversation stays unread until you write in it or open it again, as in Discord.
   const holdUnread = useRef(false)
 
@@ -82,15 +102,18 @@ export function Chat({ channel, guildId, meId, me, hidden, channelName, roles, a
     if (el.scrollHeight - el.scrollTop - el.clientHeight >= 48) return
     pinned.current = true
     acked.current = last
+    setReadTo(last)
     void host.discordAck(channelId, last).catch(() => { })
   }, [active, last, load.state, newer, channelId, pinned])
   useEffect(ackIfSeen, [ackIfSeen])
 
   const { setLastRead } = history
-  const newBar = useNewBar(scroller, messages, lastRead, meId, history.older)
+  // Mark Unread moves the NEW line back: the bar counts from it again, not from what was read before.
+  const markUnreadFrom = useCallback((id: string | null) => { setReadTo(null); setLastRead(id) }, [setLastRead])
+  const newBar = useNewBar(scroller, messages, lastRead, readTo, meId, history.older)
   const markAllRead = () => {
     holdUnread.current = false
-    if (last) { acked.current = last; void host.discordAck(channelId, last).catch(() => { }) }
+    if (last) { acked.current = last; setReadTo(last); void host.discordAck(channelId, last).catch(() => { }) }
     setLastRead(last)
   }
 
@@ -107,18 +130,18 @@ export function Chat({ channel, guildId, meId, me, hidden, channelName, roles, a
   }
 
   const users = useUsers(messages)
-  const colors = useAuthorColors(guildId, messages)
+  const { colors, avatars, roleIcons } = useAuthorColors(guildId, messages)
   const dmName = dmPartner(channel)
   const manages = channel.canManageMessages
-  const ctx = useMemo<MarkdownContext>(() => ({ users, channelName, meId, guildId, colors, roles, moderator: !!guildId && manages === true, dmName }),
-    [users, channelName, meId, guildId, colors, roles, manages, dmName])
+  const ctx = useMemo<MarkdownContext>(() => ({ users, channelName, meId, guildId, colors, avatars, roleIcons, roles, moderator: !!guildId && manages === true, dmName }),
+    [users, channelName, meId, guildId, colors, avatars, roleIcons, roles, manages, dmName])
   const [membersPreferred, setMembersShown] = useState(readMembersShown)
   const membersShown = membersPreferred && !onHide
   const canSend = channel.canSend !== false
   const onReply = useCallback((message: DiscordMessage) => { setEditing(null); setReplyTo(message); setReplyPing(message.author.id !== meId ? true : null) }, [meId])
   const { actions, dialogs } = useMessageTools({
     channel, guildId, ctx, threadable: !!guildId && channel.kind === 'text' && channel.type !== 11 && channel.type !== 12 && !parent, onOpenThread,
-    setMessages, setError, setEditing, setLastRead, holdUnread, onReply,
+    setMessages, setError, setEditing, setLastRead: markUnreadFrom, holdUnread, onReply,
   })
 
   const sendNow = useSend({ channelId, me: me ?? null, meId, replyTo, replyPing, setReplyTo, setError, setMessages, pinned, newer, toPresent: history.toPresent })
@@ -139,7 +162,7 @@ export function Chat({ channel, guildId, meId, me, hidden, channelName, roles, a
         onToggleMembers={onHide ? undefined : () => setMembersShown(shown => { writeMembersShown(!shown); return !shown })} />
       <div className="exo-dc-chat-body">
       <div className="exo-dc-chat-main">
-      <NewBar bar={newBar} lastRead={lastRead} messages={messages} meId={meId} onRead={markAllRead} />
+      <NewBar bar={newBar} messages={messages} meId={meId} onRead={markAllRead} />
       <div className="exo-dc-scroll" ref={scroller} onScroll={onScroll}>
         <HistoryTop history={history} start={guildId ? `#${channel.name}` : 'your conversation'} />
         <MessageRows messages={messages} lastRead={lastRead} meId={meId} hidden={hidden} ctx={ctx} canSend={canSend} editing={editing?.id ?? null} actions={withRetry} />
@@ -148,10 +171,10 @@ export function Chat({ channel, guildId, meId, me, hidden, channelName, roles, a
       {newer ? (
         <div className="exo-dc-present">
           <span>You're viewing older messages</span>
-          <button type="button" onClick={history.toPresent}>Jump to Present</button>
+          <button type="button" onClick={history.toPresent}>Jump to present</button>
         </div>
       ) : null}
-      <Composer
+      <RequestGate channel={channel}><Composer
         key={channelId}
         channelId={channelId}
         guildId={guildId}
@@ -168,10 +191,10 @@ export function Chat({ channel, guildId, meId, me, hidden, channelName, roles, a
         onCancel={() => { setReplyTo(null); setError(null) }}
         onEditLast={editLast}
         onMarkRead={markAllRead}
-      />
+      /></RequestGate>
       </div>
       {/* A DM's profile stays read and laid out while hidden, so showing it again is instant, as Discord's is. */}
-      {membersShown || !guildId ? <SidePane channel={channel} guildId={guildId} hidden={!membersShown} /> : null}
+      {membersShown || !guildId ? <SidePane channel={channel} guildId={guildId} me={me} hidden={!membersShown} /> : null}
       </div>
     </section>
   )
@@ -215,6 +238,8 @@ function useMessageTools({ channel, guildId, ctx, threadable, onOpenThread, setM
   const actions = useMemo<MessageActions>(() => ({
     canManageMessages: !!guildId && channel.canManageMessages === true,
     canPin: !guildId || channel.canPin === true,
+    announcement: channel.type === 5,
+    onError: setError,
     onReply,
     onForward: setForwarding,
     onThread: threadable ? setThreading : undefined,
@@ -232,7 +257,7 @@ function useMessageTools({ channel, guildId, ctx, threadable, onOpenThread, setM
     },
     onPin: message => { if (shiftHeld.current) pin(message); else setAsking({ kind: message.pinned ? 'unpin' : 'pin', message }) },
     onDelete: message => { if (shiftHeld.current) removeMessage(message); else setAsking({ kind: 'delete', message }) },
-  }), [channelId, guildId, channel.canManageMessages, channel.canPin, onReply, threadable, onOpenThread, holdUnread, setLastRead, fail, setError, setEditing, shiftHeld, removeMessage, pin])
+  }), [channelId, guildId, channel.canManageMessages, channel.canPin, channel.type, onReply, threadable, onOpenThread, holdUnread, setLastRead, fail, setError, setEditing, shiftHeld, removeMessage, pin])
   const dialogs = (
     <>
       {asking ? (
@@ -247,29 +272,32 @@ function useMessageTools({ channel, guildId, ctx, threadable, onOpenThread, setM
 }
 
 // Whether the NEW line is above the view (or the first unread isn't loaded yet), and how many arrived since.
-function useNewBar(scroller: React.RefObject<HTMLDivElement | null>, messages: DiscordMessage[], lastRead: string | null, meId: string | null, older: boolean) {
-  const count = useMemo(() => lastRead ? messages.filter(m => !m.pending && m.author.id !== meId && isAfter(m.id, lastRead)).length : 0, [messages, lastRead, meId])
+function useNewBar(scroller: React.RefObject<HTMLDivElement | null>, messages: DiscordMessage[], lastRead: string | null, readTo: string | null, meId: string | null, older: boolean) {
+  const from = readTo && (!lastRead || isAfter(readTo, lastRead)) ? readTo : lastRead
+  const count = useMemo(() => from ? messages.filter(m => !m.pending && m.author.id !== meId && isAfter(m.id, from)).length : 0, [messages, from, meId])
   const [above, setAbove] = useState(false)
   const check = useCallback(() => {
     const el = scroller.current
-    if (!el || count === 0 || !lastRead) { setAbove(false); return }
-    const line = el.querySelector('.exo-dc-new')
-    setAbove(line ? line.getBoundingClientRect().bottom < el.getBoundingClientRect().top + 8 : older && !!messages[0] && isAfter(messages[0].id, lastRead))
-  }, [scroller, count, lastRead, older, messages])
+    if (!el || count === 0 || !from) { setAbove(false); return }
+    // The first message not yet read: above the view (or not loaded), the bar shows.
+    const first = firstUnread(messages, from, meId)
+    const row = first ? el.querySelector(`[data-msg-id="${first}"]`) : null
+    setAbove(row ? row.getBoundingClientRect().bottom < el.getBoundingClientRect().top + 8 : older && !!messages[0] && isAfter(messages[0].id, from))
+  }, [scroller, count, from, older, messages, meId])
   useLayoutEffect(check, [check])
-  return { count, above, check }
+  return { count, above, check, from }
 }
 
-function NewBar({ bar, lastRead, messages, meId, onRead }: { bar: ReturnType<typeof useNewBar>; lastRead: string | null; messages: DiscordMessage[]; meId: string | null; onRead: () => void }) {
-  if (!bar.above || !lastRead) return null
-  const { count } = bar
-  const jumpTo = firstUnread(messages, lastRead, meId) ?? lastRead
+function NewBar({ bar, messages, meId, onRead }: { bar: ReturnType<typeof useNewBar>; messages: DiscordMessage[]; meId: string | null; onRead: () => void }) {
+  if (!bar.above || !bar.from) return null
+  const { count, from } = bar
+  const jumpTo = firstUnread(messages, from, meId) ?? from
   return (
     <div className="exo-dc-new-bar" role="status">
       <button type="button" className="exo-dc-new-bar-jump" onClick={() => window.dispatchEvent(new CustomEvent('exo-dc-jump', { detail: jumpTo }))}>
-        {count >= 50 ? '50+' : count} new {count === 1 ? 'message' : 'messages'} since {sinceLabel(lastRead)}
+        {count >= 50 ? '50+' : count} new {count === 1 ? 'message' : 'messages'} since {sinceLabel(from)}
       </button>
-      <button type="button" className="exo-dc-new-bar-read" onClick={onRead}>Mark As Read <Icons.Check size={14} /></button>
+      <button type="button" className="exo-dc-new-bar-read" onClick={onRead}>Mark as read <Icons.Check size={14} /></button>
     </div>
   )
 }
@@ -295,8 +323,7 @@ function MessageRows({ messages, lastRead, meId, hidden, ctx, canSend, editing, 
     if (!open) return fold.start ? <Folded key={message.id} reason={fold.reason} count={fold.count} onShow={() => toggle(fold.first)} /> : null
     const before = messages[i - 1]
     const newDay = !before || new Date(before.timestamp).toDateString() !== new Date(message.timestamp).toDateString()
-    const grouped = !newDay && !!before && before.author.id === message.author.id && !message.referenced_message && message.type === 0 &&
-      new Date(message.timestamp).getTime() - new Date(before.timestamp).getTime() < GROUP_MS
+    const grouped = !newDay && continues(before, message)
     const firstNew = lastRead !== null && !message.pending && message.author.id !== meId && isAfter(message.id, lastRead) &&
       (!before || before.pending || !isAfter(before.id, lastRead))
     return (
@@ -376,7 +403,12 @@ function useHistory(channelId: string, meId: string | null, scroller: React.RefO
   // Where Exo itself last scrolled the list: the scroll event that follows is its own, not the reader's, and must not
   // unpin it (a picture growing in between made it read as "scrolled up" and the chat stopped short of the bottom).
   const selfTop = useRef(-1)
-  const keepFromBottom = useRef<number | null>(null)
+  // The first message on screen and how far below the list's top it sits, held while a page arrives (and the far end
+  // goes): it stays where it was.
+  const anchor = useRef<{ id: string; at: number } | null>(null)
+  // How far the list was from its bottom, as Exo last left it or the reader scrolled it (the room shown again and a row
+  // growing keep it).
+  const fromBottom = useRef(0)
   const scrollTo = useRef<string | null>(null)
   const busy = useRef(false)
   // Each first page replaces what any earlier request would still bring.
@@ -479,11 +511,13 @@ function useHistory(channelId: string, meId: string | null, scroller: React.RefO
       const target = el.querySelector(`[data-msg-id="${scrollTo.current}"]`)
       scrollTo.current = null
       if (target) flash(target, false)
-    } else if (keepFromBottom.current !== null) {
-      el.scrollTop = el.scrollHeight - keepFromBottom.current
-      keepFromBottom.current = null
+    } else if (anchor.current) {
+      const row = el.querySelector(`[data-msg-id="${anchor.current.id}"]`)
+      if (row) el.scrollTop += row.getBoundingClientRect().top - el.getBoundingClientRect().top - anchor.current.at
+      anchor.current = null
     } else if (pinned.current) el.scrollTop = el.scrollHeight
     selfTop.current = el.scrollTop
+    if (el.clientHeight > 0) fromBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight
   }, [messages, scroller])
 
   // The room hidden and shown again (display: none drops an element's scroll position) or the messages growing under
@@ -491,11 +525,10 @@ function useHistory(channelId: string, meId: string | null, scroller: React.RefO
   useLayoutEffect(() => {
     const el = scroller.current
     if (!el) return
-    let fromBottom = 0
-    const remember = () => { if (el.clientHeight > 0) fromBottom = el.scrollHeight - el.scrollTop - el.clientHeight }
+    const remember = () => { if (el.clientHeight > 0) fromBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight }
     const settle = () => {
       if (el.clientHeight === 0) return
-      el.scrollTop = pinned.current ? el.scrollHeight : el.scrollHeight - el.clientHeight - fromBottom
+      el.scrollTop = pinned.current ? el.scrollHeight : el.scrollHeight - el.clientHeight - fromBottom.current
       selfTop.current = el.scrollTop
     }
     const watch = new ResizeObserver(settle)
@@ -529,15 +562,17 @@ function useHistory(channelId: string, meId: string | null, scroller: React.RefO
       if (generationNow !== generation.current) return
       if (!result.ok || !result.messages) { setEdge({ where, message: result.message ?? failed }); return }
       const page = byId(result.messages)
-      const el = scroller.current
+      anchor.current = firstOnScreen(scroller.current)
+      // The far end let go loads again on the way back.
+      const cut = cutFor(messages, page, where)
       if (where === 'older') {
-        if (el) keepFromBottom.current = el.scrollHeight - el.scrollTop
         setOlder(page.length >= PAGE)
-        setMessages(list => [...page.filter(m => !list.some(x => x.id === m.id)), ...list])
+        if (cut) setNewer(true)
       } else {
         setNewer(page.length >= PAGE)
-        setMessages(list => [...list, ...page.filter(m => !list.some(x => x.id === m.id))])
+        if (cut) setOlder(true)
       }
+      setMessages(list => joinPage(list, page, where, cut))
     } catch (err) {
       report(err, 'DiscordChat.' + where)
       if (generationNow === generation.current) setEdge({ where, message: failed })
@@ -552,6 +587,29 @@ function useHistory(channelId: string, meId: string | null, scroller: React.RefO
     loadOlder: (retry = false) => loadEdge('older', retry),
     loadNewer: (retry = false) => loadEdge('newer', retry),
   }
+}
+
+/** The first message on screen and how far below the list's top it sits. */
+function firstOnScreen(el: HTMLElement | null) {
+  if (!el) return null
+  const top = el.getBoundingClientRect().top
+  const row = [...el.querySelectorAll<HTMLElement>('[data-msg-id]')].find(r => r.getBoundingClientRect().bottom > top)
+  return row?.dataset.msgId ? { id: row.dataset.msgId, at: row.getBoundingClientRect().top - top } : null
+}
+
+/** Where a page joining at `where` cuts the far end so KEEP stay: the newest (older page) or oldest (newer page) kept,
+    or null when all fit or a message is still sending. */
+function cutFor(list: DiscordMessage[], page: DiscordMessage[], where: 'older' | 'newer') {
+  const fresh = page.filter(m => !list.some(x => x.id === m.id))
+  const all = where === 'older' ? [...fresh, ...list] : [...list, ...fresh]
+  if (all.length <= KEEP || all.some(m => m.pending)) return null
+  return where === 'older' ? all[KEEP - 1].id : all[all.length - KEEP].id
+}
+
+function joinPage(list: DiscordMessage[], page: DiscordMessage[], where: 'older' | 'newer', cut: string | null) {
+  const fresh = page.filter(m => !list.some(x => x.id === m.id))
+  const all = where === 'older' ? [...fresh, ...list] : [...list, ...fresh]
+  return cut === null ? all : all.filter(m => m.pending || (where === 'older' ? !isAfter(m.id, cut) : !isAfter(cut, m.id)))
 }
 
 // Live: new, edited and deleted messages, reactions and poll votes. New ones wait while older messages show.
@@ -654,6 +712,8 @@ function useSend({ channelId, me, meId, replyTo, replyPing, setReplyTo, setError
       return false
     }
     const uploads: string[] = []
+    // Each file's alt text (Modify Attachment), by the upload id it went up as.
+    const descriptions: Record<string, string> = {}
     let done = 0
     for (const file of files) {
       const uploaded = await uploadFile(file, sent => {
@@ -665,10 +725,12 @@ function useSend({ channelId, me, meId, replyTo, replyPing, setReplyTo, setError
         return drop(uploaded.message)
       }
       uploads.push(uploaded)
+      const alt = fileDescriptions.get(file)
+      if (alt) descriptions[uploaded] = alt
       done += file.size
     }
     try {
-      const result = await host.discordSend(channelId, content, reply?.id, uploads, reply ? { ping: replyPing !== false } : {})
+      const result = await host.discordSend(channelId, content, reply?.id, uploads, { ...(reply ? { ping: replyPing !== false } : {}), ...(uploads.some(id => descriptions[id]) ? { descriptions } : {}) })
       if (!result.ok) return drop(result.message ?? 'Discord did not send that.')
       const sent = result.sent
       setMessages(list => {
@@ -732,21 +794,29 @@ function useUsers(messages: DiscordMessage[]) {
   }, [messages])
 }
 
-// Name colors for this channel's authors: what Exo knows now, then whatever Discord sends for the rest.
+// Name colors and server pictures for this channel's authors: what Exo knows now, then whatever Discord sends for the rest.
+type Looks = { colors: Map<string, string | null>; avatars: Map<string, string>; roleIcons: Map<string, DiscordRoleIcon> }
+const NO_LOOKS = (): Looks => ({ colors: new Map(), avatars: new Map(), roleIcons: new Map() })
+
 function useAuthorColors(guildId: string | null, messages: DiscordMessage[]) {
-  const [colors, setColors] = useState<Map<string, string | null>>(new Map())
+  const [looks, setLooks] = useState<Looks>(NO_LOOKS)
   const authors = useMemo(() => [...new Set(messages.filter(m => !m.pending).map(m => m.author.id))].sort().join(','), [messages])
   useEffect(() => {
-    if (!guildId || !authors) { setColors(new Map()); return }
+    if (!guildId || !authors) { setLooks(NO_LOOKS()); return }
     let live = true
     const load = () => host.discordColors(guildId, authors.split(',')).then(result => {
-      if (live) setColors(new Map(Object.entries(result.colors)))
+      if (live) setLooks({ colors: new Map(Object.entries(result.colors)), avatars: new Map(Object.entries(result.avatars ?? {})), roleIcons: new Map(Object.entries(result.icons ?? {})) })
     }).catch(() => { })
     load()
     const off = onHostEvent('discord.colors', event => { if (event.guildId === guildId) load() })
     return () => { live = false; off() }
   }, [guildId, authors])
-  return colors
+  return looks
+}
+
+// A message request's conversation takes Accept or Ignore before a reply, as Discord's does.
+function RequestGate({ channel, children }: { channel: DiscordChannel; children: React.ReactNode }) {
+  return channel.dm?.request ? <RequestBanner channelId={channel.id} spam={channel.dm.spam === true} /> : children
 }
 
 /** Scrolls a message into the middle and lights it up a moment, as Discord does for a jump. */
@@ -790,11 +860,12 @@ function target(channel: DiscordChannel, guildId: string | null) {
   return channel.dm?.group ? channel.name : `@${channel.name}`
 }
 
-// Beside the chat: the member list in a server, the person's profile in a 1:1 DM.
-function SidePane({ channel, guildId, hidden }: { channel: DiscordChannel; guildId: string | null; hidden: boolean }) {
+// Beside the chat: the member list in a server or a group DM, the person's profile in a 1:1 DM.
+function SidePane({ channel, guildId, me, hidden }: { channel: DiscordChannel; guildId: string | null; me?: DiscordHome['me']; hidden: boolean }) {
   if (guildId) return <MemberList guildId={guildId} />
   const dm = channel.dm
-  if (!dm?.userId || dm.group) return null
+  if (dm?.group) return hidden ? null : <GroupMembers channel={channel} me={me ?? null} />
+  if (!dm?.userId) return null
   const fallback = { id: dm.userId, username: dm.username ?? channel.name, global_name: channel.name, avatar: avatarHashOf(dm.avatar) }
   return <DmProfile userId={dm.userId} status={dm.status} fallback={fallback} hidden={hidden} />
 }

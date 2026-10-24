@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react'
 import { openLink } from '../../lib/music'
-import { jumpToMessage, openDiscord, type DiscordUser } from '../../lib/discord'
+import { jumpToMessage, openDiscord, type DiscordRoleIcon, type DiscordUser } from '../../lib/discord'
 import { accountSettings } from '../../lib/discordPrefs'
 import { showProfile } from './extras'
 import { emojiUrl } from './emojiUrl'
@@ -20,6 +20,10 @@ export type MarkdownContext = {
   guildId: string | null
   /** Name colors by user id (their top colored role), for authors and mentions. */
   colors: Map<string, string | null>
+  /** The pictures authors set for this server (Discord's server avatars), over their own. */
+  avatars?: Map<string, string>
+  /** The role icon beside each author's name, in a server with role icons. */
+  roleIcons?: Map<string, DiscordRoleIcon>
   /** The server's roles, for role mentions. */
   roles?: Record<string, { name: string; color: string | null }>
   /** The other person in a 1:1 DM, for lines like "You accepted X's friend request." */

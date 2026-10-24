@@ -156,16 +156,18 @@ let mockFrameGen = 'game'
 /** `?cpu=intel` in browser dev: This PC and Settings' chipset switch for an Intel processor instead of a Ryzen. */
 const mockIntelCpu = typeof location !== 'undefined' && new URLSearchParams(location.search).get('cpu') === 'intel'
 
-// ?whatsnew: a user just updated to 3.14.0 from before What's New, so its sheet opens over the Library.
+// ?whatsnew: a user just updated to 3.14.1 from 3.13.2, so the sheet opens over the Library with 3.14.1 and the 3.14.0 they skipped.
 const mockWhatsNew = typeof location !== 'undefined' && new URLSearchParams(location.search).has('whatsnew')
+// ?update: 3.15.0 is offered, with its What's New.
+const mockUpdate = typeof location !== 'undefined' && new URLSearchParams(location.search).has('update')
 
 // ?folders: two Library folders to start with, Hades in both, one sorted by time played.
 const mockFolders = typeof location !== 'undefined' && new URLSearchParams(location.search).has('folders')
 
 const mockSettings: LauncherSettings = {
   onboardingComplete: !mockFirstRun,
-  appVersion: mockWhatsNew ? '3.14.0' : '1.0.0-dev',
-  whatsNewSeen: mockWhatsNew ? null : '1.0.0-dev',
+  appVersion: mockWhatsNew ? '3.14.1' : '1.0.0-dev',
+  whatsNewSeen: mockWhatsNew ? '3.13.2' : '1.0.0-dev',
   reduceMotion: false,
   framelessPinTop: false,
   framelessPinSide: false,
@@ -452,6 +454,10 @@ let mockDiscordClient: Record<string, unknown> = {
 }
 
 const mockOk: MockHandler = () => ({ ok: true })
+// What the mock has saved for later: bookmarked messages and reminders (message id -> due, ms).
+const mockSaved = { bookmarks: new Set<string>(), reminders: new Map<string, number>() }
+// Hide Muted Channels in the mock's server, as its menu sets it.
+let mockHideMuted = false
 
 const GB = 1024 ** 3
 /** Properties as the host builds them: Marvel Rivals' real Steam shape (its High-Resolution Pack switched off), an Epic game's optional content. */
@@ -659,7 +665,7 @@ const MOCK_HANDLERS: Record<string, MockHandler> = {
   'discord.signIn': mockOk,
   'discord.signOut': mockOk,
   'discord.home': () => mockHome,
-  'discord.channels': () => mockChannels,
+  'discord.channels': () => ({ ...mockChannels, hideMuted: mockHideMuted }),
   'discord.admin': mockAdmin,
   'discord.messages': (params?: { before?: string }) => ({ ok: true, messages: params?.before ? [] : [...mockMessages, ...mockAppMessages].reverse() }),
   'discord.apps': (params?: { action?: string }) => params?.action === 'commands' ? mockApps : { ok: true, nonce: '900000000000000001' },
@@ -681,7 +687,7 @@ const MOCK_HANDLERS: Record<string, MockHandler> = {
   'discord.voice': (params?: { action?: string; guildId?: string; channelId?: string }) => ({ ok: true, voice: params?.action === 'join' ? { state: 'connected', guildId: params.guildId ?? null, channelId: params.channelId ?? null, muted: false, deafened: false, e2ee: true } : { state: 'off', guildId: null, channelId: null, muted: false, deafened: false, e2ee: false } }),
   'discord.ring': mockOk,
   'discord.golive': mockGoLiveHandler,
-  'discord.friends': () => ({ friends: mockFriends }),
+  'discord.friends': () => ({ friends: mockFriends, restricted: { blocked: [{ id: '100000000000000009', name: 'Spammy', username: 'spammy.bot', avatar: null }], ignored: [{ id: '100000000000000008', name: 'Loud Larry', username: 'larry', avatar: null }] } }),
   'discord.friend': mockOk,
   'discord.markRead': mockOk,
   'discord.channel': () => ({ ok: true, muted: true, url: 'https://discord.gg/exo' }),
@@ -697,7 +703,10 @@ const MOCK_HANDLERS: Record<string, MockHandler> = {
   'discord.fileText': () => ({ ok: true, left: 0, text: 'sensitivity "0.42"\nm_yaw "0.022"\nfps_max "0"\ncl_crosshairsize "2"\ncl_crosshairgap "-2"\ncl_crosshaircolor "1"\nbind "mouse4" "+voicerecord"\nbind "f" "+lookatweapon"\nhost_writeconfig\n' }),
   'discord.audio': () => ({ inputs: [{ id: 'mic', name: 'Microphone' }], outputs: [{ id: 'spk', name: 'Speakers' }], input: null, output: null, inputVolume: 100, outputVolume: 100, soundboardVolume: 100, soundboardMuted: false }),
   'discord.userSettings': (params?: { changes?: Record<string, unknown> }) => ({ ok: true, values: params?.changes ?? {} }),
-  'discord.account': (params?: { action?: string }) => params?.action === 'me'
+  'discord.account': (params?: { action?: string }) => params?.action === 'tags'
+    ? { ok: true, mine: null, servers: [{ id: '200000000000000001', name: 'Exo Lab', tag: 'EXO', badge: null }] }
+    : params?.action === 'setTag' ? { ok: true }
+    : params?.action === 'me'
     ? { ok: true, me: { id: '1', username: 'exo', globalName: 'Exo', avatar: null, banner: null, accentColor: null, bio: '', pronouns: '', email: 'e***@example.com', phone: null, verified: true, mfa: false, nsfwAllowed: true, premium: false } }
     : { ok: true, data: params?.action === 'consent' ? { usageStatistics: true, personalization: true } : [] },
   'discord.clientSettings': (params?: Record<string, unknown>) => (mockDiscordClient = { ...mockDiscordClient, ...params }),
@@ -705,7 +714,11 @@ const MOCK_HANDLERS: Record<string, MockHandler> = {
   'discord.voiceTune': () => ({ ok: false, message: 'Voice Tune needs Exo.' }),
   'discord.voiceCheck': () => ({ ok: false, message: 'Voice Check needs Exo.' }),
   'discord.sound': mockOk,
-  'discord.server': (p?: { action?: string; invite?: string }) => p?.action === 'invite'
+  'discord.server': (p?: { action?: string; invite?: string; hideMuted?: boolean }) => p?.action === 'notify' && p.hideMuted !== undefined
+    ? (mockHideMuted = p.hideMuted, { ok: true })
+    : p?.action === 'profile'
+    ? { ok: true, profile: { id: '200000000000000001', name: 'Exo Lab', icon_hash: null, description: 'Where Exo gets built.', member_count: 1204, online_count: 312, tag: 'EXO', traits: [{ label: 'Gaming', emoji_name: '🎮', position: 0 }] } }
+    : p?.action === 'invite'
     ? p.invite === 'expired' ? { ok: false, invalid: true, message: 'Discord: Unknown Invite' }
       : { ok: true, invite: p.invite === 'exo'
         ? { guildId: '300000000000000001', channelId: '400000000000000002', name: 'Exo Squad', icon: null, verified: false, partnered: false, online: 12, members: 48, joined: true }
@@ -715,7 +728,7 @@ const MOCK_HANDLERS: Record<string, MockHandler> = {
     : p?.action === 'events'
     ? { ok: true, events: [{ interested: false, event: { id: '700000000000000001', name: 'Ranked night', scheduled_start_time: '2026-10-20T01:00:00Z', status: 1, user_count: 6, entity_metadata: { location: 'Voice' } } }] }
     : p?.action === 'guide'
-      ? { ok: true, guide: { welcome_message: { message: 'Read the rules, grab a role, say hi.' }, new_member_actions: [{ channel_id: '400000000000000001', title: 'Say hi', description: 'Introduce yourself', emoji: { name: '👋' } }], resource_channels: [] } }
+      ? { ok: true, guide: { welcome_message: { message: 'Read the rules, grab a role, say hi.' }, new_member_actions: [{ channel_id: '400000000000000001', title: 'Say hi', description: 'Introduce yourself', emoji: { name: '👋' } }], resource_channels: [] }, resources: [{ channelId: '400000000000000002', title: 'Rules', description: 'Read before posting' }] }
       : { ok: true },
   'discord.profile': (p?: { mutualFriends?: boolean; note?: string }) => p?.mutualFriends ? { ok: true, friends: [{ id: '100000000000000003', username: 'kai', global_name: 'Kai' }] } : p?.note !== undefined ? mockOk() : mockProfile,
   'discord.threads': () => ({ ok: true, threads: [{ id: '600000000000000001', name: 'Best crosshair codes?', parent_id: '400000000000000007', message_count: 42 }, { id: '600000000000000002', name: 'Patch 9.2 tier list', parent_id: '400000000000000007', message_count: 7 }] }),
@@ -732,8 +745,22 @@ const MOCK_HANDLERS: Record<string, MockHandler> = {
   'discord.search': (p?: { filters?: { offset?: number } }) => ({ ok: true, result: { messages: mockMessages.slice(0, 4).map(m => [m]), total_results: 87 }, places: {}, offset: p?.filters?.offset }),
   'discord.gifs': () => ({ ok: true, gifs: [] }),
   'discord.members': () => mockMembers,
-  'discord.mentionable': (p?: { query?: string }) => ({ users: mockMessages.map(m => m.author).filter((u, i, all) => all.findIndex(x => x.id === u.id) === i && u.username.startsWith(p?.query ?? '')) }),
-  'discord.colors': () => ({ colors: { '100000000000000002': '#e91e63', '100000000000000004': '#3498db' } }),
+  'discord.saved': (p?: { action?: string; messageId?: string; dueAt?: number }) => {
+    if (p?.action === 'save') { if (p.dueAt) mockSaved.reminders.set(p.messageId ?? '', p.dueAt); else mockSaved.bookmarks.add(p.messageId ?? ''); return { ok: true } }
+    if (p?.action === 'remove') { mockSaved.reminders.delete(p.messageId ?? ''); mockSaved.bookmarks.delete(p.messageId ?? ''); return { ok: true } }
+    const saved = (id: string, due?: number) => ({ message: mockMessages.find(m => m.id === id) ?? null, save_data: { channel_id: '400000000000000002', message_id: id, saved_at: new Date().toISOString(), due_at: due ? new Date(due).toISOString() : null } })
+    if (p?.action === 'bookmarks') return { ok: true, results: [...mockSaved.bookmarks].map(id => saved(id)), hasMore: false, places: {} }
+    return { ok: true, reminders: [...mockSaved.reminders].map(([id, due]) => saved(id, due)), bookmarkIds: [...mockSaved.bookmarks], places: {} }
+  },
+  'discord.mentionable': (p?: { query?: string; channels?: boolean }) => {
+    const q = (p?.query ?? '').toLowerCase()
+    if (p?.channels) return { users: [], channels: mockChannels.channels.filter(c => c.kind !== 'category' && c.name.includes(q)).map(c => ({ id: c.id, name: c.name, type: c.type, kind: c.kind, category: 'Text channels' })) }
+    return {
+      users: mockMessages.map(m => m.author).filter((u, i, all) => all.findIndex(x => x.id === u.id) === i && u.username.startsWith(q)),
+      roles: [{ id: '700000000000000001', name: 'Moderators', color: '#3498db' }, { id: '700000000000000002', name: 'Members', color: null }].filter(r => r.name.toLowerCase().includes(q)),
+    }
+  },
+  'discord.colors': () => ({ colors: { '100000000000000002': '#e91e63', '100000000000000004': '#3498db' }, icons: { '100000000000000002': { name: 'Admins', emoji: '🛡️' } } }),
   'discord.setStatus': mockOk,
   'web.preferences.set': (p) => ({ microphone: 'ask', camera: 'ask', clipboard: 'ask', notifications: 'ask', ...p }),
   'shell.prepare': () => ({ ok: true }),
@@ -804,7 +831,12 @@ const MOCK_HANDLERS: Record<string, MockHandler> = {
   'music.warm': mockOk,
   'music.reload': mockOk,
   'app.version': () => ({ version: '1.0.0-dev' }),
-  'app.checkUpdate': () => ({ ok: true, alreadyLatest: true, updateAvailable: false, message: 'Up to date.', current: '1.0.0-dev' }),
+  'app.checkUpdate': () => mockUpdate
+    ? { ok: true, updateAvailable: true, latest: '3.15.0', message: 'Version 3.15.0 is available.', current: '1.0.0-dev', upcoming: { version: '3.15.0', items: [
+        { icon: 'Download', title: "See what's coming", detail: "What's New shows the next version's changes before you install it." },
+        { icon: 'Sparkle', title: 'Catch up on what you missed', detail: "Skip a few versions and What's New shows every one you missed." },
+      ] } }
+    : { ok: true, alreadyLatest: true, updateAvailable: false, message: 'Up to date.', current: '1.0.0-dev' },
   'app.log': mockOk,
   'app.openLogs': () => ({ ok: false, message: 'No logs folder in the browser mock.' }),
   'app.installUpdate': () => ({

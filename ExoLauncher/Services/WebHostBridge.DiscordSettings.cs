@@ -41,6 +41,13 @@ public sealed partial class WebHostBridge
                 if (name is { Length: > 32 }) return new { ok = false, message = "Display names can be up to 32 characters." };
                 return Done(await rest.UpdateMeAsync(new JsonObject { ["global_name"] = string.IsNullOrEmpty(name) ? null : name }, ct).ConfigureAwait(false));
             case "profile": return await DiscordProfileEditAsync(rest, p, hasParams, ct).ConfigureAwait(false);
+            // Profiles' Server Tag: the servers you're in that have a tag (each with it and its badge, from Discord's
+            // profile of the server), the one you wear, and wearing one or none.
+            case "tags": return await DiscordTagServersAsync(session, ct).ConfigureAwait(false);
+            case "setTag":
+                var tagGuild = ReadString(p, hasParams, "guildId") is { Length: > 0 } tg ? DiscordRest.Id(tg) : null;
+                if (tagGuild is not null && !session.Cache.TagServers().Servers.Any(s => s.Id == tagGuild)) return new { ok = false, message = "That server isn't one of yours." };
+                return Done(await rest.SetServerTagAsync(tagGuild, ct).ConfigureAwait(false));
             // The banner picture is Nitro's; Discord refuses it without, and the banner color shows instead.
             case "avatar" or "banner":
                 var field = ReadString(p, hasParams, "action")!;
@@ -196,6 +203,18 @@ public sealed partial class WebHostBridge
             : new { ok = false, message = reply.Error, data = (object?)null };
 
     // The account as My Account and Profiles show it; the email and phone number masked as Discord masks them.
+    // Each server's profile, read together (at most 50): those with a tag are the picker's choices.
+    private static async Task<object> DiscordTagServersAsync(DiscordSession session, CancellationToken ct)
+    {
+        var (servers, mine) = session.Cache.TagServers();
+        var reads = servers.Take(50).Select(async s => (s, reply: await session.Rest.GuildProfileAsync(s.Id, ct).ConfigureAwait(false))).ToList();
+        var tagged = new List<object>();
+        foreach (var (s, reply) in await Task.WhenAll(reads).ConfigureAwait(false))
+            if (reply.Body is { ValueKind: JsonValueKind.Object } body && Text(body, "tag") is { Length: > 0 } tag)
+                tagged.Add(new { id = s.Id, name = s.Name, tag, badge = Text(body, "badge_hash") });
+        return new { ok = true, message = (string?)null, mine, servers = tagged };
+    }
+
     private static async Task<object> DiscordMeAsync(DiscordSession session, CancellationToken ct)
     {
         var me = await session.Rest.MeAsync(ct).ConfigureAwait(false);

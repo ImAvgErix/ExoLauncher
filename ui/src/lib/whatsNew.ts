@@ -1,59 +1,57 @@
 import type { ComponentType } from 'react'
-import { Appearance, Chats, Cover, EyeOff, Folder, FolderOpen, Gift, GraphicsCard, Hash, Live, Mic, Mouse, Shaders, Sliders, Volume, type IconProps } from '../brand/icons'
+import { Appearance, Chats, Cover, Devices, Download, EyeOff, Folder, FolderOpen, Gamepad, Gift, GraphicsCard, Hash, Library, Live, Mic, Monitor, Mouse, MusicNotes, New, Shaders, Sliders, StoreBag, Volume, type IconProps } from '../brand/icons'
+import data from './whatsNew.json'
+import type { WhatsNewWire } from './hostWire'
 
 /**
- * What's New: after an update, Exo's first opening shows the running version's items once (WhatsNewSheet), and
- * Settings › About › What's new shows them again. Each release adds its own here, newest first, beside its CHANGELOG
- * entry: a plain-words title and one short sentence on what it does for you.
+ * What's New: after an update, Exo's first opening shows what changed since the version you last saw (WhatsNewSheet),
+ * and Settings › About › What's new shows every release up to yours. While an update is offered, its own notes (the
+ * whats-new.json beside its installer, read by the host) lead the sheet. Each release adds its items to whatsNew.json,
+ * newest first, beside its CHANGELOG entry: an icon named below, a plain-words title and one short sentence on what it
+ * does for you. tools/Build-Release.ps1 ships the release's entry as that whats-new.json.
  */
 export type WhatsNewItem = { icon: ComponentType<IconProps>; title: string; detail: string }
 export type WhatsNewRelease = { version: string; items: WhatsNewItem[] }
 
-/** The window event Settings › About sends to open the sheet. */
+/** The window event Settings › About and the update prompt send to open the sheet. */
 export const WHATS_NEW = 'exo-whats-new'
 
-export const RELEASES: WhatsNewRelease[] = [
-  {
-    version: '3.14.1',
-    items: [
-      { icon: Sliders, title: 'Starts lighter', detail: "Exo opens sooner and uses about a third less memory: a room you don't open doesn't load." },
-      { icon: Cover, title: 'Select several games', detail: 'Press Select in your Library to hide, file or uninstall many games at once.' },
-      { icon: Folder, title: 'Arrange your folders', detail: 'Drag a folder to move it, or use Move earlier and Move later on its menu.' },
-      { icon: Live, title: 'Watch several streams', detail: "Watch more than one friend's Go Live at a time, each with its own sound." },
-      { icon: Live, title: 'Streams that look and sound right', detail: "Friends' streams show whole and stay sharp, and your stream carries your games and music, never your own voice." },
-      { icon: Appearance, title: 'Glass that stays glass', detail: 'Switching servers, Settings sections and pages keeps the glass clear the whole way.' },
-      { icon: Shaders, title: 'The newest Exo Shaders', detail: "Exo Shaders brings SCSKiller's newest improvements and sets each one up for you." },
-    ],
-  },
-  {
-    version: '3.14.0',
-    items: [
-      { icon: Mic, title: 'Clearer voice', detail: "Fans, desk knocks and keyboard clicks are taken out of your mic, and your words aren't cut off." },
-      { icon: Volume, title: 'Everyone at one volume', detail: "Each person in a call comes through at about the same loudness, so one loud mic doesn't drown out the rest." },
-      { icon: Mic, title: 'Noise suppression like Discord’s', detail: 'Pick Exo AI, Standard or None in Voice & Video, and Exo tells you when your mic sends nothing.' },
-      { icon: GraphicsCard, title: 'Driver updates on Radeon and Intel', detail: 'System keeps your AMD or Intel graphics driver up to date in one click, as it does on a GeForce.' },
-      { icon: Appearance, title: 'Clearer glass', detail: 'Menus, sheets and buttons are clear glass now: the colors behind them show through, and their edges catch the light.' },
-      { icon: Sliders, title: 'Your PC, checked', detail: "System shows what's slowing your PC down, gives your PC a power plan tuned for its processor, and keeps your AMD or Intel chipset driver up to date." },
-      { icon: Sliders, title: 'Interrupts in one press', detail: "System › This PC can move your graphics card, USB and network to MSI mode, so they don't wait on each other. Undo puts them back." },
-      { icon: GraphicsCard, title: "Exo's profile on Radeon and Intel", detail: 'An AMD Radeon or an Intel Arc gets the same one-press tuning as a GeForce, FSR 4 in FSR 3.1 games on a Radeon, and frame generation for the games you pick.' },
-      { icon: Chats, title: 'Discord stays fast', detail: 'Messages and profiles load instantly, even right after you switch windows.' },
-      { icon: Live, title: 'Go Live your friends can watch', detail: "Your stream plays smoothly on Discord's app, in sharper H.265 when everyone watching can play it." },
-      { icon: Live, title: "Watch friends' streams", detail: "Open a friend's Go Live and watch it right in Exo." },
-      { icon: Sliders, title: 'Lighter on your PC', detail: 'Calls with clips on and the streams you watch take far less of your processor and graphics card.' },
-      { icon: Hash, title: 'Discord, done right', detail: 'Every channel opens, chats open at the newest message, and links show as previews.' },
-      { icon: Appearance, title: 'Light, Dark and Void', detail: 'Choose your look in Settings › General. Void is pure black, for OLED screens.' },
-      { icon: Gift, title: 'Gifts in your Library', detail: 'Games friends give you on Steam or Epic show in your Library, ready to accept in one click. Sign in to Steam once in Settings › Game stores.' },
-      { icon: FolderOpen, title: 'Folders you can peek into', detail: 'Hover a folder and its games rise out of it.' },
-      { icon: Folder, title: 'Folders your way', detail: 'Sort each folder its own way, put a game in more than one folder, and give a folder a picture of your own.' },
-      { icon: EyeOff, title: 'Hide games', detail: "Right-click a game and choose Hide to keep it out of your Library. Hidden games in the sort menu shows them again." },
-      { icon: Cover, title: 'Sharper covers', detail: "Game covers in your Library look as crisp as on the game's own page." },
-      { icon: Shaders, title: 'Fewer shader stutters', detail: "Compiled shaders are kept on NVIDIA's newest drivers instead of being thrown away." },
-      { icon: Mouse, title: 'More mice', detail: 'Exo Mouse supports 40 more SteelSeries mice and keeps working after your PC sleeps.' },
-    ],
-  },
-]
+/** The icons a release's items may name. A name this build doesn't know (a newer release's) draws as New. */
+const ICONS: Record<string, ComponentType<IconProps>> = {
+  Appearance, Chats, Cover, Devices, Download, EyeOff, Folder, FolderOpen, Gamepad, Gift, GraphicsCard, Hash, Library, Live,
+  Mic, Monitor, Mouse, MusicNotes, New, Shaders, Sliders, StoreBag, Volume,
+}
 
-/** The running version's notes while they are unseen; none for a version without notes. */
-export function unseenRelease(version: string, seen: string | null | undefined): WhatsNewRelease | null {
-  return seen === version ? null : RELEASES.find(release => release.version === version) ?? null
+/** A release as data (whatsNew.json, or the host's validated copy of an update's) with its icons. */
+export function toRelease(wire: WhatsNewWire): WhatsNewRelease {
+  return { version: wire.version, items: wire.items.map(({ icon, title, detail }) => ({ icon: ICONS[icon] ?? New, title, detail })) }
+}
+
+export const RELEASES: WhatsNewRelease[] = (data as WhatsNewWire[]).map(toRelease)
+
+/** Numeric X.Y.Z order; anything after the numbers (a -dev suffix) is ignored. */
+function compareVersions(a: string, b: string): number {
+  const parts = (v: string) => v.split(/[^\d.]/, 1)[0].split('.').map(Number)
+  const [x, y] = [parts(a), parts(b)]
+  for (let i = 0; i < Math.max(x.length, y.length); i++) {
+    const d = (x[i] || 0) - (y[i] || 0)
+    if (d) return d
+  }
+  return 0
+}
+
+/**
+ * What changed since the version last seen, newest first: every release after `seen` up to the running one. A new
+ * install (nothing seen) gets only its own version's; nothing once the running version is seen.
+ */
+export function missedReleases(version: string, seen: string | null | undefined): WhatsNewRelease[] {
+  if (seen === version) return []
+  if (!seen) return RELEASES.filter(release => release.version === version)
+  return RELEASES.filter(release => compareVersions(release.version, seen) > 0 && compareVersions(release.version, version) <= 0)
+}
+
+/** Every release up to the running version, newest first (all of them on a build older than any, like a dev build). */
+export function releasesThrough(version: string): WhatsNewRelease[] {
+  const through = RELEASES.filter(release => compareVersions(release.version, version) <= 0)
+  return through.length ? through : RELEASES
 }

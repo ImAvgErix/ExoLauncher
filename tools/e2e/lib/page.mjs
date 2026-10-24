@@ -10,7 +10,8 @@ export function roomState() {
     room: current ? (current.getAttribute('aria-label') || current.textContent || '').trim().replace(/\d+$/, '').trim() : null,
     theme: document.documentElement.dataset.exoTheme ?? null,
     vt: document.documentElement.hasAttribute('data-exo-vt'),
-    dialogs: document.querySelectorAll('[role="dialog"], [role="alertdialog"], dialog[open]').length,
+    // Some stay mounted, hidden while closed (Discord's settings): only those that show count.
+    dialogs: [...document.querySelectorAll('[role="dialog"], [role="alertdialog"], dialog[open]')].filter(d => d.checkVisibility()).length,
     menus: [...document.querySelectorAll('[role="menu"]')].filter(m => m.getBoundingClientRect().width > 0 && getComputedStyle(m).visibility !== 'hidden').length,
     errorScreen: /something went wrong|unexpected error|this room stopped/i.test(text),
     settings: !!document.querySelector('.exo-settings')?.checkVisibility(),
@@ -59,7 +60,7 @@ export function layoutScan() {
     return false
   }
   const name = (el) => (el.getAttribute('aria-label') || el.textContent || el.tagName).trim().replace(/\s+/g, ' ').slice(0, 50)
-  const issues = { sideScroll: document.scrollingElement.scrollWidth > vw + 1, offscreen: [], covered: [], cutText: [] }
+  const issues = { sideScroll: document.scrollingElement.scrollWidth > vw + 1, offscreen: [], covered: [] }
   const controls = [...document.querySelectorAll('button, a[href], input:not([type=hidden]), select, textarea, [role="button"], [role="tab"], [role="menuitem"], [role="option"]')]
   for (const el of controls) {
     const r = visible(el)
@@ -76,8 +77,8 @@ export function layoutScan() {
         for (let a = el.parentElement; a && a !== document.body; a = a.parentElement) {
           if (a.scrollHeight > a.clientHeight + 1 && /(auto|scroll)/.test(getComputedStyle(a).overflowY) && a.scrollHeight - a.clientHeight - a.scrollTop > 1) { scrolls = true; break }
         }
-        // Under an open sheet, dialog or menu: covered on purpose.
-        const layer = top.closest('[role="dialog"], [role="menu"], .exo-game-overlay, .exo-dc-modal-back, .exo-folder-back, .exo-folder-sheet-back, [popover], [class*="backdrop"], [class*="scrim"]')
+        // Under an open sheet, dialog or menu, or a toast (it floats over everything until it goes): covered on purpose.
+        const layer = top.closest('[role="dialog"], [role="menu"], .exo-game-overlay, .exo-dc-modal-back, .exo-folder-back, .exo-folder-sheet-back, [popover], [class*="backdrop"], [class*="scrim"], .exo-toast-stack, .exo-dc-toast, .exo-dc-notices')
         if (layer && !layer.contains(el)) scrolls = true
         // A backdrop the size of the window over everything (a dialog's scrim) is meant to cover what is under it.
         const tr = top.getBoundingClientRect()
@@ -86,20 +87,145 @@ export function layoutScan() {
       }
     }
   }
-  for (const el of document.querySelectorAll('body *')) {
-    if (el.children.length || !el.textContent || el.textContent.trim().length < 3) continue
-    const cs = getComputedStyle(el)
-    if (!/(hidden|clip)/.test(cs.overflow + cs.overflowX)) continue
-    const r = visible(el)
-    if (!r || r.right < 0 || r.left > vw || r.bottom < 0 || r.top > vh) continue
-    const wide = el.scrollWidth > el.clientWidth + 1 && cs.textOverflow !== 'ellipsis'
-    const tall = el.scrollHeight > el.clientHeight + 2 && cs.webkitLineClamp === 'none' && cs.whiteSpace !== 'nowrap'
-    if (wide || tall) issues.cutText.push(`"${el.textContent.trim().slice(0, 40)}" ${wide ? 'cut at the side' : 'cut at the foot'}`)
-  }
   issues.offscreen = [...new Set(issues.offscreen)].slice(0, 15)
   issues.covered = [...new Set(issues.covered)].slice(0, 15)
-  issues.cutText = [...new Set(issues.cutText)].slice(0, 15)
   return issues
+}
+
+/**
+ * What a person sees as a broken layout, wherever it is: two controls drawn over each other (a panel's close over the
+ * button beside it), a control cut by what holds it, and words cut off. Each fault carries a path to the element and
+ * its box (and the other's), so the check can crop a picture of it.
+ *  - overlap: two visible controls in the same layer meet by more than 1px on both axes, and neither holds the other.
+ *    A control laid on top of another wholly (a card's More over the card) is fine; a layer above the page (a menu,
+ *    a dialog, the Bar, anything fixed or sticky, and a list scrolling under a bar that floats over it) is a layer of its own.
+ *  - clipped: a control partly cut by an ancestor that clips without scrolling, with nothing else hidden past that
+ *    edge (a carousel hides whole items past its edge, a scrolled list scrolls).
+ *  - cut: words wider than their box with no ellipsis, or taller than a box that hides them with no line clamp.
+ */
+export function layoutFaults() {
+  const vw = innerWidth, vh = innerHeight
+  const SEL = 'button, a[href], input:not([type=hidden]), select, textarea, [role="button"], [role="switch"], [role="tab"], [role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"], [role="option"], [role="checkbox"], [role="radio"]'
+  const box = (r) => ({ x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height) })
+  const path = (el) => {
+    const parts = []
+    for (let e = el; e && e !== document.body && parts.length < 4; e = e.parentElement) {
+      const cls = [...e.classList].filter(c => !/^(is|has)-/.test(c)).slice(0, 2).join('.')
+      const label = e === el ? (e.getAttribute('aria-label') || e.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 30) : ''
+      parts.unshift(e.tagName.toLowerCase() + (cls ? '.' + cls : '') + (label ? ` "${label}"` : ''))
+    }
+    return parts.join(' > ')
+  }
+  const shown = (el) => {
+    if (!el.checkVisibility({ opacityProperty: true, visibilityProperty: true })) return false
+    for (let a = el; a && a !== document.documentElement; a = a.parentElement) {
+      if (a.getAttribute('aria-hidden') === 'true' || a.inert || +getComputedStyle(a).opacity < 0.05) return false
+    }
+    return true
+  }
+  // The layer a control is drawn in: the nearest menu, dialog, popover or fixed or sticky box around it.
+  const layerOf = (el) => {
+    for (let a = el; a && a !== document.body; a = a.parentElement) {
+      if (a.matches('[role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"], [role="tooltip"], [popover], dialog')) return a
+      if (/^(fixed|sticky)$/.test(getComputedStyle(a).position)) return a
+    }
+    return document.body
+  }
+  // The nearest box that scrolls it: content scrolling under a bar that floats over it (Music's player) is another layer.
+  const scrollerOf = (el) => {
+    for (let a = el.parentElement; a && a !== document.body; a = a.parentElement) {
+      const cs = getComputedStyle(a)
+      if ((/auto|scroll/.test(cs.overflowY) && a.scrollHeight > a.clientHeight + 1) || (/auto|scroll/.test(cs.overflowX) && a.scrollWidth > a.clientWidth + 1)) return a
+    }
+    return document.body
+  }
+  // Where a box can show: the window, cut by every ancestor that clips. `scrolls` marks one that scrolls on that axis.
+  const clips = (el) => {
+    const out = []
+    for (let a = el.parentElement; a && a !== document.documentElement; a = a.parentElement) {
+      const cs = getComputedStyle(a)
+      if (cs.overflowX === 'visible' && cs.overflowY === 'visible') continue
+      out.push({ el: a, r: a.getBoundingClientRect(), x: cs.overflowX !== 'visible', y: cs.overflowY !== 'visible', sx: /auto|scroll/.test(cs.overflowX), sy: /auto|scroll/.test(cs.overflowY) })
+    }
+    return out
+  }
+  const visibleBox = (r, list) => {
+    let l = Math.max(r.left, 0), t = Math.max(r.top, 0), rt = Math.min(r.right, vw), b = Math.min(r.bottom, vh)
+    for (const c of list) {
+      if (c.x) { l = Math.max(l, c.r.left); rt = Math.min(rt, c.r.right) }
+      if (c.y) { t = Math.max(t, c.r.top); b = Math.min(b, c.r.bottom) }
+    }
+    return rt - l > 1 && b - t > 1 ? { left: l, top: t, right: rt, bottom: b, width: rt - l, height: b - t } : null
+  }
+  const controls = []
+  for (const el of document.querySelectorAll(SEL)) {
+    const r = el.getBoundingClientRect()
+    if (r.width < 4 || r.height < 4 || r.right < 0 || r.bottom < 0 || r.left > vw || r.top > vh || !shown(el)) continue
+    const list = clips(el)
+    const vis = visibleBox(r, list)
+    if (!vis) continue
+    controls.push({ el, r, vis, list, layer: layerOf(el), scroller: scrollerOf(el), events: getComputedStyle(el).pointerEvents !== 'none' })
+  }
+  const faults = []
+  // Overlaps, pair by pair within a layer.
+  for (let i = 0; i < controls.length; i++) {
+    const a = controls[i]
+    for (let j = i + 1; j < controls.length; j++) {
+      const b = controls[j]
+      if (a.layer !== b.layer || a.scroller !== b.scroller || !a.events || !b.events || a.el.contains(b.el) || b.el.contains(a.el)) continue
+      const w = Math.min(a.vis.right, b.vis.right) - Math.max(a.vis.left, b.vis.left)
+      const h = Math.min(a.vis.bottom, b.vis.bottom) - Math.max(a.vis.top, b.vis.top)
+      if (w <= 1 || h <= 1) continue
+      // Where they meet, something else on top (a dialog over the page): neither is drawn over the other there.
+      const cx = Math.max(a.vis.left, b.vis.left) + w / 2, cy = Math.max(a.vis.top, b.vis.top) + h / 2
+      const at = document.elementFromPoint(cx, cy)
+      if (!at || !(a.el.contains(at) || b.el.contains(at) || at.contains(a.el) || at.contains(b.el))) continue
+      const holds = (o, p) => o.left <= p.left + 1 && o.top <= p.top + 1 && o.right >= p.right - 1 && o.bottom >= p.bottom - 1
+      // Wholly on top of a bigger control (a card's More, a tile's check): meant, when it is the one on top.
+      if (holds(a.vis, b.vis) || holds(b.vis, a.vis)) {
+        const inner = holds(a.vis, b.vis) ? b : a
+        const outer = inner === a ? b : a
+        const top = document.elementFromPoint(inner.vis.left + inner.vis.width / 2, inner.vis.top + inner.vis.height / 2)
+        // On top, or both under something else (a dialog over the page): not one drawn over the other.
+        if (!top || inner.el === top || inner.el.contains(top) || !(outer.el === top || outer.el.contains(top))) continue
+      }
+      faults.push({ kind: 'overlap', a: path(a.el), b: path(b.el), ra: box(a.r), rb: box(b.r), by: `${Math.round(w)}x${Math.round(h)}px` })
+    }
+  }
+  // Controls cut by what holds them.
+  for (const c of controls) {
+    for (const k of c.list) {
+      const cutX = k.x && !k.sx && (c.r.left < k.r.left - 1 || c.r.right > k.r.right + 1)
+      const cutY = k.y && !k.sy && (c.r.top < k.r.top - 1 || c.r.bottom > k.r.bottom + 1)
+      if (!cutX && !cutY) continue
+      // A carousel or a list moved by script hides whole items past its edge too: only a lone cut control is a fault.
+      const past = [...k.el.querySelectorAll(SEL)].filter(o => o !== c.el && !o.contains(c.el) && !c.el.contains(o)).some(o => {
+        const r = o.getBoundingClientRect()
+        return r.width > 2 && (cutX ? r.right <= k.r.left || r.left >= k.r.right : r.bottom <= k.r.top || r.top >= k.r.bottom)
+      })
+      if (!past) faults.push({ kind: 'clipped', a: path(c.el), b: path(k.el), ra: box(c.r), rb: box(k.r) })
+      break
+    }
+  }
+  // Words cut off.
+  for (const el of document.querySelectorAll('body *')) {
+    if (!el.clientWidth || el.matches('input, textarea, select, [contenteditable="true"], svg, svg *')) continue
+    if (![...el.childNodes].some(n => n.nodeType === 3 && n.textContent.trim().length > 1)) continue
+    const r = el.getBoundingClientRect()
+    if (r.right < 0 || r.bottom < 0 || r.left > vw || r.top > vh || !shown(el)) continue
+    const cs = getComputedStyle(el)
+    if (/auto|scroll/.test(cs.overflowX + cs.overflowY)) continue
+    const hides = /hidden|clip/.test(cs.overflowX)
+    // Wider than its box: cut where the box hides it, spilling over its neighbours where it doesn't.
+    const wide = el.scrollWidth > el.clientWidth + 1 && cs.textOverflow !== 'ellipsis' && (hides || cs.whiteSpace === 'nowrap' || /pre/.test(cs.whiteSpace))
+    const tall = /hidden|clip/.test(cs.overflowY) && el.scrollHeight > el.clientHeight + 2 && cs.webkitLineClamp === 'none'
+    if (!wide && !tall) continue
+    const vis = visibleBox(r, clips(el))
+    if (!vis) continue
+    faults.push({ kind: 'cut', a: path(el), ra: box(r), by: wide ? `${el.scrollWidth - el.clientWidth}px at the side` : `${el.scrollHeight - el.clientHeight}px at the foot` })
+  }
+  const seen = new Set()
+  return faults.filter(f => { const k = `${f.kind}|${f.a}|${f.b ?? ''}`; if (seen.has(k)) return false; seen.add(k); return true }).slice(0, 40)
 }
 
 /**
@@ -293,6 +419,7 @@ export function frameStop() {
 export function animations() {
   return document.getAnimations().map(a => {
     const t = a.effect?.getComputedTiming() ?? {}
-    return { name: a.animationName || a.transitionProperty || a.id || a.constructor.name, duration: Math.round(Number(t.duration) || 0), loops: t.iterations === Infinity, state: a.playState, target: a.effect?.target?.className?.toString().slice(0, 40) ?? '' }
+    // A timer (data-exo-timer: the Store banner's time until the next game) counts down rather than moves.
+    return { name: a.animationName || a.transitionProperty || a.id || a.constructor.name, duration: Math.round(Number(t.duration) || 0), loops: t.iterations === Infinity, timer: !!a.effect?.target?.closest?.('[data-exo-timer]'), state: a.playState, target: a.effect?.target?.className?.toString().slice(0, 40) ?? '' }
   })
 }

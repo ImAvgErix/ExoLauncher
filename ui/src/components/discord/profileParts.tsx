@@ -3,7 +3,7 @@ import { CompanyLogo } from '../../brand/CompanyLogo'
 import { Close } from '../../brand/icons'
 import { host, onHostEvent } from '../../lib/host'
 import { report } from '../../lib/report'
-import { avatarUrl, cdnSize, performanceMode, snowflakeTime, type DiscordBadge, type DiscordConnection, type DiscordGuild, type DiscordProfile, type DiscordProfileExtras, type DiscordUser } from '../../lib/discord'
+import { avatarUrl, cdnSize, cdnStep, performanceMode, snowflakeTime, type DiscordBadge, type DiscordConnection, type DiscordGuild, type DiscordProfile, type DiscordProfileExtras, type DiscordRich, type DiscordUser } from '../../lib/discord'
 import { admin } from './admin'
 import { CONNECTION_MARKS } from './connectionMarks'
 import { Icons } from './icons'
@@ -11,6 +11,7 @@ import { Markdown, open } from './markdown'
 import { Avatar } from './presence'
 import { pressedArt, transition, visible } from '../../lib/viewTransition'
 import { Decoration, effectSkuOf, lookOf, ProfileEffect, StyledName, themeStyle } from './collectibles'
+import { GuildTag } from './guildTag'
 
 /** A profile as every surface shows it: Discord's reply, what Exo adds (roles, presence), and your note. */
 export type Loaded = { profile: DiscordProfile; extras: DiscordProfileExtras | null; note: string | null }
@@ -145,9 +146,7 @@ function cdn(path: string, hash: string, size: number) {
 // A banner at the width it shows (times the screen's scale), as Discord's client asks for one: the nearest size
 // its CDN has, moving when it moves; not lossless, which made a 300 px banner a multi-megabyte animation.
 function bannerUrl(path: string, hash: string, width: number) {
-  const want = width * (window.devicePixelRatio || 1)
-  const size = [300, 480, 600, 1024, 1280, 1536, 2048, 4096].find(s => s >= want) ?? 4096
-  return `https://cdn.discordapp.com/${path}/${hash}.webp?size=${size}${animated(hash) ? '&animated=true' : ''}`
+  return `https://cdn.discordapp.com/${path}/${hash}.webp?size=${cdnStep(width)}${animated(hash) ? '&animated=true' : ''}`
 }
 
 /** The banner picture (the server profile's first), else a strip of their banner color, else the fill. */
@@ -184,10 +183,14 @@ export function ProfileWho({ data, guildId, onName }: { data: Loaded; guildId: s
   const { profile, extras } = data
   const pronouns = profile.guild_member_profile?.pronouns || profile.user_profile?.pronouns
   const custom = extras?.presence?.activityType === 4 ? extras.presence.activity : null
-  const name = <StyledName name={profileName(data)} look={profileLook(data, guildId)} loop />
+  const look = profileLook(data, guildId)
+  const name = <StyledName name={profileName(data)} look={look} loop />
   return (
     <div className="exo-dc-pf-who">
-      {onName ? <button type="button" className="exo-dc-pf-name" onClick={onName}>{name}</button> : <strong className="exo-dc-pf-name">{name}</strong>}
+      <span className="exo-dc-pf-name-row">
+        {onName ? <button type="button" className="exo-dc-pf-name" onClick={onName}>{name}</button> : <strong className="exo-dc-pf-name">{name}</strong>}
+        <GuildTag look={look} />
+      </span>
       <span className="exo-dc-pf-user">
         {profile.user.username}{profile.user.bot ? <span className="exo-dc-tag">App</span> : null}{pronouns ? <> · {pronouns}</> : null}
       </span>
@@ -232,7 +235,7 @@ export function AboutMe({ data, guildId }: { data: Loaded; guildId: string | nul
   const { profile } = data
   const bio = (guildId && (profile.guild_member_profile?.bio || profile.guild_member?.bio)) || profile.user_profile?.bio || profile.user.bio
   if (!bio) return null
-  return <Section title="About Me"><div className="exo-dc-pf-bio"><Markdown text={bio} ctx={{ users: new Map(), channelName: () => null, meId: null, guildId, colors: new Map() }} /></div></Section>
+  return <Section title="About me"><div className="exo-dc-pf-bio"><Markdown text={bio} ctx={{ users: new Map(), channelName: () => null, meId: null, guildId, colors: new Map() }} /></div></Section>
 }
 
 const day = (ms: number) => new Date(ms).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
@@ -242,7 +245,7 @@ export function MemberSince({ data, guildId }: { data: Loaded; guildId: string |
   const guild = useContext(ProfilePlaces).guilds.find(g => g.id === guildId)
   const joined = data.profile.guild_member?.joined_at
   return (
-    <Section title="Member Since">
+    <Section title="Member since">
       <span className="exo-dc-pf-since">
         <span><CompanyLogo company="discord" size={16} />{day(snowflakeTime(data.profile.user.id))}</span>
         {guild && joined ? (
@@ -318,7 +321,7 @@ export function RoleList({ data, guildId }: { data: Loaded; guildId: string | nu
         })}
         {editable ? (
           <li className="exo-dc-pf-role-add">
-            <button type="button" className="exo-dc-pf-role-add-btn" aria-label="Add Role" aria-expanded={picking} onClick={() => { setPicking(open => !open); setQuery('') }}><Icons.Plus size={14} /></button>
+            <button type="button" className="exo-dc-pf-role-add-btn" aria-label="Add role" aria-expanded={picking} onClick={() => { setPicking(open => !open); setQuery('') }}><Icons.Plus size={14} /></button>
           </li>
         ) : null}
       </ul>
@@ -344,15 +347,61 @@ export function RoleList({ data, guildId }: { data: Loaded; guildId: string | nu
 const ACTIVITY = ['Playing', 'Streaming', 'Listening to', 'Watching', '', 'Competing in']
 
 /** What they're doing now (a game, a song, a stream), with its art and how long. */
+/**
+ * What they're doing, as Discord's profile shows it: the voice channel they're in (Join voice), then each activity, a
+ * song with its progress and Play on Spotify, a stream with Watch.
+ */
 export function ActivityCard({ data }: { data: Loaded }) {
-  const rich = data.extras?.presence?.rich
-  if (!rich) return null
+  const presence = data.extras?.presence
+  const activities = presence?.activities?.length ? presence.activities : presence?.rich ? [presence.rich] : []
+  const voice = data.extras?.voice
+  if (!activities.length && !voice) return null
+  return (
+    <>
+      {voice ? <VoiceActivity voice={voice} /> : null}
+      {activities.map((rich, i) => <OneActivity key={`${rich.type}:${rich.name}:${i}`} rich={rich} />)}
+    </>
+  )
+}
+
+// The voice channel they're in, with its server and how many are there; Join voice joins it, as Discord's card does.
+function VoiceActivity({ voice }: { voice: NonNullable<NonNullable<Loaded['extras']>['voice']> }) {
+  return (
+    <Section title="In voice">
+      <div className="exo-dc-pf-activity">
+        <span className="exo-dc-pf-activity-icon" aria-hidden="true"><Icons.Voice size={20} /></span>
+        <span>
+          <strong>{voice.channel}</strong>
+          <span>{voice.guild}</span>
+          <span>{voice.count === 1 ? '1 person' : `${voice.count} people`}</span>
+        </span>
+      </div>
+      <button type="button" className="exo-set-btn exo-dc-pf-activity-action" onClick={() => window.dispatchEvent(new CustomEvent('exo-dc-join-voice', { detail: { guildId: voice.guildId, channelId: voice.channelId } }))}>Join voice</button>
+    </Section>
+  )
+}
+
+const clock = (ms: number) => { const s = Math.max(0, Math.floor(ms / 1000)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}` }
+
+function OneActivity({ rich }: { rich: DiscordRich }) {
+  return rich.type === 2 && rich.name === 'Spotify' ? <SpotifyActivity rich={rich} /> : <GameActivity rich={rich} />
+}
+
+// Discord's heading for an activity: Playing, Streaming, Listening to X, Watching X, Competing in.
+const activityTitle = (rich: DiscordRich) => rich.type === 2 || rich.type === 3 ? `${ACTIVITY[rich.type]} ${rich.name}` : ACTIVITY[rich.type] || 'Activity'
+
+const ActivityPicture = ({ rich }: { rich: DiscordRich }) => rich.image
+  ? <img src={rich.image} alt="" draggable={false} />
+  : <span className="exo-dc-pf-activity-icon" aria-hidden="true"><Icons.Playing size={20} /></span>
+
+// A game, video or stream: its name, details and state, how long, and Watch for a stream.
+function GameActivity({ rich }: { rich: DiscordRich }) {
   const minutes = rich.start ? Math.max(0, Math.floor((Date.now() - rich.start) / 60_000)) : null
   const elapsed = minutes === null ? null : minutes < 60 ? `${minutes}m` : `${Math.floor(minutes / 60)}h ${minutes % 60}m`
   return (
-    <Section title={ACTIVITY[rich.type] || 'Activity'}>
+    <Section title={activityTitle(rich)}>
       <div className="exo-dc-pf-activity">
-        {rich.image ? <img src={rich.image} alt="" draggable={false} /> : <span className="exo-dc-pf-activity-icon" aria-hidden="true"><Icons.Playing size={20} /></span>}
+        <ActivityPicture rich={rich} />
         <span>
           <strong>{rich.name}</strong>
           {rich.details ? <span>{rich.details}</span> : null}
@@ -360,7 +409,43 @@ export function ActivityCard({ data }: { data: Loaded }) {
           {elapsed ? <span>for {elapsed}</span> : null}
         </span>
       </div>
+      {rich.type === 1 && rich.url ? <button type="button" className="exo-set-btn exo-dc-pf-activity-action" onClick={() => open(rich.url!)}>Watch</button> : null}
     </Section>
+  )
+}
+
+// A song on Spotify: its title, artist and album, how far in, and Play on Spotify.
+function SpotifyActivity({ rich }: { rich: DiscordRich }) {
+  return (
+    <Section title="Listening to Spotify">
+      <div className="exo-dc-pf-activity">
+        <ActivityPicture rich={rich} />
+        <span>
+          <strong>{rich.details ?? rich.name}</strong>
+          {rich.state ? <span>by {rich.state}</span> : null}
+          {rich.album ? <span>on {rich.album}</span> : null}
+        </span>
+      </div>
+      {rich.start && rich.end ? <SongProgress start={rich.start} end={rich.end} /> : null}
+      {rich.syncId ? <button type="button" className="exo-set-btn exo-dc-pf-activity-action" onClick={() => open(`https://open.spotify.com/track/${rich.syncId}`)}>Play on Spotify</button> : null}
+    </Section>
+  )
+}
+
+// How far into the song they are, ticking each second as Discord's bar does.
+function SongProgress({ start, end }: { start: number; end: number }) {
+  const [now, setNow] = useState(Date.now)
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1000)
+    return () => window.clearInterval(timer)
+  }, [])
+  const total = Math.max(1, end - start)
+  const done = Math.min(total, Math.max(0, now - start))
+  return (
+    <div className="exo-dc-pf-song" role="progressbar" aria-label="Song progress" aria-valuemin={0} aria-valuemax={Math.round(total / 1000)} aria-valuenow={Math.round(done / 1000)}>
+      <span className="exo-dc-pf-song-bar"><span style={{ width: `${(done / total) * 100}%` }} /></span>
+      <span className="exo-dc-pf-song-times"><span>{clock(done)}</span><span>{clock(total)}</span></span>
+    </div>
   )
 }
 
@@ -413,6 +498,7 @@ const SERVICES: Record<string, { label: string; url?: (c: DiscordConnection) => 
   epicgames: { label: 'Epic Games' },
   riotgames: { label: 'Riot Games' },
   roblox: { label: 'Roblox', url: byId('https://roblox.com/users/') },
+  letterboxd: { label: 'Letterboxd', url: c => `https://letterboxd.com/${encodeURIComponent(c.name)}/` },
   paypal: { label: 'PayPal' },
   ebay: { label: 'eBay', url: at('https://www.ebay.com/usr/') },
   tiktok: { label: 'TikTok', url: at('https://www.tiktok.com/@') },
@@ -425,7 +511,7 @@ const SERVICES: Record<string, { label: string; url?: (c: DiscordConnection) => 
 const MARK_OF: Record<string, string> = { twitter_legacy: 'twitter', 'playstation-stg': 'playstation' }
 
 /** The service's own mark in one white color; a domain (or a type Discord adds later) is a link. */
-function ConnectionMark({ type }: { type: string }) {
+export function ConnectionMark({ type }: { type: string }) {
   const d = CONNECTION_MARKS[MARK_OF[type] ?? type]
   if (d) return <svg className="exo-dc-pf-mark" viewBox="0 0 24 24" width={24} height={24} aria-hidden="true"><path d={d} fill="currentColor" /></svg>
   return <span className="exo-dc-pf-mark is-plain" aria-hidden="true"><Icons.Link size={16} /></span>
@@ -506,12 +592,12 @@ export function MutualLine({ data, mine = false, onFriends, onServers }: { data:
   const friends = data.profile.mutual_friends_count ?? 0
   const servers = data.profile.mutual_guilds?.length ?? 0
   if (mine || (!friends && !servers)) return null
-  const plural = (n: number, what: string) => `${n} Mutual ${what}${n === 1 ? '' : 's'}`
+  const plural = (n: number, what: string) => `${n} mutual ${what}${n === 1 ? '' : 's'}`
   return (
     <span className="exo-dc-pf-mutual">
-      {friends ? <button type="button" onClick={onFriends}>{plural(friends, 'Friend')}</button> : null}
+      {friends ? <button type="button" onClick={onFriends}>{plural(friends, 'friend')}</button> : null}
       {friends && servers ? <span aria-hidden="true">·</span> : null}
-      {servers ? <button type="button" onClick={onServers}>{plural(servers, 'Server')}</button> : null}
+      {servers ? <button type="button" onClick={onServers}>{plural(servers, 'server')}</button> : null}
     </span>
   )
 }

@@ -96,7 +96,7 @@ export function bootGate(props: BootGateProps): ReactNode {
           <div className="max-w-md rounded-[14px] border border-line-soft bg-elevated p-6 text-center" role="alert">
             <h1 className="text-[length:calc(20px*var(--exo-scale,1))] font-semibold text-fg">Settings could not be loaded</h1>
             <p className="mt-2 text-[length:calc(12px*var(--exo-scale,1))] leading-relaxed text-muted">{settingsError}</p>
-            <Button type="button" size="sm" className="exo-ghost-btn is-primary mt-5" onPress={props.onRetrySettings}>
+            <Button type="button" size="sm" className="exo-set-btn is-primary mt-5" onPress={props.onRetrySettings}>
               Try again
             </Button>
           </div>

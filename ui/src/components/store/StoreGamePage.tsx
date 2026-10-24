@@ -81,7 +81,7 @@ function Media({ game, onScreen }: { game: ReturnType<typeof useStoreGame>; onSc
       {game.error ? (
         <div className="exo-store-error" role="alert">
           <p>{game.error}</p>
-          <button type="button" className="exo-ghost-btn" onClick={game.retry}>Retry</button>
+          <button type="button" className="exo-set-btn" onClick={game.retry}>Retry</button>
         </div>
       ) : null}
       {!game.data && !game.error ? <MediaSkeleton /> : null}

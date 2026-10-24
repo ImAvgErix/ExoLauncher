@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using ExoLauncher.Services.DiscordClient;
 
@@ -64,6 +65,64 @@ public sealed partial class WebHostBridge
         return new { ok = reply.Error is null, message = reply.Error, messages = reply.Body, places = PlacesOf(session, reply.Body) };
     }
 
+    /// <summary>
+    /// Bookmarks and reminders (Discord's saved messages): what is saved (state: the reminders and the bookmarked ids),
+    /// a page of bookmarks, or saving (a reminder when due is given) and removing one.
+    /// </summary>
+    private static async Task<object> DiscordSavedAsync(JsonElement p, bool hasParams, CancellationToken ct)
+    {
+        if (DiscordSession.Current is not { } session) return new { ok = false, message = "Discord isn't connected." };
+        switch (ReadString(p, hasParams, "action"))
+        {
+            case "state":
+                var state = await session.Rest.SavedAsync(ct).ConfigureAwait(false);
+                var saved = state.Body is { ValueKind: JsonValueKind.Object } s ? s : default;
+                var reminders = saved.ValueKind == JsonValueKind.Object && saved.TryGetProperty("reminders", out var r) && r.ValueKind == JsonValueKind.Array ? r : default(JsonElement?);
+                session.RemindAt(reminders);
+                return new
+                {
+                    ok = state.Error is null || NothingSaved(state), message = NothingSaved(state) ? null : state.Error, reminders,
+                    bookmarkIds = saved.ValueKind == JsonValueKind.Object && saved.TryGetProperty("bookmark_ids", out var ids) ? ids : default(JsonElement?),
+                    places = PlacesOf(session, SavedMessages(reminders)),
+                };
+            case "bookmarks":
+                var before = DateTimeOffset.TryParse(ReadString(p, hasParams, "before"), CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var b) ? b : (DateTimeOffset?)null;
+                var page = await session.Rest.BookmarksAsync(before, ct).ConfigureAwait(false);
+                var body = page.Body is { ValueKind: JsonValueKind.Object } o ? o : default;
+                var results = body.ValueKind == JsonValueKind.Object && body.TryGetProperty("results", out var list) && list.ValueKind == JsonValueKind.Array ? list : default(JsonElement?);
+                return new
+                {
+                    ok = page.Error is null || NothingSaved(page), message = NothingSaved(page) ? null : page.Error, results,
+                    hasMore = body.ValueKind == JsonValueKind.Object && body.TryGetProperty("has_more", out var more) && more.ValueKind == JsonValueKind.True,
+                    places = PlacesOf(session, SavedMessages(results)),
+                };
+            case "save" or "remove" when Channel(p, hasParams) is { } c && ReadString(p, hasParams, "messageId") is { } raw:
+                if (ReadString(p, hasParams, "action") == "remove")
+                {
+                    var removed = await c.Session.Rest.UnsaveMessageAsync(c.Id, DiscordRest.Id(raw), ct).ConfigureAwait(false);
+                    return new { ok = removed.Error is null, message = removed.Error };
+                }
+                // A reminder: up to a year ahead, as Discord's picker allows.
+                DateTimeOffset? due = ReadDouble(p, hasParams, "dueAt") is { } ms ? DateTimeOffset.FromUnixTimeMilliseconds((long)ms) : null;
+                if (due is { } at && (at < DateTimeOffset.UtcNow.AddMinutes(-1) || at > DateTimeOffset.UtcNow.AddDays(366))) return new { ok = false, message = "Pick a time in the next year." };
+                var put = await c.Session.Rest.SaveMessageAsync(c.Id, DiscordRest.Id(raw), due, ct).ConfigureAwait(false);
+                return new { ok = put.Error is null, message = put.Error };
+            default:
+                return new { ok = false };
+        }
+    }
+
+    // Someone who never saved a message has no saved messages yet: Discord answers Unknown Saved Messages (a 10xxx code).
+    private static bool NothingSaved(DiscordRest.Reply reply) =>
+        reply.Error is not null && reply.Body is { ValueKind: JsonValueKind.Object } body && body.TryGetProperty("code", out var code)
+        && code.TryGetInt32(out var n) && n is >= 10000 and < 11000;
+
+    // The messages inside saved messages ({ message, save_data }), for where each one is.
+    private static JsonElement? SavedMessages(JsonElement? saved) =>
+        saved is { ValueKind: JsonValueKind.Array } list
+            ? JsonSerializer.SerializeToElement(list.EnumerateArray().Where(i => i.TryGetProperty("message", out var m) && m.ValueKind == JsonValueKind.Object).Select(i => i.GetProperty("message")).ToList())
+            : null;
+
     /// <summary>The Inbox's For You: Discord's notification center, a page older than before.</summary>
     private static async Task<object> DiscordForYouAsync(JsonElement p, bool hasParams, CancellationToken ct)
     {
@@ -103,6 +162,35 @@ public sealed partial class WebHostBridge
             var add = ReadBool(p, hasParams, "add") != false;
             if (add && burst && !c.Session.Cache.Premium) return new { ok = false, message = "Super Reactions come with Nitro." };
             reply = await c.Session.Rest.ReactAsync(c.Id, DiscordRest.Id(id), emoji, add, burst, ct).ConfigureAwait(false);
+        }
+        return new { ok = reply.Error is null, message = reply.Error };
+    }
+
+    /// <summary>
+    /// A message's menu actions Discord keeps for its author or moderators: Publish (an announcement channel's message
+    /// to the servers following it), Remove Embeds, and Remove All Reactions (Manage Messages).
+    /// </summary>
+    private static async Task<object> DiscordMessageActionAsync(JsonElement p, bool hasParams, CancellationToken ct)
+    {
+        if (Channel(p, hasParams) is not { } c || ReadString(p, hasParams, "messageId") is not { } raw) return new { ok = false };
+        var id = DiscordRest.Id(raw);
+        var manage = c.Session.Cache.CanManageMessages(c.Id);
+        var mine = ReadBool(p, hasParams, "mine") == true;
+        DiscordRest.Reply reply;
+        switch (ReadString(p, hasParams, "action"))
+        {
+            case "publish" when c.Session.Cache.ChannelType(c.Id) == 5 && (mine || manage):
+                reply = await c.Session.Rest.CrosspostAsync(c.Id, id, ct).ConfigureAwait(false);
+                break;
+            case "removeEmbeds" when mine || manage:
+                var flags = ReadDouble(p, hasParams, "flags") is { } f && f is >= 0 and < 1 << 30 ? (long)f : 0;
+                reply = await c.Session.Rest.SuppressEmbedsAsync(c.Id, id, flags, ct).ConfigureAwait(false);
+                break;
+            case "clearReactions" when manage:
+                reply = await c.Session.Rest.ClearReactionsAsync(c.Id, id, ct).ConfigureAwait(false);
+                break;
+            default:
+                return new { ok = false, message = "You don't have permission to do that here." };
         }
         return new { ok = reply.Error is null, message = reply.Error };
     }

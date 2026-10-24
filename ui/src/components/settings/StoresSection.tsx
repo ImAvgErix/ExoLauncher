@@ -102,7 +102,7 @@ function MissingStore({ store, onError }: { store: StoreStatus; onError: (error:
   }
   return (
     <li>
-      <button type="button" className="exo-set-chip" disabled={busy} onClick={() => void get()}>
+      <button type="button" className="exo-set-btn" disabled={busy} onClick={() => void get()}>
         <CompanyLogo company={store.store} size={16} />
         {store.displayName}
       </button>

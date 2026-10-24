@@ -791,6 +791,44 @@ public sealed partial class MainWindow : Window
         e.Handled = true;
     }
 
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MemoryStatusEx
+    {
+        public uint Length, MemoryLoad;
+        public ulong TotalPhys, AvailPhys, TotalPageFile, AvailPageFile, TotalVirtual, AvailVirtual, AvailExtendedVirtual;
+    }
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool GlobalMemoryStatusEx(ref MemoryStatusEx status);
+
+    /// <summary>"commit 34.9/35.5 GB; most: cl x8 18.2 GB, …": Windows' commit charge and the programs holding the most.</summary>
+    private static string SystemCommitLine()
+    {
+        var status = new MemoryStatusEx { Length = (uint)Marshal.SizeOf<MemoryStatusEx>() };
+        var commit = GlobalMemoryStatusEx(ref status)
+            ? FormattableString.Invariant($"commit {(status.TotalPageFile - status.AvailPageFile) / 1e9:0.0}/{status.TotalPageFile / 1e9:0.0} GB")
+            : "commit unknown";
+        var rows = new List<(string, long)>();
+        foreach (var process in Process.GetProcesses())
+        {
+            using (process)
+            {
+                try { rows.Add((process.ProcessName, process.PrivateMemorySize64)); }
+                catch { /* gone, or another user's */ }
+            }
+        }
+        return commit + "; most: " + CommitHolders(rows, 3);
+    }
+
+    /// <summary>The programs holding the most private memory, each name's processes summed: "cl x8 18.2 GB, node 1.1 GB".</summary>
+    internal static string CommitHolders(IEnumerable<(string Name, long Bytes)> processes, int top) =>
+        string.Join(", ", processes
+            .GroupBy(p => p.Name, StringComparer.OrdinalIgnoreCase)
+            .Select(g => (Name: g.Key, Count: g.Count(), Bytes: g.Sum(p => p.Bytes)))
+            .OrderByDescending(g => g.Bytes)
+            .Take(top)
+            .Select(g => FormattableString.Invariant($"{g.Name}{(g.Count > 1 ? " x" + g.Count : "")} {g.Bytes / 1e9:0.0} GB")));
+
     /// <summary>
     /// A dead renderer must never leave a white window. Reload the cached UI a
     /// bounded number of times; after that, show the native fallback with Restart.
@@ -798,6 +836,8 @@ public sealed partial class MainWindow : Window
     private void OnWebProcessFailed(CoreWebView2 sender, CoreWebView2ProcessFailedEventArgs e)
     {
         var line = $"webview-process-failed kind={e.ProcessFailedKind} reason={e.Reason} exit={e.ExitCode} recoveries={_webProcessRecoveries}";
+        // Out of memory is usually Windows' commit limit, reached by whatever else runs: say how full it was and who held it.
+        if (e.Reason == CoreWebView2ProcessFailedReason.OutOfMemory) line += " " + SystemCommitLine();
         // WebView2 restarts its GPU and utility processes by itself; only the page's own processes need Exo.
         if (e.ProcessFailedKind is CoreWebView2ProcessFailedKind.RenderProcessExited
             or CoreWebView2ProcessFailedKind.RenderProcessUnresponsive

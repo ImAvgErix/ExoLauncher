@@ -6,6 +6,7 @@ import { AppSelect } from './Components'
 import { uploadFile } from './Chat'
 import { Markdown, type MarkdownContext } from './markdown'
 import { ModalBack } from './SettingsLayer'
+import { Switch } from '../Switch'
 
 // Form component types.
 const ROW = 1, TEXT_INPUT = 4, TEXT = 10, LABEL = 18, FILE_UPLOAD = 19, RADIO = 21, CHECKS = 22, CHECKBOX = 23
@@ -95,7 +96,7 @@ function AppForm({ modal, guildId, onClose }: { modal: AppModal; guildId: string
         {error ? <p className="is-bad" role="alert">{error}</p> : null}
         <div className="exo-dc-modal-row">
           <button type="button" className="exo-dc-tab" onClick={onClose}>Cancel</button>
-          <button type="submit" className="button button--primary" disabled={busy}>{busy ? 'Submitting…' : 'Submit'}</button>
+          <button type="submit" className="exo-set-btn is-primary" disabled={busy}>{busy ? 'Submitting…' : 'Submit'}</button>
         </div>
       </form>
     </ModalBack>
@@ -116,10 +117,10 @@ function FormField(props: FieldProps) {
   const { field, answer, onAnswer } = props
   if (field.component.type === CHECKBOX) {
     return (
-      <label className="exo-dc-app-check">
-        <input type="checkbox" checked={answer?.checked ?? false} onChange={event => onAnswer({ checked: event.target.checked })} />
+      <span className="exo-dc-app-check">
         <span>{field.label}</span>
-      </label>
+        <Switch checked={answer?.checked ?? false} label={field.label ?? 'Checkbox'} onChange={checked => onAnswer({ checked })} />
+      </span>
     )
   }
   return <LabeledField {...props} />

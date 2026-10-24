@@ -130,7 +130,9 @@ internal static partial class NvidiaDriverService
     private static string Plain(string name) => name.Replace("NVIDIA ", "", StringComparison.OrdinalIgnoreCase).Replace(" GPU", "", StringComparison.OrdinalIgnoreCase).Trim();
 
     /// <summary>The newest driver for this card on the branch (game or studio; a workstation card has one), from NVIDIA (cached an hour); null when it can't tell.</summary>
-    internal static async Task<Latest?> LatestAsync(string branch, CancellationToken ct)
+    /// <remarks>An answer older than the hour shows at once while NVIDIA is asked again (System's first showing never
+    /// waits on the network; the row reads again each time it shows); <paramref name="fresh"/> (an update) waits for it.</remarks>
+    internal static async Task<Latest?> LatestAsync(string branch, CancellationToken ct, bool fresh = false)
     {
         SweepUnpacked();
         if (Card() is not { } card) return null;
@@ -144,10 +146,12 @@ internal static partial class NvidiaDriverService
         {
             LoadCacheLocked();
             var waiting = DateTime.UtcNow < _backoffUntil;
-            if (Cache.TryGetValue(key, out var c) && (waiting || DateTime.UtcNow - c.At < TimeSpan.FromHours(1))) return c.Value;
+            var known = Cache.TryGetValue(key, out var c);
+            if (known && (waiting || DateTime.UtcNow - c.At < TimeSpan.FromHours(1))) return c.Value;
             if (waiting) return null;
             if (!Fetching.TryGetValue(key, out task))
                 Fetching[key] = task = Task.Run(() => FetchAsync(card, key, workstation, studio, hotfix));
+            if (known && !fresh) return c.Value;
         }
         return await task.WaitAsync(ct).ConfigureAwait(false);
     }

@@ -48,18 +48,18 @@ export function DmProfile({ userId, status, fallback, hidden }: { userId: string
       {servers || mutualFriends ? (
         <div className="exo-dc-pf-mutuals">
           {servers ? (
-            <MutualToggle label={`Mutual Servers — ${servers}`} open={open === 'servers'} onToggle={() => toggle('servers')}>
+            <MutualToggle label={`Mutual servers — ${servers}`} open={open === 'servers'} onToggle={() => toggle('servers')}>
               <MutualServers data={data} />
             </MutualToggle>
           ) : null}
           {mutualFriends ? (
-            <MutualToggle label={`Mutual Friends — ${mutualFriends}`} open={open === 'friends'} onToggle={() => toggle('friends')}>
+            <MutualToggle label={`Mutual friends — ${mutualFriends}`} open={open === 'friends'} onToggle={() => toggle('friends')}>
               <MutualFriends friends={friends} onPerson={friend => showFullProfile(friend.id, friend)} />
             </MutualToggle>
           ) : null}
         </div>
       ) : null}
-      <button type="button" className="exo-dc-pf-view" onClick={full}>View Full Profile</button>
+      <button type="button" className="exo-dc-pf-view" onClick={full}>View full profile</button>
       <ProfileEffectOf data={data} guildId={null} />
     </aside>
   )
@@ -119,8 +119,8 @@ function FullProfile({ target, meId, onClose, onMessage }: {
             <div className="exo-dc-pf-head">
               <ProfileFace data={data} guildId={guildId} status={data.extras?.presence?.status ?? null} size={120} />
               <span className="exo-dc-pf-actions">
-                {me ? <button type="button" className="button button--primary exo-dc-blurple" onClick={() => { onClose(); requestDiscordSettings('profiles') }}>Edit Profile</button> : null}
-                {me ? null : <button type="button" className="button button--primary exo-dc-blurple" onClick={() => onMessage(data.profile.user.id)}>Message</button>}
+                {me ? <button type="button" className="exo-set-btn is-primary" onClick={() => { onClose(); requestDiscordSettings('profiles') }}>Edit profile</button> : null}
+                {me ? null : <button type="button" className="exo-set-btn is-primary" onClick={() => onMessage(data.profile.user.id)}>Message</button>}
                 {me || data.profile.user.bot ? null : <FriendAction data={data} name={name} />}
                 <button type="button" className="exo-dc-pf-more is-inline" aria-label="More"
                   onClick={event => { const b = event.currentTarget.getBoundingClientRect(); openUserMenu(data.profile.user.id, b.left, b.bottom + 4, name, data.profile.user.username) }}>
@@ -164,7 +164,7 @@ function FriendAction({ data, name }: { data: Loaded; name: string }) {
   const raised = 'exo-dc-tab is-raised'
   return (
     <>
-      {relation === 0 ? <button type="button" className={raised} disabled={busy} onClick={() => act('add', 4)}><Icons.AddFriend size={16} />Add Friend</button> : null}
+      {relation === 0 ? <button type="button" className={raised} disabled={busy} onClick={() => act('add', 4)}><Icons.AddFriend size={16} />Add friend</button> : null}
       {relation === 4 ? <button type="button" className={raised} disabled>Pending</button> : null}
       {relation === 3 ? (
         <>
@@ -181,9 +181,9 @@ function FriendAction({ data, name }: { data: Loaded; name: string }) {
 // About Me, Activity while they're doing something, and (not on your own) Mutual Friends and Mutual Servers with their counts.
 function tabsOf(data: Loaded, friends: DiscordUser[] | null, me: boolean) {
   const count = (n: number | undefined) => n ? ` (${n})` : ''
-  const tabs: [ProfileTab, string][] = [['about', 'About Me']]
+  const tabs: [ProfileTab, string][] = [['about', 'About me']]
   if (data.extras?.presence?.rich) tabs.push(['activity', 'Activity'])
-  if (!me) tabs.push(['friends', `Mutual Friends${count(friends?.length)}`], ['servers', `Mutual Servers${count(data.profile.mutual_guilds?.length)}`])
+  if (!me) tabs.push(['friends', `Mutual friends${count(friends?.length)}`], ['servers', `Mutual servers${count(data.profile.mutual_guilds?.length)}`])
   return tabs
 }
 

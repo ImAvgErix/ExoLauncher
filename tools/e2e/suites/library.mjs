@@ -30,10 +30,11 @@ async function closeFolder(t) {
 }
 
 /** The game's right-click menu, then its item starting with `label`; false when either is missing (the menu is closed). */
+// A game's menu item by its exact words: a folder is a check item named as the folder ("Folder" is not "Folder 2").
 async function fileFrom(t, button, id, label) {
   await t.shell.rightClick(button, id)
   await sleep(450)
-  if (await t.shell.click((l) => [...document.querySelectorAll('[role^="menuitem"]')].find(i => i.getBoundingClientRect().width && i.textContent.trim().startsWith(l)), label)) return true
+  if (await t.shell.click((l) => [...document.querySelectorAll('[role^="menuitem"]')].find(i => i.getBoundingClientRect().width && i.textContent.trim() === l), label)) return true
   await t.shell.key('Escape')
   return false
 }
@@ -80,7 +81,8 @@ export async function run(t) {
     Object.assign(filed, { id: game.id, folder: from.name })
     c.evidence.game = game.name
     c.evidence.folder = from.name
-    if (!await fileFrom(t, panelGame, game.id, `Remove from ${from.name}`)) { await closeFolder(t); return [...failures, `no "Remove from ${from.name}" in its menu`] }
+    // Its menu's Folders section: the folder it is in, ticked; pressing it takes the game out.
+    if (!await fileFrom(t, panelGame, game.id, from.name)) { await closeFolder(t); return [...failures, `no ${from.name} in its menu's Folders`] }
     await sleep(900)
     const left = await t.shell.eval(`document.querySelector('.exo-folder-panel')?.querySelectorAll('button[data-game-id]').length ?? 0`)
     if (from.count > 1 && left !== from.count - 1) failures.push(`the open folder holds ${left} after the remove, not ${from.count - 1}`)
@@ -221,7 +223,7 @@ export async function run(t) {
     const failures = []
     if (!await fileFrom(t, gridGame, id, 'New folder')) return ["no New folder in the game's menu"]
     await sleep(700)
-    const ticked = await t.shell.eval(`document.querySelector('.exo-folder-sheet-count')?.textContent ?? null`)
+    const ticked = await t.shell.eval(`document.querySelector('.exo-folder-sheet-count[data-picked]')?.textContent ?? null`)
     if (ticked !== '1 game') failures.push(`the new folder starts with ${ticked}, not the game`)
     await t.shell.type('Exo e2e solo')
     await t.shell.click(() => [...document.querySelectorAll('.exo-folder-sheet-foot button')].find(b => b.textContent === 'Create'))
@@ -230,7 +232,7 @@ export async function run(t) {
     if (await t.shell.call(looseGame, id)) failures.push('the game is still in the grid as well')
     await sleep(600)
     await openFolder(t, 'Exo e2e solo')
-    if (!await fileFrom(t, panelGame, id, 'Remove from Exo e2e solo')) failures.push('no "Remove from Exo e2e solo" in its menu')
+    if (!await fileFrom(t, panelGame, id, 'Exo e2e solo')) failures.push("no Exo e2e solo in its menu's Folders")
     await sleep(900)
     await closeFolder(t)
     if ((await t.shell.eval(FOLDERS)).some(f => f.name === 'Exo e2e solo')) failures.push('the emptied folder stayed')
@@ -252,13 +254,13 @@ export async function run(t) {
     const failures = []
     await t.shell.eval(`${TOGGLE}.click()`)
     await sleep(300)
-    const [count, again] = await t.shell.eval(`[document.querySelector('.exo-folder-sheet-count')?.textContent, ${TOGGLE}?.textContent]`)
+    const [count, again] = await t.shell.eval(`[document.querySelector('.exo-folder-sheet-count[data-picked]')?.textContent, ${TOGGLE}?.textContent]`)
     if (count !== `${n} game${n === 1 ? '' : 's'}`) failures.push(`it ticked ${count}, the button said ${n}`)
     if (again !== 'Remove not installed') failures.push(`the button reads "${again}" once they are all ticked`)
     await c.shot('not-installed', t.shell)
     await t.shell.eval(`${TOGGLE}.click()`)
     await sleep(300)
-    const back = await t.shell.eval(`document.querySelector('.exo-folder-sheet-count')?.textContent`)
+    const back = await t.shell.eval(`document.querySelector('.exo-folder-sheet-count[data-picked]')?.textContent`)
     if (back !== '0 games') failures.push(`taking them back left ${back}`)
     const before = (await t.shell.eval(FOLDERS)).length
     await t.shell.click(() => [...document.querySelectorAll('.exo-folder-sheet-foot button')].find(b => b.textContent === 'Cancel'))
@@ -274,7 +276,7 @@ export async function run(t) {
     const id = filed.id ?? await t.shell.eval(`document.querySelector('.exo-game-grid button[data-game-id]:not(.exo-folder-tile *)')?.dataset.gameId ?? null`)
     if (!into || !id) c.skip('no folder or no game in the grid')
     const failures = []
-    if (!await fileFrom(t, gridGame, id, `Add to ${into.name}`)) return [`no "Add to ${into.name}" in the game's menu`]
+    if (!await fileFrom(t, gridGame, id, into.name)) return [`no ${into.name} in the game's menu's Folders`]
     await sleep(900)
     if (await t.shell.call(looseGame, id)) failures.push('the game is still in the grid')
     const after = (await t.shell.eval(FOLDERS)).find(f => f.name === into.name)

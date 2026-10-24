@@ -127,7 +127,7 @@ export function AddCard({ onSaved, onCancel }: { onSaved: (choices: DiscordPayme
       {error ? <p className="exo-dc-pay-note is-bad" role="alert">{error}</p> : null}
       <div className="exo-dc-shop-actions">
         {onCancel ? <button type="button" className="exo-set-btn" disabled={busy} onClick={onCancel}>Back</button> : null}
-        <button type="button" className="button button--primary" disabled={busy || !ready} onClick={save}>{busy ? 'Saving card' : 'Save card'}</button>
+        <button type="button" className="exo-set-btn is-primary" disabled={busy || !ready} onClick={save}>{busy ? 'Saving card' : 'Save card'}</button>
       </div>
     </div>
   )

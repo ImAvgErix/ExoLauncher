@@ -347,11 +347,11 @@ function Chips({ groups, filter, favorites, items, matches, onPick }: {
 }) {
   if (groups.length < 2 && !filter && !favorites && !items?.some(item => item.favourite)) return null
   return (
-    <div className="exo-captures-chips" role="toolbar" aria-label="Games">
-      <button type="button" className={`exo-capture-chip${filter || favorites ? '' : ' is-on'}`} aria-pressed={!filter && !favorites} onClick={() => onPick(null)}>All</button>
-      <button type="button" className={`exo-capture-chip${favorites ? ' is-on' : ''}`} aria-pressed={favorites} onClick={() => onPick(null, true)}><Star on={favorites} />Favorites</button>
+    <div className="exo-shelf-chips exo-captures-chips" role="toolbar" aria-label="Games">
+      <button type="button" className="exo-shelf-chip" aria-pressed={!filter && !favorites} onClick={() => onPick(null)}>All</button>
+      <button type="button" className="exo-shelf-chip" aria-pressed={favorites} onClick={() => onPick(null, true)}><Star on={favorites} />Favorites</button>
       {groups.map(group => (
-        <button key={group.key} type="button" className={`exo-capture-chip${filter && matches(group) ? ' is-on' : ''}`}
+        <button key={group.key} type="button" className="exo-shelf-chip"
           aria-pressed={!!filter && matches(group)} onClick={() => onPick(group.key)}>{group.title}</button>
       ))}
     </div>

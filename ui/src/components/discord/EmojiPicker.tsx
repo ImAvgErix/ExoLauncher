@@ -33,6 +33,53 @@ function loadSaved(): Promise<Saved> {
   return saved
 }
 
+/** A reaction offered in one press: a server emoji usable here, or a Unicode one. */
+export type QuickReaction = { key: string; name: string; reaction: string; custom?: DiscordGuildEmoji; emoji?: string }
+
+// Discord's own picks when the account has used too few: the hover bar's three, and the menu's start list.
+const BAR_PICKS = ['100', 'laughing', 'sparkling_heart']
+const MENU_PICKS = ['100', 'thumbsup', 'thumbsdown', 'heart', 'point_up', 'eyes', 'weary', 'laughing', 'white_check_mark', 'x']
+
+/**
+ * Discord's quick reactions here: on the hover bar the 3 reactions used most, in the message menu favorites and then
+ * those (up to 12). Only emoji usable here count, as in Discord, and Discord's own picks fill the rest.
+ */
+export function useQuickReactions(guildId: string | null, menu: boolean): QuickReaction[] {
+  const [sources, setSources] = useState<[Saved, DiscordEmojis, UnicodeEmojiSet] | null>(null)
+  useEffect(() => {
+    let live = true
+    Promise.all([loadSaved(), loadEmojis(guildId), loadUnicodeEmoji()]).then(all => { if (live) setSources(all) })
+      .catch((error: unknown) => report(error, 'EmojiPicker.quick'))
+    return () => { live = false }
+  }, [guildId])
+  return useMemo(() => {
+    if (!sources) return []
+    const [mine, emojis, unicode] = sources
+    const custom = new Map(emojis.guilds.flatMap(g => g.emojis.map(e => [e.id, e] as const)))
+    const usable = (key: string): QuickReaction | null => {
+      const e = custom.get(key)
+      if (e) return e.native ? { key, name: e.name, reaction: `${e.name}:${e.id}`, custom: e } : null
+      const char = unicode.byName.get(key)
+      return char ? { key, name: key, reaction: char, emoji: char } : null
+    }
+    const seen = new Set<string>()
+    return [...(menu ? mine.favorites : []), ...mine.reactions, ...(menu ? MENU_PICKS : BAR_PICKS)].map(usable)
+      .filter((q): q is QuickReaction => q !== null && !seen.has(q.reaction) && !!seen.add(q.reaction)).slice(0, menu ? 12 : 3)
+  }, [sources, menu])
+}
+
+/** Counts a reaction in the account's frequently used ones, as Discord's picker does. */
+export function noteReaction(key: string) {
+  void host.discordEmojiFavorites('use', key, true).catch(() => { })
+}
+
+/** A quick reaction's emoji at a reaction's size. */
+export function QuickEmoji({ quick }: { quick: QuickReaction }) {
+  return quick.custom
+    ? <img src={emojiUrl(quick.custom.id, quick.custom.animated, 48)} alt="" width={20} height={20} draggable={false} />
+    : <span className="exo-dc-quick-char" aria-hidden="true">{quick.emoji}</span>
+}
+
 /** A server emoji in a message, as Discord sends it. */
 export function emojiText(emoji: DiscordGuildEmoji): string {
   return `<${emoji.animated ? 'a' : ''}:${emoji.name}:${emoji.id}>`
@@ -153,7 +200,7 @@ export function EmojiPicker({ guildId, reacting, tabs, onPick, onClose }: {
         {q ? null : <PickerNav favorites={favorites.length > 0} frequent={frequent.length > 0} groups={groups} unicode={unicode} onJump={jump} />}
         <div className="exo-dc-picker-list" ref={list}>
           {q ? null : section('favorites', 'Favorites', favorites)}
-          {q ? null : section('frequent', 'Frequently Used', frequent)}
+          {q ? null : section('frequent', 'Frequently used', frequent)}
           {groups.map(g => section(g.id, g.name, serverCells(g.emojis)))}
           {found ? (
             <div className="exo-dc-picker-grid">{unicodeCells(found).map(tile)}</div>
@@ -177,7 +224,7 @@ function PickerNav({ favorites, frequent, groups, unicode, onJump }: { favorites
   return (
     <nav className="exo-dc-picker-nav" aria-label="Emoji categories">
       {favorites ? <button type="button" aria-label="Favorites" onClick={() => onJump('favorites')}><Icons.Star size={18} /></button> : null}
-      {frequent ? <button type="button" aria-label="Frequently Used" onClick={() => onJump('frequent')}><Icons.Recent size={18} /></button> : null}
+      {frequent ? <button type="button" aria-label="Frequently used" onClick={() => onJump('frequent')}><Icons.Recent size={18} /></button> : null}
       {groups.map(g => (
         <button key={g.id} type="button" aria-label={g.name} onClick={() => onJump(g.id)}>
           {g.icon ? <img className="exo-dc-picker-guild" src={g.icon} alt="" draggable={false} /> : <span>{[...g.name][0]}</span>}

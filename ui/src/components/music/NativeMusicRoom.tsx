@@ -131,7 +131,7 @@ export function NativeMusicRoom({ service, active, shown, nowPlaying }: {
       <main className="exo-hosted-room">
         <div className="exo-hosted-room-state" role="status">
           <p>{switching ? 'Switching to Spotify’s app…' : switchError ?? message ?? 'Spotify from the Microsoft Store can’t play inside Exo.'}</p>
-          <button type="button" className="button button--secondary button--sm" disabled={switching} onClick={() => void switchToClassic()}>
+          <button type="button" className="exo-set-btn" disabled={switching} onClick={() => void switchToClassic()}>
             Switch to Spotify’s app
           </button>
         </div>
@@ -143,7 +143,7 @@ export function NativeMusicRoom({ service, active, shown, nowPlaying }: {
       <main className="exo-hosted-room">
         <div className="exo-hosted-room-state" role={state === 'error' ? 'alert' : 'status'}>
           <p>{state === 'error' ? message ?? `${adapter.name} could not open.` : `Opening ${adapter.name}`}</p>
-          {state === 'error' ? <button type="button" className="button button--secondary button--sm" onClick={() => setAttempt(n => n + 1)}>Open again</button> : null}
+          {state === 'error' ? <button type="button" className="exo-set-btn" onClick={() => setAttempt(n => n + 1)}>Open again</button> : null}
         </div>
       </main>
     )

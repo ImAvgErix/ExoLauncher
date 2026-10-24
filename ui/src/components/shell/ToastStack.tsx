@@ -4,6 +4,7 @@ import { Button } from '../ui/Button'
 import { Loader2 } from '../../brand/icons'
 import type { MissingDependency } from '../../lib/host'
 import type { AppUpdate } from './useAppUpdate'
+import { WHATS_NEW } from '../../lib/whatsNew'
 import type { StatusTone } from './useActionStatus'
 
 export type DepPrompt = {
@@ -26,15 +27,15 @@ function DependencyToast({ prompt, onSkip, onInstall, onContinue }: {
         {prompt.awaitingContinue ? `Waiting for ${names}` : `Needs ${names}`}
       </p>
       <div className="flex shrink-0 items-center gap-2">
-        <Button type="button" variant="ghost" size="sm" className="exo-ghost-btn" onPress={onSkip}>
+        <Button type="button" size="sm" className="exo-set-btn" onPress={onSkip}>
           Try without runtimes
         </Button>
         {prompt.awaitingContinue ? (
-          <Button type="button" size="sm" className="exo-ghost-btn is-primary" onPress={onContinue}>
+          <Button type="button" size="sm" className="exo-set-btn is-primary" onPress={onContinue}>
             Check and retry
           </Button>
         ) : (
-          <Button type="button" size="sm" className="exo-ghost-btn is-primary" onPress={onInstall}>
+          <Button type="button" size="sm" className="exo-set-btn is-primary" onPress={onInstall}>
             Install
           </Button>
         )}
@@ -54,14 +55,19 @@ function UpdateToast({ update }: { update: AppUpdate }) {
         <p role="status" className="font-medium text-fg">{update.banner}</p>
       </div>
       <div className="flex shrink-0 items-center gap-2">
+        {!update.busy && update.upcoming && (
+          <Button type="button" size="sm" className="exo-set-btn" onPress={() => window.dispatchEvent(new Event(WHATS_NEW))}>
+            What's new
+          </Button>
+        )}
         {!update.busy && (
-          <Button type="button" variant="ghost" size="sm" className="exo-ghost-btn" onPress={update.dismiss}>
+          <Button type="button" size="sm" className="exo-set-btn" onPress={update.dismiss}>
             Later
           </Button>
         )}
         <Button
           type="button"
-          className={`exo-ghost-btn is-primary exo-update-action${update.busy ? ' is-active' : ''}`}
+          className={`exo-set-btn is-primary exo-update-action${update.busy ? ' is-active' : ''}`}
           isDisabled={update.busy}
           onPress={() => void update.install()}
         >
@@ -136,7 +142,7 @@ export function ToastStack({
       <div className="exo-toast-stack">
         {transferFailures.map(failure => <div key={failure.gameId} role="alert" className="exo-toast is-bad">
           <p className="min-w-0 flex-1">{failure.title}: {failure.message}</p>
-          <Button type="button" variant="ghost" size="sm" className="exo-ghost-btn" onPress={() => onDismissTransferFailure(failure.gameId)}>
+          <Button type="button" size="sm" className="exo-set-btn" onPress={() => onDismissTransferFailure(failure.gameId)}>
             Dismiss
           </Button>
         </div>)}
@@ -148,7 +154,7 @@ export function ToastStack({
           <div role={notice.tone === 'bad' ? 'alert' : 'status'} className={`exo-toast${notice.tone === 'bad' ? ' is-bad' : ''}`}>
             {notice.sticky ? <p className="min-w-0 flex-1">{notice.message}</p> : notice.message}
             {notice.sticky ? (
-              <Button type="button" variant="ghost" size="sm" className="exo-ghost-btn" onPress={onDismissNotice}>
+              <Button type="button" size="sm" className="exo-set-btn" onPress={onDismissNotice}>
                 Dismiss
               </Button>
             ) : null}

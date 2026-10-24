@@ -172,4 +172,26 @@ public sealed class DiscordInboxTests
         // Cut through é: the broken last character goes, not a replacement mark.
         Assert.Equal("line one\nline tw", DiscordRest.DecodePreview(bytes.AsSpan(0, bytes.Length - 1), cut: true));
     }
+
+    // Discord's @silent: only as the message's first word (then a space or nothing), which is left out of what's sent.
+    [Theory]
+    [InlineData("@silent hello", true, "hello")]
+    [InlineData("@silent", true, "")]
+    [InlineData("@silently hello", false, "@silently hello")]
+    [InlineData("hello @silent", false, "hello @silent")]
+    public void SilentMessagesAsDiscordReadsThem(string text, bool silent, string sent)
+    {
+        Assert.Equal((silent, sent), DiscordRest.Silent(text));
+    }
+
+    [Theory]
+    [InlineData("""{ "message": { "content": "woah", "author": { "username": "umlazy", "global_name": "lazy" } }, "save_data": { "author_summary": "", "message_summary": "" } }""", "lazy: woah")]
+    [InlineData("""{ "message": { "content": "", "author": { "username": "umlazy", "global_name": null } }, "save_data": { "author_summary": "", "message_summary": "" } }""", "umlazy")]
+    [InlineData("""{ "save_data": { "author_summary": "Erix", "message_summary": "the plan" } }""", "Erix: the plan")]
+    [InlineData("""{ "save_data": {} }""", "A message you saved for later")]
+    public void ReminderSaysWhoAndWhatEvenWhenDiscordsSummariesAreEmpty(string json, string text)
+    {
+        using var doc = JsonDocument.Parse(json);
+        Assert.Equal(text, DiscordSession.ReminderText(doc.RootElement, doc.RootElement.GetProperty("save_data")));
+    }
 }

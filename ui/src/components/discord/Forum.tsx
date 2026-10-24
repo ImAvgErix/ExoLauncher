@@ -1,9 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { host } from '../../lib/host'
 import { report } from '../../lib/report'
 import { avatarUrl, displayName, snowflakeTime, type DiscordChannel, type DiscordForumTag, type DiscordMessage, type DiscordThread } from '../../lib/discord'
 import { Icons } from './icons'
-import { emojiUrl, formatTimestamp } from './markdown'
+import { emojiUrl, formatTimestamp, MarkdownLine, type MarkdownContext } from './markdown'
+import { sized } from './Attachments'
+import { Topic } from './ChatHeader'
 import { isAfter } from './messageCache'
 
 type Page = { threads: DiscordThread[]; first: Map<string, DiscordMessage>; tags: DiscordForumTag[]; error: string | null; done: boolean; loading: boolean }
@@ -13,8 +15,16 @@ type Page = { threads: DiscordThread[]; first: Map<string, DiscordMessage>; tags
  * the first message's author, text and picture, its replies and last activity. Open posts come first, then archived
  * ones load as the list scrolls.
  */
-export function ForumView({ channel, active, onOpen }: { channel: DiscordChannel; active: boolean; onOpen: (thread: DiscordChannel) => void }) {
+export function ForumView({ channel, guildId, channelName, active, onOpen }: {
+  channel: DiscordChannel
+  guildId: string
+  channelName: (id: string) => string | null
+  active: boolean
+  onOpen: (thread: DiscordChannel) => void
+}) {
   const { page, more } = usePosts(channel.id)
+  // Posts begin with markdown: their emoji, mentions and links, as Discord draws a preview.
+  const ctx = useMemo<MarkdownContext>(() => ({ users: new Map([...page.first.values()].flatMap(m => m.mentions).map(u => [u.id, u])), channelName, meId: null, guildId, colors: new Map() }), [page.first, channelName, guildId])
   // Viewing a forum reads it, as Discord acks a forum on screen (its newest post is the forum's newest message).
   const newest = page.threads.reduce<string | null>((top, t) => top && !isAfter(t.id, top) ? top : t.id, null)
   useEffect(() => { if (active && newest) void host.discordAck(channel.id, newest).catch(() => { }) }, [active, channel.id, newest])
@@ -30,7 +40,7 @@ export function ForumView({ channel, active, onOpen }: { channel: DiscordChannel
       <header className="exo-dc-chat-head">
         <Icons.Forum size={22} />
         <strong>{channel.name}</strong>
-        {channel.topic ? <><span className="exo-dc-head-line" aria-hidden="true" /><span className="exo-dc-chat-topic">{channel.topic}</span></> : null}
+        {channel.topic ? <Topic channel={channel} guildId={guildId} topic={channel.topic} ctx={ctx} /> : null}
       </header>
       <div className="exo-dc-forum" onScroll={event => { const el = event.currentTarget; if (el.scrollHeight - el.scrollTop - el.clientHeight < 400) more() }}>
         <div className="exo-dc-forum-bar">
@@ -38,7 +48,7 @@ export function ForumView({ channel, active, onOpen }: { channel: DiscordChannel
             <Icons.Search size={16} />
             <input placeholder="Search posts" value={query} onChange={event => setQuery(event.target.value)} aria-label="Search posts" />
           </label>
-          {channel.canSend !== false ? <button type="button" className="button button--primary exo-dc-blurple" onClick={() => setWriting(true)}>New Post</button> : null}
+          {channel.canSend !== false ? <button type="button" className="exo-set-btn is-primary" onClick={() => setWriting(true)}>New post</button> : null}
         </div>
         {page.tags.length ? (
           <div className="exo-dc-forum-tags" role="group" aria-label="Tags">
@@ -50,7 +60,7 @@ export function ForumView({ channel, active, onOpen }: { channel: DiscordChannel
           </div>
         ) : null}
         {writing ? <NewPost channelId={channel.id} tags={page.tags} onCancel={() => setWriting(false)} onPosted={thread => { setWriting(false); open(thread) }} /> : null}
-        {shown.map(thread => <PostCard key={thread.id} thread={thread} first={page.first.get(thread.id)} tags={page.tags} onOpen={() => open({ id: thread.id, name: thread.name, locked: thread.thread_metadata?.locked })} />)}
+        {shown.map(thread => <PostCard key={thread.id} thread={thread} first={page.first.get(thread.id)} tags={page.tags} ctx={ctx} onOpen={() => open({ id: thread.id, name: thread.name, locked: thread.thread_metadata?.locked })} />)}
         {page.loading ? <p className="exo-dc-note" role="status">Loading posts</p> : null}
         {page.error ? <p className="exo-dc-note" role="alert">{page.error}</p> : null}
         {!page.loading && !page.error && page.done && shown.length === 0 ? <p className="exo-dc-note">{q || tag ? 'No posts match.' : 'No posts yet.'}</p> : null}
@@ -101,28 +111,32 @@ function TagLabel({ tag }: { tag: DiscordForumTag }) {
   )
 }
 
-function PostCard({ thread, first, tags, onOpen }: { thread: DiscordThread; first?: DiscordMessage; tags: DiscordForumTag[]; onOpen: () => void }) {
+function PostCard({ thread, first, tags, ctx, onOpen }: { thread: DiscordThread; first?: DiscordMessage; tags: DiscordForumTag[]; ctx: MarkdownContext; onOpen: () => void }) {
   const image = first?.attachments.find(a => a.content_type?.startsWith('image/'))
+  // Its picture from Discord's media proxy at the size that covers the 88 px square, not the original (often 4K, megabytes).
+  const w = image?.width ?? 0, h = image?.height ?? 0
+  const cover = w && h ? 88 / Math.min(w, h) : 0
+  const thumb = image ? sized(image.proxy_url ?? image.url, w, h, cover ? { width: w * cover, height: h * cover } : undefined) : null
   const applied = tags.filter(t => thread.applied_tags?.includes(t.id))
   return (
     <button type="button" className="exo-dc-forum-post" onClick={onOpen}>
       <span className="exo-dc-forum-post-body">
         {applied.length ? <span className="exo-dc-forum-tags">{applied.map(t => <span key={t.id} className="exo-dc-tag-chip is-static"><TagLabel tag={t} /></span>)}</span> : null}
         <strong>{thread.name}</strong>
-        <PostPreview thread={thread} first={first} />
+        <PostPreview thread={thread} first={first} ctx={ctx} />
         <span className="exo-dc-forum-meta">
           <span><Icons.Chat size={14} /> {thread.message_count ?? 0}</span>
           <span>{formatTimestamp(new Date(snowflakeTime(thread.last_message_id ?? thread.id)), 'R')}</span>
           {thread.thread_metadata?.locked ? <span>Locked</span> : null}
         </span>
       </span>
-      {image ? <img className="exo-dc-forum-thumb" src={image.proxy_url ?? image.url} alt="" loading="lazy" draggable={false} /> : null}
+      {thumb ? <img className="exo-dc-forum-thumb" src={thumb} alt="" loading="lazy" draggable={false} /> : null}
     </button>
   )
 }
 
 // Who started the post and how it begins.
-function PostPreview({ thread, first }: { thread: DiscordThread; first?: DiscordMessage }) {
+function PostPreview({ thread, first, ctx }: { thread: DiscordThread; first?: DiscordMessage; ctx: MarkdownContext }) {
   const owner = thread.owner
   const author = first ? displayName(first) : owner?.nick ?? owner?.user?.global_name ?? owner?.user?.username
   if (!author && !first?.content) return null
@@ -130,7 +144,7 @@ function PostPreview({ thread, first }: { thread: DiscordThread; first?: Discord
     <span className="exo-dc-forum-preview">
       {first ? <img className="exo-dc-forum-avatar" src={avatarUrl(first.author, 20)} alt="" draggable={false} /> : null}
       {author ? <b>{author}</b> : null}
-      {first?.content ? <span>{first.content}</span> : null}
+      {first?.content ? <MarkdownLine text={first.content} ctx={ctx} /> : null}
     </span>
   )
 }
@@ -174,7 +188,7 @@ function NewPost({ channelId, tags, onCancel, onPosted }: {
       <div className="exo-dc-forum-new-foot">
         {error ? <p className="exo-dc-forum-error" role="alert">{error}</p> : <span />}
         <button type="button" className="exo-dc-tab" onClick={onCancel}>Cancel</button>
-        <button type="button" className="button button--primary exo-dc-blurple" disabled={busy || !name.trim() || !content.trim()} onClick={() => void post()}>Post</button>
+        <button type="button" className="exo-set-btn is-primary" disabled={busy || !name.trim() || !content.trim()} onClick={() => void post()}>Post</button>
       </div>
     </div>
   )

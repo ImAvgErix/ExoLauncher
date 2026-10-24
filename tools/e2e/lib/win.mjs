@@ -1,5 +1,5 @@
 // Node side of lib/win.ps1: the screen as shown, the real mouse, Exo's window and its processes.
-import { execFile } from 'node:child_process'
+import { execFile, spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 
 const script = fileURLToPath(new URL('./win.ps1', import.meta.url))
@@ -32,4 +32,20 @@ export const win = {
   shown: (name) => run('shown', { Name: name }),
   /** Which of Exo's own assemblies shipped without ReadyToRun code: { checked, plain }. */
   precompiled: () => run('precompiled'),
+  /**
+   * Waits for Exo Capture's snip overlay and gives it Return (snip the screen under the cursor) or Escape (cancel).
+   * `ready` settles once the waiter is watching (start the snip after it); `done` with { shown, at } (Unix ms).
+   */
+  snip(key) {
+    const child = spawn('pwsh', ['-NoProfile', '-NonInteractive', '-File', script, '-Command', 'snip', '-Name', key], { windowsHide: true })
+    let out = '', err = '', readied
+    const ready = new Promise(resolve => { readied = resolve })
+    child.stdout.on('data', chunk => { out += chunk; if (out.includes('"ready"')) readied() })
+    child.stderr.on('data', chunk => { err += chunk })
+    const done = new Promise((resolve, reject) => child.on('close', () => {
+      readied()
+      try { resolve(JSON.parse(out.trim().split(/\r?\n/).pop())) } catch { reject(new Error(`win.ps1 snip: ${(err || out).trim().slice(0, 400)}`)) }
+    }))
+    return { ready, done }
+  },
 }

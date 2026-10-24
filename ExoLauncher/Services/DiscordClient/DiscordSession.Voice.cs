@@ -29,6 +29,23 @@ internal sealed partial class DiscordSession
     }
     private string? _voiceGuild, _voiceChannel, _voiceSession, _voiceState, _voiceMessage;
     private bool _muted, _deafened, _e2ee, _camera, _micSilent;
+    // Someone else in this call records it (their client flags CLIPS_ENABLED): the voice panel says so, as Discord warns.
+    private bool _recordedHere;
+
+    /// <summary>
+    /// Exo Capture keeps a replay or records, so a call's voices go into it: Exo flags itself in calls as recording
+    /// (CLIPS_ENABLED), as Discord's client does with clips on, so everyone in the call is told. Set by the capture's state.
+    /// </summary>
+    internal static bool Recording
+    {
+        get => Volatile.Read(ref _recording) == 1;
+        set
+        {
+            if (Interlocked.Exchange(ref _recording, value ? 1 : 0) == (value ? 1 : 0)) return;
+            if (Current is { } session && session._voiceChannel is not null) session.SendVoiceState();
+        }
+    }
+    private static int _recording;
     private Timer? _voiceTick;
     // Each join counts up; the join timeout ends only its own join, and only before it ever connected.
     private int _joinId, _connectedJoin;
@@ -39,7 +56,7 @@ internal sealed partial class DiscordSession
     {
         lock (_voiceGate)
             // ringing: a DM call ringing this user now, for a page that opens after the ring began (its notification says to).
-            return new { state = _voiceState ?? "off", guildId = _voiceGuild, channelId = _voiceChannel, muted = _muted, deafened = _deafened, e2ee = _e2ee, micSilent = _micSilent, message = _voiceMessage, ringing = _ringingMe.FirstOrDefault() };
+            return new { state = _voiceState ?? "off", guildId = _voiceGuild, channelId = _voiceChannel, muted = _muted, deafened = _deafened, e2ee = _e2ee, micSilent = _micSilent, message = _voiceMessage, ringing = _ringingMe.FirstOrDefault(), recorded = _recordedHere && _voiceChannel is not null };
     }
 
     /// <summary>Joins a voice channel (or a DM's call when <paramref name="guildId"/> is null), leaving any other first.</summary>
@@ -54,6 +71,7 @@ internal sealed partial class DiscordSession
         lock (_voiceGate)
         {
             _ = TearDownVoice();
+            _recordedHere = false;
             _voiceGuild = guildId;
             _voiceChannel = channelId;
             _voiceSession = null;
@@ -239,6 +257,13 @@ internal sealed partial class DiscordSession
         if (!ReferenceEquals(from, _voice)) return;
         if (kind == "speaking") { OnSpeaking(data); Event?.Invoke("discord.speaking", data); return; }
         if (kind == "ptt") { Sound(JsonSerializer.SerializeToElement(data).GetProperty("on").GetBoolean() ? "ptt_start" : "ptt_stop"); return; }
+        if (kind == "clips")
+        {
+            lock (_voiceGate) { if (_recordedHere) return; _recordedHere = true; }
+            AppLog.Info("Discord voice: someone in this call records it (clips on); the voice panel says so.");
+            PublishVoice();
+            return;
+        }
         if (kind == "micSilent")
         {
             lock (_voiceGate) _micSilent = JsonSerializer.SerializeToElement(data).GetProperty("silent").GetBoolean();
@@ -287,7 +312,8 @@ internal sealed partial class DiscordSession
             ["self_mute"] = _muted,
             ["self_deaf"] = _deafened,
             ["self_video"] = _camera,
-            ["flags"] = 2,
+            // Discord's voice flags: 2 lets Discord's clips record this voice (the account allows it); 1, Exo Capture records the call.
+            ["flags"] = 2 | (Recording ? 1 : 0),
         });
 
     private void PublishVoice()

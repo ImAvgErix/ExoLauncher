@@ -75,8 +75,8 @@ function Start({ state, onGo }: { state: State; onGo: (desktop: boolean) => void
         <h1>Uninstall Exo Launcher</h1>
         <p>Your games, settings and accounts stay on this PC.</p>
         <div className="exo-setup-actions">
-          <button type="button" className="button button--primary exo-setup-cta" data-autofocus onClick={() => onGo(false)}>Uninstall</button>
-          <button type="button" className="button button--ghost" onClick={() => send('close')}>Cancel</button>
+          <Button variant="primary" className="exo-setup-cta" data-autofocus onPress={() => onGo(false)}>Uninstall</Button>
+          <Button variant="ghost" onPress={() => send('close')}>Cancel</Button>
         </div>
       </section>
     )
@@ -87,10 +87,10 @@ function Start({ state, onGo }: { state: State; onGo: (desktop: boolean) => void
       <h1>Exo Launcher</h1>
       <p>{state.updating ? `Update to ${state.version}` : `Version ${state.version}`}</p>
       <div className="exo-setup-actions">
-        <button type="button" className="button button--primary exo-setup-cta" data-autofocus onClick={() => onGo(desktop)}>{state.updating ? 'Update' : 'Install'}</button>
-        <button type="button" className="button button--ghost exo-setup-more" aria-expanded={options} onClick={() => setOptions(o => !o)}>
+        <Button variant="primary" className="exo-setup-cta" data-autofocus onPress={() => onGo(desktop)}>{state.updating ? 'Update' : 'Install'}</Button>
+        <Button variant="ghost" className="exo-setup-more" aria-expanded={options} onPress={() => setOptions(o => !o)}>
           Options<ChevronDown className="exo-setup-chevron" />
-        </button>
+        </Button>
       </div>
       <div className="exo-setup-options" data-open={options} aria-hidden={!options}>
         <div className="exo-setup-options-inner">
@@ -128,10 +128,10 @@ function Done({ state }: { state: State }) {
       <p>{removed ? 'Your games, settings and accounts are still here if you come back.' : 'Exo is ready.'}</p>
       <div className="exo-setup-actions">
         {removed
-          ? <button type="button" className="button button--primary exo-setup-cta" data-autofocus onClick={() => send('close')}>Close</button>
+          ? <Button variant="primary" className="exo-setup-cta" data-autofocus onPress={() => send('close')}>Close</Button>
           : <>
-            <button type="button" className="button button--primary exo-setup-cta" data-autofocus onClick={() => send('launch')}>Launch Exo</button>
-            <button type="button" className="button button--ghost" onClick={() => send('close')}>Close</button>
+            <Button variant="primary" className="exo-setup-cta" data-autofocus onPress={() => send('launch')}>Launch Exo</Button>
+            <Button variant="ghost" onPress={() => send('close')}>Close</Button>
           </>}
       </div>
     </section>
@@ -146,7 +146,7 @@ function Failed({ state, problem }: { state: State; problem: string }) {
       <h1>{verb}</h1>
       <p className="exo-setup-problem">{problem}</p>
       <div className="exo-setup-actions">
-        <button type="button" className="button button--primary exo-setup-cta" data-autofocus onClick={() => send('close')}>Close</button>
+        <Button variant="primary" className="exo-setup-cta" data-autofocus onPress={() => send('close')}>Close</Button>
       </div>
     </section>
   )

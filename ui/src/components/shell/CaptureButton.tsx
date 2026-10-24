@@ -31,7 +31,15 @@ export function CaptureButton() {
   if (!state?.present) return null
 
   async function run(action: Action) {
-    menuRef.current?.hidePopover()
+    const menu = menuRef.current
+    if (action === 'snip' && menu) {
+      // The snip freezes the screen as it is: the menu goes at once, without its fade, and is off the screen
+      // (three frames: drawn, handed to Windows, composed) before the snip starts.
+      menu.style.transition = 'none'
+      menu.hidePopover()
+      for (let i = 0; i < 3; i++) await new Promise(requestAnimationFrame)
+      menu.style.transition = ''
+    } else menu?.hidePopover()
     if (action === 'captures') { openCaptures(); return }
     try {
       const result = await host.captureAct(action)

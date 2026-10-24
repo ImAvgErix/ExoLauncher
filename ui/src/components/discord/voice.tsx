@@ -21,6 +21,13 @@ export function useDiscordVoice() {
   const [speaking, setSpeaking] = useState<Set<string>>(new Set())
   const [ringing, setRinging] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  // A call whose camera goes on once it connects: Start Video Call, Join with Video.
+  const cameraFor = useRef<string | null>(null)
+  useEffect(() => {
+    if (!cameraFor.current || voice.state !== 'connected' || voice.channelId !== cameraFor.current) return
+    cameraFor.current = null
+    void startCamera().then(why => { if (why) setError(why) })
+  }, [voice.state, voice.channelId])
 
   useEffect(() => {
     // A call that started ringing before this mounted (the room opened from its notification) shows too.
@@ -62,9 +69,19 @@ export function useDiscordVoice() {
 
   return {
     voice, speaking, ringing, error,
-    join: (guildId: string | null, channelId: string) => { setRinging(null); return run('join', { guildId, channelId }) },
-    call: async (channelId: string) => {
+    /** video: the camera goes on as it connects (Join with Video). */
+    join: async (guildId: string | null, channelId: string, video = false) => {
+      setRinging(null)
+      cameraFor.current = video ? channelId : null
+      const ok = await run('join', { guildId, channelId })
+      if (!ok) cameraFor.current = null
+      return ok
+    },
+    /** A DM call that rings the others, as Discord's Start Voice Call; video: Start Video Call, the camera on as it connects. */
+    call: async (channelId: string, video = false) => {
+      cameraFor.current = video ? channelId : null
       if (await run('join', { guildId: null, channelId })) void host.discordRing(channelId).catch(() => { })
+      else cameraFor.current = null
     },
     leave: () => run('leave'),
     setMuted: (muted: boolean) => run('set', { muted }),
@@ -80,18 +97,34 @@ export function useDiscordVoice() {
 
 export type VoiceControls = ReturnType<typeof useDiscordVoice>
 
-/** Who is in a voice channel, under it in the list; a ring while someone speaks (not someone you muted, as in Discord). */
+// The one mark Discord shows after a person in a voice channel: deafened (by the server, or themselves), muted (by
+// the server, themselves, or you), most serious first; the server's own in red.
+function VoiceFlag({ member, mutedByYou }: { member: DiscordVoiceMember; mutedByYou: boolean }) {
+  const flag = member.serverDeaf ? ['Server deafened', 'is-server', true] as const : member.deaf ? ['Deafened', '', true] as const
+    : member.serverMute ? ['Server muted', 'is-server', false] as const : member.mute ? ['Muted', '', false] as const
+      : mutedByYou ? ['Muted by you', 'is-yours', false] as const : null
+  if (!flag) return null
+  const [label, kind, deaf] = flag
+  return <span className={`exo-dc-voice-flag ${kind}`} role="img" aria-label={label}>{deaf ? <Icons.Deafened size={14} /> : <Icons.Muted size={14} />}</span>
+}
+
+/**
+ * Who is in a voice channel, under it in the list, as Discord shows them: a ring while someone speaks (not someone
+ * you muted), LIVE while they stream, a camera while it's on, and their mute or deafen mark.
+ */
 export function VoiceMembers({ members, speaking }: { members: DiscordVoiceMember[]; speaking: Set<string> }) {
   const audio = useAccountSettings().audioUsers
   return (
     <ul className="exo-dc-voice-members">
       {members.map(member => {
-        const muted = member.mute || audio[member.id]?.muted === true
+        const mutedByYou = audio[member.id]?.muted === true
         return (
-          <li key={member.id} className={speaking.has(member.id) && !muted ? 'is-speaking' : undefined} data-dc-user={member.id} data-dc-name={member.name} data-dc-call="">
+          <li key={member.id} className={speaking.has(member.id) && !member.mute && !mutedByYou ? 'is-speaking' : undefined} data-dc-user={member.id} data-dc-name={member.name} data-dc-call="">
             {member.avatar ? <img src={member.avatar} alt="" draggable={false} loading="lazy" /> : <span className="exo-dc-voice-dot" />}
             <span className="exo-dc-item-name">{member.name}</span>
-            {member.deaf ? <Icons.Deafened size={14} className="exo-dc-voice-flag" /> : muted ? <Icons.Muted size={14} className="exo-dc-voice-flag" /> : null}
+            {member.stream ? <span className="exo-dc-voice-live">LIVE</span> : null}
+            {member.video ? <span className="exo-dc-voice-flag" role="img" aria-label="Camera on"><Icons.Camera size={14} /></span> : null}
+            <VoiceFlag member={member} mutedByYou={mutedByYou} />
           </li>
         )
       })}
@@ -124,10 +157,10 @@ export function CallPersonItems({ userId, me }: { userId: string; me: boolean })
   return (
     <>
       <span className="exo-dc-menu-line" role="separator" />
-      <div className="exo-dc-ctx-volume" role="group" aria-label="User Volume">
-        <span>User Volume</span>
+      <div className="exo-dc-ctx-volume" role="group" aria-label="User volume">
+        <span>User volume</span>
         <span className="exo-dc-ctx-volume-row">
-          <Slider min={0} max={200} value={at} aria-label="User Volume" onChange={event => setAudioUser(userId, { volume: fromSlider(Number(event.target.value)) })} />
+          <Slider min={0} max={200} value={at} aria-label="User volume" onChange={event => setAudioUser(userId, { volume: fromSlider(Number(event.target.value)) })} />
           <span>{Math.round(at)}%</span>
         </span>
       </div>
@@ -246,7 +279,7 @@ export function VoiceRoom({ channel, controls, meId, onJoin, dm = false, chat }:
       ) : null}
       <footer ref={bar} className="exo-dc-voice-bar exo-glass">
         {here ? <CallButtons controls={controls} channelId={channel.id} onCameraError={setCameraError} /> : (
-          <button type="button" className="exo-dc-voice-join" disabled={channel.canConnect === false} onClick={onJoin}>{dm ? 'Join Call' : 'Join Voice'}</button>
+          <button type="button" className="exo-dc-voice-join" disabled={channel.canConnect === false} onClick={onJoin}>{dm ? 'Join call' : 'Join voice'}</button>
         )}
       </footer>
     </section>
@@ -261,7 +294,7 @@ function VoiceHead({ channel, chat }: { channel: DiscordChannel; chat?: { shown:
       <strong>{channel.name}</strong>
       {chat ? (
         <span className="exo-dc-head-tools">
-          <button type="button" className="exo-dc-icon-btn" aria-label={chat.shown ? 'Hide Chat' : 'Show Chat'} aria-pressed={chat.shown} onClick={chat.onToggle}>
+          <button type="button" className="exo-dc-icon-btn" aria-label={chat.shown ? 'Hide chat' : 'Show chat'} aria-pressed={chat.shown} onClick={chat.onToggle}>
             <Icons.Chat size={20} />
           </button>
         </span>
@@ -331,7 +364,7 @@ function VoiceTile({ member, me, speaking, muted, canWatch, onWatch }: { member:
       {showing ? null : member.avatar ? <img className="exo-dc-voice-face" src={member.avatar} alt="" draggable={false} /> : <span className="exo-dc-voice-tile-initial">{member.name.slice(0, 1).toUpperCase()}</span>}
       {showing ? null : <Decoration look={member.look} size={128} />}
       {member.stream ? <span className="exo-dc-live">LIVE</span> : null}
-      {canWatch ? <button type="button" className="exo-dc-watch" onClick={onWatch}>Watch Stream</button> : null}
+      {canWatch ? <button type="button" className="exo-dc-watch" onClick={onWatch}>Watch stream</button> : null}
       <span className="exo-dc-voice-tile-name">
         {member.deaf ? <Icons.Deafened size={14} /> : muted ? <Icons.Muted size={14} /> : null}
         <span className="exo-dc-voice-tile-label">{member.name}</span>
@@ -348,7 +381,7 @@ function StreamTile({ member, onFocus, onStop }: { member: DiscordVoiceMember; o
       <canvas ref={stream.ref} className="exo-dc-voice-video" hidden={!stream.live} />
       <button type="button" className="exo-dc-stream-tile-focus" aria-label={`Focus ${member.name}'s stream`} onClick={onFocus} />
       <span className="exo-dc-live">LIVE</span>
-      <button type="button" className="exo-dc-voice-btn is-hangup exo-dc-stream-tile-stop" aria-label="Stop Watching" onClick={onStop}><Icons.StopWatching size={16} /></button>
+      <button type="button" className="exo-dc-voice-btn is-hangup exo-dc-stream-tile-stop" aria-label="Stop watching" onClick={onStop}><Icons.StopWatching size={16} /></button>
       <span className="exo-dc-voice-tile-name"><span className="exo-dc-voice-tile-label">{member.name}</span></span>
     </article>
   )
@@ -363,7 +396,7 @@ function CameraButton({ onError }: { onError: (why: string | null) => void }) {
   const { state } = useCamera()
   const on = state !== 'off'
   return (
-    <button type="button" className={`exo-dc-voice-btn${on ? ' is-live' : ''}`} aria-label={on ? 'Turn Off Camera' : 'Turn On Camera'} aria-pressed={on}
+    <button type="button" className={`exo-dc-voice-btn${on ? ' is-live' : ''}`} aria-label={on ? 'Turn off camera' : 'Turn on camera'} aria-pressed={on}
       onClick={() => { onError(null); if (on) void stopCamera(); else void startCamera().then(onError) }}>
       <Icons.Camera size={20} />
     </button>
@@ -423,7 +456,7 @@ function StreamStage({ member, onStop, onRetry, membersHidden, onToggleMembers }
       {stream.live ? null : failed ? (
         <p className="exo-dc-note" role="alert">
           {member.name}'s stream didn't start.{' '}
-          <button type="button" className="exo-dc-tab" onClick={retry}>Try Again</button>
+          <button type="button" className="exo-dc-tab" onClick={retry}>Try again</button>
         </p>
       ) : <p className="exo-dc-note">Joining {member.name}'s stream…</p>}
       <span className="exo-dc-live">LIVE</span>
@@ -431,22 +464,22 @@ function StreamStage({ member, onStop, onRetry, membersHidden, onToggleMembers }
         <span className="exo-dc-stream-name">{member.name}</span>
         <span className="exo-dc-stream-tools">
           <span className="exo-dc-stream-sound">
-            <button type="button" className={`exo-dc-voice-btn${sound.muted ? ' is-off' : ''}`} aria-label={sound.muted ? 'Unmute Stream' : 'Mute Stream'} aria-pressed={sound.muted}
+            <button type="button" className={`exo-dc-voice-btn${sound.muted ? ' is-off' : ''}`} aria-label={sound.muted ? 'Unmute stream' : 'Mute stream'} aria-pressed={sound.muted}
               onClick={() => setAudioUser(member.id, { muted: !sound.muted }, true)}>
               {sound.muted ? <Icons.SoundOff size={18} /> : <Icons.Sound size={18} />}
             </button>
-            <Slider min={0} max={200} value={level} aria-label="Stream Volume" disabled={sound.muted}
+            <Slider min={0} max={200} value={level} aria-label="Stream volume" disabled={sound.muted}
               onChange={event => setAudioUser(member.id, { volume: fromSlider(Number(event.target.value)) }, true)} />
           </span>
           {full ? null : (
-            <button type="button" className="exo-dc-voice-btn" aria-label={membersHidden ? 'Show Members' : 'Hide Members'} aria-pressed={membersHidden} onClick={onToggleMembers}>
+            <button type="button" className="exo-dc-voice-btn" aria-label={membersHidden ? 'Show members' : 'Hide members'} aria-pressed={membersHidden} onClick={onToggleMembers}>
               {membersHidden ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
             </button>
           )}
-          <button type="button" className="exo-dc-voice-btn" aria-label={full ? 'Exit Full Screen' : 'Full Screen'} onClick={toggleFull}>
+          <button type="button" className="exo-dc-voice-btn" aria-label={full ? 'Exit full screen' : 'Full screen'} onClick={toggleFull}>
             {full ? <Icons.ExitFullScreen size={18} /> : <Icons.FullScreen size={18} />}
           </button>
-          <button type="button" className="exo-dc-voice-btn is-hangup" aria-label="Stop Watching" onClick={onStop}><Icons.StopWatching size={18} /></button>
+          <button type="button" className="exo-dc-voice-btn is-hangup" aria-label="Stop watching" onClick={onStop}><Icons.StopWatching size={18} /></button>
         </span>
       </span>
     </div>
@@ -464,7 +497,7 @@ export function VoicePanel({ controls, place, onOpen }: { controls: VoiceControl
     <section className="exo-dc-voice" aria-label="Voice">
       <div className="exo-dc-voice-status">
         <strong className={voice.state === 'connected' ? 'is-on' : undefined}>
-          {voice.state === 'connected' ? 'Voice Connected' : voice.state === 'connecting' ? 'Connecting…' : 'Voice'}
+          {voice.state === 'connected' ? 'Voice connected' : voice.state === 'connecting' ? 'Connecting…' : 'Voice'}
           {voice.state === 'connected' && voice.e2ee ? <span className="exo-dc-voice-e2ee" role="img" aria-label="End-to-end encrypted"><Icons.Lock size={12} /></span> : null}
         </strong>
         {error ? <span role="alert">{error}</span> : voice.state !== 'off' && place
@@ -473,6 +506,8 @@ export function VoicePanel({ controls, place, onOpen }: { controls: VoiceControl
         {voice.state === 'connected' && voice.micSilent && !voice.muted
           ? <span className="exo-dc-voice-warn" role="status">Your mic seems silent. Check it’s plugged in, unmuted and its gain is up.</span>
           : null}
+        {/* Someone else's clips (or Exo Capture) record this call: Discord tells everyone in it. */}
+        {voice.state === 'connected' && voice.recorded ? <span className="exo-dc-voice-warn" role="status">Someone in this call has clips on, so your voice may be recorded.</span> : null}
       </div>
       {voice.state !== 'off' ? (
         <button type="button" className="exo-dc-icon-btn is-hangup" aria-label="Disconnect" onClick={() => void controls.leave()}>
@@ -485,12 +520,13 @@ export function VoicePanel({ controls, place, onOpen }: { controls: VoiceControl
   )
 }
 
-/** Someone is calling you in a DM: Join, or Decline (Discord stops ringing you everywhere). */
-export function IncomingCall({ name, onJoin, onDecline }: { name: string; onJoin: () => void; onDecline: () => void }) {
+/** Someone is calling you in a DM: Join, Join with video (the camera on as it connects), or Decline (Discord stops ringing you everywhere). */
+export function IncomingCall({ name, onJoin, onDecline }: { name: string; onJoin: (video: boolean) => void; onDecline: () => void }) {
   return (
     <div className="exo-dc-call exo-glass" role="alert">
       <span><strong>{name}</strong> is calling</span>
-      <button type="button" className="is-join" onClick={onJoin}>Join</button>
+      <button type="button" className="is-join" onClick={() => onJoin(false)}>Join</button>
+      <button type="button" className="is-join" onClick={() => onJoin(true)}>Join with video</button>
       <button type="button" onClick={onDecline}>Decline</button>
     </div>
   )

@@ -144,11 +144,11 @@ export function FolderSheet({ folder, library, folders, onSave, onCancel }: {
             </div>
             <div className="exo-folder-sheet-picture">
               {art ? <img className="exo-folder-sheet-thumb" src={art} alt="" draggable={false} /> : null}
-              <button type="button" className="exo-ghost-btn" autoFocus={cropped} onClick={() => picker.current?.click()}>
+              <button type="button" className="exo-set-btn" autoFocus={cropped} onClick={() => picker.current?.click()}>
                 <ImageUpload size={16} />
                 {art ? 'Change picture' : 'Add picture'}
               </button>
-              {art ? <button type="button" className="exo-ghost-btn" onClick={() => setArt(null)}>Remove picture</button> : null}
+              {art ? <button type="button" className="exo-set-btn" onClick={() => setArt(null)}>Remove picture</button> : null}
               <span className={pictureError ? 'exo-folder-sheet-error' : 'exo-folder-sheet-count'} role={pictureError ? 'alert' : undefined}>
                 {pictureError ?? (dropping ? 'Drop the picture to crop it.' : 'PNG, JPEG or WebP, or drop one here.')}
               </span>
@@ -161,7 +161,7 @@ export function FolderSheet({ folder, library, folders, onSave, onCancel }: {
                 <input className="exo-field" placeholder="Search your games" aria-label="Search your games" value={query} onChange={event => setQuery(event.currentTarget.value)} />
               </label>
               {notInstalled.length > 0 ? (
-                <button type="button" className="exo-ghost-btn" aria-pressed={allNotInstalled} onClick={toggleNotInstalled}>
+                <button type="button" className="exo-set-btn" aria-pressed={allNotInstalled} onClick={toggleNotInstalled}>
                   {allNotInstalled ? 'Remove not installed' : `Add all not installed (${notInstalled.length})`}
                 </button>
               ) : null}
@@ -191,9 +191,9 @@ export function FolderSheet({ folder, library, folders, onSave, onCancel }: {
               {shown.length === 0 ? <p className="exo-folder-pick-none">No games match.</p> : null}
             </div>
             <footer className="exo-folder-sheet-foot">
-              <span className="exo-folder-sheet-count">{picked.length === 1 ? '1 game' : `${picked.length} games`}</span>
-              <button type="button" className="exo-ghost-btn" onClick={onCancel}>Cancel</button>
-              <button type="button" className="exo-ghost-btn is-primary" disabled={!ready} onClick={save}>{folder.isNew ? 'Create' : 'Save'}</button>
+              <span className="exo-folder-sheet-count" data-picked="">{picked.length === 1 ? '1 game' : `${picked.length} games`}</span>
+              <button type="button" className="exo-set-btn" onClick={onCancel}>Cancel</button>
+              <button type="button" className="exo-set-btn is-primary" disabled={!ready} onClick={save}>{folder.isNew ? 'Create' : 'Save'}</button>
             </footer>
           </>
         )}

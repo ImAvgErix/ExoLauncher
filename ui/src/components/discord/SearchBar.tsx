@@ -276,7 +276,7 @@ export function SearchResults({ channel, filters, ctx, onClose }: { channel: Dis
       <div className="exo-dc-popover-title">
         <span>{found.loading && !found.total ? 'Searching' : `${found.total.toLocaleString()} ${found.total === 1 ? 'Result' : 'Results'}`}</span>
         <span className="exo-dc-segments" role="group" aria-label="Sort">
-          {([['newest', 'Newest'], ['oldest', 'Oldest'], ['relevance', 'Most Relevant']] as const).map(([value, label]) => (
+          {([['newest', 'Newest'], ['oldest', 'Oldest'], ['relevance', 'Most relevant']] as const).map(([value, label]) => (
             <button key={value} type="button" className="exo-dc-tab" aria-pressed={sort === value} onClick={() => setSort(value)}>{label}</button>
           ))}
         </span>

@@ -21,12 +21,20 @@ export function lookOf(user?: DiscordCollectibleFields | null, member?: DiscordC
   const decoration = member?.avatar_decoration_data ?? user?.avatar_decoration_data
   const plate = member?.collectibles?.nameplate ?? user?.collectibles?.nameplate
   const style = [member?.display_name_styles, user?.display_name_styles].find(s => s?.colors?.length)
-  if (!decoration && !plate && !style) return null
+  const tag = tagOf(user)
+  if (!decoration && !plate && !style && !tag) return null
   return {
     decoration: decoration && { asset: decoration.asset, skuId: decoration.sku_id },
     nameplate: plate && { skuId: plate.sku_id, asset: plate.asset, palette: plate.palette },
     nameStyle: style && { font: style.font_id, effect: style.effect_id, colors: style.colors },
+    tag,
   }
+}
+
+// The server tag is the user's own, shown only while its identity is on and it names a server and a tag.
+function tagOf(user?: DiscordCollectibleFields | null): DiscordLook['tag'] {
+  const primary = user?.primary_guild
+  return primary?.identity_enabled && primary.identity_guild_id && primary.tag ? { guildId: primary.identity_guild_id, tag: primary.tag, badge: primary.badge } : null
 }
 
 // Exo in front, and nothing asks for stillness: what every collectible checks before it moves.

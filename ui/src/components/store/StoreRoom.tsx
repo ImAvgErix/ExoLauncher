@@ -151,7 +151,7 @@ function Unreachable({ message, busy, onRetry }: { message: string; busy: boolea
   return (
     <div className="exo-store-empty exo-store-error" role="alert">
       <p>{message}</p>
-      <button type="button" className="exo-ghost-btn" disabled={busy} aria-busy={busy} onClick={onRetry}>Retry</button>
+      <button type="button" className="exo-set-btn" disabled={busy} aria-busy={busy} onClick={onRetry}>Retry</button>
     </div>
   )
 }
@@ -205,7 +205,7 @@ function Hero({ items, onOpen, still, working, arrive }: { items: StoreTile[]; o
           <li key={t.appId} className={arrive ? 'exo-motion-arrive' : undefined} style={arrive ? arriveStyle(i) : undefined}>
             <HeroPick tile={t} on={i === at} onPick={() => i === at ? onOpen(t) : setIndex(i)} />
             {/* The featured game's time, filling until the next one (held while you point at the banner); its end turns the banner. */}
-            {i === at && turns ? <span key={at} className={`exo-store-hero-time${paused ? ' is-held' : ''}`} aria-hidden="true"
+            {i === at && turns ? <span key={at} className={`exo-store-hero-time${paused ? ' is-held' : ''}`} aria-hidden="true" data-exo-timer=""
               onAnimationEnd={() => setIndex((at + 1) % count)} /> : null}
           </li>
         ))}
@@ -310,8 +310,8 @@ function Row({ id, title, count, wide = false, working, children }: { id: string
       <div className="exo-shelf-head">
         <h2 id={`exo-store-${id}`} className="exo-shelf-title">{title}</h2>
         <span className="exo-store-arrows">
-          <button type="button" className="exo-ghost-btn" aria-label={`Back in ${title}`} disabled={edges.start} onClick={() => page(-1)}><ChevronLeft size={14} /></button>
-          <button type="button" className="exo-ghost-btn" aria-label={`More ${title}`} disabled={edges.end} onClick={() => page(1)}><ChevronRight size={14} /></button>
+          <button type="button" className="exo-set-btn" aria-label={`Back in ${title}`} disabled={edges.start} onClick={() => page(-1)}><ChevronLeft size={14} /></button>
+          <button type="button" className="exo-set-btn" aria-label={`More ${title}`} disabled={edges.end} onClick={() => page(1)}><ChevronRight size={14} /></button>
         </span>
       </div>
       <div ref={track} className={`exo-store-track${wide ? ' is-wide' : ''}`} onScroll={measure}>{children}</div>
@@ -348,7 +348,7 @@ function Wishlist({ wish, owned, card }: {
       <div className="exo-shelf-head">
         {/* The Wishlist chip already names the list and its count; a heading only when it splits by sale. */}
         {sale.length ? <h2 className="exo-shelf-title">On sale now<span className="exo-shelf-count">{sale.length}</span></h2> : <span />}
-        <button type="button" className="exo-ghost-btn" disabled={checking} onClick={onCheck} aria-label={checking ? 'Checking prices' : 'Check prices'}>
+        <button type="button" className="exo-set-btn" disabled={checking} onClick={onCheck} aria-label={checking ? 'Checking prices' : 'Check prices'}>
           <span className="exo-store-stack">
             <span className={checking || checked ? 'is-hidden' : undefined}>Check prices</span>
             <span className={checking ? undefined : 'is-hidden'}>Checking…</span>
@@ -482,7 +482,7 @@ function StoreTools({ view, query, wished, refreshing, onTab, onQuery, onRefresh
       </label>
       <button
         type="button"
-        className={`exo-ghost-btn exo-store-refresh${view === 'home' ? '' : ' is-hidden'}`}
+        className={`exo-set-btn exo-store-refresh${view === 'home' ? '' : ' is-hidden'}`}
         disabled={refreshing || view !== 'home'}
         onClick={onRefresh}
         aria-label="Refresh the store"

@@ -20,7 +20,7 @@ import { win } from './lib/win.mjs'
 import { kit } from './lib/kit.mjs'
 import { sleep } from './cdp.mjs'
 
-export const SUITES = ['shell', 'rooms', 'library', 'store', 'discord', 'music', 'system', 'devices', 'settings', 'appearance', 'motion', 'perf', 'stress', 'zoom']
+export const SUITES = ['shell', 'rooms', 'library', 'store', 'discord', 'music', 'system', 'devices', 'capture', 'settings', 'appearance', 'layout', 'motion', 'perf', 'stress', 'zoom']
 
 const argv = process.argv.slice(2)
 const flag = (name) => argv.includes('--' + name)

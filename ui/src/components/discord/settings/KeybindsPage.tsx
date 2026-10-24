@@ -5,21 +5,21 @@ import { Category, LoadError, Row, useClientSettings } from './parts'
 
 /** The actions Exo's Discord client carries out from a keybind, with Discord's names. */
 export const KEYBIND_ACTIONS = [
-  { value: 'PUSH_TO_TALK', label: 'Push to Talk (Normal)' },
-  { value: 'PUSH_TO_MUTE', label: 'Push to Mute' },
-  { value: 'TOGGLE_MUTE', label: 'Toggle Mute' },
-  { value: 'TOGGLE_DEAFEN', label: 'Toggle Deafen' },
-  { value: 'TOGGLE_VOICE_MODE', label: 'Toggle Voice Activity Mode' },
+  { value: 'PUSH_TO_TALK', label: 'Push to talk (normal)' },
+  { value: 'PUSH_TO_MUTE', label: 'Push to mute' },
+  { value: 'TOGGLE_MUTE', label: 'Toggle mute' },
+  { value: 'TOGGLE_DEAFEN', label: 'Toggle deafen' },
+  { value: 'TOGGLE_VOICE_MODE', label: 'Toggle voice activity mode' },
   { value: 'TOGGLE_STREAMER_MODE', label: 'Toggle Streamer Mode' },
-  { value: 'DISCONNECT_FROM_VOICE', label: 'Disconnect from Voice' },
+  { value: 'DISCONNECT_FROM_VOICE', label: 'Disconnect from voice' },
 ] as const
 
 // Windows virtual-key codes, named as a keyboard shows them.
 const NAMES: Record<number, string> = {
   4: 'Mouse 3', 5: 'Mouse 4', 6: 'Mouse 5', 8: 'Backspace', 9: 'Tab', 13: 'Enter', 16: 'Shift', 17: 'Ctrl', 18: 'Alt', 19: 'Pause',
-  20: 'Caps Lock', 27: 'Esc', 32: 'Space', 33: 'Page Up', 34: 'Page Down', 35: 'End', 36: 'Home', 37: 'Left', 38: 'Up', 39: 'Right',
+  20: 'Caps lock', 27: 'Esc', 32: 'Space', 33: 'Page up', 34: 'Page down', 35: 'End', 36: 'Home', 37: 'Left', 38: 'Up', 39: 'Right',
   40: 'Down', 45: 'Insert', 46: 'Delete', 91: 'Win', 106: 'Numpad *', 107: 'Numpad +', 109: 'Numpad -', 110: 'Numpad .', 111: 'Numpad /',
-  144: 'Num Lock', 145: 'Scroll Lock', 186: ';', 187: '=', 188: ',', 189: '-', 190: '.', 191: '/', 192: '`', 219: '[', 220: '\\', 221: ']', 222: "'",
+  144: 'Num lock', 145: 'Scroll lock', 186: ';', 187: '=', 188: ',', 189: '-', 190: '.', 191: '/', 192: '`', 219: '[', 220: '\\', 221: ']', 222: "'",
 }
 
 function keyName(vk: number) {
@@ -79,12 +79,12 @@ export function KeybindRecorder({ keys, label, onChange }: { keys: number[]; lab
       window.removeEventListener('mouseup', release, true)
     }
   }, [recording])
-  const shown = recording ? (held.length ? keybindName(held) : 'Press keys') : keys.length ? keybindName(keys) : 'No Keybind Set'
+  const shown = recording ? (held.length ? keybindName(held) : 'Press keys') : keys.length ? keybindName(keys) : 'No keybind set'
   return (
     <span className={`exo-dc-settings-keybind${recording ? ' is-recording' : ''}`}>
       <span className="exo-dc-settings-keybind-keys">{shown}</span>
-      <button type="button" className="exo-set-btn" aria-label={`${label}: ${recording ? 'Stop Recording' : keys.length ? 'Edit Keybind' : 'Record Keybind'}`}
-        onClick={() => { setHeld([]); setRecording(r => !r) }}>{recording ? 'Stop Recording' : keys.length ? 'Edit Keybind' : 'Record Keybind'}</button>
+      <button type="button" className="exo-set-btn" aria-label={`${label}: ${recording ? 'Stop recording' : keys.length ? 'Edit keybind' : 'Record keybind'}`}
+        onClick={() => { setHeld([]); setRecording(r => !r) }}>{recording ? 'Stop recording' : keys.length ? 'Edit keybind' : 'Record keybind'}</button>
     </span>
   )
 }
@@ -98,14 +98,14 @@ export function SystemPage() {
     <>
       <h1>System</h1>
       <LoadError error={error} onRetry={reload} />
-      <Category title="Custom Keybinds" detail="Keybinds are custom keyboard shortcuts that let you perform specific actions in Discord without needing to click through menus. They work while you're in a call, even in a game.">
+      <Category title="Custom keybinds" detail="Keybinds are custom keyboard shortcuts that let you perform specific actions in Discord without needing to click through menus. They work while you're in a call, even in a game.">
         {binds.map((bind, i) => (
           <Row key={i} label="Action">
             <span className="exo-dc-settings-buttons">
               <Choice label="Action" value={bind.action} choices={KEYBIND_ACTIONS}
                 onChange={action => void set(binds.map((b, j) => (j === i ? { ...b, action } : b)))} />
               <KeybindRecorder label="Keybind" keys={bind.keys} onChange={keys => void set(binds.map((b, j) => (j === i ? { ...b, keys } : b)))} />
-              <button type="button" className="exo-set-btn is-danger" aria-label="Delete Keybind" onClick={() => void set(binds.filter((_, j) => j !== i))}>Delete</button>
+              <button type="button" className="exo-set-btn is-danger" aria-label="Delete keybind" onClick={() => void set(binds.filter((_, j) => j !== i))}>Delete</button>
             </span>
           </Row>
         ))}
@@ -120,8 +120,8 @@ function NewKeybind({ disabled, onAdd }: { disabled: boolean; onAdd: (bind: Disc
   const [action, setAction] = useState<string | null>(null)
   if (action === null) {
     return (
-      <Row label="Add a Keybind">
-        <button type="button" className="exo-set-btn" disabled={disabled} onClick={() => setAction('PUSH_TO_TALK')}>Add a Keybind</button>
+      <Row label="Add a keybind">
+        <button type="button" className="exo-set-btn" disabled={disabled} onClick={() => setAction('PUSH_TO_TALK')}>Add a keybind</button>
       </Row>
     )
   }

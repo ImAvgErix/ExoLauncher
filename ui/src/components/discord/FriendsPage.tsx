@@ -10,6 +10,7 @@ import { showFullProfile } from './profileParts'
 import { Confirm, StrangerConfirm } from './admin'
 import { usePageActive } from '../../lib/pageActivity'
 import { useDismiss } from '../../lib/dismiss'
+import { GuildTag } from './guildTag'
 
 type Tab = 'online' | 'all' | 'pending' | 'add'
 
@@ -71,8 +72,8 @@ export function FriendsPage({ onOpenDm }: { onOpenDm: (channelId: string) => voi
           </button>
         ))}
         </span>
-        <button type="button" className="exo-dc-tab is-add" aria-pressed={tab === 'add'} onClick={() => setTab('add')}>Add Friend</button>
-        <button type="button" className="exo-dc-icon-btn exo-dc-new-dm" aria-label="New Group DM" onClick={() => window.dispatchEvent(new Event('exo-dc-new-dm'))}><Icons.NewDm size={20} /></button>
+        <button type="button" className="exo-dc-tab is-add" aria-pressed={tab === 'add'} onClick={() => setTab('add')}>Add friend</button>
+        <button type="button" className="exo-dc-icon-btn exo-dc-new-dm" aria-label="New group DM" onClick={() => window.dispatchEvent(new Event('exo-dc-new-dm'))}><Icons.NewDm size={20} /></button>
       </header>
       <div className="exo-dc-friends-body">
       {tab === 'add' ? <AddFriend /> : (
@@ -90,7 +91,7 @@ export function FriendsPage({ onOpenDm }: { onOpenDm: (channelId: string) => voi
                 <Avatar src={friend.avatar} name={friend.name} status={friend.kind === 'friend' ? friend.status : null} size={36} look={friend.look} scope=".exo-dc-friend" />
               </button>
               <span className="exo-dc-friend-names">
-                <strong><StyledName name={friend.name} look={friend.look} scope=".exo-dc-friend" /></strong>
+                <strong><StyledName name={friend.name} look={friend.look} scope=".exo-dc-friend" /><GuildTag look={friend.look} /></strong>
                 <span>{friend.kind === 'incoming' ? 'Incoming friend request' : friend.kind === 'outgoing' ? 'Outgoing friend request' : <ActivityLine friend={friend} />}</span>
               </span>
               {friend.kind === 'friend' ? (
@@ -120,7 +121,7 @@ export function FriendsPage({ onOpenDm }: { onOpenDm: (channelId: string) => voi
         <StrangerConfirm name={stranger.name} onClose={() => setStranger(null)} onConfirm={() => { const friend = stranger; setStranger(null); void act('accept', friend, true) }} />
       ) : null}
       {removing ? (
-        <Confirm title={`Remove '${removing.name}'`} action="Remove Friend" onClose={() => setRemoving(null)} onConfirm={() => { const friend = removing; setRemoving(null); void act('remove', friend) }}>
+        <Confirm title={`Remove '${removing.name}'`} action="Remove friend" onClose={() => setRemoving(null)} onConfirm={() => { const friend = removing; setRemoving(null); void act('remove', friend) }}>
           <p>Are you sure you want to remove <strong>{removing.name}</strong> from your friends?</p>
         </Confirm>
       ) : null}
@@ -139,13 +140,13 @@ function FriendMenu({ onClose, onRemove }: { onClose: () => void; onRemove: () =
   }, [onClose])
   return (
     <div className="exo-dc-menu is-message" role="menu" ref={box}>
-      <button type="button" role="menuitem" className="is-danger" onClick={onRemove}>Remove Friend</button>
+      <button type="button" role="menuitem" className="is-danger" onClick={onRemove}>Remove friend</button>
     </div>
   )
 }
 
 function statusWord(status: string) {
-  return status === 'idle' ? 'Idle' : status === 'dnd' ? 'Do Not Disturb' : status === 'offline' ? 'Offline' : 'Online'
+  return status === 'idle' ? 'Idle' : status === 'dnd' ? 'Do not disturb' : status === 'offline' ? 'Offline' : 'Online'
 }
 
 function AddFriend() {
@@ -166,12 +167,12 @@ function AddFriend() {
   }
   return (
     <div className="exo-dc-add-friend">
-      <strong>Add Friend</strong>
+      <strong>Add friend</strong>
       <p>You can add friends with their Discord username.</p>
       <div className="exo-dc-add-row">
         <input value={name} onChange={event => { setName(event.target.value); setResult(null) }} placeholder="Their username" aria-label="Username"
           onKeyDown={event => { if (event.key === 'Enter') void send() }} />
-        <button type="button" className="button button--primary" disabled={!name.trim() || busy} onClick={() => void send()}>Send Friend Request</button>
+        <button type="button" className="exo-set-btn is-primary" disabled={!name.trim() || busy} onClick={() => void send()}>Send friend request</button>
       </div>
       {result ? <p className={result.ok ? 'is-good' : 'is-bad'} role={result.ok ? 'status' : 'alert'}>{result.text}</p> : null}
     </div>
@@ -213,7 +214,7 @@ function ActiveNow({ friends, onOpen }: { friends: DiscordFriend[]; onOpen: (fri
   }, [active, clocks])
   return (
     <aside className="exo-dc-active" aria-label="Active now">
-      <strong>Active Now</strong>
+      <strong>Active now</strong>
       {friends.length === 0 ? (
         <div className="exo-dc-active-empty">
           <strong>It's quiet for now...</strong>

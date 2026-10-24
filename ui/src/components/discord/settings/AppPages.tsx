@@ -16,11 +16,11 @@ export function NotificationsPage() {
       <h1>Notifications</h1>
       <LoadError error={error} onRetry={reload} />
       <Category title="Overview">
-        <ToggleRow label="Enable Desktop Notifications" detail="Windows notifications for direct messages and mentions." checked={client?.desktopNotifications ?? true}
+        <ToggleRow label="Enable desktop notifications" detail="Windows notifications for direct messages and mentions." checked={client?.desktopNotifications ?? true}
           disabled={!client} onChange={value => save({ desktopNotifications: value })} />
-        <ToggleRow label="Enable Taskbar Flashing" detail="Flashes the app in your taskbar when you have new notifications." checked={client?.taskbarFlash ?? true}
+        <ToggleRow label="Enable taskbar flashing" detail="Flashes the app in your taskbar when you have new notifications." checked={client?.taskbarFlash ?? true}
           disabled={!client} onChange={value => save({ taskbarFlash: value })} />
-        <ToggleRow label="Quiet While Playing" detail="No notifications while a game runs. Unread messages wait in the badge." checked={quiet} disabled={!launcher}
+        <ToggleRow label="Quiet while playing" detail="No notifications while a game runs. Unread messages wait in the badge." checked={quiet} disabled={!launcher}
           onChange={value => {
             setLauncher(s => s && { ...s, discordQuietWhilePlaying: value })
             return host.setSettings({ discordQuietWhilePlaying: value }).then(() => null, () => {
@@ -35,11 +35,11 @@ export function NotificationsPage() {
         <AccountToggle label="Friends come online" settings={settings} field="enableFriendOnlineNotifications" />
         <AccountToggle label="Friends update their profile" settings={settings} field="enableProfileUpdatesNotifications" />
         <ChoiceRow label="Someone reacts to my messages" value={settings.reactionNotifications} onChange={value => changeAccountSettings({ reactionNotifications: value })}
-          choices={[{ value: 0, label: 'All Messages' }, { value: 1, label: 'Only Direct Messages' }, { value: 2, label: 'Never' }]} />
+          choices={[{ value: 0, label: 'All messages' }, { value: 1, label: 'Only direct messages' }, { value: 2, label: 'Never' }]} />
       </Category>
       <NotificationSounds client={client} save={save} />
       <Category title="Badges">
-        <ToggleRow label="Enable Unread Message Badge" detail="Shows a red badge on the app icon when you have unread messages." checked={client?.unreadBadge ?? true}
+        <ToggleRow label="Enable unread message badge" detail="Shows a red badge on the app icon when you have unread messages." checked={client?.unreadBadge ?? true}
           disabled={!client} onChange={value => save({ unreadBadge: value })} />
       </Category>
       <Category title="Advanced">
@@ -65,15 +65,15 @@ export function SoundRow({ label, sound, client, save }: { label: string; sound:
 function NotificationSounds({ client, save }: { client: DiscordClientSettings | null; save: Save }) {
   return (
     <Category title="Sounds">
-      <SoundRow label="New Message" sound="message1" client={client} save={save} />
-      <ToggleRow label="New Message in the channel I'm currently reading" detail={<Preview sound="message3" />}
+      <SoundRow label="New message" sound="message1" client={client} save={save} />
+      <ToggleRow label="New message in the channel I'm currently reading" detail={<Preview sound="message3" />}
         checked={(client?.selectedChannelSound ?? false) && !client?.disableAllSounds} disabled={!client || client.disableAllSounds}
         onChange={value => save({ selectedChannelSound: value })} />
-      <SoundRow label="Incoming Ring" sound="call_ringing" client={client} save={save} />
-      <SliderRow label="Sound Volume" detail="How loud all of Discord's sounds play, including voice & video sound effects."
+      <SoundRow label="Incoming ring" sound="call_ringing" client={client} save={save} />
+      <SliderRow label="Sound volume" detail="How loud all of Discord's sounds play, including voice & video sound effects."
         min={0} max={100} value={client?.soundVolume ?? 60} render={v => `${v}%`} disabled={!client || client.disableAllSounds}
         onCommit={v => void save({ soundVolume: v })} />
-      <ToggleRow label="Disable All Notification Sounds"
+      <ToggleRow label="Disable all notification sounds"
         detail="Disables all notification sounds, including voice & video sound effects. Your individual sound preferences will be saved and restored if you turn this on."
         checked={client?.disableAllSounds ?? false} disabled={!client} onChange={value => save({ disableAllSounds: value })} />
     </Category>
@@ -99,7 +99,7 @@ export function AppearancePage() {
           checked={!settings.messageDisplayCompact || settings.displayCompactAvatars} disabled={!settings.messageDisplayCompact}
           onChange={value => changeAccountSettings({ displayCompactAvatars: value })} />
       </Category>
-      <Category title="Chat Box">
+      <Category title="Chat box">
         <AccountToggle label="Automatically convert emoticons in your messages to emoji" detail="For example, when you type :) Discord will convert it to :slight_smile:"
           settings={settings} field="convertEmoticons" />
         <AccountToggle label="Show stickers in autocomplete results" settings={settings} field="includeStickersInAutocomplete" />
@@ -137,36 +137,36 @@ export function AccessibilityPage() {
   return (
     <>
       <h1>Accessibility</h1>
-      <Category title="Text Readability">
+      <Category title="Text readability">
         <StopsRow label="Text size in chat" detail="Adjust the size of the chat font." stops={FONT_SIZES} value={prefs.fontSize} unit="px" onCommit={v => setDiscordPrefs({ fontSize: v })} />
         <ToggleRow label="Always underline links" detail="Make links stand out more." checked={prefs.underlineLinks} onChange={value => setDiscordPrefs({ underlineLinks: value })} />
       </Category>
-      <Category title="Visual Density">
-        <ChoiceRow label="Chat Message Display" detail="Change the appearance of chat messages." value={settings.messageDisplayCompact ? 'compact' : 'default'}
+      <Category title="Visual density">
+        <ChoiceRow label="Chat message display" detail="Change the appearance of chat messages." value={settings.messageDisplayCompact ? 'compact' : 'default'}
           onChange={value => changeAccountSettings({ messageDisplayCompact: value === 'compact' })}
           choices={[{ value: 'default', label: 'Default' }, { value: 'compact', label: 'Compact' }]} />
-        <StopsRow label="Space Between Message Groups" detail="Adjust the spacing between message groups." stops={GROUP_SPACINGS}
+        <StopsRow label="Space between message groups" detail="Adjust the spacing between message groups." stops={GROUP_SPACINGS}
           value={prefs.groupSpacing ?? (settings.messageDisplayCompact ? 0 : 16)} unit="px"
           onCommit={v => setDiscordPrefs({ groupSpacing: v })} />
         <StopsRow label="Zoom level" detail="Adjust the size of Discord in Exo." stops={ZOOMS} value={prefs.zoom} unit="%" onCommit={v => setDiscordPrefs({ zoom: v })} />
       </Category>
-      <Category title="Color & Contrast">
+      <Category title="Color & contrast">
         <SliderRow label="Saturation" detail="Reduce the saturation of colors within the app, for those with color sensitivities. This does not affect images, videos, role colors or other user content."
           min={0} max={1} step={0.05} value={prefs.saturation} render={v => `${Math.round(v * 100)}%`} onCommit={v => setDiscordPrefs({ saturation: v })} />
         <ToggleRow label="Apply saturation setting to custom colors" detail="Apply the above setting to custom color choices, like role colors."
           checked={prefs.desaturateUserColors} onChange={value => setDiscordPrefs({ desaturateUserColors: value })} />
-        <ChoiceRow label="Role Colors" detail="Choose how you would like role colors to be displayed." value={prefs.roleStyle} onChange={value => setDiscordPrefs({ roleStyle: value })}
+        <ChoiceRow label="Role colors" detail="Choose how you would like role colors to be displayed." value={prefs.roleStyle} onChange={value => setDiscordPrefs({ roleStyle: value })}
           choices={[{ value: 'username', label: 'In names' }, { value: 'dot', label: 'Next to names' }, { value: 'hidden', label: "Don't show role colors" }]} />
       </Category>
-      <Category title="Reduced Motion">
-        <ToggleRow label="Enable Reduced Motion" detail="Reduce the amount and intensity of animations, hover effects, and other moving effects. GIFs hold still until you point at them."
+      <Category title="Reduced motion">
+        <ToggleRow label="Enable reduced motion" detail="Reduce the amount and intensity of animations, hover effects, and other moving effects. GIFs hold still until you point at them."
           checked={reduced} onChange={setPerformanceMode} />
         <AccountToggle label="Play GIFs when Discord is focused" settings={settings} field="gifAutoPlay" disabled={reduced} />
         <AccountToggle label="Play animated emoji" settings={settings} field="animateEmoji" disabled={reduced} />
         <ChoiceRow label="Play sticker animations" value={settings.animateStickers} onChange={value => changeAccountSettings({ animateStickers: value })}
           choices={[{ value: 0, label: 'Always animate' }, { value: 1, label: 'Animate on interaction' }, { value: 2, label: 'Never animate' }]} />
       </Category>
-      <Category title="Audio & Screen Reader">
+      <Category title="Audio & screen reader">
         <SliderRow label="Text-to-Speech rate" detail="Control the speed at which /tts messages are read aloud." min={0.5} max={2} step={0.25} value={prefs.ttsRate}
           render={v => `x${v.toFixed(2)}`} onCommit={v => setDiscordPrefs({ ttsRate: v })} />
         <AccountToggle label="Show image descriptions" detail="Image descriptions are used to describe images for screen readers." settings={settings} field="viewImageDescriptions" />
@@ -175,7 +175,7 @@ export function AccessibilityPage() {
   )
 }
 
-const LANGUAGES: { value: string; label: string }[] = [
+export const LANGUAGES: { value: string; label: string }[] = [
   ['en-US', 'English, US'], ['en-GB', 'English, UK'], ['bg', 'български'], ['zh-CN', '中文'], ['zh-TW', '繁體中文'], ['hr', 'Hrvatski'], ['cs', 'Čeština'],
   ['da', 'Dansk'], ['nl', 'Nederlands'], ['fi', 'Suomi'], ['fr', 'Français'], ['de', 'Deutsch'], ['el', 'Ελληνικά'], ['hi', 'हिंदी'], ['hu', 'Magyar'],
   ['it', 'Italiano'], ['ja', '日本語'], ['ko', '한국어'], ['lt', 'Lietuviškai'], ['no', 'Norsk'], ['pl', 'Polski'], ['pt-BR', 'Português do Brasil'],
@@ -189,7 +189,7 @@ export function LanguagePage() {
   const locale = settings.locale || (LANGUAGES.some(l => l.value === navigator.language) ? navigator.language : 'en-US')
   return (
     <>
-      <h1>Language & Time</h1>
+      <h1>Language & time</h1>
       <Category>
         <ChoiceRow label="Language" detail="The language Discord uses for your account: its emails, and notifications on your phone." value={locale} choices={LANGUAGES}
           onChange={value => changeAccountSettings({ locale: value })} />
@@ -220,10 +220,10 @@ export function LogOutPage({ onDone }: { onDone: () => void }) {
   const failed = () => { setBusy(false); setError("Exo couldn't log you out. Try again.") }
   return (
     <>
-      <h1>Log Out</h1>
+      <h1>Log out</h1>
       <Row label="Are you sure you want to logout?" detail="Exo forgets your Discord sign-in on this PC." error={error}>
         <button type="button" className="exo-set-btn is-danger" disabled={busy}
-          onClick={() => { setBusy(true); setError(null); void host.discordSignOut().then(result => { if (result.ok) onDone(); else failed() }, failed) }}>Log Out</button>
+          onClick={() => { setBusy(true); setError(null); void host.discordSignOut().then(result => { if (result.ok) onDone(); else failed() }, failed) }}>Log out</button>
       </Row>
     </>
   )

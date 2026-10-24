@@ -293,4 +293,113 @@ public sealed class DiscordCacheTests
         cache.ReplaceRail(before);
         Assert.Equal("6,3,5,2,1", Order(cache));
     }
+
+    // A server with a voice channel @everyone can join and talk in, a text channel it can talk in, one it can only read,
+    // and a voice channel it can't join (everyone: View, Send, Connect).
+    private static DiscordCache Rooms() => Load("""
+        {
+          "session_id": "s", "user": { "id": "100", "username": "me" },
+          "guilds": [{
+            "id": "1", "name": "Guild", "owner_id": "9",
+            "roles": [ { "id": "1", "permissions": "1051648" } ],
+            "members": [ { "user": { "id": "100" }, "roles": [] } ],
+            "channels": [
+              { "id": "20", "type": 2, "name": "Lobby", "position": 0 },
+              { "id": "21", "type": 0, "name": "chat", "position": 1 },
+              { "id": "22", "type": 0, "name": "news", "position": 2, "permission_overwrites": [ { "id": "1", "type": 0, "allow": "0", "deny": "2048" } ] },
+              { "id": "23", "type": 2, "name": "locked", "position": 3, "permission_overwrites": [ { "id": "1", "type": 0, "allow": "0", "deny": "1048576" } ] }
+            ]
+          }],
+          "private_channels": [], "read_state": { "entries": [] }
+        }
+        """);
+
+    private static string? StatusOf(DiscordCache cache, string channelId) =>
+        JsonSerializer.SerializeToElement(cache.Channels("1")).GetProperty("channels").EnumerateArray()
+            .First(c => c.GetProperty("id").GetString() == channelId).GetProperty("status").GetString();
+
+    // A voice channel's status: all of a server's at once (CHANNEL_INFO, which clears the rest), then one changed or cleared.
+    [Fact]
+    public void VoiceChannelStatusesFollowDiscord()
+    {
+        var cache = Rooms();
+        using var info = JsonDocument.Parse("""{ "guild_id": "1", "channels": [ { "id": "20", "status": "Ranked night" } ] }""");
+        Assert.Contains(cache.Apply("CHANNEL_INFO", info.RootElement), e => e.Name == "discord.changed");
+        Assert.Equal("Ranked night", StatusOf(cache, "20"));
+        using var cleared = JsonDocument.Parse("""{ "id": "20", "guild_id": "1", "status": "" }""");
+        cache.Apply("VOICE_CHANNEL_STATUS_UPDATE", cleared.RootElement);
+        Assert.Null(StatusOf(cache, "20"));
+    }
+
+    // Onboarding's requirement counts what @everyone sees (a voice channel: and joins) and talks in, as Discord does.
+    [Fact]
+    public void OnboardingCountsWhatEveryoneSeesAndTalksIn()
+    {
+        var (seen, chats) = Rooms().EveryoneChannels("1");
+        Assert.Equal(["20", "21", "22"], seen.Order());
+        Assert.Equal(["20", "21"], chats.Order());
+    }
+
+    // Message requests: listed apart, no reply until accepted; accepted, a DM like any other; ignored, gone.
+    [Fact]
+    public void AMessageRequestWaitsForAcceptOrIgnore()
+    {
+        var cache = Load("""
+            {
+              "session_id": "s", "user": { "id": "100", "username": "me" }, "guilds": [],
+              "private_channels": [
+                { "id": "30", "type": 1, "recipient_ids": ["200"], "is_message_request": true },
+                { "id": "31", "type": 1, "recipient_ids": ["201"], "is_spam": true },
+                { "id": "32", "type": 1, "recipient_ids": ["202"] }
+              ],
+              "read_state": { "entries": [] }
+            }
+            """);
+        Assert.True(cache.IsRequest("30"));
+        Assert.True(cache.IsRequest("31"));
+        Assert.False(cache.IsRequest("32"));
+        Assert.False(cache.CanSend("30"));
+        Assert.True(cache.CanSend("32"));
+        var dms = JsonSerializer.SerializeToElement(cache.Home()).GetProperty("dms").EnumerateArray().ToDictionary(d => d.GetProperty("id").GetString()!);
+        Assert.True(dms["30"].GetProperty("request").GetBoolean());
+        Assert.True(dms["31"].GetProperty("spam").GetBoolean());
+        cache.Answer("30", accepted: true);
+        Assert.True(cache.CanSend("30"));
+        Assert.False(cache.IsRequest("30"));
+        cache.Answer("31", accepted: false);
+        Assert.DoesNotContain(JsonSerializer.SerializeToElement(cache.Home()).GetProperty("dms").EnumerateArray(), d => d.GetProperty("id").GetString() == "31");
+    }
+
+    // # and @ in the message box: the channels the user sees (with their category) and every role but @everyone, best match first.
+    [Fact]
+    public void MentionSuggestionsFindChannelsAndRoles()
+    {
+        var cache = Load("""
+            {
+              "session_id": "s", "user": { "id": "100", "username": "me" },
+              "guilds": [{
+                "id": "1", "name": "Guild", "owner_id": "9",
+                "roles": [
+                  { "id": "1", "name": "@everyone", "permissions": "3072", "position": 0 },
+                  { "id": "50", "name": "Moderators", "permissions": "0", "position": 2, "color": 255 },
+                  { "id": "51", "name": "Game Mods", "permissions": "0", "position": 1 }
+                ],
+                "members": [ { "user": { "id": "100" }, "roles": [] } ],
+                "channels": [
+                  { "id": "20", "type": 4, "name": "Text", "position": 0 },
+                  { "id": "21", "type": 0, "name": "general", "position": 0, "parent_id": "20" },
+                  { "id": "22", "type": 2, "name": "General voice", "position": 1 },
+                  { "id": "23", "type": 0, "name": "gen-hidden", "position": 2, "permission_overwrites": [ { "id": "1", "type": 0, "allow": "0", "deny": "1024" } ] }
+                ]
+              }],
+              "private_channels": [], "read_state": { "entries": [] }
+            }
+            """);
+        var channels = JsonSerializer.SerializeToElement(cache.FindChannels("1", "gen", 8)).EnumerateArray()
+            .Select(c => (c.GetProperty("name").GetString(), c.GetProperty("kind").GetString(), c.GetProperty("category").GetString())).ToArray();
+        Assert.Equal([("general", "text", "Text"), ("General voice", "voice", null)], channels);
+        var roles = JsonSerializer.SerializeToElement(cache.FindRoles("1", "mod", 5)).EnumerateArray().Select(r => r.GetProperty("name").GetString()).ToArray();
+        Assert.Equal(["Moderators", "Game Mods"], roles);
+        Assert.Empty(JsonSerializer.SerializeToElement(cache.FindRoles("1", "every", 5)).EnumerateArray());
+    }
 }

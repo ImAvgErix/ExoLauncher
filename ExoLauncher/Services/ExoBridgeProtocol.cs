@@ -17,6 +17,22 @@ internal sealed record ExoUpdateResponse
     public string? Latest { get; init; }
     public string? Current { get; init; }
     public string? Message { get; init; }
+    /// <summary>The offered version's What's New, from its release's whats-new.json; null when it has none or it failed validation.</summary>
+    public ExoWhatsNewRelease? Upcoming { get; init; }
+}
+
+/// <summary>One release's What's New, validated by AppUpdateService.ParseWhatsNew.</summary>
+internal sealed record ExoWhatsNewRelease
+{
+    public string Version { get; init; } = "";
+    public ExoWhatsNewItem[] Items { get; init; } = [];
+}
+
+internal sealed record ExoWhatsNewItem
+{
+    public string Icon { get; init; } = "";
+    public string Title { get; init; } = "";
+    public string Detail { get; init; } = "";
 }
 
 /// <summary>

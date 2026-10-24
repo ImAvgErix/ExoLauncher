@@ -124,7 +124,7 @@ export function MusicRoom({
       onInstall={() => void install()}
       onRetry={() => void (desktop ? openAgain() : reload())}
       extra={desktop ? null : (
-        <Button size="sm" variant="ghost" onPress={() => void openExternal()}>
+        <Button size="sm" className="exo-set-btn" onPress={() => void openExternal()}>
           Open in browser
         </Button>
       )}

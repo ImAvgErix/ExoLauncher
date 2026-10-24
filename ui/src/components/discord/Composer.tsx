@@ -6,17 +6,24 @@ import { GifPicker } from './GifPicker'
 import { StickerPicker } from './extras'
 import { PlusMenu } from './PollCreator'
 import { Icons } from './icons'
+import { ChannelIcon } from './Sidebar'
 import { emojiUrl } from './markdown'
 import { findUnicodeEmoji, loadUnicodeEmoji, shortcodesToEmoji, type UnicodeEmojiSet } from './unicodeEmoji'
 import { accountSettings, convertEmoticons, useAccountSettings } from '../../lib/discordPrefs'
 import { appsPlace, onAppStatus, setAppsPlace, type CommandEntry } from '../../lib/discordApps'
 import { CommandForm, CommandList, type CommandKeys } from './AppCommands'
+import { Confirm } from './admin'
+import { Switch } from '../Switch'
+
+/** A file's alt text (Modify Attachment's Description), carried to the send with the file. */
+export const fileDescriptions = new WeakMap<File, string>()
 
 const TYPING_EVERY_MS = 8000
 const MAX_FILES = 10
-const TOKEN = /(^|\s)([:@])([\w.+-]{2,32})$/
+const TOKEN = /(^|\s)([:@#])([\w.+-]{2,32})$/
 
-type Suggestion = { key: string; label: string; image?: string; glyph?: string; insert: string; sticker?: string; mention?: string }
+// detail: dimmer words after the name (a username, a channel's category, what @everyone does); color: a role's.
+type Suggestion = { key: string; label: string; image?: string; glyph?: React.ReactNode; insert: string; sticker?: string; mention?: string; detail?: string | null; color?: string }
 type Draft = { text: string; mentions: Map<string, string> }
 
 // What you were writing in each conversation, kept while Exo runs, as Discord keeps drafts.
@@ -54,24 +61,61 @@ function emojiSuggestions(emojis: DiscordGuildEmoji[], unicode: UnicodeEmojiSet 
   return [...custom, ...plain]
 }
 
-/** People to @: those in the conversation, then the server's members whose names match (Discord is asked as you type). */
+type Mentionable = Awaited<ReturnType<typeof host.discordMentionable>>
+
+/** People to @: those in the conversation, then the server's members whose names match (Discord is asked as you type), and its roles. */
 function usePeople(guildId: string | null, users: Map<string, DiscordUser>, q: string | null) {
-  const [found, setFound] = useState<DiscordUser[]>([])
+  const [found, setFound] = useState<Mentionable>({ users: [] })
   useEffect(() => {
-    if (!guildId || !q) { setFound([]); return }
+    if (!guildId || !q) { setFound({ users: [] }); return }
     let live = true
-    const look = (ask: boolean) => host.discordMentionable(guildId, q, ask).then(result => { if (live) setFound(result.users) }).catch(() => { })
+    const look = (ask: boolean) => host.discordMentionable(guildId, q, ask).then(result => { if (live) setFound(result) }).catch(() => { })
     void look(false)
     const asking = window.setTimeout(() => void look(true), 300)
     const off = onHostEvent('discord.colors', event => { if (event.guildId === guildId) void look(false) })
     return () => { live = false; window.clearTimeout(asking); off() }
   }, [guildId, q])
   return useMemo(() => {
-    if (q === null) return []
+    if (q === null) return { people: [], roles: [] }
     const here = [...users.values()].filter(u => (u.global_name ?? u.username).toLowerCase().includes(q) || u.username.toLowerCase().includes(q))
-    const more = found.filter(u => !here.some(h => h.id === u.id))
-    return [...here, ...more].slice(0, 8)
+    const more = found.users.filter(u => !here.some(h => h.id === u.id))
+    return { people: [...here, ...more].slice(0, 8), roles: found.roles ?? [] }
   }, [users, found, q])
+}
+
+/** Channels to #: the server's that you see, whose names match. */
+function useChannels(guildId: string | null, q: string | null) {
+  const [found, setFound] = useState<NonNullable<Mentionable['channels']>>([])
+  useEffect(() => {
+    if (!guildId || !q) { setFound([]); return }
+    let live = true
+    host.discordMentionable(guildId, q, false, true).then(result => { if (live) setFound(result.channels ?? []) }).catch(() => { })
+    return () => { live = false }
+  }, [guildId, q])
+  return q === null ? [] : found
+}
+
+// What the open @name or #name offers: people and roles, or channels.
+function useMentions(guildId: string | null, users: Map<string, DiscordUser>, open: RegExpExecArray | null) {
+  const q = open ? open[3].toLowerCase() : null
+  return { people: usePeople(guildId, users, open?.[2] === '@' ? q : null), channels: useChannels(guildId, open?.[2] === '#' ? q : null) }
+}
+
+// Discord's @everyone and @here, offered in a server as their names are typed.
+const GLOBALS = [
+  { name: 'everyone', detail: 'Notify everyone who has permission to view this channel.' },
+  { name: 'here', detail: 'Notify everyone online who has permission to view this channel.' },
+]
+
+// What @ offers: people (their username after), roles in their color, then @everyone and @here in a server.
+function mentionSuggestions(found: ReturnType<typeof usePeople>, q: string, server: boolean): Suggestion[] {
+  const people = found.people.map(u => {
+    const name = u.global_name ?? u.username
+    return { key: u.id, label: name, image: avatarUrl(u, 32), insert: `@${name}`, mention: `<@${u.id}>`, detail: name.toLowerCase() === u.username.toLowerCase() ? null : u.username }
+  })
+  const roles = found.roles.map(r => ({ key: `role:${r.id}`, label: `@${r.name}`, glyph: '@', insert: `@${r.name}`, mention: `<@&${r.id}>`, color: r.color ?? undefined }))
+  const globals = server ? GLOBALS.filter(g => g.name.startsWith(q)).map(g => ({ key: `@${g.name}`, label: `@${g.name}`, glyph: '@', insert: `@${g.name}`, detail: g.detail })) : []
+  return [...people, ...roles, ...globals].slice(0, 10)
 }
 
 /**
@@ -105,6 +149,10 @@ export function Composer({ channelId, guildId, users, placeholder, disabled, rep
   const [note, setNote] = useState<string | null>(null)
   const [picker, setPicker] = useState<Expression | null>(null)
   const [emojis, setEmojis] = useState<DiscordGuildEmoji[]>([])
+  // Discord's longest message: 2,000 characters, 4,000 with Nitro.
+  const [limit, setLimit] = useState(2000)
+  // A message over the limit, asked about: its length.
+  const [tooLong, setTooLong] = useState<number | null>(null)
   const [unicode, setUnicode] = useState<UnicodeEmojiSet | null>(null)
   const [pick, setPick] = useState(0)
   const [dismissed, setDismissed] = useState<string | null>(null)
@@ -134,7 +182,11 @@ export function Composer({ channelId, guildId, users, placeholder, disabled, rep
   useEffect(() => {
     let live = true
     // This server's first: a :name: two servers share means this one's, as in Discord.
-    loadEmojis(guildId).then(data => { if (live) setEmojis(data.guilds.toSorted((a, b) => Number(b.id === guildId) - Number(a.id === guildId)).flatMap(g => g.emojis)) }).catch(() => { })
+    loadEmojis(guildId).then(data => {
+      if (!live) return
+      setEmojis(data.guilds.toSorted((a, b) => Number(b.id === guildId) - Number(a.id === guildId)).flatMap(g => g.emojis))
+      setLimit(data.premium ? 4000 : 2000)
+    }).catch(() => { })
     return () => { live = false }
   }, [guildId])
 
@@ -170,13 +222,14 @@ export function Composer({ channelId, guildId, users, placeholder, disabled, rep
   const open = token && token[0] !== dismissed ? token : null
   const asEmoji = open?.[2] === ':'
   useEffect(() => { if (asEmoji && !unicode) loadUnicodeEmoji().then(setUnicode).catch(() => { }) }, [asEmoji, unicode])
-  const people = usePeople(guildId, users, open?.[2] === '@' ? open[3].toLowerCase() : null)
+  const { people, channels } = useMentions(guildId, users, open)
   const suggestions = useMemo<Suggestion[]>(() => {
     if (!open) return []
     const q = open[3].toLowerCase()
     if (open[2] === ':') return [...emojiSuggestions(emojis, unicode, q), ...stickerSuggestions(stickers, q)]
-    return people.map(u => ({ key: u.id, label: u.global_name ?? u.username, image: avatarUrl(u, 32), insert: `@${u.global_name ?? u.username}`, mention: `<@${u.id}>` }))
-  }, [open?.[0], emojis, unicode, stickers, people]) // eslint-disable-line react-hooks/exhaustive-deps -- the token's text is what matters
+    if (open[2] === '#') return channels.map(c => ({ key: c.id, label: c.name, glyph: <ChannelIcon channel={c} />, insert: `#${c.name}`, mention: `<#${c.id}>`, detail: c.category }))
+    return mentionSuggestions(people, q, guildId !== null)
+  }, [open?.[0], emojis, unicode, stickers, people, channels]) // eslint-disable-line react-hooks/exhaustive-deps -- the token's text is what matters
 
   function complete(suggestion: Suggestion) {
     // A sticker picked from the list is sent at once, as in Discord.
@@ -199,6 +252,13 @@ export function Composer({ channelId, guildId, users, placeholder, disabled, rep
     const at = el?.selectionStart ?? text.length
     setText(current => `${current.slice(0, at)}${value}${current.slice(at)}`)
     requestAnimationFrame(() => { el?.focus(); el?.setSelectionRange(at + value.length, at + value.length) })
+  }
+
+  // The message as message.txt in its files instead, as Discord's Upload as File does.
+  function asFile() {
+    addFiles([textFile(text)])
+    setText('')
+    mentions.current = new Map()
   }
 
   function addFiles(list: FileList | File[] | null) {
@@ -226,8 +286,15 @@ export function Composer({ channelId, guildId, users, placeholder, disabled, rep
     const set = unicode ?? (text.includes(':') ? await loadUnicodeEmoji().catch(() => null) : null)
     if (set && !unicode) setUnicode(set)
     const content = outgoing(text, set?.byName ?? null)
+    if (content.length > limit) { setTooLong(content.length); return }
     const sentText = text
-    const sentFiles = files.map(file => spoilers.has(file) ? new File([file], `SPOILER_${file.name}`, { type: file.type }) : file)
+    const sentFiles = files.map(file => {
+      if (!spoilers.has(file)) return file
+      const copy = new File([file], `SPOILER_${file.name}`, { type: file.type })
+      const alt = fileDescriptions.get(file)
+      if (alt) fileDescriptions.set(copy, alt)
+      return copy
+    })
     const sentMentions = new Map(mentions.current)
     setText(''); setFiles([]); setSpoilers(new Set()); setNote(null)
     mentions.current = new Map()
@@ -294,7 +361,7 @@ export function Composer({ channelId, guildId, users, placeholder, disabled, rep
       {replyTo ? <ReplyBar replyTo={replyTo} ping={replyPing} onPing={onReplyPing} onCancel={onCancel} /> : null}
       {files.length ? <FileChips files={files} spoilers={spoilers} setSpoilers={setSpoilers} setFiles={setFiles} /> : null}
       <div className={`exo-dc-input-row${replyTo || files.length ? ' is-attached' : ''}`}>
-        <PlusMenu channelId={channelId} disabled={disabled} onFiles={() => fileInput.current?.click()} />
+        <PlusMenu channelId={channelId} disabled={disabled} onFiles={() => fileInput.current?.click()} text={text} onTextFile={asFile} />
         <input ref={fileInput} type="file" multiple hidden onChange={event => { addFiles(event.target.files); event.target.value = '' }} />
         {command ? (
           <CommandForm entry={command} channelId={channelId} guildId={guildId} users={users}
@@ -307,17 +374,34 @@ export function Composer({ channelId, guildId, users, placeholder, disabled, rep
           value={text}
           placeholder={placeholder}
           disabled={disabled}
-          maxLength={4000}
           aria-label={placeholder}
           onChange={event => onChange(event.target.value)}
           onKeyDown={onKeyDown}
-          onPaste={event => { if (event.clipboardData.files.length) { event.preventDefault(); addFiles(event.clipboardData.files) } }}
+          onPaste={event => {
+            if (event.clipboardData.files.length) { event.preventDefault(); addFiles(event.clipboardData.files); return }
+            // Pasted text longer than a message can be goes as message.txt, as Discord pastes it.
+            const pasted = event.clipboardData.getData('text/plain')
+            if (pasted.length > limit) { event.preventDefault(); addFiles([textFile(pasted)]) }
+          }}
         />}
         <ComposerTools guildId={guildId} disabled={disabled} picker={picker} setPicker={setPicker}
           onEmoji={text => insert(asTyped(text, customByName))} onGif={url => void onSend(url, [])} onSticker={sendSticker} />
       </div>
-      <ComposeFoot problem={error ?? note} status={appLine} typers={typers} slowmode={slowmode} cooldown={cooldown} />
+      <ComposeFoot problem={error ?? note} status={appLine} typers={typers} slowmode={slowmode} cooldown={cooldown} left={limit - text.length} limit={limit} />
+      <TooLong length={tooLong} limit={limit} onClose={() => setTooLong(null)} onFile={() => { setTooLong(null); asFile() }} />
     </div>
+  )
+}
+
+const textFile = (text: string) => new File([text], 'message.txt', { type: 'text/plain' })
+
+// Over the limit, Discord's way out: the message as a file.
+function TooLong({ length, limit, onFile, onClose }: { length: number | null; limit: number; onFile: () => void; onClose: () => void }) {
+  if (length === null) return null
+  return (
+    <Confirm title="Your message is too long" action="Upload as file" danger={false} onClose={onClose} onConfirm={onFile}>
+      <p>It's {length.toLocaleString()} characters, and a message can be up to {limit.toLocaleString()}. Shorten it, or send it as a file.</p>
+    </Confirm>
   )
 }
 
@@ -362,7 +446,8 @@ function canDrop(disabled: boolean, event: React.DragEvent) {
 }
 
 // Under the box: what went wrong, else who is typing (Discord's dots), with slowmode (and your wait) on the right.
-function ComposeFoot({ problem, status, typers, slowmode, cooldown }: { problem: string | null; status?: string | null; typers: string[]; slowmode: number; cooldown: number }) {
+// left: characters left before the limit, shown in its last tenth (below zero, over it), as Discord counts down.
+function ComposeFoot({ problem, status, typers, slowmode, cooldown, left, limit }: { problem: string | null; status?: string | null; typers: string[]; slowmode: number; cooldown: number; left: number; limit: number }) {
   const typing = status ?? typingLine(typers)
   return (
     <p className="exo-dc-compose-foot" role={problem ? 'alert' : 'status'}>
@@ -373,6 +458,7 @@ function ComposeFoot({ problem, status, typers, slowmode, cooldown }: { problem:
           <Icons.Slowmode size={14} />{cooldown > 0 ? slowmodeText(cooldown) : null}
         </span>
       ) : null}
+      {left <= limit / 10 ? <span className={`exo-dc-count${left < 0 ? ' is-over' : ''}`}>{left}<span className="sr-only">{left < 0 ? ' characters over the limit' : ' characters remaining'}</span></span> : null}
     </p>
   )
 }
@@ -386,25 +472,63 @@ function typingLine(typers: string[]) {
   return typers.length === 3 ? `${a}, ${b}, and ${c} are typing…` : 'Several people are typing…'
 }
 
-// The files going with the message, each with Mark as spoiler (sent as SPOILER_name, as Discord does) and Remove.
+// The files going with the message, each with Modify Attachment, Mark as spoiler (sent as SPOILER_name, as Discord does)
+// and Remove.
 function FileChips({ files, spoilers, setSpoilers, setFiles }: {
   files: File[]
   spoilers: Set<File>
   setSpoilers: React.Dispatch<React.SetStateAction<Set<File>>>
   setFiles: React.Dispatch<React.SetStateAction<File[]>>
 }) {
+  const [editing, setEditing] = useState<File | null>(null)
+  // A renamed file is a new File: its alt text and spoiler go with it.
+  const save = (file: File, change: { name: string; description: string; spoiler: boolean }) => {
+    const name = change.name.trim() || file.name
+    const next = name === file.name ? file : new File([file], name, { type: file.type })
+    if (change.description.trim()) fileDescriptions.set(next, change.description.trim()); else fileDescriptions.delete(next)
+    setFiles(list => list.map(f => f === file ? next : f))
+    setSpoilers(set => { const out = new Set(set); out.delete(file); if (change.spoiler) out.add(next); return out })
+  }
+  // The dialog sits outside the chips' glass row, whose blur would hold it inside the row.
   return (
-    <div className="exo-dc-files">
-      {files.map((file, i) => (
-        <span key={`${file.name}-${i}`} className={`exo-dc-file-chip${spoilers.has(file) ? ' is-spoiler' : ''}`}>
-          <FileThumb file={file} />
-          <span className="exo-dc-file-name">{file.name}</span>
-          <button type="button" aria-label={spoilers.has(file) ? `Show ${file.name}` : `Mark ${file.name} as spoiler`} aria-pressed={spoilers.has(file)}
-            onClick={() => setSpoilers(set => { const next = new Set(set); if (!next.delete(file)) next.add(file); return next })}><Icons.Spoiler size={14} /></button>
-          <button type="button" aria-label={`Remove ${file.name}`} onClick={() => setFiles(list => list.filter((_, j) => j !== i))}>×</button>
-        </span>
-      ))}
-    </div>
+    <>
+      {editing ? <ModifyAttachment file={editing} spoiler={spoilers.has(editing)} onClose={() => setEditing(null)} onSave={change => { save(editing, change); setEditing(null) }} /> : null}
+      <div className="exo-dc-files">
+        {files.map((file, i) => (
+          <span key={`${file.name}-${i}`} className={`exo-dc-file-chip${spoilers.has(file) ? ' is-spoiler' : ''}`}>
+            <FileThumb file={file} />
+            <span className="exo-dc-file-name">{file.name}</span>
+            <button type="button" aria-label={`Modify ${file.name}`} onClick={() => setEditing(file)}><Icons.Edit size={14} /></button>
+            <button type="button" aria-label={spoilers.has(file) ? `Show ${file.name}` : `Mark ${file.name} as spoiler`} aria-pressed={spoilers.has(file)}
+              onClick={() => setSpoilers(set => { const next = new Set(set); if (!next.delete(file)) next.add(file); return next })}><Icons.Spoiler size={14} /></button>
+            <button type="button" aria-label={`Remove ${file.name}`} onClick={() => setFiles(list => list.filter((_, j) => j !== i))}>×</button>
+          </span>
+        ))}
+      </div>
+    </>
+  )
+}
+
+// Discord's Modify Attachment: the file's name, its description (alt text, for a picture or video) and Mark as spoiler.
+function ModifyAttachment({ file, spoiler, onSave, onClose }: { file: File; spoiler: boolean; onSave: (change: { name: string; description: string; spoiler: boolean }) => void; onClose: () => void }) {
+  const [name, setName] = useState(file.name)
+  const [description, setDescription] = useState(fileDescriptions.get(file) ?? '')
+  const [hidden, setHidden] = useState(spoiler)
+  const media = /^(image|video)\//.test(file.type)
+  const done = () => onSave({ name, description, spoiler: hidden })
+  return (
+    <Confirm title="Modify attachment" action="Save" danger={false} onClose={onClose} onConfirm={done}>
+      <FileThumb file={file} />
+      <label className="exo-dc-modal-field"><span>Filename</span>
+        <input className="exo-dc-modal-input" value={name} maxLength={200} autoFocus onChange={event => setName(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') done() }} />
+      </label>
+      {media ? (
+        <label className="exo-dc-modal-field"><span>Description (alt text)</span>
+          <textarea className="exo-dc-modal-input" rows={2} value={description} maxLength={1024} placeholder="Add a description" onChange={event => setDescription(event.target.value)} />
+        </label>
+      ) : null}
+      <span className="exo-dc-modal-switch"><span>Mark as spoiler</span><Switch checked={hidden} label="Mark as spoiler" onChange={setHidden} /></span>
+    </Confirm>
   )
 }
 
@@ -426,8 +550,9 @@ function Suggestions({ suggestions, pick, onPick }: { suggestions: Suggestion[];
       {suggestions.map((s, i) => (
         <li key={s.key} role="option" aria-selected={i === pick}>
           <button type="button" onMouseDown={event => { event.preventDefault(); onPick(s) }}>
-            {s.glyph ? <span className="exo-dc-suggest-glyph" aria-hidden="true">{s.glyph}</span> : <img src={s.image} alt="" draggable={false} />}
-            <span>{s.label}</span>
+            {s.glyph ? <span className="exo-dc-suggest-glyph" aria-hidden="true" style={s.color ? { color: s.color } : undefined}>{s.glyph}</span> : <img src={s.image} alt="" draggable={false} />}
+            <span style={s.color ? { color: s.color } : undefined}>{s.label}</span>
+            {s.detail ? <span className="exo-dc-suggest-detail">{s.detail}</span> : null}
           </button>
         </li>
       ))}

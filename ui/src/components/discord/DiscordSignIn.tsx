@@ -29,7 +29,7 @@ export function DiscordQrSignIn({ note = null }: { note?: string | null }) {
           : ended ? <p role="alert">{step.message ?? 'The code expired.'}</p>
           : <p>Getting a code…</p>}
       </div>
-      {ended ? <button type="button" className="button button--primary" onClick={() => setAttempt(n => n + 1)}>New code</button> : null}
+      {ended ? <button type="button" className="exo-set-btn is-primary" onClick={() => setAttempt(n => n + 1)}>New code</button> : null}
       {note && !step ? <p className="exo-dc-signin-note" role="alert">{note}</p> : null}
     </>
   )

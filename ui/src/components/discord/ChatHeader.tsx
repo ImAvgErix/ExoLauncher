@@ -1,9 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { host } from '../../lib/host'
 import { report } from '../../lib/report'
 import { type DiscordChannel, type DiscordMessage, type DiscordPlace, type DiscordSearchFilters, type DiscordThread } from '../../lib/discord'
 import { Icons } from './icons'
-import { type MarkdownContext } from './markdown'
+import { useLayer } from './admin'
+import { Markdown, MarkdownLine, type MarkdownContext } from './markdown'
+import { ModalBack } from './SettingsLayer'
 import { Avatar } from './presence'
 import { FriendPicker } from './Sidebar'
 import { Inbox } from './Inbox'
@@ -24,7 +26,8 @@ export function ChatHeader({ channel, guildId, serverName, ctx, membersShown, on
   membersShown: boolean
   /** Absent beside a voice call, which has no member list. */
   onToggleMembers?: () => void
-  onCall?: () => void
+  /** A DM's Start Voice Call; video: Start Video Call. */
+  onCall?: (video: boolean) => void
   inCall?: boolean
   /** Discord's chat panel beside a call: the channel's name and Close Chat, nothing else. */
   onHide?: () => void
@@ -32,30 +35,37 @@ export function ChatHeader({ channel, guildId, serverName, ctx, membersShown, on
   const [panel, setPanel] = useState<'pins' | 'search' | 'inbox' | 'threads' | null>(null)
   // What was searched for: Enter searches, typing after it doesn't until the next Enter.
   const [searched, setSearched] = useState<DiscordSearchFilters | null>(null)
-  if (onHide) return <PanelHead channel={channel} onHide={onHide} />
+  if (onHide) return <PanelHead channel={channel} guildId={guildId} onHide={onHide} />
   // A 1:1 DM with its profile panel open: the panel is the person's header, so the bar doesn't repeat their face and name.
   const profileBeside = !guildId && !!channel.dm && !channel.dm.group && membersShown && !!onToggleMembers
   return (
     <header className="exo-dc-chat-head">
       {profileBeside ? null : <HeadTitle channel={channel} guildId={guildId} parent={parent} onBack={onBack} />}
-      {channel.topic ? <><span className="exo-dc-head-line" aria-hidden="true" /><span className="exo-dc-chat-topic">{channel.topic}</span></> : null}
+      {channel.topic ? <Topic channel={channel} guildId={guildId} topic={channel.topic} ctx={ctx} /> : null}
       <span className="exo-dc-head-tools">
         {onCall ? (
-          <button type="button" className={`exo-dc-icon-btn${inCall ? ' is-on' : ''}`} aria-label={inCall ? 'In call' : 'Start a voice call'} disabled={inCall} onClick={onCall}>
-            <Icons.Call size={20} />
-          </button>
+          <>
+            <button type="button" className={`exo-dc-icon-btn${inCall ? ' is-on' : ''}`} aria-label={inCall ? 'In call' : 'Start a voice call'} disabled={inCall} onClick={() => onCall(false)}>
+              <Icons.Call size={20} />
+            </button>
+            <button type="button" className="exo-dc-icon-btn" aria-label="Start a video call" disabled={inCall} onClick={() => onCall(true)}>
+              <Icons.Camera size={20} />
+            </button>
+          </>
         ) : null}
         {guildId && onOpenThread ? (
           <button type="button" className="exo-dc-icon-btn" aria-label="Threads" aria-pressed={panel === 'threads'} onClick={() => setPanel(p => p === 'threads' ? null : 'threads')}>
             <Icons.Threads size={20} />
           </button>
         ) : null}
-        {guildId ? <Bell key={channel.id} channel={channel} /> : null}
+        {/* Keys are named per control: a server's first channel can share the server's id, and two siblings with one key
+            made React keep every old bell (Wooting's #general showed dozens). */}
+        {guildId ? <Bell key={`bell:${channel.id}`} channel={channel} /> : null}
         <button type="button" className="exo-dc-icon-btn" aria-label="Pinned messages" aria-pressed={panel === 'pins'} onClick={() => setPanel(p => p === 'pins' ? null : 'pins')}>
           <Icons.Pin size={20} />
         </button>
         {onToggleMembers ? <SideToggle channel={channel} guildId={guildId} shown={membersShown} onToggle={onToggleMembers} /> : null}
-        <SearchBox key={guildId ?? channel.id} channel={channel} guildId={guildId} placeholder={searchLabel(channel, serverName)} ctx={ctx}
+        <SearchBox key={`search:${guildId ?? channel.id}`} channel={channel} guildId={guildId} placeholder={searchLabel(channel, serverName)} ctx={ctx}
           onSearch={filters => { setSearched(filters); setPanel('search') }} onClear={() => { setSearched(null); setPanel(p => p === 'search' ? null : p) }} />
         <button type="button" className="exo-dc-icon-btn" aria-label="Inbox" aria-pressed={panel === 'inbox'} onClick={() => setPanel(p => p === 'inbox' ? null : 'inbox')}>
           <Icons.Inbox size={20} />
@@ -63,6 +73,36 @@ export function ChatHeader({ channel, guildId, serverName, ctx, membersShown, on
       </span>
       {panel ? <HeadPanel panel={panel} channel={channel} searched={searched} ctx={ctx} onOpenThread={onOpenThread} onClose={() => setPanel(null)} /> : null}
     </header>
+  )
+}
+
+// The channel's topic, Discord's way: its first line in the bar, mentions and links working; a press anywhere else on it
+// opens all of it in Channel topic.
+export function Topic({ channel, guildId, topic, ctx }: { channel: DiscordChannel; guildId: string | null; topic: string; ctx: MarkdownContext }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <>
+      <span className="exo-dc-head-line" aria-hidden="true" />
+      <span className="exo-dc-chat-topic" onClick={event => { if (!(event.target as Element).closest('a, button, img, .exo-dc-mention')) setOpen(true) }}>
+        <button type="button" className="sr-only" onClick={() => setOpen(true)}>Open channel topic</button>
+        <MarkdownLine text={topic} ctx={ctx} />
+      </span>
+      {open ? <TopicDialog channel={channel} guildId={guildId} topic={topic} ctx={ctx} onClose={() => setOpen(false)} /> : null}
+    </>
+  )
+}
+
+function TopicDialog({ channel, guildId, topic, ctx, onClose }: { channel: DiscordChannel; guildId: string | null; topic: string; ctx: MarkdownContext; onClose: () => void }) {
+  const box = useRef<HTMLDivElement>(null)
+  useLayer(box, onClose)
+  return (
+    <ModalBack onClose={onClose}>
+      <div ref={box} className="exo-dc-modal exo-dc-topic" role="dialog" aria-modal="true" aria-label="Channel topic" tabIndex={-1} onClick={event => event.stopPropagation()}>
+        <h2>Channel topic</h2>
+        <span className="exo-dc-topic-where"><HeadIcon channel={channel} guildId={guildId} />{channel.name}</span>
+        <div className="exo-dc-topic-text"><Markdown text={topic} ctx={ctx} /></div>
+      </div>
+    </ModalBack>
   )
 }
 
@@ -100,14 +140,16 @@ function HeadTitle({ channel, guildId, parent, onBack }: { channel: DiscordChann
   )
 }
 
-// Discord's chat panel beside a call: the channel's name and Close Chat, nothing else.
-function PanelHead({ channel, onHide }: { channel: DiscordChannel; onHide: () => void }) {
+// A chat in a side panel (beside a call, or a Server Guide resource), as Discord's sidebar heads it: the channel, its
+// notifications when it is a server's text channel, and Close, nothing else.
+function PanelHead({ channel, guildId, onHide }: { channel: DiscordChannel; guildId: string | null; onHide: () => void }) {
   return (
     <header className="exo-dc-chat-head">
-      <Icons.Chat size={20} />
+      <HeadIcon channel={channel} guildId={guildId} />
       <strong>{channel.name}</strong>
       <span className="exo-dc-head-tools">
-        <button type="button" className="exo-dc-icon-btn" aria-label="Close Chat" onClick={onHide}><Icons.Close size={18} /></button>
+        {guildId && channel.kind === 'text' ? <Bell key={`bell:${channel.id}`} channel={channel} /> : null}
+        <button type="button" className="exo-dc-icon-btn" aria-label="Close chat" onClick={onHide}><Icons.Close size={18} /></button>
       </span>
     </header>
   )
@@ -218,8 +260,8 @@ function Threads({ channelId, onOpen, onClose }: { channelId: string; onOpen: (t
   )
 }
 
-export const MUTE_FOR: [number, string][] = [[15, 'For 15 Minutes'], [60, 'For 1 Hour'], [180, 'For 3 Hours'], [480, 'For 8 Hours'], [1440, 'For 24 Hours'], [0, 'Until I turn it back on']]
-export const LEVELS: [0 | 1 | 2, string][] = [[0, 'All Messages'], [1, 'Only @mentions'], [2, 'Nothing']]
+export const MUTE_FOR: [number, string][] = [[15, 'For 15 minutes'], [60, 'For 1 hour'], [180, 'For 3 hours'], [480, 'For 8 hours'], [1440, 'For 24 hours'], [0, 'Until I turn it back on']]
+export const LEVELS: [0 | 1 | 2, string][] = [[0, 'All messages'], [1, 'Only @mentions'], [2, 'Nothing']]
 
 // Discord's bell: mute for a while or until turned back on (or unmute), and what this channel notifies you of.
 function Bell({ channel }: { channel: DiscordChannel }) {
@@ -242,7 +284,7 @@ function Bell({ channel }: { channel: DiscordChannel }) {
         <BellMenu onClose={() => setOpen(false)}>
           {muted ? (
             <button type="button" role="menuitem" onClick={() => change({ muted: false }, () => { setMuted(false); setUntil(null) })}>
-              <span className="exo-dc-menu-text">Unmute Channel{until ? <small>Muted until {new Date(until).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}</small> : null}</span>
+              <span className="exo-dc-menu-text">Unmute channel{until ? <small>Muted until {new Date(until).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}</small> : null}</span>
             </button>
           ) : MUTE_FOR.map(([minutes, label]) => (
             <button key={minutes} type="button" role="menuitem" onClick={() => change(minutes ? { muted: true, minutes } : { muted: true }, () => { setMuted(true); setUntil(minutes ? Date.now() + minutes * 60_000 : null) })}>
@@ -251,7 +293,7 @@ function Bell({ channel }: { channel: DiscordChannel }) {
           ))}
           <span className="exo-dc-menu-line" role="separator" />
           <button type="button" role="menuitemradio" aria-checked={level === null} onClick={() => change({ level: 3 }, () => setLevel(null))}>
-            <span className="exo-dc-menu-text">Use Default<small>{LEVELS.find(([value]) => value === (channel.notifyDefault ?? 0))?.[1]}</small></span>
+            <span className="exo-dc-menu-text">Use default<small>{LEVELS.find(([value]) => value === (channel.notifyDefault ?? 0))?.[1]}</small></span>
             {level === null ? <Icons.Check size={16} /> : null}
           </button>
           {LEVELS.map(([value, label]) => (
@@ -295,16 +337,20 @@ function SideToggle({ channel, guildId, shown, onToggle }: { channel: DiscordCha
   )
 }
 
-// A DM's header tools: Add Friends to DM, and the profile panel's toggle for a 1:1 DM.
+// A DM's header tools: Add Friends to DM, and the profile panel's toggle for a 1:1 DM (a group's member list's for a group).
 function DmTools({ channel, profileShown, onToggleProfile }: { channel: DiscordChannel; profileShown: boolean; onToggleProfile: () => void }) {
   return (
     <>
       <AddToDm channel={channel} />
-      {!channel.dm?.group ? (
-        <button type="button" className="exo-dc-icon-btn" aria-label={profileShown ? 'Hide User Profile' : 'Show User Profile'} aria-pressed={profileShown} onClick={onToggleProfile}>
+      {channel.dm?.group ? (
+        <button type="button" className="exo-dc-icon-btn" aria-label={profileShown ? 'Hide member list' : 'Show member list'} aria-pressed={profileShown} onClick={onToggleProfile}>
+          <Icons.Members size={20} />
+        </button>
+      ) : (
+        <button type="button" className="exo-dc-icon-btn" aria-label={profileShown ? 'Hide user profile' : 'Show user profile'} aria-pressed={profileShown} onClick={onToggleProfile}>
           <Icons.Profile size={20} />
         </button>
-      ) : null}
+      )}
     </>
   )
 }
@@ -314,9 +360,9 @@ function AddToDm({ channel }: { channel: DiscordChannel }) {
   const [open, setOpen] = useState(false)
   return (
     <span className="exo-dc-menu-anchor">
-      <button type="button" className="exo-dc-icon-btn" aria-label="Add Friends to DM" aria-expanded={open} onClick={() => setOpen(o => !o)}><Icons.AddFriend size={20} /></button>
+      <button type="button" className="exo-dc-icon-btn" aria-label="Add friends to DM" aria-expanded={open} onClick={() => setOpen(o => !o)}><Icons.AddFriend size={20} /></button>
       {open ? (
-        <FriendPicker title="Select Friends" onClose={() => setOpen(false)} onPick={friend => {
+        <FriendPicker title="Select friends" onClose={() => setOpen(false)} onPick={friend => {
           setOpen(false)
           void host.discordChannel(channel.id, 'add', undefined, friend.id).then(result => {
             if (result.ok && result.channelId && result.channelId !== channel.id) window.dispatchEvent(new CustomEvent('exo-dc-open-dm', { detail: result.channelId }))

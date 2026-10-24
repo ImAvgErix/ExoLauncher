@@ -14,6 +14,13 @@ driver or account, for every mouse
 - **Wired or wireless:** on its cable or its receiver, the same mouse with the
   same profiles.
 
+## Credits
+
+Exo Mouse is built on [OpenMouse](https://github.com/OpenMouse-Project/openmouse),
+made by [snekxs](https://github.com/snekxs) ♥ and its contributors, and is in
+Exo with snekxs's permission. OpenMouse's protocol library does the talking to
+every mouse; Exo Mouse is the room around it.
+
 ## License
 
 Exo Mouse is a separate program from Exo Launcher. It is licensed under the
@@ -54,7 +61,7 @@ the library version changes, so a fixed release is noticed and its patch removed
 
 ## Build
 
-```
+```sh
 npm ci
 npm run build
 ```

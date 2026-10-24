@@ -110,27 +110,32 @@ internal sealed partial class DiscordRest : IDisposable
         }
     }
 
-    internal sealed record Reply(JsonElement? Body, string? Error);
+    /// <summary>Discord's answer, or why not; Mfa when Discord wants the person to verify first (<see cref="FinishMfaAsync"/>).</summary>
+    internal sealed record Reply(JsonElement? Body, string? Error, MfaAsk? Mfa = null);
 
     /// <summary>50 messages: the newest, or those before, after or around one (a jump to a message).</summary>
     internal Task<Reply> MessagesAsync(string channelId, string? before, CancellationToken ct, string? after = null, string? around = null) =>
         SendAsync(HttpMethod.Get, $"channels/{Id(channelId)}/messages?limit=50" + (before is null ? "" : "&before=" + Id(before))
             + (after is null ? "" : "&after=" + Id(after)) + (around is null ? "" : "&around=" + Id(around)), null, ct);
 
-    internal sealed record Upload(string Name, string Type, byte[] Data);
+    /// <summary>A file going with a message; Description is its alt text (Modify Attachment), up to 1024 characters.</summary>
+    internal sealed record Upload(string Name, string Type, byte[] Data, string? Description = null);
 
     /// <summary>A message forwarded from another conversation: Discord's forward is a reference of type 1, plus an optional note after it.</summary>
     internal sealed record Forward(string ChannelId, string MessageId, string? GuildId);
 
     internal Task<Reply> PostMessageAsync(string channelId, string content, string? replyTo, string? guildId, CancellationToken ct, IReadOnlyList<Upload>? files = null,
-        bool replyPing = true, Forward? forward = null)
+        bool replyPing = true, Forward? forward = null, bool quiet = false)
     {
+        // Discord's @silent: a message starting with it goes without notifications (SUPPRESS_NOTIFICATIONS, 4096), the word left out.
+        var (silent, text) = Silent(content);
+        silent |= quiet;
         var body = new JsonObject
         {
-            ["content"] = content,
+            ["content"] = text,
             ["nonce"] = Nonce(),
             ["tts"] = false,
-            ["flags"] = 0,
+            ["flags"] = silent ? 4096 : 0,
         };
         if (replyTo is not null)
         {
@@ -142,11 +147,20 @@ internal sealed partial class DiscordRest : IDisposable
             body["message_reference"] = new JsonObject { ["type"] = 1, ["message_id"] = Id(forward.MessageId), ["channel_id"] = Id(forward.ChannelId), ["guild_id"] = forward.GuildId };
         if (files is { Count: > 0 })
         {
-            body["attachments"] = new JsonArray([.. files.Select((f, i) => (JsonNode)new JsonObject { ["id"] = i, ["filename"] = f.Name })]);
+            body["attachments"] = new JsonArray([.. files.Select((f, i) =>
+            {
+                var attachment = new JsonObject { ["id"] = i, ["filename"] = f.Name };
+                if (f.Description is { Length: > 0 } alt) attachment["description"] = alt;
+                return (JsonNode)attachment;
+            })]);
             return SendAsync(HttpMethod.Post, $"channels/{Id(channelId)}/messages", body, ct, files);
         }
         return SendAsync(HttpMethod.Post, $"channels/{Id(channelId)}/messages", body, ct);
     }
+
+    /// <summary>A message starting with @silent (then a space, or nothing): Discord sends it silently, without the word.</summary>
+    internal static (bool Silent, string Content) Silent(string content) =>
+        content.StartsWith("@silent", StringComparison.Ordinal) && (content.Length == 7 || char.IsWhiteSpace(content[7])) ? (true, content[7..].Trim()) : (false, content);
 
     internal Task<Reply> EditMessageAsync(string channelId, string messageId, string content, CancellationToken ct) =>
         SendAsync(HttpMethod.Patch, $"channels/{Id(channelId)}/messages/{Id(messageId)}", new JsonObject { ["content"] = content }, ct);
@@ -174,6 +188,24 @@ internal sealed partial class DiscordRest : IDisposable
             ["message"] = new JsonObject { ["content"] = content ?? "" },
         }, ct);
     }
+
+    /// <summary>A group DM's Edit Group: its name and icon (a data URI, or null to take it off); null leaves one as it is.</summary>
+    internal Task<Reply> EditGroupAsync(string channelId, string? name, string? icon, bool clearIcon, CancellationToken ct)
+    {
+        var body = new JsonObject();
+        if (name is not null) body["name"] = name;
+        if (icon is not null) body["icon"] = icon;
+        else if (clearIcon) body["icon"] = null;
+        return SendAsync(HttpMethod.Patch, $"channels/{Id(channelId)}", body, ct);
+    }
+
+    /// <summary>The group's owner hands it to another member (Make Group Owner).</summary>
+    internal Task<Reply> GroupOwnerAsync(string channelId, string userId, CancellationToken ct) =>
+        SendAsync(HttpMethod.Patch, $"channels/{Id(channelId)}", new JsonObject { ["owner"] = Id(userId) }, ct);
+
+    /// <summary>Remove From Group: the owner takes someone out of the group DM.</summary>
+    internal Task<Reply> RemoveFromGroupAsync(string channelId, string userId, CancellationToken ct) =>
+        SendAsync(HttpMethod.Delete, $"channels/{Id(channelId)}/recipients/{Id(userId)}", null, ct);
 
     internal Task<Reply> TypingAsync(string channelId, CancellationToken ct) =>
         SendAsync(HttpMethod.Post, $"channels/{Id(channelId)}/typing", null, ct);
@@ -214,8 +246,9 @@ internal sealed partial class DiscordRest : IDisposable
         ? SendAsync(HttpMethod.Put, $"channels/{Id(channelId)}/recipients/{Id(userId)}", new JsonObject(), ct)
         : SendAsync(HttpMethod.Post, "users/@me/channels", new JsonObject { ["recipients"] = new JsonArray([.. existing.Append(userId).Select(id => (JsonNode)Id(id))]) }, ct);
 
-    internal Task<Reply> OpenDmAsync(string userId, CancellationToken ct) =>
-        SendAsync(HttpMethod.Post, "users/@me/channels", new JsonObject { ["recipients"] = new JsonArray(Id(userId)) }, ct);
+    /// <summary>Your DM with someone, or a new group DM with several people (up to 9, as Discord allows).</summary>
+    internal Task<Reply> OpenDmAsync(IReadOnlyList<string> userIds, CancellationToken ct) =>
+        SendAsync(HttpMethod.Post, "users/@me/channels", new JsonObject { ["recipients"] = new JsonArray([.. userIds.Select(id => (JsonNode)Id(id))]) }, ct);
 
     internal Task<Reply> AckBulkAsync(IEnumerable<(string Channel, string Message)> reads, CancellationToken ct) =>
         SendAsync(HttpMethod.Post, "read-states/ack-bulk", new JsonObject
@@ -298,6 +331,18 @@ internal sealed partial class DiscordRest : IDisposable
         {
             ["channel_overrides"] = new JsonObject { [Id(categoryId)] = new JsonObject { ["collapsed"] = collapsed } },
         }, ct);
+
+    /// <summary>Accepts a message request (consent ACCEPTED), as Discord's Accept does; then it's a DM like any other.</summary>
+    internal Task<Reply> AcceptRequestAsync(string channelId, CancellationToken ct) =>
+        SendAsync(HttpMethod.Put, $"channels/{Id(channelId)}/recipients/@me", new JsonObject { ["consent_status"] = 2 }, ct);
+
+    /// <summary>Ignores a message request (Discord's Ignore): it leaves your requests.</summary>
+    internal Task<Reply> IgnoreRequestAsync(string channelId, CancellationToken ct) =>
+        SendAsync(HttpMethod.Delete, $"channels/{Id(channelId)}/recipients/@me", null, ct);
+
+    /// <summary>A voice channel's status (Set Channel Status; empty clears it).</summary>
+    internal Task<Reply> VoiceStatusAsync(string channelId, string status, CancellationToken ct) =>
+        SendAsync(HttpMethod.Put, $"channels/{Id(channelId)}/voice-status", new JsonObject { ["status"] = status }, ct);
 
     /// <summary>The Server Guide: the welcome message, new member to-dos and resource channels.</summary>
     internal Task<Reply> ServerGuideAsync(string guildId, CancellationToken ct) =>
@@ -465,9 +510,6 @@ internal sealed partial class DiscordRest : IDisposable
         }, ct);
 
     /// <summary>Discord's Invite People: a 7-day invite to a channel.</summary>
-    internal Task<Reply> InviteAsync(string channelId, CancellationToken ct) =>
-        SendAsync(HttpMethod.Post, $"channels/{Id(channelId)}/invites", new JsonObject { ["max_age"] = 604800, ["max_uses"] = 0, ["temporary"] = false }, ct);
-
     internal Task<Reply> LogoutAsync(CancellationToken ct) =>
         SendAsync(HttpMethod.Post, "auth/logout", new JsonObject { ["provider"] = null, ["voip_provider"] = null }, ct);
 
@@ -475,15 +517,17 @@ internal sealed partial class DiscordRest : IDisposable
     internal Task<Reply> RemoteAuthLoginAsync(string ticket, CancellationToken ct) =>
         SendAsync(HttpMethod.Post, "users/@me/remote-auth/login", new JsonObject { ["ticket"] = ticket }, ct);
 
-    // reason: the Audit Log's reason (X-Audit-Log-Reason); content: a form other than a message's (made again on a retry).
+    // reason: the Audit Log's reason (X-Audit-Log-Reason); content: a form other than a message's (made again on a retry);
+    // mfaToken: the verified check's token, on the one retry after Discord asked for it.
     private async Task<Reply> SendAsync(HttpMethod method, string path, JsonNode? body, CancellationToken ct, IReadOnlyList<Upload>? files = null,
-        string? reason = null, Func<HttpContent>? content = null)
+        string? reason = null, Func<HttpContent>? content = null, string? mfaToken = null)
     {
         for (var attempt = 0; ; attempt++)
         {
             using var request = new HttpRequestMessage(method, Api + path) { Version = HttpVersion.Version20, VersionPolicy = HttpVersionPolicy.RequestVersionOrLower };
             if (_token is not null) request.Headers.TryAddWithoutValidation("Authorization", _token);
             if (!string.IsNullOrWhiteSpace(reason)) request.Headers.TryAddWithoutValidation("X-Audit-Log-Reason", Uri.EscapeDataString(reason.Trim()));
+            if (mfaToken is not null) request.Headers.TryAddWithoutValidation("X-Discord-MFA-Authorization", mfaToken);
             if (content is not null) request.Content = content();
             else if (files is not null)
             {
@@ -527,7 +571,7 @@ internal sealed partial class DiscordRest : IDisposable
                         await Task.Delay(TimeSpan.FromSeconds(Math.Max(0.5, waitSeconds)), ct).ConfigureAwait(false);
                         continue;
                     }
-                    return new Reply(null, "Discord is still getting these messages ready to search. Try again in a moment.");
+                    return new Reply(null, path.Contains("members-search", StringComparison.Ordinal) ? MembersIndexing : "Discord is still getting these messages ready to search. Try again in a moment.");
                 }
                 if (response.IsSuccessStatusCode) return new Reply(json, null);
                 if (response.StatusCode == HttpStatusCode.TooManyRequests && attempt < 2 &&
@@ -538,6 +582,9 @@ internal sealed partial class DiscordRest : IDisposable
                     continue;
                 }
                 AppLog.Info($"Discord client: {method} {Route(path)} answered {(int)response.StatusCode}.");
+                // Discord wants the person to verify first: the request waits here for the code (once; a second ask is refused, as Discord's client does).
+                if (mfaToken is null && ReadMfa(response.StatusCode, json) is { } challenge)
+                    return AskMfa(challenge, json, (token, again) => SendAsync(method, path, body, again, files, reason, content, token));
                 return new Reply(json, ErrorLine(response.StatusCode, json));
             }
         }
@@ -565,6 +612,9 @@ internal sealed partial class DiscordRest : IDisposable
             _ => "Discord didn't take that. Try again.",
         };
     }
+
+    /// <summary>A server's member search answered "still indexing" (a new server's, for a while): the page asks again.</summary>
+    internal const string MembersIndexing = "Discord is still getting this server's members ready.";
 
     private const string TooLarge = "That's too big for Discord. Files can be 10 MB without Nitro.";
 

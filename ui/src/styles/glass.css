@@ -56,7 +56,7 @@
 }
 
 /* A primary button on glass is ink on its own fill: no lift under its words. */
-:is(.exo-glass, .exo-shelf-sort-menu, .exo-key-popover, .exo-toast) :is(.is-primary, .exo-cta) {
+:is(.exo-glass, .exo-shelf-sort-menu, .exo-key-popover, .exo-toast) .is-primary {
   text-shadow: none;
 }
 
@@ -105,7 +105,6 @@ button.exo-glass:hover {
    control that is glass of its own (a lens, a light tone) keeps its own. */
 :where(
   .exo-capture-rec,
-  .exo-capture-chip,
   .exo-captures-empty-icon,
   .exo-captures-way,
   .exo-capture-duration,
@@ -115,7 +114,6 @@ button.exo-glass:hover {
   .exo-dc-notice-close,
   .exo-dc-swatch,
   .exo-dc-inline-input,
-  .exo-dc-check-chip,
   .exo-dc-tri,
   .exo-dc-command-field,
   .exo-dc-cv-button,
@@ -132,12 +130,13 @@ button.exo-glass:hover {
   .exo-dc-hidden-label,
   .exo-dc-call button,
   .exo-dc-msg-actions,
+  .exo-dc-quick-row > button,
   .exo-dc-round-btn,
+  .exo-dc-add-row,
   .exo-dc-toast,
   .exo-dc-tag-chip,
   .exo-dc-forum-title,
   .exo-dc-gif-badge,
-  .exo-dc-invite-note,
   .exo-dc-pf-more,
   .exo-dc-pf-badges,
   .exo-dc-pf-roles li,
@@ -164,6 +163,9 @@ button.exo-glass:hover {
   .exo-dc-sound,
   .exo-dc-delete-quote,
   .exo-dc-stream-sound,
+  .exo-dc-guild-tag,
+  .exo-dc-tag-card-icon,
+  .exo-dc-side-jump,
   .exo-game-status,
   .exo-badge,
   .exo-friend-pill-go,
@@ -177,7 +179,6 @@ button.exo-glass:hover {
   .exo-music-sheet-field :is(input, textarea),
   .exo-ob-service,
   .exo-ob-discord,
-  .exo-set-chip,
   .exo-store-badge,
   .exo-sgp-pill,
   .exo-sgp-offer,
@@ -199,7 +200,6 @@ button.exo-glass:hover {
   .exo-system-head-icon,
   .exo-set-btn,
   .exo-game-tool,
-  .exo-ghost-btn,
   .exo-shelf-sort-trigger,
   .exo-add-game-btn,
   .exo-game-close

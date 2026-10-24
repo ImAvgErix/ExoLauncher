@@ -259,14 +259,17 @@ public sealed partial class MainWindow
             case "state":
                 _captureState = data;
                 // Recording or keeping a replay: its microphone track takes Exo's cleaned voice.
-                if (CaptureAddon is { } voiceAddon)
-                    Services.DiscordClient.Voice.RecordedVoice.Set(voiceAddon, data?["buffering"]?.GetValue<bool>() == true || data?["recording"]?.GetValue<bool>() == true);
+                var capturing = data?["buffering"]?.GetValue<bool>() == true || data?["recording"]?.GetValue<bool>() == true;
+                if (CaptureAddon is { } voiceAddon) Services.DiscordClient.Voice.RecordedVoice.Set(voiceAddon, capturing);
+                // A replay or recording has the call's voices in it: Exo's Discord client says so in calls, as Discord's clips do.
+                Services.DiscordClient.DiscordSession.Recording = capturing;
                 _bridge?.PostCaptureEvent("capture.state", CaptureStateDto());
                 if (name == "ready" && Interlocked.Exchange(ref _captureReconfigure, 0) == 1) _ = ConfigureCaptureAsync();
                 break;
             case "exited":
                 _captureGameId = null;
                 if (CaptureAddon is { } goneAddon) Services.DiscordClient.Voice.RecordedVoice.Set(goneAddon, false);
+                Services.DiscordClient.DiscordSession.Recording = false;
                 Interlocked.Exchange(ref _captureReconfigure, 1);
                 _captureState = null;
                 _bridge?.PostCaptureEvent("capture.state", CaptureStateDto());
@@ -465,8 +468,8 @@ public sealed partial class MainWindow
         if (method is null) return new { ok = false, message = "Unknown action." };
         try
         {
-            // The snip overlay freezes the screen as it is: Exo's own menu must be gone first.
-            if (method == "snip") { await Task.Delay(180).ConfigureAwait(true); addon.AllowForeground(); }
+            // The snip overlay freezes the screen as it is: the page takes its menu off the screen before it asks.
+            if (method == "snip") addon.AllowForeground();
             var state = await addon.CallAsync(method, new JsonObject(), CancellationToken.None).ConfigureAwait(true);
             if (state is JsonObject) _captureState = state;
             return new { ok = true, state = CaptureStateDto() };

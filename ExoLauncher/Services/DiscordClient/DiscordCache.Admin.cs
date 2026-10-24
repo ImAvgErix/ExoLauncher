@@ -12,7 +12,7 @@ internal sealed partial class DiscordCache
     internal const ulong Kick = 1UL << 1, Ban = 1UL << 2, ManageGuild = 1UL << 5, ViewAuditLog = 1UL << 7, ManageMessages = 1UL << 13,
         MuteMembers = 1UL << 22, DeafenMembers = 1UL << 23, MoveMembers = 1UL << 24, ChangeNickname = 1UL << 26, ManageNicknames = 1UL << 27,
         ManageRoles = 1UL << 28, ManageWebhooks = 1UL << 29, ManageExpressions = 1UL << 30, ModerateMembers = 1UL << 40,
-        CreateExpressions = 1UL << 43, PinMessages = 1UL << 51;
+        CreateExpressions = 1UL << 43, PinMessages = 1UL << 51, ViewInsights = 1UL << 19;
 
     // Pinning became its own permission; servers Discord hasn't moved over yet still pin with Manage Messages.
     private static ulong PinPermission(Guild guild) =>
@@ -34,8 +34,24 @@ internal sealed partial class DiscordCache
             manageWebhooks = Has(ManageWebhooks),
             manageNicknames = Has(ManageNicknames),
             prune = Has(Kick) && Has(ManageGuild),
+            administrator = Has(Administrator),
+            insights = Has(ViewInsights),
             owner = guild.OwnerId == Me?.Id,
+            mfa = MfaEnabled,
         };
+    }
+
+    /// <summary>Your servers (any may have a tag; its profile says), and the one whose tag you wear.</summary>
+    internal (List<(string Id, string Name)> Servers, string? Mine) TagServers()
+    {
+        lock (_gate)
+            return ([.. _guilds.Values.Select(g => (g.Id, g.Name))], Me?.Look?.TagGuild);
+    }
+
+    /// <summary>The server's features as Discord last sent them, and whether the user owns it; null when it isn't one of theirs.</summary>
+    internal (HashSet<string> Features, bool Owner)? ServerOf(string guildId)
+    {
+        lock (_gate) return _guilds.TryGetValue(guildId, out var guild) ? ([.. guild.Features], guild.OwnerId == Me?.Id) : null;
     }
 
     /// <summary>The user's permissions on a server, or null when it isn't one of theirs.</summary>
@@ -63,6 +79,29 @@ internal sealed partial class DiscordCache
     internal int TopOf(string guildId)
     {
         lock (_gate) return _guilds.TryGetValue(guildId, out var guild) ? MyTop(guild) : 0;
+    }
+
+    /// <summary>
+    /// Onboarding's counts, as Discord's client counts them: the channels and categories @everyone can see (a voice
+    /// channel: and join), and of those the channels it can talk in (Send Messages, or in a forum Send Messages in Threads).
+    /// </summary>
+    internal (List<string> Seen, List<string> Chats) EveryoneChannels(string guildId)
+    {
+        const ulong SendInThreads = 1UL << 38;
+        lock (_gate)
+        {
+            if (!_guilds.TryGetValue(guildId, out var guild)) return ([], []);
+            List<string> seen = [], chats = [];
+            foreach (var c in guild.Channels.Values.Where(c => c.Type is not (10 or 11 or 12)))
+            {
+                var perms = EveryonePerms(guild, c);
+                var need = IsVoice(c.Type) ? ViewChannel | Connect : ViewChannel;
+                if ((perms & need) != need) continue;
+                seen.Add(c.Id);
+                if (c.Type != 4 && (perms & (c.Type is 15 or 16 ? SendInThreads : SendMessages)) != 0) chats.Add(c.Id);
+            }
+            return (seen, chats);
+        }
     }
 
     /// <summary>Members Discord's member search sent (their roles and nicknames), so the menus know them.</summary>
@@ -163,6 +202,8 @@ internal sealed partial class DiscordCache
                 known,
                 me,
                 owner = userId == guild.OwnerId,
+                // Your own 2FA: Transfer Ownership then verifies with it instead of an emailed code.
+                mfa = MfaEnabled,
                 outranks,
                 nick = known ? member.Nick : null,
                 // Remove Timeout shows only for someone timed out, as in Discord.
@@ -184,6 +225,8 @@ internal sealed partial class DiscordCache
                     timeout = outranks && (perms & ModerateMembers) != 0,
                     kick = outranks && (perms & Kick) != 0,
                     ban = outranks && (perms & Ban) != 0,
+                    // Transfer Ownership: the owner, to any other member who isn't a bot, as Discord offers it.
+                    transfer = !me && known && guild.OwnerId == Me.Id && _users.GetValueOrDefault(userId)?.Bot != true,
                     mute = voice is not null && (here & MuteMembers) != 0,
                     deafen = voice is not null && (here & DeafenMembers) != 0,
                     move = voice is not null && !me && (here & MoveMembers) != 0,

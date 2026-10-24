@@ -6,6 +6,7 @@ import { Switch } from '../Switch'
 import { admin, colorOf, Confirm, Field, personName, ReadError, SaveBar, useAdmin, useGuard } from './admin'
 import { Icons } from './icons'
 import { Avatar } from './presence'
+import { RoleLinks, type RoleLink } from './settingsRoleLinks'
 
 type Role = { id: string; name: string; color: number; position: number; hoist: boolean; mentionable: boolean; managed: boolean; permissions: string }
 type RolesData = { roles: Role[]; counts: Record<string, number> | null; top: number }
@@ -94,20 +95,22 @@ function RoleList({ guildId, sorted, data, error, creating, onCreate, onOpen, on
       {everyone ? (
         <button type="button" className="exo-dc-card exo-dc-everyone" onClick={() => onOpen(everyone.id)}>
           <Icons.Members size={20} />
-          <span className="exo-dc-friend-names"><strong>Default Permissions</strong><span>@everyone · applies to all server members</span></span>
+          <span className="exo-dc-friend-names"><strong>Default permissions</strong><span>@everyone · applies to all server members</span></span>
           <ChevronLeft size={16} className="exo-dc-flip" />
         </button>
       ) : null}
       <div className="exo-dc-page-bar">
         <label className="exo-dc-friend-search exo-dc-grow">
           <Icons.Search size={16} />
-          <input placeholder="Search Roles" value={query} onChange={event => setQuery(event.target.value)} aria-label="Search Roles" />
+          <input placeholder="Search roles" value={query} onChange={event => setQuery(event.target.value)} aria-label="Search roles" />
         </label>
-        <button type="button" className="button button--primary" disabled={creating} onClick={onCreate}>Create Role</button>
+        <button type="button" className="exo-set-btn is-primary" disabled={creating} onClick={onCreate}>Create role</button>
       </div>
       {error ? <p className="exo-dc-note is-bad" role="alert">{error}</p> : null}
       <p className="exo-dc-note">Members use the color of the highest role they have on this list. Drag roles to reorder them, or focus a handle and use the arrow keys.</p>
-      <ul className="exo-dc-mod-list exo-dc-role-list">
+      {/* Discord's table: Roles with their count, and Members; a row opens its role. */}
+      <div className="exo-dc-role-head" aria-hidden="true"><span>Roles — {others.length}</span><span>Members</span></div>
+      <ul className="exo-dc-role-list">
         {others.filter(r => !q || r.name.toLowerCase().includes(q)).map(role => (
           <li key={role.id} draggable={!q && movable(role)} className={[over === role.id ? 'is-over' : '', failed?.id === role.id ? 'has-error' : ''].join(' ').trim() || undefined}
             onDragStart={() => setDragging(role.id)} onDragEnd={() => { setDragging(null); setOver(null) }}
@@ -122,10 +125,12 @@ function RoleList({ guildId, sorted, data, error, creating, onCreate, onOpen, on
                   move(role.id, others.findIndex(r => r.id === role.id) + step)
                 }}><Icons.Grip size={14} /></button>
             ) : <span className="exo-dc-grip" aria-hidden="true" />}
-            <span className="exo-dc-role-dot" style={{ background: colorOf(role.color) }} aria-hidden="true" />
-            <button type="button" className="exo-dc-mod-name exo-dc-link" onClick={() => onOpen(role.id)}><span>{role.name}</span></button>
-            <span className="exo-dc-mod-meta"><Icons.Members size={14} /> {data.counts?.[role.id] ?? 0}</span>
-            <button type="button" className="exo-dc-icon-btn" aria-label={`Edit ${role.name}`} onClick={() => onOpen(role.id)}><Icons.Edit size={16} /></button>
+            <button type="button" className="exo-dc-role-open" onClick={() => onOpen(role.id)}>
+              <span className="exo-dc-role-dot" style={{ background: colorOf(role.color) }} aria-hidden="true" />
+              <span className="exo-dc-role-name">{role.name}</span>
+              <span className="exo-dc-role-count"><Icons.Members size={14} /> {data.counts?.[role.id] ?? 0}</span>
+            </button>
+            <button type="button" className="exo-dc-icon-btn exo-dc-role-edit" aria-label={`Edit ${role.name}`} onClick={() => onOpen(role.id)}><Icons.Edit size={16} /></button>
             {failed?.id === role.id ? <span className="exo-dc-field-error exo-dc-row-error" role="alert">{failed.message}</span> : null}
           </li>
         ))}
@@ -134,7 +139,7 @@ function RoleList({ guildId, sorted, data, error, creating, onCreate, onOpen, on
   )
 }
 
-type Tab = 'display' | 'permissions' | 'members'
+type Tab = 'display' | 'permissions' | 'links' | 'members'
 
 function RoleEditor({ guildId, role, roles, data, onPick, onBack, onSaved, onDeleted }: {
   guildId: string
@@ -149,23 +154,33 @@ function RoleEditor({ guildId, role, roles, data, onPick, onBack, onSaved, onDel
   const everyone = role.id === guildId
   const [tab, setTab] = useState<Tab>(everyone ? 'permissions' : 'display')
   const [draft, setDraft] = useState<Draft>({})
+  // The Links tab's unsaved requirements (null while they're Discord's); saved brings the tab back to Discord's.
+  const [links, setLinks] = useState<RoleLink[][] | null>(null)
+  const [linksSaved, setLinksSaved] = useState(0)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const guard = useGuard()
   // An app's or Server Booster's role edits too (color, display, permissions), as in Discord; only its name and members are Discord's.
   const editable = everyone || role.position < data.top
   const value = { ...role, ...draft }
-  const dirty = Object.keys(draft).length > 0
+  const dirty = Object.keys(draft).length > 0 || links !== null
   const change = (next: Draft) => { setError(null); setDraft(d => ({ ...d, ...next })) }
   async function save() {
     setBusy(true)
-    const result = await admin('saveRole', { guildId, roleId: role.id, changes: draft })
+    if (Object.keys(draft).length) {
+      const result = await admin('saveRole', { guildId, roleId: role.id, changes: draft })
+      if (!result.ok) { setBusy(false); setError(result.message ?? 'Discord did not save that role.'); return }
+      setDraft({}); onSaved()
+    }
+    if (links) {
+      const result = await admin('saveRoleLinks', { guildId, roleId: role.id, groups: links })
+      if (!result.ok) { setBusy(false); setError(result.message ?? 'Discord did not save those requirements.'); return }
+      setLinks(null); setLinksSaved(n => n + 1)
+    }
     setBusy(false)
-    if (!result.ok) { setError(result.message ?? 'Discord did not save that role.'); return }
-    setDraft({}); onSaved()
   }
   const tabs: { id: Tab; label: string }[] = everyone ? [{ id: 'permissions', label: 'Permissions' }]
-    : [{ id: 'display', label: 'Display' }, { id: 'permissions', label: 'Permissions' }, { id: 'members', label: `Manage Members (${data.counts?.[role.id] ?? 0})` }]
+    : [{ id: 'display', label: 'Display' }, { id: 'permissions', label: 'Permissions' }, { id: 'links', label: 'Links' }, { id: 'members', label: `Manage members (${data.counts?.[role.id] ?? 0})` }]
   return (
     <div className="exo-dc-role-editor">
       <aside className="exo-dc-role-side" aria-label="Roles">
@@ -178,8 +193,8 @@ function RoleEditor({ guildId, role, roles, data, onPick, onBack, onSaved, onDel
           </button>
         ))}
       </aside>
-      <section className="exo-dc-role-main" aria-label={everyone ? 'Default Permissions' : `Edit role ${role.name}`}>
-        <h1>{everyone ? 'Default Permissions' : `Edit Role — ${value.name}`}</h1>
+      <section className="exo-dc-role-main" aria-label={everyone ? 'Default permissions' : `Edit role ${role.name}`}>
+        <h1>{everyone ? 'Default permissions' : `Edit role — ${value.name}`}</h1>
         {everyone ? <p className="exo-dc-note">This will edit the default permissions for all members of this server.</p> : null}
         {!editable ? <p className="exo-dc-note">This role is above your highest role, so you can't change it.</p> : null}
         <div className="exo-dc-full-tabs" role="tablist">
@@ -187,9 +202,11 @@ function RoleEditor({ guildId, role, roles, data, onPick, onBack, onSaved, onDel
         </div>
         {tab === 'display' ? <RoleDisplay role={role} value={value} editable={editable} change={change} guildId={guildId} onDeleted={onDeleted} /> : null}
         {tab === 'permissions' ? <RolePermissions permissions={value.permissions} editable={editable} onChange={permissions => change({ permissions })} /> : null}
+        {tab === 'links' ? <RoleLinks key={linksSaved} guildId={guildId} roleId={role.id} members={data.counts?.[role.id] ?? 0} editable={editable} draft={links}
+          onChange={groups => { setError(null); setLinks(groups) }} /> : null}
         {tab === 'members' ? <RoleMembers guildId={guildId} role={role} editable={editable && !role.managed} onChanged={onSaved} /> : null}
       </section>
-      <SaveBar shown={dirty} busy={busy} error={error} onReset={() => { setDraft({}); setError(null) }} onSave={() => void save()} />
+      <SaveBar shown={dirty} busy={busy} error={error} onReset={() => { setDraft({}); setLinks(null); setError(null) }} onSave={() => void save()} />
     </div>
   )
 }
@@ -214,12 +231,12 @@ function RoleDisplay({ role, value, editable, change, guildId, onDeleted }: {
   }
   return (
     <>
-      <Field label="Role Name">
-        <input className="exo-dc-modal-input exo-dc-field" value={value.name} maxLength={100} disabled={!editable || role.managed} aria-label="Role Name"
+      <Field label="Role name">
+        <input className="exo-dc-modal-input exo-dc-field" value={value.name} maxLength={100} disabled={!editable || role.managed} aria-label="Role name"
           onChange={event => change({ name: event.target.value })} />
       </Field>
-      <Field label="Role Color" detail="Members use the color of the highest role they have on the roles list." stacked>
-        <div className="exo-dc-swatches" role="radiogroup" aria-label="Role Color">
+      <Field label="Role color" detail="Members use the color of the highest role they have on the roles list." stacked>
+        <div className="exo-dc-swatches" role="radiogroup" aria-label="Role color">
           <button type="button" role="radio" aria-checked={value.color === 0} aria-label="Default" className="exo-dc-swatch is-default" disabled={!editable}
             style={{ background: colorOf(0) }} onClick={() => change({ color: 0 })} />
           <label className="exo-dc-swatch is-custom" style={{ background: value.color && !SWATCHES.includes(value.color) ? colorOf(value.color) : undefined }}>
@@ -239,12 +256,12 @@ function RoleDisplay({ role, value, editable, change, guildId, onDeleted }: {
         <Switch checked={value.mentionable} disabled={!editable} label="Allow anyone to @mention this role" onChange={mentionable => change({ mentionable })} />
       </Field>
       {editable && !role.managed ? (
-        <Field label="Delete Role">
-          <button type="button" className="exo-dc-tab is-raised is-danger" onClick={() => setConfirm(true)}>Delete Role</button>
+        <Field label="Delete role">
+          <button type="button" className="exo-dc-tab is-raised is-danger" onClick={() => setConfirm(true)}>Delete role</button>
         </Field>
       ) : null}
       {confirm ? (
-        <Confirm title="Delete Role" action="Delete" error={error} busy={busy} onConfirm={remove} onClose={() => setConfirm(false)}>
+        <Confirm title="Delete role" action="Delete" error={error} busy={busy} onConfirm={remove} onClose={() => setConfirm(false)}>
           <p>Are you sure you want to delete the <strong>{role.name}</strong> role? This action cannot be undone.</p>
         </Confirm>
       ) : null}
@@ -301,9 +318,9 @@ function RoleMembers({ guildId, role, editable, onChanged }: { guildId: string; 
       <div className="exo-dc-page-bar">
         <label className="exo-dc-friend-search exo-dc-grow">
           <Icons.Search size={16} />
-          <input placeholder="Search Members" value={query} onChange={event => setQuery(event.target.value)} aria-label="Search Members" />
+          <input placeholder="Search members" value={query} onChange={event => setQuery(event.target.value)} aria-label="Search members" />
         </label>
-        {editable ? <button type="button" className="button button--primary" onClick={() => setAdding(true)}>Add Members</button> : null}
+        {editable ? <button type="button" className="exo-set-btn is-primary" onClick={() => setAdding(true)}>Add members</button> : null}
       </div>
       {error ? <p className="exo-dc-note is-bad" role="alert">{error}</p> : null}
       <ReadError error={members.error} onRetry={members.reload} />
@@ -354,22 +371,23 @@ function AddMembers({ guildId, role, onClose, onAdded }: { guildId: string; role
     })
   }
   return (
-    <Confirm title="Add Members" action="Add" danger={false} error={error} busy={busy || picked.size === 0} onConfirm={add} onClose={onClose}>
+    <Confirm title="Add members" action="Add" danger={false} error={error} busy={busy || picked.size === 0} onConfirm={add} onClose={onClose}>
       <p>{role.name}</p>
-      <input className="exo-dc-modal-input" placeholder="Search Members" value={query} autoFocus aria-label="Search Members" onChange={event => setQuery(event.target.value)} />
+      <input className="exo-dc-modal-input" placeholder="Search members" value={query} autoFocus aria-label="Search members" onChange={event => setQuery(event.target.value)} />
       {picked.size >= MAX_ADD ? <p className="exo-dc-note">You can add {MAX_ADD} members at a time.</p> : null}
       <div className="exo-dc-pick-list">
         {found.map(({ member }) => (
-          <label key={member.user.id} className="exo-dc-pick-row">
-            <input type="checkbox" checked={picked.has(member.user.id)} disabled={picked.size >= MAX_ADD && !picked.has(member.user.id)} onChange={event => setPicked(set => {
+          <button key={member.user.id} type="button" className="exo-dc-pick-row" aria-pressed={picked.has(member.user.id)}
+            disabled={picked.size >= MAX_ADD && !picked.has(member.user.id)} onClick={() => setPicked(set => {
               const next = new Set(set)
-              if (event.target.checked) next.add(member.user.id); else next.delete(member.user.id)
+              if (!next.delete(member.user.id)) next.add(member.user.id)
               return next
-            })} />
+            })}>
+            <span className="exo-dc-pick-mark" aria-hidden="true">{picked.has(member.user.id) ? <Icons.Check size={14} /> : null}</span>
             <Avatar src={avatarUrl(member.user, 24)} name={member.user.username} status={null} size={24} />
             <span>{personName(member.user, member.nick)}</span>
             <small>{member.user.username}</small>
-          </label>
+          </button>
         ))}
       </div>
     </Confirm>

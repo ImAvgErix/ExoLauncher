@@ -26,6 +26,27 @@ internal sealed partial class DiscordRest
         string Sort,
         int Offset);
 
+    /// <summary>Discord's saved messages: the reminders (each with when it's due) and the ids of bookmarked messages.</summary>
+    internal Task<Reply> SavedAsync(CancellationToken ct) =>
+        SendAsync(HttpMethod.Get, "users/@me/saved-messages?bookmark_ids=true", null, ct);
+
+    /// <summary>Bookmarks, 25 a page, the latest saved first; before: the oldest saved_at of the page before.</summary>
+    internal Task<Reply> BookmarksAsync(DateTimeOffset? before, CancellationToken ct) =>
+        SendAsync(HttpMethod.Get, "users/@me/saved-messages/bookmarks?limit=25"
+            + (before is { } b ? "&before=" + Uri.EscapeDataString(b.ToUniversalTime().ToString("o", CultureInfo.InvariantCulture)) : ""), null, ct);
+
+    /// <summary>Bookmark Message (no due time) or Remind Me (due): the message saved for later, as the message menu sends it.</summary>
+    internal Task<Reply> SaveMessageAsync(string channelId, string messageId, DateTimeOffset? due, CancellationToken ct)
+    {
+        var body = new JsonObject { ["source"] = "context_menu" };
+        if (due is { } at) body["due_at"] = at.ToUniversalTime().ToString("o", CultureInfo.InvariantCulture);
+        return SendAsync(HttpMethod.Put, $"users/@me/saved-messages/{Id(channelId)}/{Id(messageId)}", body, ct);
+    }
+
+    /// <summary>Remove Bookmark, Remove Reminder or Mark Complete.</summary>
+    internal Task<Reply> UnsaveMessageAsync(string channelId, string messageId, CancellationToken ct) =>
+        SendAsync(HttpMethod.Delete, $"users/@me/saved-messages/{Id(channelId)}/{Id(messageId)}", null, ct);
+
     /// <summary>The has: answers Discord's search takes (snapshot is Forwarded).</summary>
     internal static readonly string[] SearchHas = ["link", "embed", "poll", "snapshot", "file", "video", "image", "sound", "sticker"];
     internal static readonly string[] SearchAuthorTypes = ["user", "bot", "webhook"];
@@ -85,6 +106,18 @@ internal sealed partial class DiscordRest
     /// <summary>Takes back a reaction: the user's own, or (with Manage Messages) someone else's, from the Reactions list.</summary>
     internal Task<Reply> RemoveReactionAsync(string channelId, string messageId, string emoji, string? userId, bool burst, CancellationToken ct) =>
         SendAsync(HttpMethod.Delete, $"{ReactionPath(channelId, messageId, emoji)}/{(burst ? 1 : 0)}/{(userId is null ? "@me" : Id(userId))}?location=Message&burst={(burst ? "true" : "false")}", null, ct);
+
+    /// <summary>Remove All Reactions (Manage Messages): every reaction on the message.</summary>
+    internal Task<Reply> ClearReactionsAsync(string channelId, string messageId, CancellationToken ct) =>
+        SendAsync(HttpMethod.Delete, $"channels/{Id(channelId)}/messages/{Id(messageId)}/reactions", null, ct);
+
+    /// <summary>Publish: an announcement channel's message goes to every server following the channel.</summary>
+    internal Task<Reply> CrosspostAsync(string channelId, string messageId, CancellationToken ct) =>
+        SendAsync(HttpMethod.Post, $"channels/{Id(channelId)}/messages/{Id(messageId)}/crosspost", null, ct);
+
+    /// <summary>Remove All Embeds: the message keeps its flags with SUPPRESS_EMBEDS (4) added, as Discord's client sends it.</summary>
+    internal Task<Reply> SuppressEmbedsAsync(string channelId, string messageId, long flags, CancellationToken ct) =>
+        SendAsync(HttpMethod.Patch, $"channels/{Id(channelId)}/messages/{Id(messageId)}", new JsonObject { ["flags"] = flags | 4 }, ct);
 
     /// <summary>The most people Discord sends per page of who reacted.</summary>
     internal const int ReactorsPage = 100;

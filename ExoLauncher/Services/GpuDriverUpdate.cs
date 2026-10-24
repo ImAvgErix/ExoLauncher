@@ -106,7 +106,9 @@ internal static partial class GpuDriverUpdate
         Version.TryParse(latest, out var want) && (!Version.TryParse(installed, out var have) || want > have);
 
     /// <summary>The newest driver for this PC's card from its vendor's pages (cached an hour); null when there is none or it can't tell.</summary>
-    internal static async Task<Latest?> LatestAsync(string vendor, CancellationToken ct)
+    /// <remarks>An answer older than the hour shows at once while the pages are read again; <paramref name="fresh"/> (an
+    /// update) waits for them.</remarks>
+    internal static async Task<Latest?> LatestAsync(string vendor, CancellationToken ct, bool fresh = false)
     {
         SweepUnpacked(vendor);
         if (Card(vendor) is not { } card) return null;
@@ -115,9 +117,11 @@ internal static partial class GpuDriverUpdate
         Task<Latest?>? task;
         lock (Gate)
         {
-            if (Cache.TryGetValue(key, out var cached) && DateTime.UtcNow - cached.At < TimeSpan.FromHours(1)) return cached.Value;
+            var known = Cache.TryGetValue(key, out var cached);
+            if (known && DateTime.UtcNow - cached.At < TimeSpan.FromHours(1)) return cached.Value;
             if (!Fetching.TryGetValue(key, out task))
                 Fetching[key] = task = Task.Run(() => FetchAsync(vendor, card, cpu, key));
+            if (known && !fresh) return cached.Value;
         }
         return await task.WaitAsync(ct).ConfigureAwait(false);
     }

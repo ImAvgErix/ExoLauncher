@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useLayoutEffect, use
 import { ChevronRight } from '../../brand/icons'
 import { host, onHostEvent } from '../../lib/host'
 import type { DiscordChannels, DiscordHome } from '../../lib/discord'
+import { Switch } from '../Switch'
 import { admin, Confirm, StrangerConfirm, useLayer } from './admin'
 import { DmClose, DmCopyId, DmLead, DmMuteRow, readDm, type DmInfo } from './dmMenu'
 import { showFullProfile } from './profileParts'
@@ -13,16 +14,16 @@ import { CallPersonItems } from './voice'
 import { useDismiss } from '../../lib/dismiss'
 
 type Person = {
-  ok: boolean; known: boolean; me: boolean; owner: boolean; outranks: boolean; timedOut: boolean
+  ok: boolean; known: boolean; me: boolean; owner: boolean; outranks: boolean; timedOut: boolean; mfa?: boolean
   nick: string | null; name?: string | null; username?: string | null; roles: string[]
   choices: { id: string; name: string; color: string | null; assignable: boolean }[]
-  can: { roles: boolean; nick: boolean; timeout: boolean; kick: boolean; ban: boolean; mute: boolean; deafen: boolean; move: boolean }
+  can: { roles: boolean; nick: boolean; timeout: boolean; kick: boolean; ban: boolean; mute: boolean; deafen: boolean; move: boolean; transfer?: boolean }
   voice: { channelId: string; mute: boolean; deaf: boolean } | null
   moveTo: { id: string; name: string }[]
 }
 // call: opened on someone in a call (a voice channel's list, a call's tile), where Discord adds its call items.
 type At = { userId: string; x: number; y: number; name: string; username: string | null; call?: boolean; dm?: DmInfo }
-type PersonKind = 'nick' | 'kick' | 'ban'
+type PersonKind = 'nick' | 'kick' | 'ban' | 'transfer'
 type RelationKind = 'block' | 'ignore' | 'unfriend' | 'stranger'
 type Dialog = PersonKind | RelationKind | null
 const RELATION_KINDS: readonly string[] = ['block', 'ignore', 'unfriend', 'stranger']
@@ -139,9 +140,7 @@ function UserMenu({ at, guildId, serverName, meId, onClose }: { at: At; guildId:
   const relate = (action: Relate) => void relateTo(at.userId, action).then(failed => {
     if (failed === STRANGER) setDialog('stranger'); else if (failed) setError(failed); else onClose()
   })
-  if (dialog) return RELATION_KINDS.includes(dialog)
-    ? <RelationConfirm kind={dialog as RelationKind} userId={at.userId} name={username ?? name} onSwitch={setDialog} onClose={onClose} />
-    : <PersonDialog kind={dialog as PersonKind} guildId={guildId!} userId={at.userId} name={name} nick={person?.nick ?? null} serverName={serverName} onClose={onClose} />
+  if (dialog) return <MenuDialog dialog={dialog} at={at} guildId={guildId} serverName={serverName} person={person} name={name} username={username} onSwitch={setDialog} onClose={onClose} />
   return (
     <SubContext.Provider value={sub}>
     <div className="exo-dc-menu exo-dc-ctx" ref={box} role="menu" aria-label={name} style={{ left: at.x, top: at.y }} onKeyDown={event => arrowKeys(event, sub)}
@@ -157,7 +156,7 @@ function UserMenu({ at, guildId, serverName, meId, onClose }: { at: At; guildId:
       <DmClose dm={at.dm} onDone={done} />
       {at.call ? <CallPersonItems userId={at.userId} me={me} /> : null}
       <span className="exo-dc-menu-line" role="separator" />
-      {person?.can.nick ? <button type="button" role="menuitem" onClick={() => setDialog('nick')}>Change Nickname</button> : null}
+      {person?.can.nick ? <button type="button" role="menuitem" onClick={() => setDialog('nick')}>Change nickname</button> : null}
       <PersonApps userId={at.userId} onClose={onClose} />
       {relation ? <RelationItems relation={relation} onRelate={relate} onAsk={setDialog} /> : null}
       {person ? <ServerItems person={person} name={name} run={run} setPerson={setPerson} onDialog={setDialog} /> : null}
@@ -169,6 +168,23 @@ function UserMenu({ at, guildId, serverName, meId, onClose }: { at: At; guildId:
     </div>
     </SubContext.Provider>
   )
+}
+
+// The dialog a menu row opened: a relation's question, Transfer Ownership, or Change Nickname, Kick and Ban.
+function MenuDialog({ dialog, at, guildId, serverName, person, name, username, onSwitch, onClose }: {
+  dialog: NonNullable<Dialog>
+  at: At
+  guildId: string | null
+  serverName: string | null
+  person: Person | null
+  name: string
+  username: string | null
+  onSwitch: (dialog: Dialog) => void
+  onClose: () => void
+}) {
+  if (RELATION_KINDS.includes(dialog)) return <RelationConfirm kind={dialog as RelationKind} userId={at.userId} name={username ?? name} onSwitch={onSwitch} onClose={onClose} />
+  if (dialog === 'transfer') return <TransferOwnership guildId={guildId!} userId={at.userId} name={username ?? name} mfa={person?.mfa === true} onClose={onClose} />
+  return <PersonDialog kind={dialog as PersonKind} guildId={guildId!} userId={at.userId} name={name} nick={person?.nick ?? null} serverName={serverName} onClose={onClose} />
 }
 
 // A DM row's action settled: the menu closes, or says why Discord refused.
@@ -194,7 +210,7 @@ function PersonItems({ userId, name, me, relation, guildId, onClose }: {
       <button type="button" role="menuitem" onClick={() => { onClose(); showFullProfile(userId, undefined, guildId) }}>Profile</button>
       <button type="button" role="menuitem" onClick={() => { window.dispatchEvent(new CustomEvent('exo-dc-mention', { detail: { id: userId, name } })); onClose() }}>Mention</button>
       {me ? null : <button type="button" role="menuitem" onClick={() => inDm('exo-dc-open-dm')}>Message</button>}
-      {relation && !relation.bot ? <button type="button" role="menuitem" disabled={relation.relationship === 2} onClick={() => inDm('exo-dc-call-dm')}>Start a Call</button> : null}
+      {relation && !relation.bot ? <button type="button" role="menuitem" disabled={relation.relationship === 2} onClick={() => inDm('exo-dc-call-dm')}>Start a call</button> : null}
     </>
   )
 }
@@ -205,8 +221,8 @@ function CopyItems({ userId, username, onClose }: { userId: string; username: st
   const copy = (text: string) => { void navigator.clipboard.writeText(text).catch(() => { }); onClose() }
   return (
     <>
-      {username ? <button type="button" role="menuitem" onClick={() => copy(username)}>Copy Username</button> : null}
-      {developer ? <button type="button" role="menuitem" onClick={() => copy(userId)}><Icons.CopyId size={16} />Copy User ID</button> : null}
+      {username ? <button type="button" role="menuitem" onClick={() => copy(username)}>Copy username</button> : null}
+      {developer ? <button type="button" role="menuitem" onClick={() => copy(userId)}><Icons.CopyId size={16} />Copy user ID</button> : null}
     </>
   )
 }
@@ -244,9 +260,9 @@ function RelationItems({ relation, onRelate, onAsk }: {
   return (
     <>
       {bot ? null : relationship === 1
-        ? <button type="button" role="menuitem" onClick={() => onAsk('unfriend')}>Remove Friend</button>
+        ? <button type="button" role="menuitem" onClick={() => onAsk('unfriend')}>Remove friend</button>
         : <button type="button" role="menuitem" disabled={blocked || relationship === 4} onClick={() => onRelate('accept')}>
-          {relationship === 3 ? 'Accept Friend Request' : relationship === 4 ? 'Friend Request Sent' : 'Add Friend'}
+          {relationship === 3 ? 'Accept friend request' : relationship === 4 ? 'Friend request sent' : 'Add friend'}
         </button>}
       {bot || blocked ? null : ignored
         ? <button type="button" role="menuitem" onClick={() => onRelate('unignore')}>Unignore</button>
@@ -278,7 +294,7 @@ function RelationConfirm({ kind, userId, name, onSwitch, onClose }: {
   }
   if (kind === 'unfriend') {
     return (
-      <Confirm title={`Remove '${name}'`} action="Remove Friend" busy={busy} error={error} onConfirm={confirm} onClose={onClose}>
+      <Confirm title={`Remove '${name}'`} action="Remove friend" busy={busy} error={error} onConfirm={confirm} onClose={onClose}>
         <p>Are you sure you want to remove <strong>{name}</strong> from your friends?</p>
       </Confirm>
     )
@@ -328,8 +344,8 @@ function PersonApps({ userId, onClose }: { userId: string; onClose: () => void }
 // after runs once Discord took it (else the menu closes); settled either way.
 type Run = (action: string, params: Record<string, unknown>, after?: () => void, settled?: () => void) => void
 
-const TIMEOUTS = [{ minutes: 1, label: '60 Seconds' }, { minutes: 5, label: '5 Minutes' }, { minutes: 10, label: '10 Minutes' },
-  { minutes: 60, label: '1 Hour' }, { minutes: 1440, label: '1 Day' }, { minutes: 10080, label: '1 Week' }]
+const TIMEOUTS = [{ minutes: 1, label: '60 seconds' }, { minutes: 5, label: '5 minutes' }, { minutes: 10, label: '10 minutes' },
+  { minutes: 60, label: '1 hour' }, { minutes: 1440, label: '1 day' }, { minutes: 10080, label: '1 week' }]
 
 // What the user may do to this person on the server, each only with Discord's permission and above them in the role order:
 // Roles and Move to, then Server Mute, Server Deafen, Disconnect, Timeout, Kick and Ban, as Discord groups them.
@@ -371,17 +387,18 @@ function ServerItems({ person, name, run, setPerson, onDialog }: {
         </Submenu>
       ) : null}
       <span className="exo-dc-menu-line" role="separator" />
-      {voice && can.mute ? <button type="button" role="menuitemcheckbox" aria-checked={voice.mute} className="is-danger" onClick={() => run('voice', { mute: !voice.mute })}>Server Mute{voice.mute ? <Icons.Check size={14} className="exo-dc-ctx-check" /> : null}</button> : null}
-      {voice && can.deafen ? <button type="button" role="menuitemcheckbox" aria-checked={voice.deaf} className="is-danger" onClick={() => run('voice', { deaf: !voice.deaf })}>Server Deafen{voice.deaf ? <Icons.Check size={14} className="exo-dc-ctx-check" /> : null}</button> : null}
+      {voice && can.mute ? <button type="button" role="menuitemcheckbox" aria-checked={voice.mute} className="is-danger" onClick={() => run('voice', { mute: !voice.mute })}>Server mute{voice.mute ? <Icons.Check size={14} className="exo-dc-ctx-check" /> : null}</button> : null}
+      {voice && can.deafen ? <button type="button" role="menuitemcheckbox" aria-checked={voice.deaf} className="is-danger" onClick={() => run('voice', { deaf: !voice.deaf })}>Server deafen{voice.deaf ? <Icons.Check size={14} className="exo-dc-ctx-check" /> : null}</button> : null}
       {voice && can.move ? <button type="button" role="menuitem" className="is-danger" onClick={() => run('voice', { disconnect: true })}>Disconnect</button> : null}
       {can.timeout ? (
         <Submenu label={`Timeout ${name}`} danger>
           {TIMEOUTS.map(t => <button key={t.minutes} type="button" role="menuitem" onClick={() => run('timeout', { minutes: t.minutes })}>{t.label}</button>)}
-          {person.timedOut ? <button type="button" role="menuitem" onClick={() => run('timeout', { minutes: 0 })}>Remove Timeout</button> : null}
+          {person.timedOut ? <button type="button" role="menuitem" onClick={() => run('timeout', { minutes: 0 })}>Remove timeout</button> : null}
         </Submenu>
       ) : null}
       {can.kick ? <button type="button" role="menuitem" className="is-danger" onClick={() => onDialog('kick')}>Kick {name}</button> : null}
       {can.ban ? <button type="button" role="menuitem" className="is-danger" onClick={() => onDialog('ban')}>Ban {name}</button> : null}
+      {can.transfer ? <button type="button" role="menuitem" className="is-danger" onClick={() => onDialog('transfer')}>Transfer ownership</button> : null}
     </>
   )
 }
@@ -433,9 +450,9 @@ export function Submenu({ label, danger, children }: { label: string; danger?: b
 }
 
 // Discord's Ban: Delete Message History choices.
-const DELETE_HISTORY = [{ seconds: 0, label: "Don't Delete Any" }, { seconds: 3600, label: 'Previous Hour' }, { seconds: 21600, label: 'Previous 6 Hours' },
-  { seconds: 43200, label: 'Previous 12 Hours' }, { seconds: 86400, label: 'Previous 24 Hours' }, { seconds: 259200, label: 'Previous 3 Days' },
-  { seconds: 604800, label: 'Previous 7 Days' }]
+const DELETE_HISTORY = [{ seconds: 0, label: "Don't delete any" }, { seconds: 3600, label: 'Previous hour' }, { seconds: 21600, label: 'Previous 6 hours' },
+  { seconds: 43200, label: 'Previous 12 hours' }, { seconds: 86400, label: 'Previous 24 hours' }, { seconds: 259200, label: 'Previous 3 days' },
+  { seconds: 604800, label: 'Previous 7 days' }]
 const BAN_REASONS = ['Suspicious or spam account', 'Compromised or hacked account', 'Breaking server rules']
 
 // Change Nickname, Kick and Ban, worded as Discord words them.
@@ -468,28 +485,28 @@ function PersonDialog({ kind, guildId, userId, name, nick, serverName, onClose }
   }
   if (kind === 'nick') {
     return (
-      <Confirm title="Change Nickname" action="Save" danger={false} busy={busy} error={error} onConfirm={submit} onClose={onClose}>
+      <Confirm title="Change nickname" action="Save" danger={false} busy={busy} error={error} onConfirm={submit} onClose={onClose}>
         <p>Nicknames are visible to everyone on this server. Do not change them unless you are enforcing a naming system or clearing a bad nickname.</p>
         <label className="exo-dc-side-label" htmlFor="exo-dc-nick">Nickname</label>
         <input id="exo-dc-nick" className="exo-dc-modal-input" value={text} maxLength={32} placeholder={name} autoFocus onChange={event => setText(event.target.value)}
           onKeyDown={event => { if (event.key === 'Enter') submit() }} />
-        {nick ? <button type="button" className="exo-dc-link exo-dc-reset" onClick={() => setText('')}>Reset Nickname</button> : null}
+        {nick ? <button type="button" className="exo-dc-link exo-dc-reset" onClick={() => setText('')}>Reset nickname</button> : null}
       </Confirm>
     )
   }
   if (kind === 'kick') {
     return (
-      <Confirm title={`Kick ${name} from Server`} action="Kick" busy={busy} error={error} onConfirm={submit} onClose={onClose}>
+      <Confirm title={`Kick ${name} from server`} action="Kick" busy={busy} error={error} onConfirm={submit} onClose={onClose}>
         <p>Are you sure you want to kick {name} from {serverName ?? 'the server'}? They will be able to re-join again with a new invite.</p>
-        <label className="exo-dc-side-label" htmlFor="exo-dc-kick-reason">Reason for Kick</label>
+        <label className="exo-dc-side-label" htmlFor="exo-dc-kick-reason">Reason for kick</label>
         <textarea id="exo-dc-kick-reason" className="exo-dc-modal-input" rows={3} maxLength={512} value={text} onChange={event => setText(event.target.value)} />
       </Confirm>
     )
   }
   return (
     <Confirm title={`Ban ${name}?`} action="Ban" busy={busy || (reason === 'other' && !text.trim())} error={error} onConfirm={submit} onClose={onClose}>
-      <p className="exo-dc-side-label">Reason for Ban</p>
-      <div className="exo-dc-options" role="radiogroup" aria-label="Reason for Ban">
+      <p className="exo-dc-side-label">Reason for ban</p>
+      <div className="exo-dc-options" role="radiogroup" aria-label="Reason for ban">
         {[...BAN_REASONS, 'other'].map(r => (
           <button key={r} type="button" role="radio" aria-checked={reason === r} className={`exo-dc-option${reason === r ? ' is-current' : ''}`} onClick={() => setReason(r)}>
             <span className="exo-dc-option-dot" aria-hidden="true" /><span>{r === 'other' ? 'Other' : r}</span>
@@ -497,10 +514,50 @@ function PersonDialog({ kind, guildId, userId, name, nick, serverName, onClose }
         ))}
       </div>
       {reason === 'other' ? <textarea className="exo-dc-modal-input" rows={3} maxLength={512} value={text} aria-label="Reason" autoFocus onChange={event => setText(event.target.value)} /> : null}
-      <label className="exo-dc-side-label" htmlFor="exo-dc-ban-history">Delete Message History</label>
+      <label className="exo-dc-side-label" htmlFor="exo-dc-ban-history">Delete message history</label>
       <select id="exo-dc-ban-history" className="exo-dc-select" value={seconds} onChange={event => setSeconds(Number(event.target.value))}>
         {DELETE_HISTORY.map(d => <option key={d.seconds} value={d.seconds}>{d.label}</option>)}
       </select>
+    </Confirm>
+  )
+}
+
+/**
+ * Discord's Transfer Ownership: you acknowledge the server becomes theirs, then verify, with your 2FA (Discord's
+ * Multi-Factor Authentication dialog) or, without 2FA, the code Discord emails you.
+ */
+function TransferOwnership({ guildId, userId, name, mfa, onClose }: { guildId: string; userId: string; name: string; mfa: boolean; onClose: () => void }) {
+  const [agreed, setAgreed] = useState(false)
+  const [sent, setSent] = useState(false)
+  const [code, setCode] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  async function submit() {
+    setBusy(true); setError(null)
+    if (!mfa && !sent) {
+      const asked = await admin('transferCode', { guildId })
+      setBusy(false)
+      if (asked.ok) setSent(true); else setError(asked.message ?? 'Discord did not send the code.')
+      return
+    }
+    const result = await admin('transfer', { guildId, userId, ...(mfa ? {} : { code: code.trim() }) })
+    setBusy(false)
+    if (result.ok) { window.dispatchEvent(new Event('exo-dc-members-changed')); onClose() }
+    else if (result.message !== 'Multi-factor authentication cancelled') setError(result.message ?? 'Server ownership transfer failed')
+  }
+  return (
+    <Confirm title="Transfer ownership" action={!mfa && !sent ? 'Send code' : 'Transfer ownership'} busy={busy || !agreed || (sent && !code.trim())} error={error}
+      onConfirm={() => void submit()} onClose={onClose}>
+      <span className="exo-dc-form-switch">
+        <span>I acknowledge that by transferring ownership of this server to <strong>{name}</strong>, it officially belongs to them.</span>
+        <Switch checked={agreed} label="I acknowledge the transfer" onChange={setAgreed} />
+      </span>
+      {sent ? (
+        <>
+          <p>Discord emailed you a code to confirm this.</p>
+          <input className="exo-dc-modal-input" value={code} maxLength={16} placeholder="Confirmation code" aria-label="Confirmation code" autoFocus onChange={event => setCode(event.target.value)} />
+        </>
+      ) : null}
     </Confirm>
   )
 }

@@ -103,8 +103,8 @@ export function PlaylistSheet({ edit, onClose }: { edit: PlaylistEdit; onClose: 
         ) : null}
         {error ? <p className="exo-music-error" role="alert">{error}</p> : null}
         <div className="exo-music-sheet-actions">
-          <button type="button" className="button button--secondary" onClick={() => dialog.current?.close()}>Cancel</button>
-          <button type="submit" className="button button--primary" disabled={busy || !name.trim()}>{busy ? 'Saving' : creating ? 'Create' : 'Save'}</button>
+          <button type="button" className="exo-set-btn" onClick={() => dialog.current?.close()}>Cancel</button>
+          <button type="submit" className="exo-set-btn is-primary" disabled={busy || !name.trim()}>{busy ? 'Saving' : creating ? 'Create' : 'Save'}</button>
         </div>
       </form>
     </dialog>

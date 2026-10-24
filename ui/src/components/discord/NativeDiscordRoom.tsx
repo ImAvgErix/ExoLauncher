@@ -49,7 +49,7 @@ export function NativeDiscordRoom({ active }: { active: boolean }) {
     <main className="exo-hosted-room">
       <div className="exo-hosted-room-state" role={state === 'error' ? 'alert' : 'status'}>
         <p>{state === 'error' ? message ?? 'Discord could not be reached.' : 'Connecting to Discord'}</p>
-        {state === 'error' ? <button type="button" className="button button--primary" onClick={retry}>Try Again</button> : null}
+        {state === 'error' ? <button type="button" className="exo-set-btn is-primary" onClick={retry}>Try again</button> : null}
       </div>
     </main>
   )
@@ -61,7 +61,7 @@ function SignIn({ note }: { note: string | null }) {
       <div className="exo-dc-signin-body exo-motion-arrive">
         <CompanyLogo company="discord" size={48} />
         <h1>Sign in with your phone</h1>
-        <p>Open Discord on your phone, go to You › Scan QR code, and point it here.</p>
+        <p>Open Discord on your phone, go to you › scan QR code, and point it here.</p>
         <DiscordQrSignIn note={note} />
         <p className="exo-dc-signin-note">Exo never sees your password. Discord's terms don't allow other clients; you use this at your own risk.</p>
       </div>

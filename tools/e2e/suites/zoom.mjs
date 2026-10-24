@@ -3,6 +3,7 @@
 // resized, and moved to each monitor. Restarts Exo; runs last.
 import { sleep } from '../cdp.mjs'
 import { screenMatchesPage } from './shell.mjs'
+import { roomsLayout } from './layout.mjs'
 
 /** A real mouse click on a page element: its place in the page, times the zoom, from the window's client corner. */
 async function realClick(t, finder, ...args) {
@@ -39,6 +40,12 @@ export async function run(t) {
         if (!await t.shell.waitFor(() => document.querySelector('.exo-titlebar [aria-current="page"]')?.textContent.trim().startsWith('Store'), { timeoutMs: 4000 })) failures.push('a real click on Store missed')
         await realClick(t, tab, 'Library')
         if (!await t.shell.waitFor(() => document.querySelector('.exo-titlebar [aria-current="page"]')?.textContent.trim().startsWith('Library'), { timeoutMs: 4000 })) failures.push('a real click on Library missed')
+        // Every room laid out at this screen's zoom: nothing over, cut or clipped.
+        failures.push(...await roomsLayout(t, c, `zoom-${screen}`, async (room) => {
+          await t.k.closeAll()
+          await realClick(t, tab, room)
+          if (!await t.shell.waitFor((n) => document.querySelector('.exo-titlebar [aria-current="page"]')?.textContent.trim().startsWith(n), { timeoutMs: 6000, args: [room] })) throw new Error(`a real click on ${room} missed`)
+        }))
         // Restored to a smaller window and back.
         const m = w.monitor.work
         await t.win.place(m.x + 60, m.y + 60, Math.round(m.w * 0.66), Math.round(m.h * 0.7))

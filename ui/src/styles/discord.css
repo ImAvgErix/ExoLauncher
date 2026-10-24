@@ -320,6 +320,42 @@
   color: var(--color-faint);
   text-overflow: ellipsis;
   white-space: nowrap;
+  cursor: pointer;
+}
+
+.exo-dc-chat-topic .exo-dc-emoji {
+  width: 18px;
+  height: 18px;
+  vertical-align: -4px;
+}
+
+/* Channel topic: the whole topic under the channel's name, its words selectable. */
+.exo-dc-modal.exo-dc-topic {
+  width: min(520px, 92vw);
+  max-height: min(70vh, 640px);
+}
+
+.exo-dc-topic h2 {
+  margin: 0;
+  font-size: calc(20px * var(--exo-scale, 1));
+}
+
+.exo-dc-topic-where {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--color-muted);
+  font-size: calc(13px * var(--exo-scale, 1));
+}
+
+.exo-dc-topic-text {
+  min-height: 0;
+  overflow-y: auto;
+  color: var(--dc-text);
+  font-size: calc(13px * var(--exo-scale, 1));
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  user-select: text;
 }
 
 /* The last message keeps Discord's breathing room above the message box. */
@@ -419,12 +455,16 @@
   object-fit: cover;
 }
 
+/* The continued message's time ends where the avatar's column ends and reaches into the message's left padding, as
+   Discord's does: "10:01 PM" fits, and the gap before the words stays the avatar's. */
 .exo-dc-msg-gutter {
   flex: none;
-  width: 40px;
+  width: 56px;
+  margin-left: -16px;
   padding-top: 3px;
   color: transparent;
-  font-size: calc(12px * var(--exo-scale, 1));
+  /* design-disable-next-line exo/type-scale -- the hover time grows no larger than 12px, so it fits the avatar's column at every text and chat size (the group's header carries the full time) */
+  font-size: min(calc(12px * var(--exo-scale, 1)), 12px);
   text-align: right;
   white-space: nowrap;
 }
@@ -440,6 +480,8 @@
 }
 
 .exo-dc-msg.is-system .exo-dc-msg-gutter {
+  width: 40px;
+  margin-left: 0;
   color: var(--color-faint);
   font-size: calc(13px * var(--exo-scale, 1));
   text-align: center;
@@ -468,6 +510,64 @@
 .exo-dc-msg-time {
   color: var(--color-faint);
   font-size: calc(12px * var(--exo-scale, 1));
+}
+
+/* A profile's activity: Join voice, Play on Spotify or Watch under it; a song's progress bar with its times. */
+.exo-dc-pf-activity-action {
+  width: 100%;
+  margin-top: 8px;
+}
+
+.exo-dc-pf-song {
+  display: grid;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.exo-dc-pf-song-bar {
+  height: 4px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--exo-float-line);
+}
+
+.exo-dc-pf-song-bar > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--dc-text);
+}
+
+.exo-dc-pf-song-times {
+  display: flex;
+  justify-content: space-between;
+  color: var(--dc-muted);
+  font-size: calc(12px * var(--exo-scale, 1));
+  font-variant-numeric: tabular-nums;
+}
+
+/* A role's icon after a name: its picture or emoji, the name's height. */
+.exo-dc-role-icon {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  margin-left: 4px;
+  font-size: calc(13px * var(--exo-scale, 1));
+  line-height: 1;
+  vertical-align: middle;
+}
+
+.exo-dc-role-icon > img {
+  width: calc(18px * var(--exo-scale, 1));
+  height: calc(18px * var(--exo-scale, 1));
+  object-fit: contain;
+}
+
+/* A @silent message's bell, after its time. */
+.exo-dc-msg-silent {
+  display: inline-flex;
+  align-self: center;
+  color: var(--color-faint);
 }
 
 .exo-dc-tag {
@@ -654,7 +754,7 @@
 
 .exo-dc-time-chip {
   padding: 0 3px;
-  border-radius: 4px;
+  border-radius: 999px;
   background: var(--exo-fill);
   box-shadow: var(--exo-rim);
 }
@@ -897,9 +997,102 @@ video.exo-dc-media {
   cursor: pointer;
 }
 
+/* A post's pictures in one preview: two side by side, the first beside two, or two by two, as Discord's grid. */
+.exo-dc-embed-gallery {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-auto-rows: minmax(0, 1fr);
+  gap: 4px;
+  width: min(400px, 100%);
+  aspect-ratio: 4 / 3;
+  margin-top: 4px;
+  overflow: hidden;
+  border-radius: 6px;
+}
+
+.exo-dc-embed-gallery.is-3 > :first-child {
+  grid-row: span 2;
+}
+
+.exo-dc-embed-gallery > img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  cursor: pointer;
+}
+
 /* A video's thumbnail in the video's shape: the bars YouTube draws into its 4:3 thumbnails are cropped away. */
 .exo-dc-embed-image.is-video {
   object-fit: cover;
+}
+
+/* A video link's picture with Play over it, then the site's player in its place. */
+.exo-dc-embed-play {
+  position: relative;
+  display: block;
+  width: fit-content;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+
+.exo-dc-embed-play-mark {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 999px;
+  background: rgb(0 0 0 / 0.6);
+  color: rgb(255 255 255);
+  translate: -50% -50%;
+}
+
+.exo-dc-embed-play:hover .exo-dc-embed-play-mark {
+  background: rgb(0 0 0 / 0.8);
+}
+
+.exo-dc-embed-player {
+  display: block;
+  max-width: 100%;
+  margin-top: 4px;
+  border: 0;
+  border-radius: 6px;
+}
+
+/* Spotify's and Apple Music's players, as wide as Discord lets them be. */
+.exo-dc-embed-music {
+  display: block;
+  width: 100%;
+  min-width: 300px;
+  max-width: 400px;
+  margin-top: 4px;
+  border: 0;
+  border-radius: 12px;
+}
+
+/* An embed's author and footer icons, round, before their words. */
+.exo-dc-embed-author,
+.exo-dc-embed-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.exo-dc-embed-icon {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  object-fit: cover;
+}
+
+.exo-dc-embed-icon.is-foot {
+  width: 20px;
+  height: 20px;
 }
 
 .exo-dc-embed-thumb {
@@ -993,13 +1186,13 @@ video.exo-dc-media {
 
 .exo-dc-input-btn {
   flex: none;
-  width: 36px;
-  height: 36px;
+  width: 32px;
+  height: 32px;
   border: 0;
   background: transparent;
   color: var(--color-muted);
   font: inherit;
-  font-size: calc(20px * var(--exo-scale, 1));
+  font-size: calc(13px * var(--exo-scale, 1));
   line-height: 1;
   cursor: pointer;
 }
@@ -1224,6 +1417,17 @@ video.exo-dc-media {
   height: 22px;
   border-radius: 6px;
   object-fit: contain;
+}
+
+/* After the name, dimmer and to the right: a username, a channel's category, what @everyone does. */
+.exo-dc-suggest-detail {
+  min-width: 0;
+  margin-left: auto;
+  overflow: hidden;
+  color: var(--dc-muted);
+  font-size: calc(12px * var(--exo-scale, 1));
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .exo-dc-suggest [aria-selected="true"] button,
@@ -1875,7 +2079,7 @@ video.exo-dc-media {
   width: 32px;
   height: 32px;
   border: 0;
-  border-radius: 6px;
+  border-radius: 999px;
   background: transparent;
   color: var(--dc-muted);
   cursor: pointer;
@@ -2152,6 +2356,14 @@ video.exo-dc-media {
   white-space: nowrap;
 }
 
+/* In voice, in the speaking green, in place of what they're doing. */
+.exo-dc-member-activity.is-voice {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--color-good);
+}
+
 .exo-dc-member-activity {
   overflow: hidden;
   color: var(--dc-muted);
@@ -2161,7 +2373,7 @@ video.exo-dc-media {
 }
 
 .exo-dc-msg:hover {
-  background: #0d0d0f;
+  background: var(--hover-fill);
 }
 
 .exo-dc-msg-head strong {
@@ -2189,6 +2401,50 @@ video.exo-dc-media {
 
 .exo-dc-msg-actions:has(.exo-dc-menu) {
   display: flex;
+}
+
+/* Quick reactions: the emoji used most, one press away, on the hover bar (then a line) and atop the message menu.
+   One you reacted with already sits on the selected fill; a press takes it back. */
+.exo-dc-msg-actions-line {
+  flex: none;
+  width: 1px;
+  margin: 6px 2px;
+  background: var(--dc-line);
+}
+
+.exo-dc-quick-char {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  /* design-disable-next-line exo/type-scale -- a Unicode emoji drawn the 20px a reaction's picture is, not text */
+  font-size: 18px;
+  line-height: 1;
+}
+
+.exo-dc-quick-row {
+  display: flex;
+  gap: 4px;
+  padding: 2px 2px 6px;
+}
+
+.exo-dc-quick-row > button {
+  display: grid;
+  flex: 1;
+  place-items: center;
+  height: 36px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--exo-fill);
+  cursor: pointer;
+}
+
+.exo-dc-quick-row > button:hover {
+  background: var(--hover-fill);
+}
+
+:is(.exo-dc-msg-actions, .exo-dc-quick-row) > button[aria-pressed="true"] {
+  background: var(--exo-selected);
 }
 
 .exo-dc-day {
@@ -2425,10 +2681,10 @@ video.exo-dc-media {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  height: 26px;
-  padding: 0 10px;
+  height: 32px;
+  padding: 0 12px;
   border: 0;
-  border-radius: 4px;
+  border-radius: 999px;
   background: transparent;
   color: var(--dc-muted);
   font: inherit;
@@ -2495,8 +2751,8 @@ video.exo-dc-media {
 .exo-dc-round-btn {
   display: grid;
   place-items: center;
-  width: 36px;
-  height: 36px;
+  width: 32px;
+  height: 32px;
   border: 0;
   border-radius: 999px;
   background: var(--exo-fill);
@@ -2547,10 +2803,10 @@ video.exo-dc-media {
   display: flex;
   gap: 12px;
   margin-top: 16px;
-  padding: 8px 8px 8px 16px;
-  border: 1px solid var(--color-bg);
-  border-radius: 8px;
-  background: var(--dc-raised);
+  padding: 4px 4px 4px 16px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--exo-fill);
 }
 
 .exo-dc-add-row input {
@@ -2782,6 +3038,65 @@ video.exo-dc-media {
   border-radius: 4px;
 }
 
+.exo-dc-lightbox > img {
+  cursor: zoom-in;
+}
+
+/* Zoomed: the picture at its own size, scrolled around; a click goes back. */
+.exo-dc-lightbox.is-zoomed {
+  overflow: auto;
+  place-items: safe center;
+}
+
+.exo-dc-lightbox.is-zoomed > img {
+  max-width: none;
+  max-height: none;
+  cursor: zoom-out;
+}
+
+/* Zoom, Save image, Open in browser and Close, top right under Exo's bar; Previous and Next at the sides; which one, at the bottom. */
+.exo-dc-lightbox-tools {
+  position: fixed;
+  top: calc(var(--exo-titlebar-h, 52px) + 8px);
+  right: 16px;
+  display: flex;
+  gap: 4px;
+}
+
+.exo-dc-lightbox-tools .exo-dc-icon-btn,
+.exo-dc-lightbox-step {
+  color: rgb(255 255 255 / 0.85);
+}
+
+.exo-dc-lightbox-tools .exo-dc-icon-btn:hover,
+.exo-dc-lightbox-step:hover {
+  color: rgb(255 255 255);
+}
+
+.exo-dc-lightbox-step {
+  position: fixed;
+  top: 50%;
+  translate: 0 -50%;
+}
+
+.exo-dc-lightbox-step.is-previous {
+  left: 16px;
+}
+
+.exo-dc-lightbox-step.is-next {
+  right: 16px;
+}
+
+.exo-dc-lightbox-count {
+  position: fixed;
+  bottom: 16px;
+  left: 50%;
+  translate: -50% 0;
+  color: rgb(255 255 255 / 0.85);
+  font-size: calc(13px * var(--exo-scale, 1));
+  font-variant-numeric: tabular-nums;
+}
+
 /* Discord's toast for a picture's menu (Image Copied!, Image Saved, Link Copied!): one line, low over the room. */
 .exo-dc-toast {
   position: fixed;
@@ -2959,11 +3274,19 @@ video.exo-dc-media {
   font-weight: 500;
 }
 
+/* Inline with the author's name: a picture is a block by default, which put it on a line of its own. */
 .exo-dc-forum-avatar {
+  display: inline-block;
   width: 16px;
   height: 16px;
   margin-right: 6px;
   border-radius: 50%;
+  vertical-align: -3px;
+}
+
+.exo-dc-forum-preview .exo-dc-emoji {
+  width: 16px;
+  height: 16px;
   vertical-align: -3px;
 }
 
@@ -3263,14 +3586,16 @@ video.exo-dc-media {
   font-size: calc(12px * var(--exo-scale, 1));
 }
 
+/* Active Now is one list with hairlines between its people, as Exo's lists are. */
 .exo-dc-active-card {
   display: flex;
   align-items: center;
   gap: 12px;
   padding: 12px;
-  border: 1px solid var(--dc-line);
-  border-radius: 8px;
-  background: var(--dc-side);
+  border: 0;
+  border-top: 1px solid var(--exo-float-line);
+  border-radius: 0;
+  background: transparent;
   color: inherit;
   font: inherit;
   text-align: left;
@@ -3288,7 +3613,6 @@ video.exo-dc-media {
 }
 
 .exo-dc-tag {
-  text-transform: uppercase;
   padding: 1px 5px;
   border-radius: 4px;
   background: var(--dc-blurple);
@@ -3330,19 +3654,6 @@ video.exo-dc-media {
   margin-right: 8px;
 }
 
-.exo-dc-invite-note {
-  position: absolute;
-  top: calc(100% + 4px);
-  right: 8px;
-  left: 8px;
-  z-index: 9;
-  padding: 8px 10px;
-  border-radius: 6px;
-  background: var(--exo-fill);
-  color: var(--dc-text);
-  font-size: calc(12px * var(--exo-scale, 1));
-  overflow-wrap: anywhere;
-}
 
 /* Discord's rows over the channels: Server Guide, Events, Browse Channels, Members. */
 .exo-dc-rows {
@@ -3579,13 +3890,6 @@ video.exo-dc-media {
   min-width: 0;
 }
 
-.exo-dc-guide-close {
-  position: absolute;
-  top: 10px;
-  right: 10px;
-  z-index: 1;
-}
-
 .exo-dc-resource .exo-dc-text {
   color: var(--dc-muted);
 }
@@ -3622,17 +3926,6 @@ video.exo-dc-media {
   position: fixed;
   z-index: 30;
   min-width: 200px;
-}
-
-/* Discord's side view over the guide: the chat alone, its close button in the header. */
-.exo-dc-guide-side .exo-dc-members,
-.exo-dc-guide-side [aria-label="Show member list"],
-.exo-dc-guide-side [aria-label="Hide member list"] {
-  display: none;
-}
-
-.exo-dc-guide-side .exo-dc-chat-head {
-  padding-right: 48px;
 }
 
 .exo-dc-menu.is-right {
@@ -3771,20 +4064,6 @@ textarea.exo-dc-modal-input {
   padding: 12px 4px 6px;
 }
 
-.exo-dc-switch {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  font-weight: 600;
-}
-
-.exo-dc-switch input,
-.exo-dc-browse-row input {
-  accent-color: var(--dc-blurple);
-  width: 18px;
-  height: 18px;
-}
-
 .exo-dc-browse-row {
   display: flex;
   align-items: center;
@@ -3811,40 +4090,6 @@ textarea.exo-dc-modal-input {
 
 .exo-dc-browse-name:disabled {
   cursor: default;
-}
-
-.exo-dc-switch input[role="switch"] {
-  position: relative;
-  width: 40px;
-  height: 24px;
-  margin: 0;
-  border-radius: 12px;
-  background: var(--dc-line);
-  appearance: none;
-  cursor: pointer;
-  transition: background-color var(--dur-base) var(--ease-out);
-}
-
-/* The knob travels on the spring, as Exo's switch's does. */
-.exo-dc-switch input[role="switch"]::after {
-  position: absolute;
-  top: 3px;
-  left: 3px;
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  background: #ffffff;
-  box-shadow: 0 1px 3px rgb(0 0 0 / 0.35);
-  content: "";
-  transition: transform var(--dur-move) var(--ease-spring), background-color var(--dur-base) var(--ease-out);
-}
-
-.exo-dc-switch input[role="switch"]:checked {
-  background: var(--dc-blurple);
-}
-
-.exo-dc-switch input[role="switch"]:checked::after {
-  transform: translateX(16px);
 }
 
 .exo-dc-browse-view {
@@ -4522,10 +4767,10 @@ button.exo-dc-pf-badge {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: 42px;
+  height: 32px;
   padding: 0 8px;
   border: 0;
-  border-radius: 10px;
+  border-radius: 999px;
   background: none;
   color: var(--dc-text);
   font: inherit;
@@ -5053,8 +5298,7 @@ button.exo-dc-pf-badge {
 }
 
 :root[data-exo-motion="reduce"] .exo-dc :is(.exo-dc-search, .exo-dc-upload-bar i),
-:root[data-exo-motion="reduce"] .exo-dc-poll-answer.is-result::before,
-:root[data-exo-motion="reduce"] .exo-dc-switch input[role="switch"]::after {
+:root[data-exo-motion="reduce"] .exo-dc-poll-answer.is-result::before {
   transition: none;
 }
 
@@ -5489,6 +5733,19 @@ button.exo-dc-gifv {
   color: var(--dc-text);
 }
 
+/* Characters left near the limit; over it, in the bad color. */
+.exo-dc-count {
+  flex: none;
+  margin-left: 8px;
+  color: var(--dc-muted);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.exo-dc-count.is-over {
+  color: var(--color-bad);
+}
+
 /* The bell's menu under it: mute for a while, then what the channel notifies you of; the current one checked. */
 .exo-dc-bell-menu {
   top: calc(100% + 6px);
@@ -5574,9 +5831,20 @@ button.exo-dc-gifv {
 }
 
 .exo-dc-new-bar > .exo-dc-new-bar-read {
+  position: relative;
   flex: none;
-  border-left: 1px solid var(--exo-float-line);
   font-weight: 600;
+}
+
+/* The divider before Mark As Read stays inside the capsule, as the Bar's does: a short line, not one through the rim. */
+.exo-dc-new-bar > .exo-dc-new-bar-read::before {
+  position: absolute;
+  top: 8px;
+  bottom: 8px;
+  left: 0;
+  width: 1px;
+  background: var(--exo-selected);
+  content: "";
 }
 
 /* Forward To: a search, the conversations with a check each, a note, Send. */
@@ -6082,8 +6350,8 @@ button.exo-dc-gifv {
 .exo-dc-voice-btn {
   display: grid;
   place-items: center;
-  width: 40px;
-  height: 40px;
+  width: 32px;
+  height: 32px;
   border: 0;
   border-radius: 999px;
   background: var(--exo-fill);
@@ -6868,4 +7136,354 @@ button.exo-dc-poll-answer:hover:not(:disabled) {
   background: none;
   font: inherit;
   cursor: pointer;
+}
+
+/* The server's banner over the top of its channel list, as Discord shows it: 16:9, the list's width. */
+.exo-dc-guild-banner {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  margin-bottom: 8px;
+  border-radius: 8px;
+  object-fit: cover;
+}
+
+/* Someone's server tag beside their name, as Discord draws it: the badge and the tag in a small chip. */
+.exo-dc-guild-tag {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 3px;
+  height: 18px;
+  margin-left: 6px;
+  padding: 0 5px;
+  border: 0;
+  border-radius: 4px;
+  background: var(--exo-fill);
+  color: var(--dc-text);
+  font: inherit;
+  font-size: calc(12px * var(--exo-scale, 1));
+  font-weight: 600;
+  line-height: 1;
+  vertical-align: middle;
+  cursor: pointer;
+}
+
+.exo-dc-guild-tag:hover {
+  background: var(--hover-fill);
+}
+
+.exo-dc-guild-tag.is-static {
+  margin-left: 0;
+  cursor: default;
+}
+
+.exo-dc-guild-tag > img {
+  flex: none;
+}
+
+/* The server's card a tag opens: its icon and name with the tag, its counts, what it's about. */
+.exo-dc-tag-card {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+}
+
+.exo-dc-tag-card-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.exo-dc-tag-card-head > img,
+.exo-dc-tag-card-icon {
+  flex: none;
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+}
+
+.exo-dc-tag-card-icon {
+  display: grid;
+  place-items: center;
+  background: var(--exo-fill);
+  font-size: calc(20px * var(--exo-scale, 1));
+}
+
+.exo-dc-tag-card-who {
+  display: grid;
+  justify-items: start;
+  gap: 4px;
+  min-width: 0;
+}
+
+.exo-dc-tag-card-who > strong {
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--dc-text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.exo-dc-tag-card-counts {
+  display: flex;
+  gap: 12px;
+  margin: 0;
+  color: var(--dc-muted);
+  font-size: calc(12px * var(--exo-scale, 1));
+}
+
+.exo-dc-tag-card-counts > .is-online::before {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 4px;
+  border-radius: 50%;
+  background: var(--dc-good);
+  content: "";
+}
+
+.exo-dc-tag-card-about {
+  margin: 0;
+  color: var(--dc-text);
+}
+
+.exo-dc-tag-card-traits {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.exo-dc-tag-card-traits > li {
+  padding: 2px 8px;
+  border: 1px solid var(--exo-float-line);
+  border-radius: 999px;
+  font-size: calc(12px * var(--exo-scale, 1));
+}
+
+.exo-dc-pf-name-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+/* A voice channel's people: LIVE while streaming, and the server's own mute or deafen in red (yours from the
+   person menu in the faint ink), as Discord marks them; the channel's user limit as "2/5" beside its name. */
+.exo-dc-voice-flag {
+  display: grid;
+  flex: none;
+  place-items: center;
+}
+
+.exo-dc-voice-flag.is-server {
+  color: var(--color-bad);
+}
+
+.exo-dc-voice-live {
+  flex: none;
+  padding: 0 4px;
+  border-radius: 4px;
+  background: var(--color-bad);
+  color: #fff;
+  font-size: calc(12px * var(--exo-scale, 1));
+  font-weight: 700;
+  line-height: 16px;
+}
+
+.exo-dc-voice-limit {
+  flex: none;
+  margin-left: auto;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--exo-selected);
+  color: var(--dc-muted);
+  font-size: calc(12px * var(--exo-scale, 1));
+  font-variant-numeric: tabular-nums;
+}
+
+/* The member list's crown (server owner) and boost gem, in the muted ink beside the name. */
+.exo-dc-member-mark {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  margin-left: 4px;
+  color: var(--dc-muted);
+  vertical-align: -2px;
+}
+
+/* A voice channel's status, a line under its name in the faint ink (Set Channel Status). */
+.exo-dc-channel-status {
+  display: block;
+  overflow: hidden;
+  padding: 0 8px 4px 40px;
+  color: var(--dc-muted);
+  font-size: calc(12px * var(--exo-scale, 1));
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.exo-dc-channel-status > img {
+  display: inline-block;
+  margin: 0 2px;
+  vertical-align: -2px;
+}
+
+/* A message request's conversation: Discord's line and Ignore / Accept DM where the composer goes; in Message Requests,
+   a row's name and latest message open it. */
+.exo-dc-request-bar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 16px 16px;
+  padding: 12px 16px;
+  border: 1px solid var(--dc-line);
+  border-radius: 14px;
+  color: var(--dc-muted);
+  font-size: calc(13px * var(--exo-scale, 1));
+}
+
+.exo-dc-request-open {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+/* Modify attachment: each field its small name over the box; Mark as spoiler its words then the switch. */
+.exo-dc-modal-field {
+  display: grid;
+  gap: 4px;
+}
+
+.exo-dc-modal-field > span {
+  color: var(--dc-muted);
+  font-size: calc(12px * var(--exo-scale, 1));
+}
+
+.exo-dc-modal-field > textarea.exo-dc-modal-input {
+  height: auto;
+  padding: 8px 12px;
+}
+
+.exo-dc-modal-switch {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+/* The picture being modified, whole, over its fields. */
+.exo-dc-confirm > .exo-dc-file-thumb {
+  align-self: center;
+  width: auto;
+  max-width: 100%;
+  height: auto;
+  max-height: 160px;
+  margin: 0;
+  border-radius: 8px;
+  object-fit: contain;
+}
+
+/* New unreads and New mentions over the channel list's top and bottom edges, for what is scrolled out of sight. */
+.exo-dc-side {
+  position: relative;
+}
+
+.exo-dc-side-jump {
+  position: absolute;
+  left: 50%;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 12px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--exo-fill);
+  color: var(--dc-text);
+  font: inherit;
+  font-size: calc(12px * var(--exo-scale, 1));
+  font-weight: 600;
+  white-space: nowrap;
+  translate: -50% 0;
+  cursor: pointer;
+}
+
+.exo-dc-side-jump.is-up {
+  top: 56px;
+}
+
+.exo-dc-side-jump.is-down {
+  bottom: 8px;
+}
+
+.exo-dc-side-jump.is-mention {
+  background: var(--color-bad);
+  color: rgb(255 255 255);
+}
+
+/* Invite friends to a server: friends to invite (a short scrolling list), then the link with Copy. */
+.exo-dc-invite-friends {
+  display: grid;
+  max-height: 240px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.exo-dc-invite-friends > li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 4px;
+}
+
+.exo-dc-invite-who {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+}
+
+.exo-dc-invite-who > span {
+  overflow: hidden;
+  color: var(--dc-muted);
+  font-size: calc(12px * var(--exo-scale, 1));
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.exo-dc-invite-link {
+  display: flex;
+  gap: 8px;
+}
+
+.exo-dc-invite-link > input {
+  flex: 1;
+  min-width: 0;
+}
+
+/* A reminder in the Inbox: when it's due over the message. */
+.exo-dc-saved-due {
+  margin: 8px 8px 0;
+  color: var(--dc-muted);
+  font-size: calc(12px * var(--exo-scale, 1));
+  font-weight: 600;
+}
+
+/* Edit group: the group's icon with Change icon and Remove icon beside it, over its name. */
+.exo-dc-edit-group-icon {
+  display: flex;
+  align-items: center;
+  gap: 16px;
 }

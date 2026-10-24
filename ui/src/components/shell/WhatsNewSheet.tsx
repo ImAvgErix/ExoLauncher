@@ -2,17 +2,22 @@ import { useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import type { WhatsNewRelease } from '../../lib/whatsNew'
 import { useDismiss } from '../../lib/dismiss'
+import { formatTransferPercent } from '../../lib/utils'
+import type { AppUpdate } from './useAppUpdate'
 
 /**
  * What's new in Exo <version>: a sheet of large glass over the dimmed window, its items one under another (an icon in
  * a soft circle, a title, one line on what it does for you), then Continue. Escape or a press outside closes it too.
- * Opened once after an update (LauncherApp) and from Settings › About.
+ * Releases after the first follow under their own small heading. While an update with notes is offered, "Coming in
+ * Exo <version>" leads, with Install update beside Continue. Opened after an update (LauncherApp), from Settings ›
+ * About and from the update prompt.
  */
-export function WhatsNewSheet({ release, onClose }: { release: WhatsNewRelease | null; onClose: () => void }) {
-  return release ? <Sheet release={release} onClose={onClose} /> : null
+export function WhatsNewSheet({ releases, update, onClose }: { releases: WhatsNewRelease[] | null; update: AppUpdate; onClose: () => void }) {
+  const upcoming = update.upcoming && (update.available || update.busy) ? update.upcoming : null
+  return releases && (releases.length || upcoming) ? <Sheet releases={releases} upcoming={upcoming} update={update} onClose={onClose} /> : null
 }
 
-function Sheet({ release, onClose }: { release: WhatsNewRelease; onClose: () => void }) {
+function Sheet({ releases, upcoming, update, onClose }: { releases: WhatsNewRelease[]; upcoming: WhatsNewRelease | null; update: AppUpdate; onClose: () => void }) {
   const continueButton = useRef<HTMLButtonElement>(null)
   const sheet = useRef<HTMLDivElement>(null)
   useDismiss(sheet, onClose, { modal: true })
@@ -22,13 +27,15 @@ function Sheet({ release, onClose }: { release: WhatsNewRelease; onClose: () => 
   useEffect(() => {
     const before = document.activeElement instanceof HTMLElement ? document.activeElement : null
     continueButton.current?.focus({ preventScroll: true })
-    // Ahead of the window's own Escape (Settings, a game's page): this sheet is on top. Tab stays on Continue.
+    // Ahead of the window's own Escape (Settings, a game's page): this sheet is on top. Tab stays on its buttons.
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== 'Escape' && event.key !== 'Tab') return
       event.preventDefault()
       event.stopPropagation()
-      if (event.key === 'Escape') close.current()
-      else continueButton.current?.focus()
+      if (event.key === 'Escape') { close.current(); return }
+      const buttons = [...(sheet.current?.querySelectorAll<HTMLButtonElement>('.exo-whats-new-foot button:not(:disabled)') ?? [])]
+      const at = buttons.indexOf(document.activeElement as HTMLButtonElement)
+      buttons[(at + (event.shiftKey ? buttons.length - 1 : 1)) % buttons.length]?.focus()
     }
     window.addEventListener('keydown', onKey, true)
     return () => {
@@ -37,23 +44,41 @@ function Sheet({ release, onClose }: { release: WhatsNewRelease; onClose: () => 
     }
   }, [])
 
+  const sections = upcoming ? [upcoming, ...releases] : releases
+  const percent = update.percent == null ? '' : ` ${formatTransferPercent(update.percent)}%`
+  const starts = sections.map((_, index) => sections.slice(0, index).reduce((count, release) => count + release.items.length, 0))
   return createPortal(
     <div className="exo-whats-new-back">
       <div ref={sheet} className="exo-whats-new" role="dialog" aria-modal="true" aria-labelledby="exo-whats-new-title">
         <span className="exo-glass is-panel exo-sheet-glass" aria-hidden="true" />
-        <h2 id="exo-whats-new-title">What's new in Exo {release.version}</h2>
-        <ul className="exo-whats-new-list">
-          {release.items.map(({ icon: Icon, title, detail }, index) => (
-            <li key={title} style={{ animationDelay: `${Math.min(index, 8) * 30}ms` }}>
-              <span className="exo-whats-new-icon"><Icon size={20} /></span>
-              <span className="exo-whats-new-words">
-                <strong>{title}</strong>
-                <span>{detail}</span>
-              </span>
-            </li>
+        <h2 id="exo-whats-new-title">{upcoming ? `Coming in Exo ${upcoming.version}` : `What's new in Exo ${sections[0].version}`}</h2>
+        <div className="exo-whats-new-list">
+          {sections.map((release, index) => (
+            <section key={release.version}>
+              {index > 0 && <h3>In {release.version}</h3>}
+              <ul>
+                {release.items.map(({ icon: Icon, title, detail }, item) => (
+                  <li key={title} style={{ animationDelay: `${Math.min(starts[index] + item, 8) * 30}ms` }}>
+                    <span className="exo-whats-new-icon"><Icon size={20} /></span>
+                    <span className="exo-whats-new-words">
+                      <strong>{title}</strong>
+                      <span>{detail}</span>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </section>
           ))}
-        </ul>
-        <button ref={continueButton} type="button" className="exo-ghost-btn is-primary exo-whats-new-continue" onClick={onClose}>Continue</button>
+        </div>
+        {upcoming && update.error && <p role="alert" className="exo-whats-new-error">{update.error}</p>}
+        <div className="exo-whats-new-foot">
+          <button ref={continueButton} type="button" className={`exo-set-btn${upcoming ? '' : ' is-primary'}`} onClick={onClose}>Continue</button>
+          {upcoming && (
+            <button type="button" className="exo-set-btn is-primary" disabled={update.busy} onClick={() => void update.install()}>
+              {update.busy ? `${update.status}${percent}` : 'Install update'}
+            </button>
+          )}
+        </div>
       </div>
     </div>,
     document.body,

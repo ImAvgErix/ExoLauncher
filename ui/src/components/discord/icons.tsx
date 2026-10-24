@@ -1,4 +1,4 @@
-import { AddCircle, Apps, At, Award, BadgeCheck, Bell, BellOff, Book, Burst, Calendar, Car, Check, ChevronDown, ChevronRight, ChevronUp, Clock, Close, Copy, Disc, Download, ExitFullScreen, ExternalLink, Eye, EyeOff, FileIcon, Flag, Folder, Forum, Forward, FriendAccepted, FullScreen, Gamepad, Grip, Hash, HashLock, Headphones, HeadphonesOff, Hourglass, Id, Inbox, Leaf, Leave, Lightbulb, LinkIcon, ListSearch, Live, Lock, Megaphone, Members, MessageCircle, MessagePlus, Mic, MicOff, More, Nitro, Pencil, Person, Phone, PhoneDown, Pin, Pizza, Plus, Poll, Reply, Rules, SaveImage, Search, Settings, Shop, Smile, SmilePlus, Smiley, Soundboard, Star, Symbols, Threads, Trash, Trophy, Tv, Unread, Upload, UserCircle, UserPlus, Users, Video, ViewReactions, Volume, VolumeLock, VolumeOff } from '../../brand/icons'
+import { AddCircle, Apps, At, Award, BadgeCheck, Bell, BellOff, Book, Bookmark, Boost, Burst, Calendar, Car, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Clock, Close, Copy, Crown, Disc, Download, ExitFullScreen, ExternalLink, Eye, EyeOff, FileIcon, Flag, Folder, Forum, Forward, FriendAccepted, FullScreen, Gamepad, Grip, Hash, HashLock, Headphones, HeadphonesOff, Hourglass, Id, Inbox, Leaf, Leave, Lightbulb, LinkIcon, ListSearch, Live, Lock, Mail, Megaphone, Members, MessageCircle, MessagePlus, Mic, MicOff, More, Nitro, Pencil, Person, Phone, PhoneDown, Pin, Pizza, Plus, Poll, Reply, Rules, SaveImage, Search, Settings, Shop, Smile, SmilePlus, Smiley, Soundboard, Star, Symbols, Threads, Trash, Trophy, Tv, Unread, Upload, UserCircle, UserPlus, Users, Video, ViewReactions, Volume, VolumeLock, VolumeOff, ZoomIn, ZoomOut, Speaker } from '../../brand/icons'
 
 /** The Discord room's glyphs, in the places Discord's own client puts them, drawn in Exo's set: one glyph per meaning. */
 export const Icons = {
@@ -97,7 +97,19 @@ export const Icons = {
   // A watched stream's Full Screen and Exit Full Screen.
   FullScreen,
   ExitFullScreen,
-  // A picture's menu: Save Image, Open Link (Copy Image is Copy).
+  // A picture's menu: Save Image, Open Link (Copy Image is Copy); the image viewer's Zoom, Previous and Next.
   SaveImage,
   Open: ExternalLink,
+  ZoomIn,
+  ZoomOut,
+  // A message's Speak Message, and Bookmark Message (saved for later, as the Store's wishlist keeps a game).
+  Speak: Speaker,
+  Bookmark,
+  Previous: ChevronLeft,
+  Next: ChevronRight,
+  // The member list's server owner and server booster.
+  Owner: Crown,
+  Boosting: Boost,
+  // Message Requests in the DM list.
+  Requests: Mail,
 }

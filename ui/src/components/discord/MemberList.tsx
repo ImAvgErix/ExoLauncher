@@ -2,9 +2,11 @@ import { useEffect, useRef, useState } from 'react'
 import { host, onHostEvent } from '../../lib/host'
 import { report } from '../../lib/report'
 import { avatarHashOf, type DiscordMemberList } from '../../lib/discord'
-import { Avatar } from './presence'
+import { Avatar, RoleIcon } from './presence'
 import { showProfile } from './extras'
 import { Nameplate, StyledName } from './collectibles'
+import { GuildTag } from './guildTag'
+import { Icons } from './icons'
 
 const shownLists = new Map<string, DiscordMemberList>()
 // A member's row (.exo-dc-member); a row not sent yet takes the same, so the list is its full length from the start.
@@ -66,9 +68,13 @@ export function MemberList({ guildId }: { guildId: string }) {
             <Avatar src={item.avatar} name={item.name} status={item.status} size={32} look={item.look} scope=".exo-dc-member" />
             <span className="exo-dc-member-names">
               <span className="exo-dc-member-name exo-dc-name" style={item.color ? { color: item.color, '--exo-dc-role': item.color } as React.CSSProperties : undefined}>
-                <StyledName name={item.name} look={item.look} scope=".exo-dc-member" />{item.bot ? <span className="exo-dc-tag">App</span> : null}
+                <StyledName name={item.name} look={item.look} scope=".exo-dc-member" /><RoleIcon icon={item.roleIcon} /><GuildTag look={item.look} />{item.bot ? <span className="exo-dc-tag">App</span> : null}
+                {item.owner ? <span className="exo-dc-member-mark" role="img" aria-label="Server owner"><Icons.Owner size={14} /></span> : null}
+                {item.boosting ? <span className="exo-dc-member-mark" role="img" aria-label={`Server boosting since ${new Date(item.boosting).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}`}>
+                  <Icons.Boosting size={14} /></span> : null}
               </span>
-              {item.activity ? <span className="exo-dc-member-activity">{item.activity}</span> : null}
+              {item.inVoice ? <span className="exo-dc-member-activity is-voice" aria-label={`In voice (${item.inVoice})`}><Icons.Voice size={12} />In voice</span>
+                : item.activity ? <span className="exo-dc-member-activity">{item.activity}</span> : null}
             </span>
           </button>
         ))}

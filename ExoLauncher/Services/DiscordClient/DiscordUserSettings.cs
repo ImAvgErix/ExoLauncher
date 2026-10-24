@@ -80,6 +80,8 @@ internal static class DiscordUserSettings
         new("defaultGuildsRestricted", Kind.Flag, [8, 4], false),
         new("friendSourceFlags", Kind.UInt, [8, 11], 14u, Max: 14),
         new("defaultGuildsActivityRestricted", Kind.Enum, [8, 14], 0, Max: 2),
+        new("activityRestrictedGuildIds", Kind.Ids, [8, 13], null),
+        new("activityJoiningRestrictedGuildIds", Kind.Ids, [8, 15], null),
         new("messageRequestRestrictedGuildIds", Kind.Ids, [8, 16], null),
         new("defaultMessageRequestRestricted", Kind.Bool, [8, 17], false),
         new("dropsOptedOut", Kind.Bool, [8, 18], false),
@@ -112,7 +114,56 @@ internal static class DiscordUserSettings
         var streams = new JsonObject();
         foreach (var (id, stream) in AudioUsers(proto, StreamMap)) streams[id] = new JsonObject { ["muted"] = stream.Muted, ["volume"] = stream.Volume };
         values["audioStreams"] = streams;
+        values["customStatus"] = CustomStatus(proto, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
         return values;
+    }
+
+    // status (11) > custom_status (2): CustomStatus {1 text, 2 fixed64 emoji_id, 3 emoji_name, 4 fixed64 expires_at_ms,
+    // 5 fixed64 created_at_ms}, as Discord's client keeps it. An empty or expired one is none, as Discord reads it.
+    internal static JsonObject? CustomStatus(byte[] proto, long now)
+    {
+        string text = "", emojiName = "";
+        ulong emojiId = 0, expires = 0;
+        foreach (var (n, w, v) in Fields(Embedded(Embedded(proto, 11), 2)))
+        {
+            if (n == 1 && w == 2) text = System.Text.Encoding.UTF8.GetString(v);
+            else if (n == 2 && w == 1) emojiId = BitConverter.ToUInt64(v);
+            else if (n == 3 && w == 2) emojiName = System.Text.Encoding.UTF8.GetString(v);
+            else if (n == 4 && w == 1) expires = BitConverter.ToUInt64(v);
+        }
+        if ((text.Length == 0 && emojiId == 0 && emojiName.Length == 0) || (expires != 0 && expires <= (ulong)now)) return null;
+        return new JsonObject
+        {
+            ["text"] = text,
+            ["emojiId"] = emojiId == 0 ? null : emojiId.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            ["emojiName"] = emojiName.Length == 0 ? null : emojiName,
+            ["expiresAtMs"] = expires == 0 ? null : (long)expires,
+        };
+    }
+
+    // The custom status Discord's Set your status saves: up to 128 characters, an emoji (a server one's id and name, or a
+    // Unicode one), when it clears (ms, or none), stamped now; null or an empty one clears it (the field left out).
+    private static byte[]? CustomStatusLeaf(JsonElement value, long now)
+    {
+        if (value.ValueKind == JsonValueKind.Null) return [];
+        if (value.ValueKind != JsonValueKind.Object) return null;
+        static string Text(JsonElement e, string name) => e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() ?? "" : "";
+        var text = Text(value, "text").Trim();
+        var emojiName = Text(value, "emojiName");
+        var emojiId = 0UL;
+        if (Text(value, "emojiId") is { Length: > 0 } id && !ulong.TryParse(id, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out emojiId)) return null;
+        var expires = value.TryGetProperty("expiresAtMs", out var e) && e.ValueKind == JsonValueKind.Number && e.TryGetInt64(out var at) ? at : 0;
+        if (text.Length > 128 || emojiName.Length > 32 || expires < 0 || (expires != 0 && expires <= now)) return null;
+        if (text.Length == 0 && emojiId == 0 && emojiName.Length == 0) return [];
+        var status = new List<byte>();
+        if (text.Length > 0) WriteString(status, 1, text);
+        if (emojiId != 0) { WriteTag(status, 2, 1); status.AddRange(BitConverter.GetBytes(emojiId)); }
+        if (emojiName.Length > 0) WriteString(status, 3, emojiName);
+        if (expires != 0) { WriteTag(status, 4, 1); status.AddRange(BitConverter.GetBytes((ulong)expires)); }
+        WriteTag(status, 5, 1); status.AddRange(BitConverter.GetBytes((ulong)now));
+        var leaf = new List<byte>();
+        WriteBytes(leaf, 2, status);
+        return [.. leaf];
     }
 
     /// <summary>A person's call volume and local mute, Discord's AudioContextSetting: volume is 0-200, 100 as loud as they send.</summary>
@@ -279,6 +330,13 @@ internal static class DiscordUserSettings
                 if (AudioChanges(value) is not { } people) return null;
                 full = Rewrite(full, [16], 0, AudioPatch(full, people, key == "audioStreams" ? StreamMap : UserMap));
                 sections.Add(16);
+                continue;
+            }
+            if (key == "customStatus")
+            {
+                if (CustomStatusLeaf(value, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()) is not { } status) return null;
+                full = Rewrite(full, [11, 2], 0, status);
+                sections.Add(11);
                 continue;
             }
             if (key == "guildFolders")

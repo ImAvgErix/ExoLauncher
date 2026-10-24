@@ -1,20 +1,21 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { host } from '../../lib/host'
 import { report } from '../../lib/report'
-import { avatarUrl, displayName, jumpToMessage, openDiscord, snowflakeTime, type DiscordForYouItem, type DiscordMessage, type DiscordPlace, type DiscordUnreadChannel } from '../../lib/discord'
+import { avatarUrl, displayName, jumpToMessage, openDiscord, snowflakeTime, type DiscordForYouItem, type DiscordMessage, type DiscordPlace, type DiscordSavedMessage, type DiscordUnreadChannel } from '../../lib/discord'
+import { unsaveMessage } from '../../lib/discordSaved'
 import { Icons } from './icons'
 import { Markdown, MarkdownLine, type MarkdownContext } from './markdown'
 import { Result, useOutside } from './results'
 
-type Tab = 'forYou' | 'unreads' | 'mentions'
-const TABS: [Tab, string][] = [['forYou', 'For You'], ['unreads', 'Unreads'], ['mentions', 'Mentions']]
+type Tab = 'forYou' | 'unreads' | 'mentions' | 'bookmarks' | 'reminders'
+const TABS: [Tab, string][] = [['forYou', 'For you'], ['unreads', 'Unreads'], ['mentions', 'Mentions'], ['bookmarks', 'Bookmarks'], ['reminders', 'Reminders']]
 const LAST_TAB = 'exo.discordInboxTab'
 
 function savedTab(): Tab {
-  try { const t = localStorage.getItem(LAST_TAB); return t === 'forYou' || t === 'unreads' || t === 'mentions' ? t : 'mentions' } catch { return 'mentions' }
+  try { const t = localStorage.getItem(LAST_TAB); return TABS.some(([value]) => value === t) ? t as Tab : 'mentions' } catch { return 'mentions' }
 }
 
-/** Discord's Inbox: For You (its notifications), Unreads (unread channels across your servers) and Mentions. */
+/** Discord's Inbox: For You (its notifications), Unreads (unread channels across your servers), Mentions, Bookmarks and Reminders. */
 export function Inbox({ ctx, here, onClose }: { ctx: MarkdownContext; here: string; onClose: () => void }) {
   const [tab, setTab] = useState<Tab>(savedTab)
   const box = useOutside(onClose)
@@ -29,7 +30,63 @@ export function Inbox({ ctx, here, onClose }: { ctx: MarkdownContext; here: stri
           ))}
         </span>
       </div>
-      {tab === 'forYou' ? <ForYou onClose={onClose} /> : tab === 'unreads' ? <Unreads ctx={ctx} onClose={onClose} /> : <Mentions ctx={ctx} here={here} onClose={onClose} />}
+      <InboxTab tab={tab} ctx={ctx} here={here} onClose={onClose} />
+    </div>
+  )
+}
+
+function InboxTab({ tab, ctx, here, onClose }: { tab: Tab; ctx: MarkdownContext; here: string; onClose: () => void }) {
+  if (tab === 'forYou') return <ForYou onClose={onClose} />
+  if (tab === 'unreads') return <Unreads ctx={ctx} onClose={onClose} />
+  if (tab === 'bookmarks' || tab === 'reminders') return <SavedList kind={tab} ctx={ctx} here={here} onClose={onClose} />
+  return <Mentions ctx={ctx} here={here} onClose={onClose} />
+}
+
+// "Due in 3 hours", "Due tomorrow at 9:00 AM", or "Overdue", as Discord heads a reminder.
+function dueLine(at: number, now = Date.now()) {
+  if (at <= now) return 'Overdue'
+  const minutes = Math.round((at - now) / 60_000)
+  if (minutes < 60) return `Due in ${minutes} minute${minutes === 1 ? '' : 's'}`
+  if (minutes < 24 * 60) return `Due in ${Math.round(minutes / 60)} hour${Math.round(minutes / 60) === 1 ? '' : 's'}`
+  return `Due ${new Date(at).toLocaleString(undefined, { weekday: 'long', hour: 'numeric', minute: '2-digit' })}`
+}
+
+/** Bookmarks (25 at a time, latest first) or Reminders (soonest first), each with Jump and Remove (Mark complete). */
+function SavedList({ kind, ctx, here, onClose }: { kind: 'bookmarks' | 'reminders'; ctx: MarkdownContext; here: string; onClose: () => void }) {
+  const [items, setItems] = useState<DiscordSavedMessage[]>([])
+  const [places, setPlaces] = useState<Record<string, DiscordPlace | null>>({})
+  const [more, setMore] = useState(false)
+  const [busy, setBusy] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const load = useCallback((before?: string) => {
+    setBusy(true)
+    const ask = kind === 'bookmarks' ? host.discordSaved('bookmarks', before ? { before } : {}) : host.discordSaved('state')
+    ask.then(result => {
+      const page = (kind === 'bookmarks' ? result.results : result.reminders) ?? []
+      const sorted = kind === 'reminders' ? page.toSorted((a, b) => Date.parse(a.save_data.due_at ?? '') - Date.parse(b.save_data.due_at ?? '')) : page
+      setItems(list => before ? [...list, ...sorted] : sorted)
+      setPlaces(p => ({ ...(before ? p : {}), ...result.places }))
+      setMore(kind === 'bookmarks' && result.hasMore === true)
+      setError(result.ok ? null : result.message ?? 'Discord did not send what you saved.')
+    }).catch(() => setError('Discord did not send what you saved.')).finally(() => setBusy(false))
+  }, [kind])
+  useEffect(() => { load() }, [load])
+  const remove = (item: DiscordSavedMessage) => {
+    setItems(list => list.filter(i => i !== item))
+    void unsaveMessage(item.save_data.channel_id, item.save_data.message_id).then(why => { if (why) setError(why) })
+  }
+  return (
+    <div className="exo-dc-popover-list" onScroll={event => { if (more && !busy && items.length && nearFoot(event)) load(items[items.length - 1].save_data.saved_at) }}>
+      {error ? <p className="exo-dc-note" role="alert">{error}</p> : null}
+      {!busy && !error && items.length === 0 ? <p className="exo-dc-note">{kind === 'bookmarks' ? 'Bookmark a message from its menu to find it here.' : 'Set a reminder from a message\'s menu, and it shows here.'}</p> : null}
+      {items.map(item => item.message ? (
+        <div key={item.save_data.message_id} className="exo-dc-saved">
+          {item.save_data.due_at ? <p className="exo-dc-saved-due">{dueLine(Date.parse(item.save_data.due_at))}</p> : null}
+          <Result message={item.message} place={places[item.message.channel_id] ?? null} here={here} ctx={ctx} onJumped={onClose}
+            onRemove={() => remove(item)} removeLabel={kind === 'bookmarks' ? 'Remove bookmark' : 'Mark complete'} />
+        </div>
+      ) : null)}
+      {busy ? <p className="exo-dc-note">Loading</p> : null}
     </div>
   )
 }

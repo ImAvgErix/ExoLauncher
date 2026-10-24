@@ -55,6 +55,20 @@ export async function run(t) {
     return k.look(c, 'channel')
   })
 
+  // A header holds one of each control. Two siblings with one React key (a server's first channel can share the server's
+  // id) once kept every old bell, dozens across the header; switching away and back, with messages flowing, shows it.
+  await run.check('discord', 'header-once', 'the channel header holds one of each control after switching channels', async () => {
+    if (await t.shell.call(chat) !== TEST_CHANNEL && !await openTestChannel(t)) return ['not in the test channel']
+    const dupes = await t.shell.eval(`(async () => {
+      const w = ms => new Promise(r => setTimeout(r, ms))
+      const rows = [...document.querySelectorAll('main.exo-dc .exo-dc-side-list button')].filter(b => b.closest('[class*="channel"]'))
+      for (const row of rows.slice(0, 4)) { row.click(); await w(400) }
+      const labels = [...document.querySelectorAll('.exo-dc-chat-head .exo-dc-head-tools [aria-label]')].map(e => e.getAttribute('aria-label'))
+      return labels.filter((l, i) => labels.indexOf(l) !== i)
+    })()`)
+    return dupes.length ? [`repeated in the header: ${[...new Set(dupes)].join(', ')}`] : []
+  })
+
   /** Deletes your test message through its right-click menu; true once it is gone. Tried up to three times. */
   async function deleteMessage(text) {
     for (let attempt = 0; attempt < 3; attempt++) {
@@ -62,9 +76,9 @@ export async function run(t) {
       const hit = await t.shell.call((x) => { const m = [...document.querySelectorAll('.exo-dc-msg')].reverse().find(e => e.textContent.includes(x)); if (!m) return 'gone'; m.scrollIntoView({ block: 'center' }); const r = m.getBoundingClientRect(); m.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: r.left + 200, clientY: r.top + 20, button: 2 })); return 'menu' }, text)
       if (hit === 'gone') return true
       await sleep(600)
-      await t.shell.click(() => [...document.querySelectorAll('[role^="menuitem"], button')].find(b => b.textContent.trim() === 'Delete Message'))
+      await t.shell.click(() => [...document.querySelectorAll('[role^="menuitem"], button')].find(b => b.textContent.trim() === 'Delete message'))
       await sleep(600)
-      await t.shell.click(() => { const d = document.querySelector('[role="dialog"], [role="alertdialog"]'); return d && [...d.querySelectorAll('button')].find(b => b.textContent.trim() === 'Delete') })
+      await t.shell.click(() => { const d = [...document.querySelectorAll('[role="alertdialog"], [role="dialog"]')].find(e => e.getClientRects().length); return d && [...d.querySelectorAll('button')].find(b => b.textContent.trim() === 'Delete') })
       if (await t.shell.waitFor((x) => ![...document.querySelectorAll('.exo-dc-msg')].some(e => e.textContent.includes(x)), { timeoutMs: 6000, args: [text] })) return true
     }
     return false
@@ -87,10 +101,10 @@ export async function run(t) {
         const at = await t.shell.call((x, n) => { const m = [...document.querySelectorAll('.exo-dc-msg')].reverse().find(e => e.textContent.includes(x)); if (!m) return null; m.scrollIntoView({ block: 'center' }); const r = m.getBoundingClientRect(); return { x: r.left + r.width / 2 + n * 7, y: r.top + r.height / 2 } }, text, i)
         if (!at) break
         await t.shell.s.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: at.x, y: at.y })
-        bar = !!await t.shell.waitFor((x) => { const b = [...document.querySelectorAll('.exo-dc-msg')].reverse().find(e => e.textContent.includes(x))?.querySelector('button[aria-label="Add Reaction"]'); return b && b.getBoundingClientRect().width > 0 }, { timeoutMs: 1500, args: [text] })
+        bar = !!await t.shell.waitFor((x) => { const b = [...document.querySelectorAll('.exo-dc-msg')].reverse().find(e => e.textContent.includes(x))?.querySelector('button[aria-label="Add reaction"]'); return b && b.getBoundingClientRect().width > 0 }, { timeoutMs: 1500, args: [text] })
       }
       if (!bar) failures.push('the hover bar did not show')
-      else if (await t.shell.click((x) => [...document.querySelectorAll('.exo-dc-msg')].reverse().find(e => e.textContent.includes(x))?.querySelector('button[aria-label="Add Reaction"]') ?? null, text)) {
+      else if (await t.shell.click((x) => [...document.querySelectorAll('.exo-dc-msg')].reverse().find(e => e.textContent.includes(x))?.querySelector('button[aria-label="Add reaction"]') ?? null, text)) {
         await t.shell.waitFor(() => document.querySelector('.exo-dc-picker .exo-dc-picker-emoji'), { timeoutMs: 4000 })
         await t.shell.click(() => document.querySelector('.exo-dc-picker .exo-dc-picker-emoji:not(.is-locked)'))
         const reacted = await t.shell.waitFor((x) => !![...document.querySelectorAll('.exo-dc-msg')].reverse().find(e => e.textContent.includes(x))?.querySelector('.exo-dc-reaction'), { timeoutMs: 6000, args: [text] })
@@ -132,7 +146,7 @@ export async function run(t) {
   await run.check('discord', 'server-pages', 'the test server\'s Guide, Events, Browse Channels and Members open', async (c) => {
     if (await t.shell.call(chat) !== TEST_CHANNEL && !await openTestChannel(t)) c.skip('not in the test server')
     const failures = []
-    for (const page of ['Server Guide', 'Events', 'Browse Channels', 'Members']) {
+    for (const page of ['Server Guide', 'Events', 'Browse channels', 'Members']) {
       if (!await t.shell.click((p) => [...document.querySelectorAll('.exo-dc-side button, .exo-dc-side a')].find(b => b.textContent.trim() === p), page)) { failures.push(`no ${page}`); continue }
       await sleep(1200)
       const shown = await t.shell.eval(`!!document.querySelector('main.exo-dc .exo-dc-page, main.exo-dc [class*="guide"], main.exo-dc [class*="events"], main.exo-dc [class*="browse"], main.exo-dc [class*="members"]')`)
@@ -145,20 +159,21 @@ export async function run(t) {
   await run.check('discord', 'settings', 'Discord\'s settings open, change section and close', async (c) => {
     await k.closeAll()
     const clicked = await t.shell.click(() => document.querySelector('main.exo-dc button[aria-label="Discord settings"]'))
-    if (!await t.shell.waitFor(() => !!document.querySelector('.exo-dc-settings'), { timeoutMs: 6000 })) {
+    // Settings stay mounted with the room, hidden while closed: open and closed are whether it shows.
+    if (!await t.shell.waitFor(() => !!document.querySelector('.exo-dc-settings')?.getClientRects().length, { timeoutMs: 6000 })) {
       await c.shot('not-open', t.shell)
       c.evidence.why = await t.shell.eval(`({ dialogs: [...document.querySelectorAll('[role=dialog]')].map(d => d.getAttribute('aria-label')), active: document.activeElement?.className?.toString().slice(0, 40) })`)
       return [`the settings did not open (clicked: ${clicked}; ${JSON.stringify(c.evidence.why)})`]
     }
     const failures = []
-    for (const section of ['Voice & Video', 'Appearance', 'Notifications']) {
+    for (const section of ['Voice & video', 'Appearance', 'Notifications']) {
       if (!await t.shell.click((s) => [...document.querySelectorAll('.exo-dc-settings button, .exo-dc-settings [role="tab"]')].find(b => b.textContent.trim() === s), section)) { failures.push(`no ${section}`); continue }
       await sleep(500)
     }
     await c.shot('settings', t.shell)
     failures.push(...await k.look(c, 'settings'))
     await t.shell.key('Escape')
-    if (!await t.shell.waitFor(() => !document.querySelector('.exo-dc-settings'), { timeoutMs: 3000 })) failures.push('Escape did not close the settings')
+    if (!await t.shell.waitFor(() => !document.querySelector('.exo-dc-settings')?.getClientRects().length, { timeoutMs: 3000 })) failures.push('Escape did not close the settings')
     return failures
   })
 

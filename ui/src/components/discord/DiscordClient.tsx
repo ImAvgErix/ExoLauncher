@@ -5,7 +5,8 @@ import { report } from '../../lib/report'
 import { onPerformanceMode, performanceMode, takePendingOpen, takePendingSettings, type DiscordChannel, type DiscordChannels, type DiscordDm, type DiscordHome, type OpenTarget } from '../../lib/discord'
 import { Chat } from './Chat'
 import { FriendsPage } from './FriendsPage'
-import { DmSidebar, FRIENDS, Rail, ServerSidebar, SHOP, UserPanel } from './Sidebar'
+import { DmSidebar, FRIENDS, Rail, REQUESTS, ServerSidebar, SHOP, UserPanel } from './Sidebar'
+import { MessageRequestsPage } from './MessageRequests'
 import { ShopPage } from './ShopPage'
 import { IncomingCall, useDiscordVoice, type VoiceControls, VoiceRoom } from './voice'
 import { AddServer, ImageHost, ProfileHost, useProfileReadAhead } from './extras'
@@ -16,6 +17,7 @@ import { ProfilePlaces } from './profileParts'
 import { UserMenuHost } from './UserMenu'
 import { ImageMenuHost } from './ImageMenu'
 import { AppModalHost } from './AppModal'
+import { MfaHost } from './MfaDialog'
 import type { DiscordSettingsSection } from './DiscordSettings'
 // Discord's settings load the first time they open, not with the room.
 const DiscordSettings = lazy(() => import('./DiscordSettings').then(m => ({ default: m.DiscordSettings })))
@@ -58,14 +60,14 @@ const shownLists = new Map<string, DiscordChannels>()
 // The conversation a place opens at, read ahead while the pointer rests on it in the rail.
 function peekPlace(place: string | null) {
   const channelId = place ? lastChannel.get(place) : undefined
-  const text = place === HOME ? channelId !== FRIENDS && channelId !== SHOP : shownLists.get(place ?? '')?.channels.some(c => c.id === channelId && c.kind === 'text')
+  const text = place === HOME ? ![FRIENDS, SHOP, REQUESTS].includes(channelId ?? '') : shownLists.get(place ?? '')?.channels.some(c => c.id === channelId && c.kind === 'text')
   prefetchMessages(place && channelId && text ? savedThread(place, channelId)?.id ?? channelId : null)
 }
 
 function dmChannel(dm: DiscordDm): DiscordChannel {
   return {
-    id: dm.id, name: dm.name, type: dm.group ? 3 : 1, kind: 'text', canSend: true, canRead: true,
-    dm: { userId: dm.userId ?? null, avatar: dm.avatar, status: dm.status ?? null, username: dm.username ?? null, group: dm.group },
+    id: dm.id, name: dm.name, type: dm.group ? 3 : 1, kind: 'text', canSend: !dm.request && !dm.spam, canRead: true,
+    dm: { userId: dm.userId ?? null, avatar: dm.avatar, status: dm.status ?? null, username: dm.username ?? null, group: dm.group, request: dm.request || dm.spam, spam: dm.spam, ownerId: dm.ownerId, members: dm.members },
   }
 }
 
@@ -87,6 +89,9 @@ function useRememberWhere(home: DiscordHome | null, place: string, open: string 
   const gone = !!home && place !== HOME && !home.guilds.some(g => g.id === place)
   useEffect(() => { if (gone) leave() }, [gone, leave])
 }
+
+// The server as the rail has it (its name and notification settings), when it's in Discord's list.
+const railGuild = (home: DiscordHome | null, id: string) => home?.guilds.find(g => g.id === id) ?? null
 
 /** Signed in and connected, laid out as Discord is: servers, then channels or DMs with you at the bottom, then the conversation. */
 export function DiscordClient({ active }: { active: boolean }) {
@@ -246,6 +251,19 @@ export function DiscordClient({ active }: { active: boolean }) {
     return () => window.removeEventListener('exo-dc-call-dm', ring)
   }, [navigate, refreshHome])
 
+  // Join Voice from someone's profile: their voice channel opens and you join it, as Discord's card does.
+  const join = useRef(voice.join)
+  join.current = voice.join
+  useEffect(() => {
+    const go = (event: Event) => {
+      const { guildId, channelId } = (event as CustomEvent<{ guildId: string; channelId: string }>).detail
+      navigate(guildId, channelId)
+      void join.current(guildId, channelId)
+    }
+    window.addEventListener('exo-dc-join-voice', go)
+    return () => window.removeEventListener('exo-dc-join-voice', go)
+  }, [navigate])
+
   // Message from a profile card: Discord's DM with that person, opened in Direct messages.
   const messageUser = useCallback((userId: string) => {
     void host.discordFriend('dm', { userId }).then(result => {
@@ -279,18 +297,19 @@ export function DiscordClient({ active }: { active: boolean }) {
       <ImageHost key={`i${opened}`} />
       <ImageMenuHost />
       <AppModalHost guildId={place === HOME ? null : place} />
+      <MfaHost />
       {adding ? <AddServer refused={adding} onClose={() => setAdding(false)} onJoined={id => { setAdding(false); refreshHome(); go(id) }} /> : null}
-      {caller ? <IncomingCall name={caller.name} onJoin={() => { navigate(HOME, caller.id); void voice.join(null, caller.id) }} onDecline={() => voice.decline(caller.id)} /> : null}
+      {caller ? <IncomingCall name={caller.name} onJoin={video => { navigate(HOME, caller.id); void voice.join(null, caller.id, video) }} onDecline={() => voice.decline(caller.id)} /> : null}
       <Rail home={home} place={place} onGo={railGo} onOpenDm={id => navigate(HOME, id)} onPeek={peekPlace} onAdd={() => setAdding(true)} homeIcon={<CompanyLogo company="discord" size={18} />} />
       <div className="exo-dc-side-col">
       {place === HOME
         ? <DmSidebar home={home} open={open} onPick={pick} />
         : (
-          <ServerSidebar key={`${place}:${fromOutside}`} guildId={place} name={list?.name ?? home?.guilds.find(g => g.id === place)?.name ?? ''} list={list} open={open} voice={voice}
+          <ServerSidebar key={`${place}:${fromOutside}`} guildId={place} name={list?.name ?? railGuild(home, place)?.name ?? ''}
+            guild={railGuild(home, place)} list={list} open={open} voice={voice}
             onPick={pick} onJoin={id => { pick(id); if (voice.voice.channelId !== id || voice.voice.state === 'off') void voice.join(place, id) }}
             onMarkRead={() => void host.discordMarkRead(place).catch(() => { })}
-            onLeave={() => void host.discordServer('leave', { guildId: place }).then(result => { if (result.ok) go(HOME) }).catch(() => { })}
-            onInvite={() => open ? host.discordChannel(open, 'invite').then(result => result.url ?? null).catch(() => null) : Promise.resolve(null)} />
+            onLeave={() => void host.discordServer('leave', { guildId: place }).then(result => { if (result.ok) go(HOME) }).catch(() => { })} />
         )}
         {panel}
       </div>
@@ -408,14 +427,15 @@ function Conversation(props: ConversationProps) {
   const { place, open, home, list, active, channelName, onPick } = props
   if (place === HOME && open === FRIENDS) return <FriendsPage onOpenDm={onPick} />
   if (place === HOME && open === SHOP) return <ShopPage me={home?.me ?? null} />
-  if (place !== HOME && open && isPage(open)) return <ServerPage page={open} guildId={place} list={list} onPick={onPick} meId={home?.me?.id ?? null} channelName={channelName} active={active} />
+  if (place === HOME && open === REQUESTS) return <MessageRequestsPage home={home} onOpenDm={onPick} />
+  if (place !== HOME && open && isPage(open)) return <ServerPage page={open} guildId={place} list={list} onPick={onPick} meId={home?.me?.id ?? null} meName={home?.me?.name ?? null} channelName={channelName} active={active} />
   return <ConversationIn {...props} />
 }
 
 // A channel, a DM, or a forum and the post opened from it; a thread shows its channel above it to go back.
 function ConversationIn({ place, open, home, list, voice, active, channelName, thread, onThread }: ConversationProps) {
   const forum = serverChannel(place, list, open, 'forum')
-  if (forum && !thread) return <ForumView key={forum.id} channel={forum} active={active} onOpen={onThread} />
+  if (forum && !thread) return <ForumView key={forum.id} channel={forum} guildId={place} channelName={channelName} active={active} onOpen={onThread} />
   const voiceChannel = serverChannel(place, list, open, 'voice')
   if (voiceChannel && !thread) return <VoiceWithChat {...{ place, home, list, voice, active, channelName, onThread }} channel={voiceChannel} />
   const parent = thread ? list?.channels.find(c => c.id === open) ?? null : null
@@ -457,7 +477,7 @@ function ChannelChat({ place, home, list, voice, active, channelName, onThread, 
   const chat = (
     <Chat key={channel.id} channel={channel} guildId={dm ? null : place} serverName={list?.name} onOpenThread={onThread} meId={meId} channelName={channelName} active={active} onHide={onHide}
       me={home?.me ?? null} hidden={home} roles={list?.roles} parent={parent} onBack={() => onThread(null)}
-      onCall={dm ? () => void voice.call(channel.id) : undefined} inCall={inCall} />
+      onCall={dm ? video => void voice.call(channel.id, video) : undefined} inCall={inCall} />
   )
   if (!dm) return chat
   return <DmCall channel={channel} members={home?.dms.find(d => d.id === channel.id)?.call} inCall={inCall} voice={voice} meId={meId}>{chat}</DmCall>

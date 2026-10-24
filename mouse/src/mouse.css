@@ -221,11 +221,13 @@ button:focus-visible, input:focus-visible, select:focus-visible {
   font-size: var(--type-small);
 }
 
-/* The readout: one bar of figures on hairlines (battery and signal over gauges), wrapping only when the mouse is narrow. */
+/* The readout: one bar of figures on hairlines (battery and signal over gauges), wrapping only when the mouse is narrow.
+   Its top hairline runs the whole width, over a column the figures leave empty too. */
 .m-stats {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(calc(132px * var(--exo-scale, 1)), 1fr));
   margin: 16px 0 0 -1px;
+  box-shadow: inset 0 1px 0 var(--hair);
 }
 
 .m-stat {
@@ -279,6 +281,25 @@ button:focus-visible, input:focus-visible, select:focus-visible {
 }
 
 .m-stat.is-low .m-stat-figure { color: var(--bad); }
+
+/* The hero's foot: thanks to OpenMouse's maker, with a red heart. */
+.m-credit {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 12px 24px;
+  border-top: 1px solid var(--hair);
+  color: var(--faint);
+  font-size: var(--type-small);
+}
+
+.m-heart {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  fill: var(--bad);
+}
 
 /* A name for a figure (PerfectPolling): the title's size where its cell has room, a little less in a narrow one,
    never cut at the cell's edge. */
@@ -363,6 +384,7 @@ button:focus-visible, input:focus-visible, select:focus-visible {
   .m-hero-art { grid-row: span 2; min-height: 180px; border-radius: 14px 0 0 14px; }
   .m-hero-id { grid-column: 2; }
   .m-stats { grid-column: 2; }
+  .m-credit { grid-column: 1 / -1; }
 }
 
 .m-settings {

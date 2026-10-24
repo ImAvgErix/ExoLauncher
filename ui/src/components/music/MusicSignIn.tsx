@@ -1,4 +1,5 @@
 import { AppleMusic, Spotify, YouTube } from '../../brand/icons'
+import { Button } from '../ui/Button'
 
 const marks = { spotify: Spotify, youtube: YouTube, apple: AppleMusic }
 
@@ -27,9 +28,9 @@ export function MusicSignIn({ service, name, busy, note, message, status = null,
       <div className="exo-music-signin-body exo-motion-arrive">
         <Mark size={56} />
         {note ? <p className="exo-music-signin-note">{note}</p> : null}
-        <button type="button" className="button button--primary exo-music-signin-button" disabled={busy} onClick={onSignIn}>
+        <Button variant="primary" className="exo-music-signin-button" isDisabled={busy} onPress={onSignIn}>
           {action ?? `Sign in to ${name}`}
-        </button>
+        </Button>
         {message ? <p className="exo-music-signin-error" role="alert">{message}</p>
           : status ? <p className="exo-music-signin-note" role="status">{status}</p> : null}
       </div>

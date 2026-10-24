@@ -29,7 +29,7 @@ type Done = (result: { ok: boolean; message?: string | null }) => void
 export function DmReadItem({ dm, onDone }: { dm: DmInfo; onDone: Done }) {
   return (
     <button type="button" role="menuitem" disabled={!dm.unread}
-      onClick={() => void host.discordChannel(dm.id, 'read').then(onDone, () => onDone({ ok: false }))}>Mark As Read</button>
+      onClick={() => void host.discordChannel(dm.id, 'read').then(onDone, () => onDone({ ok: false }))}>Mark as read</button>
   )
 }
 
@@ -56,7 +56,7 @@ export function DmMuteItem({ dm, label, onDone }: { dm: DmInfo; label: string; o
 export function DmCopyId({ dm, onClose }: { dm?: DmInfo; onClose: () => void }) {
   const developer = useAccountSettings().developerMode
   if (!developer || !dm) return null
-  return <button type="button" role="menuitem" onClick={() => { void navigator.clipboard.writeText(dm.id).catch(() => { }); onClose() }}><Icons.CopyId size={16} />Copy Channel ID</button>
+  return <button type="button" role="menuitem" onClick={() => { void navigator.clipboard.writeText(dm.id).catch(() => { }); onClose() }}><Icons.CopyId size={16} />Copy channel ID</button>
 }
 
 /** The person menu on a DM row: Mark As Read first, Close DM after the person's rows, Mute @user before Copy. */

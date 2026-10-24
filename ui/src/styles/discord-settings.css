@@ -52,6 +52,22 @@
   margin: 12px 0 0;
 }
 
+/* Ignore & Block: each list's name, then its people (picture, name, username) with Unblock or Unignore. */
+.exo-dc-settings-people > h3 {
+  margin: 12px 0 4px;
+  color: var(--color-muted);
+  font-size: calc(12px * var(--exo-scale, 1));
+  font-weight: 500;
+}
+
+.exo-dc-settings-person {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
 .exo-dc-settings-fieldset {
   margin: 12px 0 4px;
   color: var(--color-muted);
@@ -359,4 +375,19 @@
   max-width: 400px;
   color: var(--color-muted);
   font-size: calc(12px * var(--exo-scale, 1));
+}
+/* Set your status: the emoji field, then the words filling the row; a custom emoji inline in its line. */
+.exo-dc-custom-status {
+  flex-wrap: nowrap;
+}
+
+.exo-dc-custom-status > input:last-child {
+  flex: 1;
+  min-width: 0;
+}
+
+.exo-dc-custom-emoji {
+  display: inline-block;
+  margin-right: 4px;
+  vertical-align: -3px;
 }

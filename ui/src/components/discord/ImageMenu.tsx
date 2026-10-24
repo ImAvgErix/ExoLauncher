@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { host } from '../../lib/host'
 import { useLayer } from './admin'
 import { Icons } from './icons'
-import { open } from './markdown'
+import { openLink } from '../../lib/music'
 import { useDismiss } from '../../lib/dismiss'
 
 type At = { src: string; link: string; still: boolean; x: number; y: number }
@@ -33,7 +33,7 @@ const extension = (url: URL) => (url.searchParams.get('format') ?? /\.([a-z0-9]+
 function linkKind(link: string) {
   try {
     const url = new URL(link)
-    return url.hostname === 'cdn.discordapp.com' && IMAGE_LINK.test(url.pathname) ? 'Image Link' : MEDIA_LINK.test(url.pathname) ? 'Media Link' : 'Link'
+    return url.hostname === 'cdn.discordapp.com' && IMAGE_LINK.test(url.pathname) ? 'Image link' : MEDIA_LINK.test(url.pathname) ? 'Media link' : 'Link'
   } catch { return 'Link' }
 }
 
@@ -49,9 +49,9 @@ function pictureAt(target: EventTarget | null) {
 let say: (text: string) => void = () => { }
 
 /** Discord's Save Image. */
-function saveImage(src: string) {
+export function saveImage(src: string) {
   void host.discordImage('save', original(src).toString())
-    .then(result => say(result.ok ? 'Image Saved' : result.message ?? 'Unable to save image'))
+    .then(result => say(result.ok ? 'Image saved' : result.message ?? 'Unable to save image'))
     .catch(() => say('Unable to save image'))
 }
 
@@ -107,18 +107,18 @@ function ImageMenu({ at, onClose }: { at: At; onClose: () => void }) {
   const kind = linkKind(at.link)
   const run = (action: () => void) => () => { onClose(); action() }
   return (
-    <div className="exo-dc-menu exo-dc-ctx" ref={box} role="menu" aria-label="Image Actions" style={{ left: at.x, top: at.y }}>
+    <div className="exo-dc-menu exo-dc-ctx" ref={box} role="menu" aria-label="Image actions" style={{ left: at.x, top: at.y }}>
       {copies ? (
         <button type="button" role="menuitem" onClick={run(() => void host.discordImage('copy', picture.toString())
-          .then(result => say(result.ok ? 'Image Copied!' : result.message ?? 'Unable to copy image'))
-          .catch(() => say('Unable to copy image')))}><Icons.Copy size={16} />Copy Image</button>
+          .then(result => say(result.ok ? 'Image copied!' : result.message ?? 'Unable to copy image'))
+          .catch(() => say('Unable to copy image')))}><Icons.Copy size={16} />Copy image</button>
       ) : null}
-      {saves ? <button type="button" role="menuitem" onClick={run(() => saveImage(at.src))}><Icons.SaveImage size={16} />Save Image</button> : null}
+      {saves ? <button type="button" role="menuitem" onClick={run(() => saveImage(at.src))}><Icons.SaveImage size={16} />Save image</button> : null}
       {copies || saves ? <span className="exo-dc-menu-line" role="separator" /> : null}
-      <button type="button" role="menuitem" onClick={run(() => void navigator.clipboard.writeText(at.link).then(() => say('Link Copied!')).catch(() => { }))}>
+      <button type="button" role="menuitem" onClick={run(() => void navigator.clipboard.writeText(at.link).then(() => say('Link copied!')).catch(() => { }))}>
         <Icons.Link size={16} />Copy {kind}
       </button>
-      <button type="button" role="menuitem" onClick={run(() => open(at.link))}><Icons.Open size={16} />Open {kind}</button>
+      <button type="button" role="menuitem" onClick={run(() => openLink(at.link))}><Icons.Open size={16} />Open {kind}</button>
     </div>
   )
 }

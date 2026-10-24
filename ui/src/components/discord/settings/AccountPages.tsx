@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { host } from '../../../lib/host'
 import type { DiscordHome } from '../../../lib/discord'
-import { useStreamerHides, type DiscordAccount, type DiscordSession } from '../../../lib/discordPrefs'
+import { changeAccountSettings, useAccountSettings, useStreamerHides, type CustomStatus, type DiscordAccount, type DiscordSession } from '../../../lib/discordPrefs'
 import { Menu } from '../../ui/Menu'
 import { uploadFile } from '../Chat'
 import { admin, dropUpload } from '../admin'
@@ -9,13 +9,17 @@ import { Category, DISCORD_SETTINGS_URL, LinkRow, LoadError, Row, useLoad, useRe
 import { itemsOf, KINDS, PlateRow, useMine, useShop, useWorn, wear, type Kind } from '../ShopPage'
 import { lookOf } from '../collectibles'
 import { ProfileCard, type Loaded } from '../profileParts'
+import { CustomStatusLine } from '../presence'
+import { Choice } from '../../settings/Choice'
+import { Dialog } from '../settingsAccess'
+import { EmojiField } from '../settingsGuide'
 
 type Status = 'online' | 'idle' | 'dnd' | 'invisible'
 
 const STATUSES: { id: Status; label: string }[] = [
   { id: 'online', label: 'Online' },
   { id: 'idle', label: 'Idle' },
-  { id: 'dnd', label: 'Do Not Disturb' },
+  { id: 'dnd', label: 'Do not disturb' },
   { id: 'invisible', label: 'Invisible' },
 ]
 
@@ -47,7 +51,7 @@ function AccountCard({ home, onEdit }: { home: DiscordHome['me']; onEdit: () => 
   return (
     <div className="exo-dc-settings-profile">
       <ProfileCard data={mine} />
-      <button type="button" className="exo-set-btn" onClick={onEdit}>Edit User Profile</button>
+      <button type="button" className="exo-set-btn" onClick={onEdit}>Edit user profile</button>
     </div>
   )
 }
@@ -65,8 +69,8 @@ export function AccountPage({ home, onProfiles, onDevices }: { home: DiscordHome
       <div>
       {me ? null : error ? <LoadError error={error} onRetry={reload} /> : <p className="exo-dc-settings-note" role="status">Loading your account</p>}
       {me ? (
-        <Category title="Account Info">
-          <Row label="Display Name" detail={me.globalName ?? "You haven't set a display name yet."}>
+        <Category title="Account info">
+          <Row label="Display name" detail={me.globalName ?? "You haven't set a display name yet."}>
             <button type="button" className="exo-set-btn" onClick={onProfiles}>Edit</button>
           </Row>
           <Row label="Username" detail={me.username ?? ''}>
@@ -74,23 +78,23 @@ export function AccountPage({ home, onProfiles, onDevices }: { home: DiscordHome
           </Row>
           <LinkRow label="Email" detail={hides.personal ? 'Hidden in Streamer Mode' : me.email ?? "You haven't added an email yet."}
             button={me.email ? 'Edit' : 'Add'} url={DISCORD_SETTINGS_URL} />
-          <LinkRow label="Phone Number" detail={hides.personal ? 'Hidden in Streamer Mode' : me.phone ?? "You haven't added a phone number yet."}
+          <LinkRow label="Phone number" detail={hides.personal ? 'Hidden in Streamer Mode' : me.phone ?? "You haven't added a phone number yet."}
             button={me.phone ? 'Edit' : 'Add'} url={DISCORD_SETTINGS_URL} />
         </Category>
       ) : null}
       </div>
       </div>
       <StatusRow home={home} />
-      <Category title="Password & Security">
+      <Category title="Password & security">
         <LinkRow label="Password" button="Edit" url={DISCORD_SETTINGS_URL} />
-        {me ? <LinkRow label="Multi-Factor Authentication" detail={me.mfa ? 'Enabled' : 'Set up'} button={me.mfa ? 'Manage' : 'Set up'} url={DISCORD_SETTINGS_URL} /> : null}
-        <Row label="Logged-in Devices" detail="These are all the devices that are currently logged-in with your Discord account.">
+        {me ? <LinkRow label="Multi-factor authentication" detail={me.mfa ? 'Enabled' : 'Set up'} button={me.mfa ? 'Manage' : 'Set up'} url={DISCORD_SETTINGS_URL} /> : null}
+        <Row label="Logged-in devices" detail="These are all the devices that are currently logged-in with your Discord account.">
           <button type="button" className="exo-set-btn" onClick={onDevices}>View</button>
         </Row>
       </Category>
       <Category>
-        <LinkRow label="Disable your account" detail="Temporarily disable your account." button="Disable Account" url={DISCORD_SETTINGS_URL} danger />
-        <LinkRow label="Close your account" detail="Permanently close your account." button="Delete Account" url={DISCORD_SETTINGS_URL} danger />
+        <LinkRow label="Disable your account" detail="Temporarily disable your account." button="Disable account" url={DISCORD_SETTINGS_URL} danger />
+        <LinkRow label="Close your account" detail="Permanently close your account." button="Delete account" url={DISCORD_SETTINGS_URL} danger />
       </Category>
     </>
   )
@@ -114,7 +118,58 @@ function StatusRow({ home }: { home: DiscordHome['me'] }) {
           trigger={STATUSES.find(s => s.id === status)?.label ?? 'Online'} items={STATUSES} checked={status}
           onAction={id => change(id as Status)} />
       </Row>
+      <CustomStatusRow />
     </Category>
+  )
+}
+
+// Discord's Clear after: in 24 hours, 4 hours, 1 hour or 30 minutes, or never.
+const CLEAR_AFTER = [
+  { value: '86400000', label: '24 hours' },
+  { value: '14400000', label: '4 hours' },
+  { value: '3600000', label: '1 hour' },
+  { value: '1800000', label: '30 minutes' },
+  { value: 'never', label: "Don't clear" },
+]
+
+// Discord's Set your status: a custom status's emoji and words (128), and when it clears; Clear status takes it away.
+function CustomStatusRow() {
+  const custom = useAccountSettings().customStatus
+  const [open, setOpen] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const save = (next: CustomStatus | null) => { setError(null); void changeAccountSettings({ customStatus: next }).then(setError) }
+  return (
+    <Row label="Custom status" detail={custom ? <CustomStatusLine custom={custom} clears /> : "Let friends know what you're up to."} error={error}>
+      <span className="exo-dc-settings-buttons">
+        {custom ? <button type="button" className="exo-set-btn is-compact" onClick={() => save(null)}>Clear status</button> : null}
+        <button type="button" className="exo-set-btn" onClick={() => setOpen(true)}>{custom ? 'Edit custom status' : 'Set a custom status'}</button>
+      </span>
+      {open ? <CustomStatusDialog custom={custom} onSave={save} onClose={() => setOpen(false)} /> : null}
+    </Row>
+  )
+}
+
+function CustomStatusDialog({ custom, onSave, onClose }: { custom: CustomStatus | null; onSave: (next: CustomStatus | null) => void; onClose: () => void }) {
+  const [text, setText] = useState(custom?.text ?? '')
+  const [emoji, setEmoji] = useState<{ id?: string | null; name?: string | null } | null>(custom && (custom.emojiId || custom.emojiName) ? { id: custom.emojiId, name: custom.emojiName } : null)
+  const [clear, setClear] = useState(custom && !custom.expiresAtMs ? 'never' : CLEAR_AFTER[0].value)
+  function save() {
+    const words = text.trim()
+    onSave(words || emoji?.name ? { text: words, emojiId: emoji?.id ?? null, emojiName: emoji?.name ?? null, expiresAtMs: clear === 'never' ? null : Date.now() + Number(clear) } : null)
+    onClose()
+  }
+  return (
+    <Dialog title="Set your status" onClose={onClose} actions={<button type="button" className="exo-set-btn is-primary" onClick={save}>Save</button>}>
+      <span className="exo-dc-settings-buttons exo-dc-custom-status">
+        <EmojiField emoji={emoji} onChange={setEmoji} />
+        <input className="exo-dc-modal-input" value={text} maxLength={128} autoFocus placeholder="What's cookin'?" aria-label="Status"
+          onChange={event => setText(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') save() }} />
+      </span>
+      <span className="exo-dc-settings-buttons">
+        <span>Clear after</span>
+        <Choice label="Clear after" value={clear} choices={CLEAR_AFTER} onChange={setClear} />
+      </span>
+    </Dialog>
   )
 }
 
@@ -134,7 +189,7 @@ function Device({ session, busy, onLogOut }: { session: DiscordSession; busy?: b
   const line = [hides.personal ? null : session.location, session.current ? null : lastActive(session.lastUsed)].filter(Boolean).join(' · ')
   return (
     <Row label={session.os || 'Unknown'} detail={[session.platform, line].filter(Boolean).join(' · ')}>
-      {onLogOut ? <button type="button" className="exo-set-btn" aria-label="Log Out of Device" disabled={busy} onClick={onLogOut}>Log Out</button> : null}
+      {onLogOut ? <button type="button" className="exo-set-btn" aria-label="Log out of device" disabled={busy} onClick={onLogOut}>Log out</button> : null}
     </Row>
   )
 }
@@ -157,21 +212,21 @@ export function DevicesPage({ onBack }: { onBack: () => void }) {
   return (
     <>
       <button type="button" className="exo-dc-settings-back" onClick={onBack}>Account</button>
-      <h1>Logged-in Devices</h1>
+      <h1>Logged-in devices</h1>
       <p className="exo-dc-settings-lede">These are all the devices that are currently logged-in with your Discord account. Log out of devices that you don&apos;t recognize.</p>
       {loading ? <p className="exo-dc-settings-note" role="status">Loading devices</p> : null}
       {error ? <p className="exo-dc-settings-note" role="alert">{error}</p> : null}
       {failed ? <p className="exo-dc-settings-note" role="alert">{failed}</p> : null}
-      {current ? <Category title="Current Device"><Device session={current} /></Category> : null}
+      {current ? <Category title="Current device"><Device session={current} /></Category> : null}
       {others.length ? (
-        <Category title="Other Devices">
+        <Category title="Other devices">
           {others.map(s => <Device key={s.idHash} session={s} busy={busy} onLogOut={() => s.idHash && logOut([s.idHash])} />)}
         </Category>
       ) : null}
       {others.length ? (
         <Category>
           <Row label="Log out of all known devices" detail="You'll have to log back in on all logged out devices.">
-            <button type="button" className="exo-set-btn is-danger" disabled={busy} onClick={() => logOut(others.map(s => s.idHash).filter((h): h is string => !!h))}>Log Out All Known Devices</button>
+            <button type="button" className="exo-set-btn is-danger" disabled={busy} onClick={() => logOut(others.map(s => s.idHash).filter((h): h is string => !!h))}>Log out all known devices</button>
           </Row>
         </Category>
       ) : null}
@@ -226,15 +281,15 @@ export function ProfilesPage({ home, guilds }: { home: DiscordHome['me']; guilds
     <>
       <h1>Profiles</h1>
       <div className="exo-dc-full-tabs" role="tablist">
-        <button type="button" role="tab" aria-selected={tab === 'user'} onClick={() => setTab('user')}>Main Profile</button>
-        <button type="button" role="tab" aria-selected={tab === 'server'} onClick={() => setTab('server')}>Per-server Profiles</button>
+        <button type="button" role="tab" aria-selected={tab === 'user'} onClick={() => setTab('user')}>Main profile</button>
+        <button type="button" role="tab" aria-selected={tab === 'server'} onClick={() => setTab('server')}>Per-server profiles</button>
       </div>
       {tab === 'user' ? <UserProfile home={home} /> : <ServerProfiles meId={meId} guilds={guilds} />}
     </>
   )
 }
 
-const COLLECTIBLE_ROWS: [Kind, string][] = [['decoration', 'Avatar Decoration'], ['effect', 'Profile Effect'], ['nameplate', 'Nameplate']]
+const COLLECTIBLE_ROWS: [Kind, string][] = [['decoration', 'Avatar decoration'], ['effect', 'Profile effect'], ['nameplate', 'Nameplate']]
 
 /** Your avatar decoration, profile effect and nameplate: put on one you own, or take it off, as Discord's profile settings do. */
 function Collectibles({ meId }: { meId: string | null }) {
@@ -251,7 +306,7 @@ function Collectibles({ meId }: { meId: string | null }) {
     })
   }
   return (
-    <Category title="Collectibles" detail="Get more in the Shop, under Friends.">
+    <Category title="Collectibles" detail="Get more in the shop, under friends.">
       <LoadError error={shop ? null : error} onRetry={reload} />
       {COLLECTIBLE_ROWS.map(([kind, label]) => {
         const owned = (shop?.owned ?? []).flatMap(product => itemsOf(product).filter(item => KINDS[item.type] === kind).map(item => ({ id: item.sku_id, label: product.name })))
@@ -311,9 +366,9 @@ function ServerProfiles({ meId, guilds }: { meId: string | null; guilds: Discord
       </Row>
       <LoadError error={current ? null : error} onRetry={() => setRound(r => r + 1)} />
       {current ? (
-        <Row label="Server Nickname" detail={current.can ? undefined : "You can't change your nickname on this server."} error={error}>
+        <Row label="Server nickname" detail={current.can ? undefined : "You can't change your nickname on this server."} error={error}>
           <span className="exo-dc-settings-buttons">
-            <input className="exo-field exo-dc-settings-input" value={current.text} maxLength={32} disabled={!current.can} placeholder="No nickname" aria-label="Server Nickname"
+            <input className="exo-field exo-dc-settings-input" value={current.text} maxLength={32} disabled={!current.can} placeholder="No nickname" aria-label="Server nickname"
               onChange={e => setNick({ ...current, text: e.target.value })} onKeyDown={e => { if (e.key === 'Enter') save() }} />
             {current.text.trim() !== current.saved ? <button type="button" className="exo-set-btn is-primary" disabled={busy} onClick={save}>{busy ? 'Saving' : 'Save'}</button> : null}
           </span>
@@ -357,7 +412,7 @@ function UserProfile({ home }: { home: DiscordHome['me'] }) {
           <span>Careful — you have unsaved changes!</span>
           {failed ? <em role="alert">{failed}</em> : null}
           <button type="button" className="exo-set-btn" disabled={saving} onClick={() => { setFailed(null); setDraft(draftOf(me)) }}>Reset</button>
-          <button type="button" className="exo-set-btn is-primary" disabled={saving} onClick={save}>{saving ? 'Saving' : 'Save Changes'}</button>
+          <button type="button" className="exo-set-btn is-primary" disabled={saving} onClick={save}>{saving ? 'Saving' : 'Save changes'}</button>
         </div>
       ) : null}
     </>
@@ -413,35 +468,36 @@ function ProfileFields({ draft, me, onChange }: { draft: Draft; me: DiscordAccou
   const hasBanner = draft.banner instanceof File || (!!me.banner && draft.banner !== 'remove')
   return (
     <Category>
-      <Row label="Display Name">
-        <input className="exo-field exo-dc-settings-input" value={draft.globalName} maxLength={32} aria-label="Display Name" onChange={e => onChange({ globalName: e.target.value })} />
+      <Row label="Display name">
+        <input className="exo-field exo-dc-settings-input" value={draft.globalName} maxLength={32} aria-label="Display name" onChange={e => onChange({ globalName: e.target.value })} />
       </Row>
       <Row label="Pronouns">
         <input className="exo-field exo-dc-settings-input" value={draft.pronouns} maxLength={40} placeholder="Add your pronouns" aria-label="Pronouns" onChange={e => onChange({ pronouns: e.target.value })} />
       </Row>
+      <ServerTagRow />
       <Row label="Avatar" detail={premium ? 'PNG, JPEG, GIF or WebP, up to 10 MB.' : 'PNG, JPEG or WebP, up to 10 MB. Animated avatars need Nitro.'}>
         <span className="exo-dc-settings-buttons">
-          <button type="button" className="exo-set-btn" onClick={() => file.current?.click()}>Change Avatar</button>
-          {hasAvatar || draft.avatar instanceof File ? <button type="button" className="exo-set-btn" onClick={() => onChange({ avatar: 'remove' })}>Remove Avatar</button> : null}
+          <button type="button" className="exo-set-btn" onClick={() => file.current?.click()}>Change avatar</button>
+          {hasAvatar || draft.avatar instanceof File ? <button type="button" className="exo-set-btn" onClick={() => onChange({ avatar: 'remove' })}>Remove avatar</button> : null}
         </span>
         <input ref={file} type="file" accept="image/png,image/jpeg,image/gif,image/webp" hidden
           onChange={e => { const picked = e.target.files?.[0]; e.target.value = ''; if (picked) onChange({ avatar: picked }) }} />
       </Row>
-      <Row label="Profile Banner" detail={premium ? 'PNG, JPEG, GIF or WebP, up to 10 MB. 600 × 240 or larger fits best.' : 'Banners need Nitro. Without it, your banner color below is what people see.'}>
+      <Row label="Profile banner" detail={premium ? 'PNG, JPEG, GIF or WebP, up to 10 MB. 600 × 240 or larger fits best.' : 'Banners need Nitro. Without it, your banner color below is what people see.'}>
         {premium || hasBanner ? (
           <span className="exo-dc-settings-buttons">
-            {premium ? <button type="button" className="exo-set-btn" onClick={() => bannerFile.current?.click()}>Change Banner</button> : null}
-            {hasBanner ? <button type="button" className="exo-set-btn" onClick={() => onChange({ banner: me.banner ? 'remove' : null })}>Remove Banner</button> : null}
+            {premium ? <button type="button" className="exo-set-btn" onClick={() => bannerFile.current?.click()}>Change banner</button> : null}
+            {hasBanner ? <button type="button" className="exo-set-btn" onClick={() => onChange({ banner: me.banner ? 'remove' : null })}>Remove banner</button> : null}
           </span>
         ) : null}
         <input ref={bannerFile} type="file" accept="image/png,image/jpeg,image/gif,image/webp" hidden
           onChange={e => { const picked = e.target.files?.[0]; e.target.value = ''; if (picked) onChange({ banner: picked }) }} />
       </Row>
-      <Row label="Banner Color" detail="Shown when you have no banner picture.">
+      <Row label="Banner color" detail="Shown when you have no banner picture.">
         <label className="exo-set-btn exo-dc-settings-swatch">
           <span style={{ background: hex(draft.accentColor) ?? 'var(--exo-selected)' }} aria-hidden="true" />
           {hex(draft.accentColor)?.toUpperCase() ?? 'Default'}
-          <input type="color" aria-label="Banner Color" value={hex(draft.accentColor) ?? '#262626'}
+          <input type="color" aria-label="Banner color" value={hex(draft.accentColor) ?? '#262626'}
             onChange={e => onChange({ accentColor: parseInt(e.target.value.slice(1), 16) })} />
         </label>
       </Row>
@@ -453,5 +509,46 @@ function ProfileFields({ draft, me, onChange }: { draft: Draft; me: DiscordAccou
         </span>
       </div>
     </Category>
+  )
+}
+
+type TagServer = { id: string; name: string; tag: string; badge: string | null }
+
+/**
+ * Discord's Server Tag on your profile: wear the tag of a server you're in that has one (Discord shows it beside your
+ * name everywhere), or none. Saved as you pick, as Discord's Profiles saves it.
+ */
+function ServerTagRow() {
+  const [servers, setServers] = useState<TagServer[] | null>(null)
+  const [mine, setMine] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  useEffect(() => {
+    let live = true
+    void host.discordAccount('tags').then(result => {
+      if (!live) return
+      if (result.ok) { setServers(result.servers ?? []); setMine(result.mine ?? null) } else setError(result.message ?? "Discord didn't answer.")
+    }).catch(() => { if (live) setError("Discord didn't answer.") })
+    return () => { live = false }
+  }, [])
+  async function wear(guildId: string | null) {
+    setBusy(true); setError(null)
+    const result = await host.discordAccount('setTag', { guildId }).catch(() => ({ ok: false, message: "Discord didn't answer." }))
+    setBusy(false)
+    if (result.ok) setMine(guildId); else setError(result.message ?? 'Discord did not change your tag.')
+  }
+  const worn = servers?.find(s => s.id === mine)
+  const detail = error ?? (servers && !servers.length ? 'None of your servers has a server tag yet.' : 'Show a server you’re in beside your name.')
+  return (
+    <Row label="Server tag" detail={detail}>
+      <span className="exo-dc-settings-buttons">
+        {servers?.length ? (
+          <Menu label="Server tag" anchor="--exo-dc-server-tag" offset={4} triggerClassName="exo-shelf-sort-trigger" disabled={busy}
+            trigger={worn ? `${worn.tag} · ${worn.name}` : 'No tag'} checked={mine ?? ''}
+            items={servers.map(s => ({ id: s.id, label: `${s.tag} · ${s.name}` }))} onAction={id => void wear(id)} />
+        ) : null}
+        {mine ? <button type="button" className="exo-set-btn" disabled={busy} onClick={() => void wear(null)}>Remove</button> : null}
+      </span>
+    </Row>
   )
 }

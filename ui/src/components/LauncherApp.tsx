@@ -138,13 +138,14 @@ const wait = (ms: number) => new Promise<void>(resolve => window.setTimeout(reso
  * its first screen, decoded, so it shows whole at once instead of filling in after; never longer than its cap.
  */
 async function roomReady(room: View) {
-  const until = performance.now() + (room === 'music' ? MUSIC_OPEN_CAP_MS : ROOM_OPEN_CAP_MS)
+  const since = performance.now()
+  const until = since + (room === 'music' ? MUSIC_OPEN_CAP_MS : ROOM_OPEN_CAP_MS)
   const code = LAZY_ROOMS.get(room)
   if (code) await Promise.race([code().catch(() => { }), wait(until - performance.now())])
   // React draws it and its effects send their first reads; then each answer draws and may ask for more.
   await nextFrame()
   await nextFrame()
-  await hostQuiet(ROOM_QUIET_MS, until)
+  await hostQuiet(ROOM_QUIET_MS, since, until)
   await nextFrame()
   const box = document.querySelector(`[data-room="${room}"]`)
   const first = [...(box?.querySelectorAll('img') ?? [])].filter(img => {
@@ -1624,7 +1625,7 @@ export function LauncherApp() {
       <CapturesOverlay games={games} onDiscord={sendToDiscord} />
       {activateKeySheet}
       {commandMenu}
-      <WhatsNewSheet release={whatsNew} onClose={closeWhatsNew} />
+      <WhatsNewSheet releases={whatsNew} update={update} onClose={closeWhatsNew} />
     </div>
   )
 }

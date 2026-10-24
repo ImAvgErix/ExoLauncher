@@ -25,15 +25,24 @@ function rectOf(a: [number, number], b: [number, number]): Rect {
   return { x: Math.min(a[0], b[0]), y: Math.min(a[1], b[1]), w: Math.abs(a[0] - b[0]), h: Math.abs(a[1] - b[1]) }
 }
 
-/** Draws the snip and every mark; the last crop decides what is kept. */
-function paint(canvas: HTMLCanvasElement, image: HTMLImageElement, marks: Mark[], draft: Mark | null, forExport: boolean) {
+// The blur's small copy, reused for every blur and every frame.
+let scratch: HTMLCanvasElement | null = null
+
+/**
+ * Draws the snip and every mark, in the snip's own pixels, at `scale` of its size (the editor draws at the size
+ * it is shown; Save, at full size); the last crop decides what is kept.
+ */
+function paint(canvas: HTMLCanvasElement, image: HTMLImageElement, marks: Mark[], draft: Mark | null, forExport: boolean, scale = 1) {
   const all = draft ? [...marks, draft] : marks
   const crop = [...all].reverse().find(mark => mark.tool === 'crop') as Extract<Mark, { tool: 'crop' }> | undefined
   const area = forExport && crop ? crop.rect : { x: 0, y: 0, w: image.naturalWidth, h: image.naturalHeight }
-  canvas.width = Math.max(1, Math.round(area.w))
-  canvas.height = Math.max(1, Math.round(area.h))
+  const width = Math.max(1, Math.round(area.w * scale)), height = Math.max(1, Math.round(area.h * scale))
+  // A new size reallocates the canvas: only when it changes, not on every stroke.
+  if (canvas.width !== width || canvas.height !== height) { canvas.width = width; canvas.height = height }
   const ctx = canvas.getContext('2d')!
-  ctx.setTransform(1, 0, 0, 1, -area.x, -area.y)
+  ctx.setTransform(1, 0, 0, 1, 0, 0)
+  ctx.clearRect(0, 0, width, height)
+  ctx.setTransform(scale, 0, 0, scale, -area.x * scale, -area.y * scale)
   ctx.drawImage(image, 0, 0)
   const unit = Math.max(2, Math.round(Math.max(image.naturalWidth, image.naturalHeight) / 400))
   for (const mark of all) {
@@ -42,10 +51,10 @@ function paint(canvas: HTMLCanvasElement, image: HTMLImageElement, marks: Mark[]
       const { x, y, w, h } = mark.rect
       if (w < 2 || h < 2) continue
       const block = Math.max(8, Math.round(Math.max(w, h) / 24))
-      const small = document.createElement('canvas')
+      const small = scratch ??= document.createElement('canvas')
       small.width = Math.max(1, Math.round(w / block))
       small.height = Math.max(1, Math.round(h / block))
-      small.getContext('2d')!.drawImage(canvas, x - area.x, y - area.y, w, h, 0, 0, small.width, small.height)
+      small.getContext('2d')!.drawImage(canvas, (x - area.x) * scale, (y - area.y) * scale, w * scale, h * scale, 0, 0, small.width, small.height)
       ctx.imageSmoothingEnabled = false
       ctx.drawImage(small, 0, 0, small.width, small.height, x, y, w, h)
       ctx.imageSmoothingEnabled = true
@@ -126,11 +135,37 @@ export function SnipEditor({ item, onDone }: { item: CaptureItem; onDone: (saved
     next.onload = () => setImage(next)
     next.onerror = () => setError('The snip could not be opened.')
     next.src = item.url
+    // Leaving the editor lets go of the decoded snip and the canvas's pixels at once, not whenever memory runs short.
+    const drawn = canvas.current
+    return () => {
+      next.onload = next.onerror = null
+      next.src = ''
+      if (drawn) { drawn.width = 0; drawn.height = 0 }
+    }
   }, [item.url])
 
+  // The editor draws at the size it is shown on this screen, never larger than the snip: a snip across three 4K
+  // screens is a 100 MB picture, its editor a few MB. Marks stay in the snip's own pixels. Null until measured,
+  // so the first frame isn't drawn at full size.
+  const [scale, setScale] = useState<number | null>(null)
   useEffect(() => {
-    if (image && canvas.current) paint(canvas.current, image, marks, draft, false)
-  }, [image, marks, draft])
+    const frame = canvas.current?.parentElement
+    if (!image || !frame) return
+    const fit = () => {
+      const dpr = window.devicePixelRatio || 1
+      // Not laid out yet: the size of a large screen until it is.
+      const width = frame.clientWidth || 2560 / dpr, height = frame.clientHeight || 1440 / dpr
+      setScale(Math.min(1, width * dpr / image.naturalWidth, height * dpr / image.naturalHeight))
+    }
+    fit()
+    const sizes = new ResizeObserver(fit)
+    sizes.observe(frame)
+    return () => sizes.disconnect()
+  }, [image])
+
+  useEffect(() => {
+    if (image && scale && canvas.current) paint(canvas.current, image, marks, draft, false, scale)
+  }, [image, marks, draft, scale])
 
   // Captured on the window, ahead of the sheet's own Escape: Escape leaves the editor (as Cancel does)
   // instead of closing the whole sheet with the edits. While text is typed, the field handles its keys.
@@ -150,9 +185,11 @@ export function SnipEditor({ item, onDone }: { item: CaptureItem; onDone: (saved
     return () => window.removeEventListener('keydown', onKey, true)
   }, [typing, onDone])
 
+  // Where the pointer is, in the snip's own pixels (the canvas shows the whole snip, at whatever size).
   const point = (event: ReactPointerEvent<HTMLCanvasElement>): [number, number] => {
     const box = event.currentTarget.getBoundingClientRect()
-    return [(event.clientX - box.left) * (event.currentTarget.width / box.width), (event.clientY - box.top) * (event.currentTarget.height / box.height)]
+    const width = image?.naturalWidth ?? event.currentTarget.width, height = image?.naturalHeight ?? event.currentTarget.height
+    return [(event.clientX - box.left) * (width / box.width), (event.clientY - box.top) * (height / box.height)]
   }
 
   function draftFor(from: [number, number], to: [number, number]): Mark {
@@ -169,6 +206,7 @@ export function SnipEditor({ item, onDone }: { item: CaptureItem; onDone: (saved
       const out = document.createElement('canvas')
       paint(out, image, marks, null, true)
       const png = out.toDataURL('image/png').split(',')[1] ?? ''
+      out.width = out.height = 0
       const result = await host.captureSaveImage(item.id, png)
       if (!result.ok) { setError(result.message ?? 'Could not save the snip.'); return }
       onDone(result.item ?? null)
@@ -179,12 +217,14 @@ export function SnipEditor({ item, onDone }: { item: CaptureItem; onDone: (saved
   return (
     <div className="exo-snip-editor exo-motion-switch">
       <div className="exo-snip-tools" role="toolbar" aria-label="Edit snip">
-        {TOOLS.map(entry => (
-          <button key={entry.tool} type="button" className={`exo-capture-chip${tool === entry.tool ? ' is-on' : ''}`} aria-pressed={tool === entry.tool} onClick={() => { setTool(entry.tool); setTyping(null) }}>
-            <entry.icon size={14} />{entry.label}
-          </button>
-        ))}
-        <button type="button" className="exo-capture-chip" disabled={!marks.length} onClick={() => setMarks(list => list.slice(0, -1))}><Undo size={14} />Undo</button>
+        <span className="exo-shelf-chips">
+          {TOOLS.map(entry => (
+            <button key={entry.tool} type="button" className="exo-shelf-chip" aria-pressed={tool === entry.tool} onClick={() => { setTool(entry.tool); setTyping(null) }}>
+              <entry.icon size={14} />{entry.label}
+            </button>
+          ))}
+        </span>
+        <button type="button" className="exo-set-btn" disabled={!marks.length} onClick={() => setMarks(list => list.slice(0, -1))}><Undo size={14} />Undo</button>
         <span className="exo-capture-actions-gap" />
         <button type="button" className="exo-set-btn" onClick={() => onDone(null)}>Cancel</button>
         <button type="button" className="exo-set-btn is-primary" disabled={!image || busy} onClick={() => void save()}>{busy ? 'Saving' : 'Save and copy'}</button>

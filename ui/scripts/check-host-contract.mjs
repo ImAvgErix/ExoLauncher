@@ -7,10 +7,22 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const read = file => fs.readFileSync(path.join(root, file), 'utf8').replaceAll('\r\n', '\n')
 const protocol = read('ExoLauncher/Services/ExoBridgeProtocol.cs')
 const version = Number(protocol.match(/const int Version = (\d+)/)?.[1])
-const update = protocol.match(/record ExoUpdateResponse\s*\{([\s\S]*?)\n\}/)?.[1]
-if (!update || version !== 1) throw Error('Review the protocol version and generator before changing the bridge schema.')
-const properties = [...update.matchAll(/public (bool|string)(\?)? (\w+) \{ get; init; \}/g)]
-const generated = `// Generated from ExoBridgeProtocol.cs. Run npm run contracts:write after reviewing wire changes.\nexport type AppUpdateResponse = {\n${properties.map(([, kind, nullable, name]) => `  ${name[0].toLowerCase() + name.slice(1)}${nullable ? '?' : ''}: ${kind === 'bool' ? 'boolean' : 'string'}`).join('\n')}\n}\n`
+if (version !== 1) throw Error('Review the protocol version and generator before changing the bridge schema.')
+// The wire records and their UI names. A property is a bool, a string, one of these records or an array of one.
+const records = { ExoUpdateResponse: 'AppUpdateResponse', ExoWhatsNewRelease: 'WhatsNewWire', ExoWhatsNewItem: 'WhatsNewItemWire' }
+const tsType = kind => {
+  if (kind === 'bool') return 'boolean'
+  if (kind === 'string') return 'string'
+  if (kind.endsWith('[]')) return `${tsType(kind.slice(0, -2))}[]`
+  if (records[kind]) return records[kind]
+  throw Error(`Review the generator: the bridge schema has a type it does not know (${kind}).`)
+}
+const generated = '// Generated from ExoBridgeProtocol.cs. Run npm run contracts:write after reviewing wire changes.\n' + Object.entries(records).map(([record, name]) => {
+  const body = protocol.match(new RegExp(`record ${record}\\s*\\{([\\s\\S]*?)\\n\\}`))?.[1]
+  if (!body) throw Error(`Review the generator: the bridge schema has no record ${record}.`)
+  const properties = [...body.matchAll(/public ([\w[\]]+)(\?)? (\w+) \{ get; init; \}/g)]
+  return `export type ${name} = {\n${properties.map(([, kind, nullable, prop]) => `  ${prop[0].toLowerCase() + prop.slice(1)}${nullable ? '?' : ''}: ${tsType(kind)}`).join('\n')}\n}\n`
+}).join('')
 const uiFile = 'ui/src/lib/hostWire.ts'
 if (process.argv.includes('--write')) fs.writeFileSync(path.join(root, uiFile), generated)
 else if (read(uiFile) !== generated) throw Error('Generated UI wire types are stale. Review the native schema and run npm run contracts:write.')

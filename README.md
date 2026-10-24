@@ -1,8 +1,8 @@
 <p align="center"><img src="docs/media/logo.png" alt="Exo" width="88"></p>
-<h1 align="center">Exo Launcher 3.14</h1>
+<h1 align="center">Exo Launcher 3.15</h1>
 <p align="center"><strong>Your games, your music, your friends and your mouse. One app.</strong></p>
 <p align="center">Exo brings every game store, Discord, Spotify, Apple Music, YouTube Music, your captures and your mouse software into one fast, quiet window for Windows 11.</p>
-<p align="center"><a href="https://github.com/ImAvgErix/ExoLauncher/releases/latest/download/ExoLauncher-Setup.exe"><strong>Download for Windows 11</strong></a> · <a href="https://github.com/ImAvgErix/ExoLauncher/releases/tag/v3.14.1">What's new in 3.14</a> · <a href="CHANGELOG.md">Changelog</a> · <a href="PRIVACY.md">Privacy</a></p>
+<p align="center"><a href="https://github.com/ImAvgErix/ExoLauncher/releases/latest/download/ExoLauncher-Setup.exe"><strong>Download for Windows 11</strong></a> · <a href="https://github.com/ImAvgErix/ExoLauncher/releases/tag/v3.15.0">What's new in 3.15</a> · <a href="CHANGELOG.md">Changelog</a> · <a href="PRIVACY.md">Privacy</a></p>
 
 ![The Exo Library: every game from every store in one grid](docs/media/library.jpg)
 
@@ -89,9 +89,9 @@ Every game's Store page has the same layout, on one screen: trailers and screens
 
 ![The Discord room: Exo's own Discord client (names, messages and pictures blurred in this picture)](docs/media/discord.jpg)
 
-Exo's own Discord client, laid out like Discord in Exo's look: your servers, DMs, Friends, forums, polls, app commands, GIFs, stickers and emoji with your favorites, full profiles, Discord's Shop, and moderation where you have the permission. You sign in with a QR code from Discord's phone app, never a password. Drag servers to reorder them or make folders, and an invite link joins the server right here. Chats you have opened show instantly, notifications follow Discord's own rules and clear when you read the chat anywhere, and the unread count shows on the Discord tab and Exo's taskbar button. The names, messages and pictures in this picture are blurred for privacy.
+Exo's own Discord client, laid out like Discord in Exo's look: your servers, DMs, Friends, forums, polls, app commands, GIFs, stickers and emoji with your favorites, full profiles, Discord's Shop, group DMs, bookmarks and reminders, message requests, and moderation and every page of Server Settings where you have the permission. You sign in with a QR code from Discord's phone app, never a password. Drag servers to reorder them or make folders, and an invite link joins the server right here. Chats you have opened show instantly, notifications follow Discord's own rules and clear when you read the chat anywhere, and the unread count shows on the Discord tab and Exo's taskbar button. The names, messages and pictures in this picture are blurred for privacy.
 
-**Calls** are end-to-end encrypted, with your camera and Go Live screen share. Noise suppression takes fans, keys and the room out of your voice, even on a busy PC; echo cancellation lets you call on speakers; and Noise Suppression for Others can clean up everyone else's voice too.
+**Calls** are end-to-end encrypted, with your camera and Go Live screen share, in servers and in DMs. Noise suppression takes fans, keys and the room out of your voice, even on a busy PC; echo cancellation lets you call on speakers; and Noise Suppression for Others can clean up everyone else's voice too.
 
 ### Music
 

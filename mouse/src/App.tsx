@@ -193,7 +193,7 @@ function useLanded(busy: boolean, error: string | null): number {
  * battery, signal, a fixed polling rate and firmware. Each fact shows once.
  * A light band crosses the picture while a change is being written and a
  * check draws when it lands; the last change that did not take floats at the
- * picture's foot, so nothing moves.
+ * picture's foot, so nothing moves. Its foot thanks snekxs, who made OpenMouse.
  */
 function Device({ status, brand, readAt, busy, error, children }: { status: MouseStatus; brand: string; readAt: number; busy: boolean; error: string | null; children?: ReactNode }) {
   const image = deviceImage(status.name)
@@ -258,6 +258,10 @@ function Device({ status, brand, readAt, busy, error, children }: { status: Mous
           </div>
         ) : null}
       </div>
+      <p className="m-credit">
+        Built on OpenMouse by snekxs
+        <svg className="m-heart" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20.5 4.2 12.9A4.9 4.9 0 0 1 11.3 6.1l.7.7.7-.7a4.9 4.9 0 0 1 7.1 6.8z" /></svg>
+      </p>
     </aside>
   )
 }

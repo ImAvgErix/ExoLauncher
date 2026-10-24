@@ -164,14 +164,14 @@ export function LoadError({ error, onRetry }: { error: string | null; onRetry: (
   if (!error) return null
   return (
     <p className="exo-dc-settings-note" role="alert">
-      {error} <button type="button" className="exo-set-btn" onClick={onRetry}>Try Again</button>
+      {error} <button type="button" className="exo-set-btn" onClick={onRetry}>Try again</button>
     </p>
   )
 }
 
 /** A sound's Preview Sound link, as Discord puts one under each sound. */
 export function Preview({ sound }: { sound: string }) {
-  return <button type="button" className="exo-dc-settings-link" onClick={() => void host.discordSound(sound, true).catch(() => { })}>Preview Sound</button>
+  return <button type="button" className="exo-dc-settings-link" onClick={() => void host.discordSound(sound, true).catch(() => { })}>Preview sound</button>
 }
 
 /**

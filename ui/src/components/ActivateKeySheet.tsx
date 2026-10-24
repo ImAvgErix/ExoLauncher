@@ -170,9 +170,8 @@ export function ActivateKeySheet({
       <div className="exo-key-popover-actions">
         <Button
           type="button"
-          variant="ghost"
           size="sm"
-          className="exo-ghost-btn"
+          className="exo-set-btn"
           isDisabled={busy || !trimmed}
           onPress={() => {
             void navigator.clipboard.writeText(trimmed)
@@ -182,13 +181,13 @@ export function ActivateKeySheet({
         >
           Copy key
         </Button>
-        <Button type="button" variant="ghost" size="sm" className="exo-ghost-btn" onPress={onClose}>
+        <Button type="button" size="sm" className="exo-set-btn" onPress={onClose}>
           Cancel
         </Button>
         <Button
           type="button"
           size="sm"
-          className="exo-ghost-btn is-primary"
+          className="exo-set-btn is-primary"
           isDisabled={busy || !trimmed}
           onPress={activate}
         >

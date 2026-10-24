@@ -5,6 +5,12 @@ import { usePageClock } from '../../lib/pageActivity'
 import { report } from '../../lib/report'
 
 type Tone = 'good' | 'warn' | 'primary' | 'muted' | 'bad'
+/**
+ * How long a compile takes on this PC, in seconds: learned from the game's own compile on this driver, else rough (another
+ * driver's, its engine's or a default rate stands in). lowSeconds: it may take as little as this (a stale game whose cache
+ * may still hold most of it).
+ */
+type Estimate = { seconds: number; lowSeconds?: number; learned: boolean }
 type ShaderGame = {
   id: string
   name: string
@@ -14,11 +20,12 @@ type ShaderGame = {
   queued?: boolean
   compiling?: boolean
   percent?: number
-  /** The engine's last compile time, else its estimate once a scan's plan check learned what the game needs: "1 h 5 min", "12 min", "40 s". */
-  compileTime?: string
+  /** The engine's estimate of its next compile, once a plan says what it compiles. */
+  estimate?: Estimate | null
   /** Counted in Compile (ready or needing a rebuild, not left out). */
   inAddAllReady?: boolean
-  actions?: { compile?: boolean }
+  /** compileText: what Compile does for it ("Compile", "Compile without ray tracing (partial)", "Compile carefully"). */
+  actions?: { compile?: boolean; compileText?: string }
   /** The last per-game action that failed. */
   error?: string | null
 }
@@ -86,17 +93,10 @@ function useShaderEngine(active: boolean) {
   return { snap, missing, failed, read }
 }
 
-/** "1 h 5 min", "12 min" or "40 s" (the engine's own format) in seconds, else undefined. */
-function durationSeconds(text: string | undefined) {
-  const match = text ? /^(?:(\d+) h)? ?(?:(\d+) min)?$|^(\d+) s$/.exec(text) : null
-  if (!match || match[0] === '') return undefined
-  return match[3] ? Number(match[3]) : Number(match[1] ?? 0) * 3600 + Number(match[2] ?? 0) * 60
-}
-
 /**
- * Seconds each game takes to compile on this PC: the host's (read again when a compile ends or a scan
- * changes the list; it sizes games the engine has no time for yet), overlaid with the engine's live
- * compile time, which it learns per game in the plan check a scan starts, before anything is compiled.
+ * How long each game takes to compile on this PC: the engine's live estimate (learned per game in the plan
+ * check a scan starts, before anything is compiled), with the host's rough sizing for the games the engine
+ * has none for yet (read again when a compile ends or a scan changes the list).
  */
 function useEstimates(active: boolean, key: string, games: readonly ShaderGame[] | undefined) {
   const [seconds, setSeconds] = useState<Record<string, number>>({})
@@ -108,11 +108,9 @@ function useEstimates(active: boolean, key: string, games: readonly ShaderGame[]
     return () => { live = false }
   }, [active, key])
   return useMemo(() => {
-    const live = Object.fromEntries((games ?? []).flatMap(game => {
-      const known = durationSeconds(game.compileTime)
-      return known === undefined ? [] : [[game.id, known]]
-    }))
-    return { ...seconds, ...live }
+    const sized = Object.fromEntries(Object.entries(seconds).map(([id, value]): [string, Estimate] => [id, { seconds: value, learned: false }]))
+    const live = Object.fromEntries((games ?? []).flatMap(game => game.estimate ? [[game.id, game.estimate] as const] : []))
+    return { ...sized, ...live }
   }, [seconds, games])
 }
 
@@ -230,7 +228,7 @@ export function ShadersBoard({ active, games }: { active: boolean; games: readon
         render={(game, drop) => {
           const at = lane.indexOf(game.id)
           return (
-            <Poster game={game} cover={cover(game)} current={current?.id === game.id ? current : null} seconds={estimates[game.id]}
+            <Poster game={game} cover={cover(game)} current={current?.id === game.id ? current : null} estimate={estimates[game.id]}
               place={at >= 0 && at < waitingIds.length ? at + 1 : undefined} orderable={at >= 0} drop={drop}
               error={game.error || queue.finished?.find(item => item.id === game.id && item.error)?.error || null}
               onCompile={() => run(`game:${game.id}`, game.queued ? ['queue.remove', { id: game.id }] : ['game.compile', { id: game.id }])}
@@ -305,7 +303,7 @@ function reorderKey(event: KeyboardEvent<HTMLButtonElement>, at: number, last: n
 function Bar({ snap, view, estimates, busy, run }: {
   snap: Snapshot
   view: View
-  estimates: Record<string, number>
+  estimates: Record<string, Estimate>
   busy: string | null
   run: (key: string, ...steps: Step[]) => void
 }) {
@@ -320,7 +318,7 @@ function Bar({ snap, view, estimates, busy, run }: {
         {current
           ? <><strong>{current.name}</strong>{current.stageText ? ` · ${current.stageText}` : ''}{waitingIds.length ? ` · ${waitingIds.length} waiting` : ''}</>
           : working ? `${waitingIds.length} waiting` : idleLine(snap, lane.length)}
-        {working || lane.length ? eta(queueSeconds(current, working ? waitingIds : lane, estimates), now, working, queue.paused) : null}
+        {working || lane.length ? eta(queueTime(current, working ? waitingIds : lane, estimates), now, working, queue.paused) : null}
       </span>
       <button type="button" className="exo-set-btn" disabled={!!snap.app.scanning || busy === 'scan'} onClick={() => run('scan', ['scan'])}>
         {snap.app.scanning || busy === 'scan' ? 'Refreshing' : 'Refresh'}
@@ -436,36 +434,62 @@ function idleLine(snap: Snapshot, toCompile: number) {
   return toCompile ? `${toCompile} ${toCompile === 1 ? 'game' : 'games'} ready to compile` : 'Every game is compiled'
 }
 
+/** How far a rough estimate may be off either way: another driver's, another game's or a default rate stands in. */
+const ROUGH = 1.5
+
+/** A time in seconds as the least and the most it may take; learned: this PC's own compiles of the games taught it. */
+type Span = { low: number; high: number; learned: boolean }
+
 /**
- * What is left of the queue, in seconds: the compiling game's time left at its live rate (else its
- * share of its usual time), then each game after it at its usual time on this PC. Unknown games
- * make the total a floor.
+ * An estimate as a span: a learned one is its time, a rough one spreads by ROUGH, and a stale game's
+ * runs from its new pipelines alone to every one (its cache may no longer hold the rest).
  */
-function queueSeconds(current: QueueItem | null, after: string[], estimates: Record<string, number>) {
-  let seconds = 0
+function spanOf({ seconds, lowSeconds, learned }: Estimate, share = 1): Span {
+  const sure = learned && lowSeconds === undefined
+  return {
+    low: (lowSeconds ?? (sure ? seconds : seconds / ROUGH)) * share,
+    high: (lowSeconds !== undefined || sure ? seconds : seconds * ROUGH) * share,
+    learned: sure,
+  }
+}
+
+/**
+ * What is left of the queue: the compiling game's time left at its live rate (else its share of
+ * its estimate), then each game after it. Unknown games make the total a floor.
+ */
+function queueTime(current: QueueItem | null, after: string[], estimates: Record<string, Estimate>) {
+  const total: Span = { low: 0, high: 0, learned: true }
   let unknown = 0
+  const add = (span: Span) => { total.low += span.low; total.high += span.high; total.learned &&= span.learned }
   if (current) {
     const usual = estimates[current.id]
-    if (typeof current.timeLeftSeconds === 'number') seconds += current.timeLeftSeconds
-    else if (usual !== undefined) seconds += usual * (1 - Math.min(100, current.percent ?? 0) / 100)
+    if (typeof current.timeLeftSeconds === 'number') add({ low: current.timeLeftSeconds, high: current.timeLeftSeconds, learned: true })
+    else if (usual) add(spanOf(usual, 1 - Math.min(100, current.percent ?? 0) / 100))
     else unknown++
   }
   for (const id of after) {
     const usual = estimates[id]
-    if (usual === undefined) unknown++
-    else seconds += usual
+    if (usual) add(spanOf(usual))
+    else unknown++
   }
-  return { seconds, floor: unknown > 0 }
+  return { ...total, floor: unknown > 0 }
 }
 
-/** " · about 2 h 10 min left, done around 4:30 AM": rounded to what the estimate can promise. */
-function eta({ seconds, floor }: { seconds: number; floor: boolean }, now: number, running: boolean, paused: boolean) {
-  if (seconds <= 0) return null
-  const { span, rounded } = roundSpan(seconds)
+/**
+ * " · about 2 h 10 min left, done around 4:30 AM" when this PC's own compiles taught every time; else
+ * what it may take as a rounded range and "rough estimate", never a clock time it can't keep.
+ */
+function eta({ low, high, learned, floor }: Span & { floor: boolean }, now: number, running: boolean, paused: boolean) {
+  if (high <= 0) return null
+  const left = running ? ' left' : ''
+  if (floor) return low >= 60 ? ` · over ${roundSpan(low).span}${left}, rough estimate` : null
+  if (!learned) return ` · ${rangeText(low, high)}${left}, rough estimate`
+  if (high < 60) return ` · under a minute${left}`
+  const { span, rounded } = roundSpan(high)
   const done = new Date(now + rounded * 60_000)
   const today = new Date(now).toDateString() === done.toDateString()
   const clock = `${today ? '' : done.toLocaleDateString(undefined, { weekday: 'short' }) + ' '}${done.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}`
-  return ` · ${floor ? 'over' : 'about'} ${span}${running ? ' left' : ''}${paused || floor ? '' : `, done around ${clock}`}`
+  return ` · about ${span}${left}${paused ? '' : `, done around ${clock}`}`
 }
 
 /** Seconds as the board says them, rounded to what an estimate can promise: "under a minute", "15 min", "2 h 10 min". */
@@ -473,9 +497,36 @@ function roundSpan(seconds: number) {
   const minutes = seconds / 60
   const step = minutes < 10 ? 1 : minutes < 60 ? 5 : minutes < 600 ? 10 : 60
   const rounded = Math.max(step, Math.round(minutes / step) * step)
-  const h = Math.floor(rounded / 60), m = rounded % 60
-  // A number keeps its unit on its line (no-break spaces): a poster's narrow caption broke "50" from "min".
-  return { rounded, span: seconds < 60 ? 'under a minute' : h ? (m ? `${h}\u00a0h ${m}\u00a0min` : `${h}\u00a0h`) : `${m}\u00a0min` }
+  return { rounded, span: seconds < 60 ? 'under a minute' : minuteText(rounded) }
+}
+
+/** A rough time as a rounded range: "under a minute", "up to 6 min", "15–30 min", "1–2 h", "1 h–2 h 30 min". */
+function rangeText(low: number, high: number) {
+  if (high < 60) return 'under a minute'
+  const minutes = high / 60
+  const step = minutes < 10 ? 1 : minutes < 60 ? 5 : minutes < 600 ? 30 : 60
+  const top = Math.max(step, Math.round(minutes / step) * step)
+  const bottom = Math.round(low / 60 / step) * step
+  if (bottom <= 0) return `up to ${minuteText(top)}`
+  if (bottom >= top) return `about ${minuteText(top)}`
+  if (top < 60) return `${bottom}–${minuteText(top)}`
+  return bottom % 60 === 0 && top % 60 === 0 ? `${bottom / 60}–${top / 60}\u00a0h` : `${minuteText(bottom)}–${minuteText(top)}`
+}
+
+/** Whole minutes as words. A number keeps its unit on its line (no-break spaces): a poster's narrow caption broke "50" from "min". */
+function minuteText(minutes: number) {
+  const h = Math.floor(minutes / 60), m = minutes % 60
+  return h ? (m ? `${h}\u00a0h ${m}\u00a0min` : `${h}\u00a0h`) : `${m}\u00a0min`
+}
+
+/**
+ * A game's compile time on its poster: "about 25 min" when this PC's compiles of it taught it, else a rounded range. One
+ * piece on the narrow caption (no-break spaces, a word joiner each side of the dash): it wrapped as "15–" over "30 min".
+ */
+function timeText(estimate: Estimate) {
+  const { low, high, learned } = spanOf(estimate)
+  const text = !learned ? rangeText(low, high) : high < 60 ? 'under a minute' : `about ${roundSpan(high).span}`
+  return text.replaceAll(' ', '\u00a0').replaceAll('–', '\u2060–\u2060')
 }
 
 function rank(game: ShaderGame) {
@@ -484,19 +535,25 @@ function rank(game: ShaderGame) {
   return 3000
 }
 
+/** What a click compiles when it isn't the plain Compile, in the engine's words ("Compile without ray tracing (partial)", "Compile carefully"); else null. */
+function otherCompile(game: ShaderGame) {
+  const text = game.actions?.compileText
+  return text && text !== 'Compile' && text.startsWith('Compile') ? text : null
+}
+
 /** The poster's state: its progress while it compiles, else its place in the queue or its state, with how long it takes. */
-function posterLine(game: ShaderGame, current: QueueItem | null, place: number | undefined, seconds: number | undefined) {
+function posterLine(game: ShaderGame, current: QueueItem | null, place: number | undefined, estimate: Estimate | undefined) {
   if (current) return typeof current.percent === 'number' ? `${Math.round(current.percent)}%` : current.stageText ?? 'Compiling'
-  const time = seconds && (place || game.inAddAllReady) ? ` · ${roundSpan(seconds).span}` : ''
+  const time = estimate && (place || game.inAddAllReady) ? ` · ${timeText(estimate)}` : ''
   return place ? `${place === 1 ? 'Next' : `#${place}`} in queue${time}` : `${game.statusText ?? ''}${time}`
 }
 
-function Poster({ game, cover, current, seconds, place, orderable, drop, error, onCompile, onKey }: {
+function Poster({ game, cover, current, estimate, place, orderable, drop, error, onCompile, onKey }: {
   game: ShaderGame
   cover: string | null
   current: QueueItem | null
   /** How long it takes to compile here, for a game Compile would queue or has queued. */
-  seconds: number | undefined
+  estimate: Estimate | undefined
   place: number | undefined
   orderable: boolean
   drop: Drop
@@ -505,12 +562,13 @@ function Poster({ game, cover, current, seconds, place, orderable, drop, error, 
   onKey: (event: KeyboardEvent<HTMLButtonElement>) => void
 }) {
   const can = game.queued || game.actions?.compile === true
-  const line = posterLine(game, current, place, seconds)
+  const line = posterLine(game, current, place, estimate)
   const tone = current || place ? 'live' : game.tone ?? 'muted'
+  const other = can && !game.queued && !current ? otherCompile(game) : null
   return (
     <div className={`exo-shaders-poster is-${tone}${drop === 'lifted' ? ' is-lifted' : ''}`}>
       <button type="button" disabled={!can} onClick={onCompile} onKeyDown={onKey}
-        aria-label={`${game.queued ? 'Remove from queue' : 'Compile'} ${game.name}`}
+        aria-label={game.queued ? `Remove ${game.name} from the queue` : (otherCompile(game) ?? 'Compile').replace('Compile', `Compile ${game.name}`)}
         aria-describedby={orderable ? 'exo-shaders-move-help' : undefined}>
         <span className="exo-shaders-art">
           {cover ? <img src={cover} alt="" loading="lazy" decoding="async" draggable={false} /> : <span className="exo-shaders-art-name">{game.name}</span>}
@@ -520,6 +578,7 @@ function Poster({ game, cover, current, seconds, place, orderable, drop, error, 
         </span>
         <span className="exo-shaders-name">{game.name}</span>
         <span className="exo-shaders-state">{line}</span>
+        {other ? <span className="exo-shaders-state">{other}</span> : null}
         {error ? <span className="exo-shaders-state is-bad">{error}</span> : null}
       </button>
     </div>

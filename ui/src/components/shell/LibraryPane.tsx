@@ -401,12 +401,12 @@ export const LibraryPane = memo(function LibraryPane(props: LibraryPaneProps) {
         {!props.empty && props.error ? (
           <div className="exo-library-refresh-error" role="status">
             <span>Showing saved games. {props.error}</span>
-            <button type="button" className="exo-ghost-btn" onClick={props.onRetry}>Retry</button>
+            <button type="button" className="exo-set-btn" onClick={props.onRetry}>Retry</button>
           </div>
         ) : !props.empty && refreshError && refresh !== 'working' ? (
           <div className="exo-library-refresh-error" role="alert">
             <span>Could not refresh the library. {refreshError}</span>
-            <button type="button" className="exo-ghost-btn" onClick={runRefresh}>Retry</button>
+            <button type="button" className="exo-set-btn" onClick={runRefresh}>Retry</button>
           </div>
         ) : null}
         {props.empty ? (

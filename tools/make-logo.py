@@ -18,7 +18,9 @@ from above, no thin lines, no sharp corners.
   faint bloom on the black.
 - Detail follows size, as a font's optical sizes do: at 32 px and under the
   plate is a plain gradient and the bars are flat white with their top and
-  bottom on whole pixels, so the taskbar's 16 to 32 px stay crisp.
+  bottom on whole pixels, so the taskbar's 16 to 32 px stay crisp. At 16 to
+  24 px the bars are placed by hand (HINTED): whole pixels tall, stepping
+  sideways by whole pixels instead of shearing, so every edge is a pixel edge.
 
     python tools/make-logo.py
 
@@ -59,6 +61,8 @@ SCALES = (100, 125, 150, 175, 200, 250, 300)
 ICO_SIZES = (16, 20, 24, 32, 40, 48, 64, 128, 256)
 
 REPO = Path(__file__).resolve().parent.parent
+# 16 to 24 px: each bar's height and the gap between them, in whole pixels.
+HINTED = {16: (2, 2), 20: (3, 2), 24: (3, 2)}
 
 
 def squircle(size: float, inset: float = 0.0, steps: int = 720) -> list[tuple[float, float]]:
@@ -107,6 +111,20 @@ def bars(size: float, snap: bool) -> list[list[tuple[float, float]]]:
     return out
 
 
+def hinted_bars(size: int) -> list[tuple[int, int, int, int]]:
+    """The bars at a small `size` as pixel rectangles (left, top, right, bottom): each steps sideways by whole pixels
+    as far as the shear would move its middle, so the E still leans and nothing falls between pixels."""
+    h, g = HINTED[size]
+    top = (size - (3 * h + 2 * g)) // 2
+    tan, k = math.tan(math.radians(SHEAR_DEG)), size / BOX
+    out = []
+    for i in range(3):
+        y0 = top + i * (h + g)
+        step = round((size / 2 - (y0 + h / 2)) * tan)
+        out.append((round(X_LEFT * k) + step, y0, round((X_MID_RIGHT if i == 1 else X_RIGHT) * k) + step, y0 + h))
+    return out
+
+
 def _mask(px: int, polys) -> Image.Image:
     m = Image.new("L", (px, px), 0)
     d = ImageDraw.Draw(m)
@@ -146,7 +164,7 @@ def render(size: int, page: tuple | None = None) -> Image.Image:
         ImageDraw.Draw(sheen).ellipse([-0.25 * px, -0.62 * px, 1.25 * px, 0.42 * px], fill=30)
         img = _over(img, (255, 255, 255), ImageChops.multiply(sheen.filter(ImageFilter.GaussianBlur(px * 0.08)), plate))
 
-    polys = bars(px, snap=size <= 48)
+    polys = [] if size in HINTED else bars(px, snap=size <= 48)
     if rich:
         polys = [rounded(p, BAR_CORNER * px / BOX) for p in polys]
     bmask = _mask(px, polys)
@@ -172,6 +190,10 @@ def render(size: int, page: tuple | None = None) -> Image.Image:
 
     img.putalpha(plate)
     out = img.resize((size, size), Image.LANCZOS)
+    if size in HINTED:
+        d = ImageDraw.Draw(out)
+        for left, top, right, bottom in hinted_bars(size):
+            d.rectangle([left, top, right - 1, bottom - 1], fill=(*BAR_TOP, 255))
     if page:
         bg = Image.new("RGBA", (size, size), (*page, 255))
         bg.alpha_composite(out)
