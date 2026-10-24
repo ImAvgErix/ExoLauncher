@@ -8,7 +8,7 @@ These run as their own programs. Exo talks to them only through messages, and Ex
 
 | Program | License | Source |
 | --- | --- | --- |
-| **Exo Mouse** (the Devices room), built on OpenMouse's protocol library `@openmouse/protocol` 0.45.2 | AGPL-3.0-or-later | [github.com/ImAvgErix/exo-mouse](https://github.com/ImAvgErix/exo-mouse) |
+| **Exo Mouse** (the Devices room), built on OpenMouse's protocol library `@openmouse/protocol` 0.45.2; [OpenMouse](https://github.com/OpenMouse-Project/openmouse) is made by [snekxs](https://github.com/snekxs) and its contributors, and is in Exo with snekxs's permission | AGPL-3.0-or-later | [github.com/ImAvgErix/exo-mouse](https://github.com/ImAvgErix/exo-mouse) |
 | **Exo Shaders** (System > Shaders), an unofficial fork of [SCSKiller](https://github.com/BlueHeisenberg/SCSKiller) | GPL-3.0-or-later, with an additional permission under section 7 (`LICENSE-EXCEPTION.txt`) | [github.com/ImAvgErix/exo-shaders](https://github.com/ImAvgErix/exo-shaders). Its own third-party notices ship in `addons\shaders\THIRD-PARTY-NOTICES.md`. Its native helpers come unmodified from SCSKiller 1.3.0 (see `engine/prebuilt/SOURCE.md` in its repository). |
 | **Exo Capture** (instant replay, recording and snips; `addons\capture`) | GPL-3.0-or-later | [github.com/ImAvgErix/exo-capture](https://github.com/ImAvgErix/exo-capture) |
 | **OBS Studio game capture files** 32.2.2 (`graphics-hook`, `inject-helper`, `get-graphics-offsets`; 32- and 64-bit), OBS Project and contributors, unmodified and signed by OBS Project, LLC, used by Exo Capture only for a game Windows capture gets no picture from | GPL-2.0-or-later | [github.com/obsproject/obs-studio/tree/32.2.2](https://github.com/obsproject/obs-studio/tree/32.2.2) (`plugins/win-capture`) |

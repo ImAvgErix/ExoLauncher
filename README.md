@@ -117,6 +117,7 @@ Exo Mouse talks to your mouse directly, with no vendor app, driver or account:
 - **Settings:** DPI, polling rate, lift-off, buttons, lighting and more, showing only what your mouse has.
 - **Profiles:** each one switches on by itself when a linked game starts.
 - **Compatibility:** it works with the mice OpenMouse supports, wired or on their receiver.
+- **Credit:** built on [OpenMouse](https://github.com/OpenMouse-Project/openmouse), made by [snekxs](https://github.com/snekxs) ♥, with their permission.
 
 ### Settings
 
@@ -143,7 +144,7 @@ Appearance (Match Windows, Light, Dark or Void), Glass, text size and reduce mot
 
 - **Exo Launcher** is free for personal use under its own [terms](LICENSE), provided as is, without warranty. Its source is in this repository for anyone to read and check, but it is not open source: copying it, forking it outside GitHub or publishing changed versions needs written permission.
 - **Open-source parts that ship with Exo** keep their own licenses, and their source is public:
-  - [Exo Mouse](https://github.com/ImAvgErix/exo-mouse) (AGPL-3.0-or-later), built on OpenMouse.
+  - [Exo Mouse](https://github.com/ImAvgErix/exo-mouse) (AGPL-3.0-or-later), built on OpenMouse by snekxs.
   - [Exo Capture](https://github.com/ImAvgErix/exo-capture) (GPL-3.0-or-later), with OBS Studio's game capture hook.
   - [Exo Shaders](https://github.com/ImAvgErix/exo-shaders) (GPL-3.0-or-later), based on SCSKiller.
   - uBlock Origin Lite, SponsorBlock and Better Lyrics (GPL-3.0), in the music players' browser.
