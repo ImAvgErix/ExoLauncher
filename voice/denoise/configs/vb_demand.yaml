@@ -1,0 +1,14 @@
+# The small recipe this repository's reported numbers come from: VoiceBank 28-speaker clean speech, DNS emotional
+# speech, DEMAND (13 types, none of VoiceBank-DEMAND's 5 test noises), DNS Freesound noise and DNS RIRs,
+# all mixed on the fly; validated on VoiceBank-DEMAND's test set (unseen speakers, unseen noise types).
+run: runs/vb-demand-s
+model: {channels: 64, time_hidden: 128, blocks: 2}
+loss: {spectral: 1.0, asym: 1.0, sisdr: 0.02, lsnr: 0.0005}
+mix: {seconds: 2.0, snr_db: [-5, 30], p_rir: 0.3, p_babble: 0.15}
+data:
+  speech: [data/manifests/speech_vb.jsonl, data/manifests/speech_emotional.jsonl]
+  noise: [data/manifests/noise_demand.jsonl, data/manifests/noise_freesound.jsonl]
+  rir: [data/manifests/rir_dns.jsonl]
+  val_mix: 64
+  val_pairs: {noisy: data/vb_test/noisy_testset_wav, clean: data/vb_test/clean_testset_wav, limit: 100}
+train: {batch: 16, lr: 0.001, steps: 6000, warmup: 300, workers: 2, threads: 2, ema: 0.999, log_every: 50, val_every: 500}

@@ -1,0 +1,15 @@
+# Exo Denoise M: more capacity (wider core, three dual-path blocks) for PCs with headroom. Same data as S.
+run: runs/exo-m
+model:
+  channels: 96
+  time_hidden: 256
+  blocks: 3
+loss: {spectral: 1.0, asym: 1.0, sisdr: 0.02, lsnr: 0.0005}
+mix: {seconds: 3.0, snr_db: [-5, 35], p_rir: 0.5, p_babble: 0.2}
+data:
+  speech: [data/manifests/speech_dns_read.jsonl, data/manifests/speech_vctk.jsonl, data/manifests/speech_ears.jsonl, data/manifests/speech_emotional.jsonl]
+  noise: [data/manifests/noise_dns.jsonl, data/manifests/noise_demand.jsonl]
+  rir: [data/manifests/rir_dns.jsonl, data/manifests/rir_openslr.jsonl]
+  val_mix: 256
+  val_pairs: {noisy: data/vb_test/noisy_testset_wav, clean: data/vb_test/clean_testset_wav, limit: 200}
+train: {batch: 32, lr: 0.0008, steps: 400000, warmup: 2000, workers: 12, amp: true, ema: 0.9995, log_every: 100, val_every: 5000, dnsmos: true}

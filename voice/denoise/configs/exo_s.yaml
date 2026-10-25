@@ -1,0 +1,42 @@
+# Exo Denoise S: the shipping size (0.58 M parameters, 0.59 GMAC/s, ~0.7 ms per 10 ms hop on one CPU thread).
+# Full recipe: DNS 5 fullband speech and noise, VCTK, EARS, emotional speech; DNS and OpenSLR RIRs.
+run: runs/exo-s
+model:
+  channels: 64
+  time_hidden: 128
+  blocks: 2
+loss:
+  spectral: 1.0
+  asym: 1.0
+  sisdr: 0.02
+  lsnr: 0.0005
+mix:
+  seconds: 3.0
+  snr_db: [-5, 35]
+  p_rir: 0.5
+  p_babble: 0.2
+data:
+  speech:
+    - data/manifests/speech_dns_read.jsonl
+    - data/manifests/speech_vctk.jsonl
+    - data/manifests/speech_ears.jsonl
+    - data/manifests/speech_emotional.jsonl
+  noise:
+    - data/manifests/noise_dns.jsonl
+    - data/manifests/noise_demand.jsonl
+  rir:
+    - data/manifests/rir_dns.jsonl
+    - data/manifests/rir_openslr.jsonl
+  val_mix: 256
+  val_pairs: {noisy: data/vb_test/noisy_testset_wav, clean: data/vb_test/clean_testset_wav, limit: 200}
+train:
+  batch: 32
+  lr: 0.001
+  steps: 300000
+  warmup: 2000
+  workers: 12
+  amp: true
+  ema: 0.9995
+  log_every: 100
+  val_every: 5000
+  dnsmos: true

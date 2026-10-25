@@ -1,0 +1,13 @@
+# Training, export, evaluation, streaming (Python 3.11-3.13). Install torch from pytorch.org for your CUDA first.
+torch>=2.4
+numpy>=1.26
+scipy>=1.11
+soundfile>=0.12
+pyyaml>=6
+onnx>=1.16
+onnxscript>=0.1
+onnxruntime>=1.18
+pesq>=0.0.4
+pystoi>=0.4
+pytest>=8
+# optional: tensorboard (experiment curves), sounddevice (live demo)

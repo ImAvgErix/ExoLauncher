@@ -1,0 +1,10 @@
+# Baselines only, in their own Python 3.11 environment (DeepFilterNet's package needs torchaudio's old API).
+torch==2.3.1
+torchaudio==2.3.1
+numpy<2
+scipy
+soundfile
+onnxruntime
+deepfilternet==0.5.6
+pyrnnoise==0.4.5
+denoiser==0.1.5

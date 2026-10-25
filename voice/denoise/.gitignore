@@ -1,0 +1,6 @@
+/data
+/runs
+/out
+/results/*.wav
+__pycache__/
+.pytest_cache/
