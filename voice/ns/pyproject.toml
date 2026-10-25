@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "exons"
+version = "0.1.0"
+description = "Causal full-band speech noise suppression for real-time voice chat"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.26",
+    "torch>=2.2",
+    "onnx>=1.16",
+    "onnxruntime>=1.18",
+]
+
+[project.optional-dependencies]
+metrics = ["pystoi>=0.4", "pesq>=0.0.4"]
+mic = ["sounddevice>=0.5"]
+data = ["soundfile>=0.12"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["exons*"]
