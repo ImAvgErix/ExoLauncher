@@ -113,7 +113,7 @@ output was alignment-checked (all within 0.01 ms). Raw numbers: `results/*.json`
 | System | Latency | Params | PESQ | STOI | ESTOI | SI-SDR | DNSMOS SIG | BAK | OVRL |
 |---|---|---|---|---|---|---|---|---|---|
 | Noisy input | – | – | 1.97 | 0.921 | 0.787 | 8.4 | 3.32 | 3.11 | 2.68 |
-| RNNoise | 20 ms | 0.06 M | 2.11 | 0.889 | 0.783 | 12.3 | 3.27 | 3.82 | 2.91 |
+| RNNoise | 20 ms | small | 2.11 | 0.889 | 0.783 | 12.3 | 3.27 | 3.82 | 2.91 |
 | DTLN (16 kHz) | 32 ms | 1.0 M | 2.39 | 0.919 | 0.821 | 17.6 | 3.29 | 3.81 | 2.93 |
 | Demucs dns64 (16 kHz, offline) | – | 33.5 M | 2.56 | 0.932 | 0.854 | 17.6 | 3.37 | 4.03 | 3.10 |
 | **Exo Denoise S, this run** | 20 ms | 0.58 M | 2.74 | 0.937 | 0.840 | 14.2 | 3.34 | 3.92 | 3.01 |
