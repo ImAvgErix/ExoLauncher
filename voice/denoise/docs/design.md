@@ -123,9 +123,9 @@ so they are a regulariser on real audio, never the main target.
 - **GAN / MetricGAN discriminators.** They raise PESQ, but trade it for artifacts and unstable training; the
   asymmetric loss gets at the same perceptual complaint (over-suppression) directly.
 - **INT8.** Dynamic INT8 quantization (`export.py --int8`) is supported, but on a model this size the time is in the
-  graph's ~200 small operators, not in arithmetic: it measured no faster than FP32 on a Xeon, and the GRUs stay FP32
-  in ONNX Runtime's dynamic quantizer. FP16 (`--fp16`) is for GPU execution providers; on CPU it is slower.
-  The shipping graph is FP32.
+  graph's ~200 small operators, not in arithmetic: it measured 0.81 against FP32's 0.82 ms a hop on a Xeon, with every
+  test-set metric equal to the third decimal; the GRUs stay FP32 in ONNX Runtime's dynamic quantizer. FP16
+  (`--fp16`) is for GPU execution providers; on CPU it is slower (0.95 ms). The shipping graph is FP32.
 - **Model swap under load.** Exo's `Overload` runs DeepFilterNet light (no deep filtering stage) when hops run slow.
   At under 1 ms a hop there's no lighter mode to fall back to; `df_set_thresholds` is accepted and ignored.
 

@@ -1,0 +1,42 @@
+{
+ "info": {
+  "cpu": "Intel(R) Xeon(R) Processor",
+  "params": 576908,
+  "gmacs_per_s": 0.5906688
+ },
+ "rows": [
+  {
+   "model": "out/exo-denoise.onnx",
+   "threads": 1,
+   "hop_ms_mean": 0.8246675186558908,
+   "hop_ms_p50": 0.8139245001075324,
+   "hop_ms_p99": 0.9601357311839821,
+   "hop_ms_max": 1.4069620010559447,
+   "rtf": 0.08246675186558908,
+   "measured_delay_ms": 10.0,
+   "algorithmic_latency_ms": 20.0
+  },
+  {
+   "model": "out/exo-denoise.int8.onnx",
+   "threads": 1,
+   "hop_ms_mean": 0.8072862991630245,
+   "hop_ms_p50": 0.795046498751617,
+   "hop_ms_p99": 1.0183891971973935,
+   "hop_ms_max": 2.9559960021288134,
+   "rtf": 0.08072862991630245,
+   "measured_delay_ms": 10.0,
+   "algorithmic_latency_ms": 20.0
+  },
+  {
+   "model": "out/exo-denoise.fp16.onnx",
+   "threads": 1,
+   "hop_ms_mean": 0.9483537301748584,
+   "hop_ms_p50": 0.9395745018991875,
+   "hop_ms_p99": 1.148863379894465,
+   "hop_ms_max": 18.230404999485472,
+   "rtf": 0.09483537301748583,
+   "measured_delay_ms": 10.0,
+   "algorithmic_latency_ms": 20.0
+  }
+ ]
+}

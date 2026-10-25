@@ -106,8 +106,39 @@ leave out `--clean` and DNSMOS alone scores them.
 
 ## Results
 
-The first training run (configs/vb_demand.yaml, on a 4-core CPU) is in progress; its VoiceBank-DEMAND scores
-against every baseline will be recorded here and in `results/`.
+VoiceBank-DEMAND test set, all 824 files (unseen speakers and unseen noise types; PESQ wide band and STOI at
+16 kHz, DNSMOS P.835 overall). Exo Denoise is scored through its exported ONNX graph streamed hop by hop. Every
+output was alignment-checked (all within 0.01 ms). Raw numbers: `results/*.json`.
+
+| System | Latency | Params | PESQ | STOI | ESTOI | SI-SDR | DNSMOS SIG | BAK | OVRL |
+|---|---|---|---|---|---|---|---|---|---|
+| Noisy input | – | – | 1.97 | 0.921 | 0.787 | 8.4 | 3.32 | 3.11 | 2.68 |
+| RNNoise | 20 ms | 0.06 M | 2.11 | 0.889 | 0.783 | 12.3 | 3.27 | 3.82 | 2.91 |
+| DTLN (16 kHz) | 32 ms | 1.0 M | 2.39 | 0.919 | 0.821 | 17.6 | 3.29 | 3.81 | 2.93 |
+| Demucs dns64 (16 kHz, offline) | – | 33.5 M | 2.56 | 0.932 | 0.854 | 17.6 | 3.37 | 4.03 | 3.10 |
+| **Exo Denoise S, this run** | 20 ms | 0.58 M | 2.74 | 0.937 | 0.840 | 14.2 | 3.34 | 3.92 | 3.01 |
+| DeepFilterNet 3 low-latency (Exo's current) | 20 ms | 9.7 M | 3.07 | 0.950 | 0.870 | 18.7 | 3.47 | 4.06 | 3.20 |
+| DeepFilterNet 3 offline | 40 ms | 2.1 M | 3.16 | 0.945 | 0.865 | 18.9 | 3.44 | 4.08 | 3.18 |
+
+**This run does not beat DeepFilterNet 3, and so does not replace what Exo ships.** It was trained on a 4-core CPU
+for 6000 steps of 16 × 2 s mixes (53 hours of audio seen, from 9.5 hours of speech): `configs/vb_demand.yaml`,
+`runs/vb-demand-s/metrics.jsonl` locally. DeepFilterNet 3 was trained on hundreds of hours for 120 epochs on GPUs. At
+1/17 of its weights, Exo Denoise already leads RNNoise and DTLN on PESQ and STOI and Demucs on PESQ and STOI, but
+trails all three model-based baselines on SI-SDR, and DeepFilterNet 3 on everything. Whether the full recipe
+(`configs/exo_s.yaml`) closes that gap is the open question; it needs a GPU.
+
+The 70 dB attenuation limit Exo uses changes nothing here (PESQ 2.735 with or without it): the test set's noise never
+needs more than 70 dB. INT8 matches FP32 to the third decimal on every metric.
+
+Cost on one thread of an Intel Xeon (cloud vCPU), 60 s streamed (`results/bench.json`):
+
+| Graph | Mean per 10 ms hop | p99 | Real-time factor | Measured delay |
+|---|---|---|---|---|
+| FP32 | 0.82 ms | 0.96 ms | 0.082 | 10 ms |
+| INT8 | 0.81 ms | 1.02 ms | 0.081 | 10 ms |
+| FP16 | 0.95 ms | 1.15 ms | 0.095 | 10 ms |
+
+Through the C library (`capi/`, same machine): 0.81 ms a hop, output identical to Python's.
 
 ## Export and inference
 
