@@ -116,17 +116,15 @@ class Mixer(torch.utils.data.Dataset):
 
     def __init__(self, sources: Sources, cfg: MixConfig, length: int, seed: int = 0, fixed: bool = False):
         self.s, self.cfg, self.length, self.seed, self.fixed = sources, cfg, length, seed, fixed
-        self._rirs: dict[str, np.ndarray] = {}
 
     def __len__(self) -> int:
         return self.length
 
     def _rir(self, rng):
+        # Read each time, not cached: a worker that kept every RIR it drew grew to gigabytes over a run of 60k RIRs.
         row = self.s.rir[int(rng.integers(len(self.s.rir)))]
-        if row["path"] not in self._rirs:
-            x, sr = sf.read(row["path"], dtype="float32", always_2d=True)
-            self._rirs[row["path"]] = dsp.resample(x[:, 0], sr)[: dsp.SR]  # at most 1 s
-        return self._rirs[row["path"]]
+        x, sr = sf.read(row["path"], frames=int(row["sr"]), dtype="float32", always_2d=True)  # at most 1 s
+        return dsp.resample(x[:, 0], sr)
 
     def _speech(self, rng, frames):
         for _ in range(10):  # skip near-silent crops
