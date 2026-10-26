@@ -164,6 +164,16 @@ class CausalDFN3(nn.Module):
         self.register_buffer("erb_init", torch.linspace(-60, -90, self.cfg.nb_erb), persistent=False)
         self.register_buffer("df_init", torch.linspace(1e-3, 1e-4, self.cfg.nb_df), persistent=False)
 
+    def train(self, mode: bool = True):
+        # Batch norms stay frozen: a pretrained model's running statistics (folded into identity norms for dfn3_ll)
+        # are part of its weights; normalising by each batch's own statistics instead scrambles every layer
+        # (PESQ 3.10 -> 2.21 in 200 steps when they weren't).
+        super().train(mode)
+        for m in self.modules():
+            if isinstance(m, nn.BatchNorm2d):
+                m.eval()
+        return self
+
     def features(self, spec: torch.Tensor):
         """libdf-scaled complex (B, T, F) -> erb (B, 1, T, 32), complex low bins (B, 1, T, 96, 2)."""
         b = spec.shape[0]
