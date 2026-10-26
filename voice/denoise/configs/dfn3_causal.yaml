@@ -1,0 +1,13 @@
+# DeepFilterNet 3's offline weights with its 20 ms lookahead removed (dfn.py), fine-tuned to work without it:
+# a 20 ms model of 2.1 M parameters, against the 9.7 M low-latency model Exo ships. Same data as vb_demand.yaml.
+run: runs/dfn3-causal
+model: {kind: dfn3}
+loss: {spectral: 1.0, asym: 1.0, sisdr: 0.02, lsnr: 0.0005}
+mix: {seconds: 2.0, snr_db: [-5, 30], p_rir: 0.3, p_babble: 0.15}
+data:
+  speech: [data/manifests/speech_vb.jsonl, data/manifests/speech_emotional.jsonl]
+  noise: [data/manifests/noise_demand.jsonl, data/manifests/noise_freesound.jsonl]
+  rir: [data/manifests/rir_dns.jsonl]
+  val_mix: 64
+  val_pairs: {noisy: data/vb_test/noisy_testset_wav, clean: data/vb_test/clean_testset_wav, limit: 100}
+train: {batch: 16, lr: 0.0002, steps: 4000, warmup: 100, workers: 2, threads: 3, ema: 0.998, log_every: 50, val_every: 250}

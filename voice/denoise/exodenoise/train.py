@@ -24,6 +24,15 @@ from .data import mixer
 from .model import ExoDenoise, ModelConfig, count_params
 
 
+def build_model(m: dict):
+    """``model.kind: dfn3`` fine-tunes DeepFilterNet 3 with no lookahead (dfn.py); anything else is Exo Denoise."""
+    if m.get("kind") == "dfn3":
+        from .dfn import CausalDFN3, DfnConfig
+
+        return CausalDFN3(DfnConfig(**m))
+    return ExoDenoise(ModelConfig(**m))
+
+
 def load_config(path: str, overrides: list[str]) -> dict:
     cfg = yaml.safe_load(open(path))
     for o in overrides:
@@ -115,7 +124,7 @@ def main() -> None:
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     if device.type == "cpu":
         torch.set_num_threads(t.get("threads", torch.get_num_threads()))
-    model = ExoDenoise(ModelConfig(**cfg.get("model", {}))).to(device)
+    model = build_model(cfg.get("model", {})).to(device)
     ema = copy.deepcopy(model).eval()
     lcfg = losses.LossConfig(**_tuples(cfg.get("loss", {})))
     mcfg = mixer.MixConfig(**_tuples(cfg.get("mix", {})))

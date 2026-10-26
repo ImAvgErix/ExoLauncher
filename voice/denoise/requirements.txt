@@ -11,3 +11,5 @@ pesq>=0.0.4
 pystoi>=0.4
 pytest>=8
 # optional: tensorboard (experiment curves), sounddevice (live demo)
+# configs/dfn3_causal.yaml (fine-tuning DeepFilterNet 3 with no lookahead, exodenoise/dfn.py) also needs:
+#   pip install deepfilterlib loguru && pip install --no-deps deepfilternet==0.5.6

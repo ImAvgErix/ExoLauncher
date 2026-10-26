@@ -22,7 +22,13 @@ from .model import ExoDenoise, ModelConfig, Streaming
 
 
 def load(checkpoint: str) -> ExoDenoise:
-    ck = torch.load(checkpoint, map_location="cpu")
+    ck = torch.load(checkpoint, map_location="cpu", weights_only=False)
+    if ck["model_config"].get("kind") == "dfn3":
+        from .dfn import CausalDFN3, DfnConfig
+
+        model = CausalDFN3(DfnConfig(**ck["model_config"]), pretrained=False)
+        model.load_state_dict(ck["model"])
+        return model.eval()
     model = ExoDenoise(ModelConfig(**ck["model_config"]))
     model.load_state_dict(ck["model"])
     return model.eval()
