@@ -54,7 +54,7 @@ internal static class NetworkDestinations
     internal const string LucidUpdates = "Lucid's version feed (raw.githubusercontent.com/tekkusai/Lucid)";
     internal const string SpotifyShareLinks = "Spotify share links (spotify.link, spotify.app.link)";
     internal const string Installers = "Game runtimes and app installers: Microsoft (Visual C++, DirectX, .NET and its release list, XNA, WebView2; GameInput from NuGet's `globalcdn.nuget.org`), Creative (OpenAL, `openal.org`), NVIDIA (PhysX, `us.download.nvidia.com`), Spotify";
-    internal const string DevicePictures = "Device pictures (the makers' own image servers: gmedia.playstation.com, cdn-dynmedia-1.microsoft.com, assets.nintendo.com, cdn.shopify.com, hyperx.com, ca.sennheiser-hearing.com, api.beyerdynamic.de, images.ctfassets.net, resource.logitechg.com, cdn.prod.website-files.com; for IEMs whose maker publishes no large picture, the stores of Linsoul (www.linsoul.com) and Bloom Audio (on cdn.shopify.com); OpenMouse's img.openmouse.app)";
+    internal const string DevicePictures = "Device pictures (the makers' own image servers: gmedia.playstation.com, cdn-dynmedia-1.microsoft.com, assets.nintendo.com, cdn.shopify.com, hyperx.com, ca.sennheiser-hearing.com, api.beyerdynamic.de, images.ctfassets.net, resource.logitechg.com, cdn.prod.website-files.com; for IEMs whose maker publishes no large picture, the stores of Linsoul (`www.linsoul.com`) and Bloom Audio (on cdn.shopify.com); OpenMouse's img.openmouse.app)";
 
     internal static readonly Destination[] Hosts =
     [
