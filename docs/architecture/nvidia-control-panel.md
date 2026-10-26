@@ -101,6 +101,17 @@ Same functions and structs as section 4.
 
 Components 29/30 ignore the device index, so they are global. The others are per display handle.
 
+How RTX Video is read and written (October 26, 2026: NVIDIA Control Panel's `nvxdapix.dll` from driver 621.01, and the NVIDIA app 11.0.9.565, unpacked, not installed; checked with a write and restore on the RTX 3070):
+
+- **Read:** the panel takes on/off from the GET struct's enable@0x10. The NVIDIA app treats any non-zero lastValueSet@0x58 as on. Off written as enable 0 reads back as value 0 everywhere, so Exo reads off from enable 0 and otherwise uses @0x58.
+- **Write:** both first read the active video device (0x6579F1C8, 0x20 bytes, version 0x10020). If its word@4 isn't 1, they write it back with @4 = 1 and @8 = -1 (0xF8181529). Then they call SetVideoStateEx. The panel retries while it answers -108 (busy), for up to 50 s.
+  - Panel: enable and bIsTopPriority 1 with the value, enable 0 for off.
+  - NVIDIA app: keeps enable and top 1 and writes off as value 0.
+- **HDR:** the panel writes 5 for on; the NVIDIA app writes 1. Read any non-zero value as on.
+- **Reapplying:** the NVIDIA app writes RTX Video only on the user's change, Cancel or Restore defaults. It never puts its own value back; its NvContainer plugins have no handler for it.
+- **Storage:** the driver keeps the choice under the display adapter's class key (`{4d36e968-…}\0000`): `_User_Global_VAL_SuperResolution`, `_User_Global_XEN_SuperResolution`, `_User_Global_DAT_SuperResolution` (128 bytes), and `_User_Global_VAL/XEN_TrueHDR`.
+- **Still open:** what another PC read outside 0–5 ("Set elsewhere") and why its write didn't read back. Exo now logs the whole GET struct and those registry values when it happens.
+
 ## 6. 3D > Adjust image settings with preview
 
 | Setting | Choices | Mechanism | Confirmed? |

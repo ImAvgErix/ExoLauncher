@@ -18,6 +18,11 @@ namespace ExoLauncher.Services.DiscordClient.Voice;
 internal sealed class MyVoice : IThreadPoolWorkItem
 {
     internal const float Other = 0.55f, Mine = 0.60f;
+    /// <summary>
+    /// Under this, what was held back isn't a voice at all: on this PC's log, the clicks, knocks and hums Only My Voice held
+    /// back scored -0.02 to 0.06, and voices (other people's included) 0.12 and up. Only a voice counts toward the safety stop.
+    /// </summary>
+    internal const float Noise = 0.10f;
     /// <summary>The least speech (in seconds, after the gate) a teach takes.</summary>
     internal const int TeachSeconds = 8;
     private const int Rate = 16000, Window = Rate * 3 / 2, First = Rate, Step = Rate / 2;
@@ -94,7 +99,8 @@ internal sealed class MyVoice : IThreadPoolWorkItem
     // One voiced frame toward the safety stop, on the audio thread: a second's frames (50) per bucket.
     private void CountHeld()
     {
-        if (Volatile.Read(ref _verdict.Held)) _heldPerSecond[_bucket]++;
+        // Noise held back never counts: a hum held back for 20 s turned Only My Voice off, and the hum then went out.
+        if (Volatile.Read(ref _verdict.Held) && _verdict.Similarity >= Noise) _heldPerSecond[_bucket]++;
         if (++_inBucket < 50) return;
         _inBucket = 0;
         _seconds = Math.Min(_seconds + 1, StopSeconds);
@@ -141,15 +147,17 @@ internal sealed class MyVoice : IThreadPoolWorkItem
     {
         internal bool Held;
         internal int Low;
+        /// <summary>The last judgment's similarity.</summary>
+        internal float Similarity;
     }
 
     /// <summary>The next verdict: held after two judgments under <see cref="Other"/>, out again at <see cref="Mine"/> or over.</summary>
     internal static Verdict Judge(Verdict now, float similarity)
     {
-        if (similarity >= Mine) return default;
-        if (similarity >= Other) return now with { Low = 0 };
+        if (similarity >= Mine) return new Verdict { Similarity = similarity };
+        if (similarity >= Other) return now with { Low = 0, Similarity = similarity };
         var low = now.Low + 1;
-        return new Verdict { Low = low, Held = now.Held || low >= 2 };
+        return new Verdict { Low = low, Held = now.Held || low >= 2, Similarity = similarity };
     }
 
     /// <summary>

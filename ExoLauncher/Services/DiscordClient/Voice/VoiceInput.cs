@@ -62,6 +62,23 @@ internal sealed class VoiceGate
     /// </summary>
     internal const int Hold = 25;
 
+    /// <summary>
+    /// Two seconds of cleaned sound with most frames (the middle 80%) within this many dB of one level is steady: a hum or a
+    /// buzz, never a voice (words rise and fall 10 dB and more within a second). DeepFilterNet keeps a harmonic hum (60,
+    /// 120, 180 Hz: a ground loop, a power supply) as if it were voiced speech and judges it speech, so without this it held
+    /// the gate open as long as it lasted. Found, it stays found while it goes on (following its level as suppression eases
+    /// off it) until a frame rises clearly over it, a voice on top, so the floors have time to learn it; then they keep it
+    /// shut after each sentence (<see cref="SpeechOverFloorDb"/> too).
+    /// </summary>
+    internal const float SteadyDb = 4f;
+    private const int SteadyFrames = 100;
+    private readonly float[] _recent = new float[SteadyFrames], _sorted = new float[SteadyFrames];
+    private int _recentAt, _recentCount;
+    private float _steadyAt = float.NaN;
+
+    /// <summary>DeepFilterNet's judgment opens the gate only this far over the cleaned floor: a hum it keeps (and calls speech) sits on it.</summary>
+    internal const float SpeechOverFloorDb = 6f;
+
     private float _noiseFloor = -60f;
     // After noise suppression: what comes out between words (the cleaned floor) and what the microphone hears all the
     // time (its own floor: the fan and the room). See Voiced.
@@ -120,11 +137,13 @@ internal sealed class VoiceGate
         var db = MathF.Max(-100f, 10 * MathF.Log10((float)(sum / Math.Max(1, frame.Length)) + 1e-10f));
         Level = db;
         _noiseFloor = db < _noiseFloor ? db : _noiseFloor + 0.05f;
+        var steady = Steady(db);
         var open = !automatic ? db > threshold
             // After suppression: open when the model hears speech, or when what it left is clearly over its own quiet floor,
             // the mic is over its own, and suppression kept most of it. Noise loses about 39 dB to it (a fan, a key's click)
             // and a voice little, so under 15 dB taken is a voice; a steady fan is learned into both floors.
-            : before is { } heard ? db > -65f && (speech > SpeechDb
+            // A steady sound opens it on neither: shut, the floors learn it, and a voice over it opens it again.
+            : before is { } heard ? !steady && db > -65f && ((speech > SpeechDb && db > _cleanedFloor.Db + SpeechOverFloorDb)
                 || (db > heard - 15f && db > _cleanedFloor.Db + 15f && heard > _micFloor.Db + 6f))
             : db > MathF.Max(_noiseFloor + 12f, -55f);
         if (before is { } mic)
@@ -147,6 +166,29 @@ internal sealed class VoiceGate
         _shut++;
         _loudestShut = MathF.Max(_loudestShut, db);
         return false;
+    }
+
+    // Whether a steady sound is going on, this frame's level in. Found when the middle 80% of the last two seconds' levels
+    // sit within SteadyDb (over silence: the odd frame suppression cuts deeper, as it does to a hum once it has heard a
+    // voice, doesn't count); kept, following its level, until a frame rises SteadyDb + 2 over it or it falls silent.
+    private bool Steady(float db)
+    {
+        _recent[_recentAt] = db;
+        _recentAt = (_recentAt + 1) % SteadyFrames;
+        if (_recentCount < SteadyFrames) _recentCount++;
+        if (!float.IsNaN(_steadyAt))
+        {
+            if (db <= _steadyAt + SteadyDb + 2f && db > -80f) { _steadyAt += (db - _steadyAt) * 0.02f; return true; }
+            _steadyAt = float.NaN;
+            return false;
+        }
+        if (_recentCount < SteadyFrames) return false;
+        _recent.CopyTo(_sorted, 0);
+        Array.Sort(_sorted);
+        var low = _sorted[SteadyFrames / 10];
+        if (low <= -80f || _sorted[SteadyFrames - 1 - SteadyFrames / 10] - low >= SteadyDb) return false;
+        _steadyAt = _sorted[SteadyFrames / 2];
+        return true;
     }
 }
 

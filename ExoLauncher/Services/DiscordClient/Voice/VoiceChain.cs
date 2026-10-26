@@ -140,6 +140,7 @@ internal sealed class VoiceChain : IDisposable
         var focus = processing.Focus && !Recording;
         var cleaned = Cleaned;
         var open = false;
+        var held = false;
         if (!focus || cleaned is not null)
         {
             // The gate judges what suppression left (Discord's gate reads Krisp's verdict the same way), against the sound it came from.
@@ -158,10 +159,12 @@ internal sealed class VoiceChain : IDisposable
                 if ((processing.OnlyMyVoice || Voiceprint.Learned) && Mine() is { } mine)
                 {
                     mine.Feed(frame, open, processing.OnlyMyVoice);
-                    if (processing.OnlyMyVoice && open && mine.HoldingBack) open = false;
+                    // A voice that was going out ends on this frame, faded to silence as the gate's own close fades it
+                    // (cut off mid-word, the other side heard a click each time); one that wasn't stays shut.
+                    if (processing.OnlyMyVoice && open && mine.HoldingBack) (held, open) = (true, _sending);
                 }
             }
-            cleaned?.Invoke(frame, open, DelaySamples);
+            cleaned?.Invoke(frame, open && !held, DelaySamples);
         }
         if (!focus && exo)
         {
@@ -169,7 +172,7 @@ internal sealed class VoiceChain : IDisposable
             // speaking level, stood down where Windows' own gain control already rides it (Voice Focus has its own).
             // None and a custom chain send the voice as the gate left it.
             _shape.Process(frame);
-            if (!systemGain) _leveler.Process(frame, open);
+            if (!systemGain) _leveler.Process(frame, open && !held);
         }
         if (focus)
         {
@@ -180,27 +183,28 @@ internal sealed class VoiceChain : IDisposable
         // Push to Talk sends by its key, whatever the gate says: nothing to fade or lead in.
         if (!processing.PushToTalk && !Recording)
         {
-            Fade(frame, open);
+            Fade(frame, open, closing: _gate.Closing || held);
             Lead(frame, open);
         }
         return open;
     }
 
-    // The gate's release: the hold's last frame fades out over its 20 ms (a raised cosine, to silence on its last
+    // The gate's release (and Only My Voice's, on the frame it starts holding back): the hold's last frame fades out over its 20 ms (a raised cosine, to silence on its last
     // sample), so a voice never ends on a step the other side hears as a click, and Opus's last frame ends at silence.
     // The next opening fades in over its first 2.5 ms from there. Mute cuts at once instead (see Mute).
     private static readonly float[] Release = Ramp(Opus.FrameSamples, down: true), Attack = Ramp(120, down: false);
     private bool _sending;
 
-    private void Fade(float[] frame, bool open)
+    private void Fade(float[] frame, bool open, bool closing)
     {
         // An opening with a lead-in fades in at the lead-in's first frame instead (see Lead).
         var opening = _leadCount > 0 ? _lead[(_leadAt - _leadCount + LeadFrames) % LeadFrames] : frame;
         if (open && !_sending)
             for (var i = 0; i < Attack.Length; i++) { opening[2 * i] *= Attack[i]; opening[2 * i + 1] *= Attack[i]; }
-        if (open && _gate.Closing)
+        if (open && closing)
             for (var i = 0; i < Release.Length; i++) { frame[2 * i] *= Release[i]; frame[2 * i + 1] *= Release[i]; }
-        _sending = open;
+        // Faded out to silence: whatever opens next fades in from there.
+        _sending = open && !closing;
     }
 
     // Discord's vadLeading (5 frames): the 100 ms before the gate opens are kept, and go out just ahead of the frame that

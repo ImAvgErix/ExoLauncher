@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.15.4 — October 26, 2026
+
+- **Only my voice cuts off without a click.** When it started holding back a voice that was going out, it stopped the sound mid-wave, and the call heard a click each time. It now fades that last moment out, as the gate does at the end of a sentence. _Checked in code only; needs a call with Only my voice on._
+- **A hum or buzz near your mic stays out of the call.** A steady buzz with overtones, like a ground loop or a power supply at 60, 120 and 180 Hz, sounded like a voice to noise suppression. It kept your mic open for as long as it lasted, whether Only my voice was on or off. Exo now knows a sound that holds one level for two seconds isn't a voice: the buzz goes out only as it starts, and your voice over it still goes out in full. Knocks, clicks, low rumble and fans were already kept out, and still are. _Checked in code only; needs a mic that picks up a hum._
+- **Only my voice stays on through noise.** Its safety stop, which turns it off when it seems to be holding back your own voice, counted noise it held back too. A hum or a vibration held back for 20 seconds turned it off for the rest of the call, and the noise then went out. Only voices count toward the stop now. _Checked in code only; needs a call with Only my voice on._
+- **RTX Video is set the way NVIDIA Control Panel sets it.** Exo now takes the same steps as the panel and the NVIDIA app before changing Super Resolution or HDR, waits out a busy driver, and reads Off the way the panel does. The message when the driver doesn't keep a choice no longer blames the NVIDIA app, which never changes RTX Video by itself, and Exo logs what the driver keeps so a PC that shows Set elsewhere can be explained. _Checked in code only; needs a PC that shows Set elsewhere._
+
 ## 3.15.3 — October 26, 2026
 
 - **The voice meter and Teach Exo my voice work again.** 3.15.2 kept 20 seconds of the meter for teaching, but only eight seconds of which moments were speech: past the eighth second every meter frame failed, so the meter froze and teaching your voice failed. _Checked in code only; needs a meter left on past eight seconds._

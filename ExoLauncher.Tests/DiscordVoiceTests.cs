@@ -485,6 +485,42 @@ public sealed class VoiceChainTests
         Assert.True(opened.Skip(fanFrames).Count(o => o) >= voiceFrames * 9 / 10, $"{opened.Skip(fanFrames).Count(o => o)} of {voiceFrames} voice frames sent");
     }
 
+    // A buzz (60, 120 and 180 Hz: a ground loop, a power supply) DeepFilterNet keeps as if it were a voice: after a voice it
+    // held the automatic gate open for as long as it lasted, and the call heard it. Through the real plugin at real time: a
+    // voice, then the buzz from 2 s on; three seconds after it starts it is never sent, a voice over it goes out, and once
+    // that voice is done (and its hold) the buzz stays shut.
+    [Fact]
+    public void ABuzzIsSentOnlyAsItStartsAndAVoiceOverItStillGoesOut()
+    {
+        NoiseSuppressorTests.UseTestPlugin();
+        using var chain = new VoiceChain { StepsAside = false };
+        chain.Prepare(VoiceProcessing.ExoVoice);
+        const int Second = Opus.SampleRate, total = 11;
+        var fan = Fan(total * Second, -55, seed: 2);
+        var voice = Vowels(2 * Second, -30);
+        var frame = new float[VoiceAudio.FrameFloats];
+        var sent = new bool[total * Second / Opus.FrameSamples];
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        for (var f = 0; f < sent.Length; f++)
+        {
+            var due = TimeSpan.FromSeconds((double)f * Opus.FrameSamples / Opus.SampleRate) - clock.Elapsed;
+            if (due > TimeSpan.Zero) Thread.Sleep(due);
+            for (var i = 0; i < Opus.FrameSamples; i++)
+            {
+                var n = f * Opus.FrameSamples + i;
+                var buzz = n < 2 * Second ? 0 : 0.006 * (Math.Sin(2 * Math.PI * 60 * n / Second) + Math.Sin(2 * Math.PI * 120 * n / Second) + Math.Sin(2 * Math.PI * 180 * n / Second));
+                var talk = n < 2 * Second ? voice[n] : n >= 7 * Second && n < 9 * Second ? voice[n - 7 * Second] : 0;
+                frame[2 * i] = frame[2 * i + 1] = fan[n] + (float)buzz + talk;
+            }
+            sent[f] = chain.Process(frame, VoiceProcessing.ExoVoice, null, systemGain: false);
+        }
+        int Frame(double seconds) => (int)(seconds * Second / Opus.FrameSamples);
+        int Sent(double from, double to) => sent.Skip(Frame(from)).Take(Frame(to) - Frame(from)).Count(s => s);
+        Assert.Equal(0, Sent(5, 7));
+        Assert.True(Sent(7, 9) >= Frame(2) * 9 / 10, $"{Sent(7, 9)} of {Frame(2)} frames of the voice over the buzz sent");
+        Assert.Equal(0, Sent(9.6, 11));
+    }
+
     // A fan's sound: pink and brown noise (Paul Kellet's pink filter, a leaky integrator for brown), wavering 15% at 0.7 Hz.
     internal static float[] Fan(int samples, double db, int seed)
     {

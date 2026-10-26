@@ -1,5 +1,25 @@
 [
   {
+    "version": "3.15.4",
+    "items": [
+      {
+        "icon": "Mic",
+        "title": "No clicks from Only my voice",
+        "detail": "When it holds back a voice, it fades it out instead of cutting it off, so nobody in the call hears a click."
+      },
+      {
+        "icon": "Mic",
+        "title": "Hums stay out of the call",
+        "detail": "A steady buzz near your mic no longer keeps it open, and Only my voice no longer switches itself off because of noise."
+      },
+      {
+        "icon": "GraphicsCard",
+        "title": "RTX Video sets like NVIDIA’s",
+        "detail": "Super Resolution and HDR are changed the way NVIDIA Control Panel changes them, so the choice you make is the one that sticks."
+      }
+    ]
+  },
+  {
     "version": "3.15.3",
     "items": [
       {
