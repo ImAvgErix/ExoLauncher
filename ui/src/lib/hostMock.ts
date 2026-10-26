@@ -448,7 +448,7 @@ function mockSettingsSet(params?: Record<string, unknown>) {
 
 // Discord settings > Voice & Video and the rest, kept for the session so the pages can be clicked through.
 let mockDiscordClient: Record<string, unknown> = {
-  inputProfile: 'exo', noiseSuppression: true, noiseSuppressionKind: 'ai', othersNoiseSuppression: false, onlyMyVoice: false, myVoiceLearned: false, evenVoices: true, echoCancellation: true, voiceFocus: true, pushToTalk: false, pttDelay: 20,
+  inputProfile: 'exo', noiseSuppression: true, noiseSuppressionKind: 'ai', othersNoiseSuppression: false, onlyMyVoice: false, myVoiceLearned: false, myVoiceSeconds: 0, evenVoices: true, echoCancellation: true, voiceFocus: true, pushToTalk: false, pttDelay: 20,
   autoSensitivity: true, sensitivity: -60, attenuation: 0, attenuateSelf: false, attenuateOthers: true, keybinds: [], desktopNotifications: true,
   unreadBadge: true, taskbarFlash: true, disabledSounds: [], disableAllSounds: false, selectedChannelSound: false, soundVolume: 60,
 }

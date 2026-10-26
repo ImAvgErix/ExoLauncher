@@ -150,13 +150,15 @@ internal sealed class VoiceChain : IDisposable
             // (the first seconds of a call went out uncleaned before, fan and all).
             if (suppression == "loading") open = false;
             // Only My Voice: a voice judged not the user's is held back (MyVoice), judged on what the gate let through.
+            // With a voiceprint the judging runs whether or not Only My Voice is on, so it keeps learning the user's
+            // voice (VoiceprintLearning); holding back is Only My Voice's alone.
             if (!focus)
             {
                 Voiced = open;
-                if (processing.OnlyMyVoice && Mine() is { } mine)
+                if ((processing.OnlyMyVoice || Voiceprint.Learned) && Mine() is { } mine)
                 {
                     mine.Feed(frame, open);
-                    if (open && mine.HoldingBack) open = false;
+                    if (processing.OnlyMyVoice && open && mine.HoldingBack) open = false;
                 }
             }
             cleaned?.Invoke(frame, open, DelaySamples);
@@ -254,6 +256,9 @@ internal sealed class VoiceChain : IDisposable
     }
 
     // The voiceprint and model are read off the audio thread; until they are, nothing is held back.
+    /// <summary>Only My Voice's safety stop came in this chain: it held back the user's own speech and stopped holding back.</summary>
+    internal bool MyVoiceStopped => _myVoice?.Stopped == true;
+
     private MyVoice? Mine()
     {
         if (_myVoice is not null) return _myVoice;

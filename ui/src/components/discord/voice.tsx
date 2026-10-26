@@ -540,6 +540,9 @@ export function VoicePanel({ controls, place, onOpen }: { controls: VoiceControl
         {voice.state === 'connected' && voice.micSilent && !voice.muted
           ? <span className="exo-dc-voice-warn" role="status">Your mic seems silent. Check it’s plugged in, unmuted and its gain is up.</span>
           : null}
+        {voice.state === 'connected' && voice.myVoiceStopped
+          ? <span className="exo-dc-voice-warn" role="status">Only my voice kept holding back your own voice, so it’s off for this call. Teach your voice again in Voice &amp; video.</span>
+          : null}
         {/* Someone else's clips (or Exo Capture) record this call: Discord tells everyone in it. */}
         {voice.state === 'connected' && voice.recorded ? <span className="exo-dc-voice-warn" role="status">Someone in this call has clips on, so your voice may be recorded.</span> : null}
       </div>

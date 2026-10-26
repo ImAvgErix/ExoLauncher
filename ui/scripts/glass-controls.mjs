@@ -39,7 +39,8 @@ for (const file of files) {
   }
 }
 
-const css = fs.readFileSync(glass, 'utf8')
+// Read with LF line ends: a Windows checkout (CI's runner, core.autocrlf) has CRLF, where the markers below never matched.
+const css = fs.readFileSync(glass, 'utf8').replace(/\r\n/g, '\n')
 const start = css.indexOf(':where(\n')
 const end = css.indexOf('\n) {\n  backdrop-filter: var(--exo-control-glass);', start)
 if (start < 0 || end < 0) throw new Error('glass.css has no control list to rewrite')

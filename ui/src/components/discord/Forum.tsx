@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { host } from '../../lib/host'
+import { host, onHostEvent } from '../../lib/host'
 import { report } from '../../lib/report'
 import { avatarUrl, displayName, snowflakeTime, type DiscordChannel, type DiscordForumTag, type DiscordMessage, type DiscordThread } from '../../lib/discord'
 import { Icons } from './icons'
@@ -22,7 +22,7 @@ export function ForumView({ channel, guildId, channelName, active, onOpen }: {
   active: boolean
   onOpen: (thread: DiscordChannel) => void
 }) {
-  const { page, more } = usePosts(channel.id)
+  const { page, more } = usePosts(channel.id, guildId)
   // Posts begin with markdown: their emoji, mentions and links, as Discord draws a preview.
   const ctx = useMemo<MarkdownContext>(() => ({ users: new Map([...page.first.values()].flatMap(m => m.mentions).map(u => [u.id, u])), channelName, meId: null, guildId, colors: new Map() }), [page.first, channelName, guildId])
   // Viewing a forum reads it, as Discord acks a forum on screen (its newest post is the forum's newest message).
@@ -69,8 +69,10 @@ export function ForumView({ channel, guildId, channelName, active, onOpen }: {
   )
 }
 
-// Open posts first (one page), then archived ones 25 at a time; a page that fails stops there with its reason.
-function usePosts(channelId: string) {
+// Open posts first (one page), then archived ones 25 at a time; a page that fails stops there with its reason. A new
+// post (or one changed) while the forum is open comes in as the server changes: the open posts are read again a beat
+// after, new ones go on top, the rest take their new counts. Before, a new post showed only once the forum reopened.
+function usePosts(channelId: string, guildId: string) {
   const [page, setPage] = useState<Page>({ threads: [], first: new Map(), tags: [], error: null, done: false, loading: true })
   const next = useRef<{ archived: boolean; offset: number } | null>({ archived: false, offset: 0 })
   const busy = useRef(false)
@@ -99,6 +101,28 @@ function usePosts(channelId: string) {
   }, [channelId])
   // The open posts, then the first archived page at once: a forum whose posts are all archived isn't empty.
   useEffect(() => { void load().then(load) }, [load])
+  useEffect(() => {
+    let timer = 0
+    let live = true
+    const fresh = async () => {
+      const result = await host.discordThreads(channelId, { archived: false, offset: 0 }).catch(() => null)
+      if (!live || !result?.ok) return
+      const threads = result.threads ?? []
+      setPage(p => {
+        const first = new Map(p.first)
+        for (const m of result.firstMessages ?? []) first.set(m.channel_id, m)
+        const now = new Map(threads.map(t => [t.id, t]))
+        const added = threads.filter(t => !p.threads.some(x => x.id === t.id))
+        return { ...p, first, threads: [...added, ...p.threads.map(t => now.get(t.id) ?? t)] }
+      })
+    }
+    const off = onHostEvent('discord.changed', e => {
+      if (e?.guildId !== guildId || e.voice) return
+      window.clearTimeout(timer)
+      timer = window.setTimeout(() => void fresh(), 600)
+    })
+    return () => { live = false; window.clearTimeout(timer); off() }
+  }, [channelId, guildId])
   return { page, more: () => void load() }
 }
 

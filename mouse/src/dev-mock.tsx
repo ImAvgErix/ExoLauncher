@@ -157,7 +157,7 @@ const CLIENT = {
   getLowPowerOptions: () => [5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 100],
 } as unknown as SupportedClient
 
-const CANDIDATE = { id: DEVICE, device: {} as HIDDevice, name: RAZER ? 'Viper V3 Pro' : LAMZU ? 'Maya X' : 'Starlight X' } satisfies Candidate
+const CANDIDATE = { id: DEVICE, device: {} as HIDDevice, name: RAZER ? 'Viper V3 Pro' : LAMZU ? 'Maya X' : 'Starlight X', others: [] } satisfies Candidate
 
 const GAMES = [
   { id: 'steam:730', title: 'Counter-Strike 2' },

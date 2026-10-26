@@ -167,14 +167,15 @@ public sealed class GameArtworkService
     /// installed or not, one at a time. Covers you chose yourself stay. Each
     /// card publishes as it lands, so the grid fills in while it runs.
     /// </summary>
-    public async Task<int> RefetchAllAsync(CancellationToken ct = default)
+    /// <summary>Every card's computed cover fetched again, but for <paramref name="skip"/> (the games the user hid: nothing shows them in the Library).</summary>
+    public async Task<int> RefetchAllAsync(IReadOnlySet<string>? skip = null, CancellationToken ct = default)
     {
         await _mutationGate.WaitAsync(ct).ConfigureAwait(false);
         var refreshed = 0;
         try
         {
             var ids = _library.PeekCachedLibrary()
-                .Where(game => !string.Equals(game.CoverSource, "custom", StringComparison.OrdinalIgnoreCase))
+                .Where(game => !string.Equals(game.CoverSource, "custom", StringComparison.OrdinalIgnoreCase) && skip?.Contains(game.Id) != true)
                 .Select(game => game.Id)
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();

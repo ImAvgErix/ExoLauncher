@@ -267,6 +267,9 @@ internal sealed partial class DiscordCache
                 case "MESSAGE_DELETE":
                     OnMessage(type, d, events);
                     break;
+                case "MESSAGE_DELETE_BULK":
+                    OnBulkDelete(d, events);
+                    break;
                 case "MESSAGE_ACK":
                     if (Str(d, "channel_id") is { } acked && Find(acked) is not null)
                     {
@@ -517,6 +520,22 @@ internal sealed partial class DiscordCache
             _myRolesMoved.Clear();
         }
         return events;
+    }
+
+    /// <summary>
+    /// A purge (a moderator's bot, or Discord removing a banned member's messages): every id goes as its own delete,
+    /// the way MESSAGE_DELETE does, with its notification. Before, it went unseen and the messages stayed on screen.
+    /// </summary>
+    private void OnBulkDelete(JsonElement d, List<(string, object)> events)
+    {
+        var channelId = Str(d, "channel_id");
+        if (channelId is null || !Visible(channelId) || !d.TryGetProperty("ids", out var ids) || ids.ValueKind != JsonValueKind.Array) return;
+        foreach (var id in ids.EnumerateArray())
+        {
+            if (id.ValueKind != JsonValueKind.String || id.GetString() is not { Length: > 0 } gone) continue;
+            events.Add(("discord.notifyClear", new NotifyClear(channelId, gone)));
+            events.Add(("discord.message", new { kind = "delete", channelId, id = gone }));
+        }
     }
 
     private void OnMessage(string type, JsonElement d, List<(string, object)> events)

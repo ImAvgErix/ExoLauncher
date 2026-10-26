@@ -119,6 +119,8 @@ export type DiscordClientSettings = {
   onlyMyVoice: boolean
   /** Whether Exo has learned this user's voice (from the live meter); read-only. */
   myVoiceLearned?: boolean
+  /** How many seconds of the user's speech the voiceprint is from: the teach, then what calls added. */
+  myVoiceSeconds?: number
   /** Each person's voice in a call brought toward one speaking level, for you; on by default. */
   evenVoices: boolean
   /** Exo's echo cancellation, which runs only on speakers that aren't on your head. */

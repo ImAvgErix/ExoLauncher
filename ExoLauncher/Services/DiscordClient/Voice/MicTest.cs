@@ -60,7 +60,7 @@ internal static class MicTest
             (VoiceStages, string) shown = default;
             object? stages = null;
             // The last 8 s as the chain cleaned it, kept so Teach Exo My Voice learns from live talking, not a recording.
-            var take = new float[400][];
+            var take = new float[1000][]; // 20 s: a teach takes eight seconds of speech out of what the meter heard
             var takeVoiced = new bool[400];
             var takeAt = 0;
             for (var i = 0; i < take.Length; i++) take[i] = new float[Opus.FrameSamples];

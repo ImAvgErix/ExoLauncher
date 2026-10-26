@@ -47,7 +47,8 @@ export const TABLER = {
 ${lines.join('\n')}
 } as const satisfies Record<string, readonly (readonly [0 | 1 | 2, string])[]>
 `
-const current = fs.existsSync(out) ? fs.readFileSync(out, 'utf8') : ''
+// Compared with LF line ends: a Windows checkout (CI's runner, core.autocrlf) has CRLF, which read as out of date.
+const current = fs.existsSync(out) ? fs.readFileSync(out, 'utf8').replace(/\r\n/g, '\n') : ''
 if (process.argv.includes('--check')) {
   if (next !== current) { console.error('brand/tabler.ts is out of date; run npm run icons'); process.exit(1) }
 } else if (next !== current) fs.writeFileSync(out, next)

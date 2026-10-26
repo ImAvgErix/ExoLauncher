@@ -393,6 +393,7 @@ public sealed partial class WebHostBridge
             othersNoiseSuppression = settings.DiscordOthersNoiseSuppression,
             onlyMyVoice = settings.DiscordOnlyMyVoice,
             myVoiceLearned = Voiceprint.Learned,
+            myVoiceSeconds = Voiceprint.Learned ? Voiceprint.Seconds : 0,
             evenVoices = settings.DiscordEvenVoices,
             echoCancellation = settings.DiscordEchoCancellation,
             voiceFocus = settings.DiscordVoiceFocus,

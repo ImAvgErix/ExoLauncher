@@ -136,7 +136,18 @@ function NoiseSuppression({ settings, save }: { settings: DiscordClientSettings;
   )
 }
 
-/** Only My Voice: once Exo has learned the voice (Teach Exo My Voice, over the live meter); Forget deletes the voiceprint. */
+/** "2 min 30 s" of speech, "45 s" under a minute. */
+function speechTime(seconds: number): string {
+  const s = Math.max(0, Math.floor(seconds))
+  if (s < 60) return `${s} s`
+  return s % 60 ? `${Math.floor(s / 60)} min ${s % 60} s` : `${s / 60} min`
+}
+
+/**
+ * Only My Voice: once Exo has learned the voice (Teach Exo My Voice, over the live meter). It keeps learning in calls
+ * from speech that is clearly the user's, anchored to what was taught; the row says how much it has learned from.
+ * Teach again starts over from a new take; Forget deletes the voiceprint.
+ */
 function OnlyMyVoice({ settings, save }: { settings: DiscordClientSettings; save: Save }) {
   const learned = settings.myVoiceLearned === true
   const [learning, setLearning] = useState<'busy' | string | null>(null)
@@ -153,10 +164,17 @@ function OnlyMyVoice({ settings, save }: { settings: DiscordClientSettings; save
         detail={learned ? 'Holds back voices that aren’t yours: someone else in the room, a TV or a stream.'
           : 'First teach Exo your voice: talk on the meter above for a few seconds, then Teach Exo my voice.'}
         onChange={value => save({ onlyMyVoice: value })} />
-      <Row label="Your voice" detail={learned ? 'Learned on this PC; it never leaves it.' : (learning === 'busy' ? 'Learning your voice…' : learning ?? 'Talk on the meter above, then teach it here.')}
+      <Row label="Your voice"
+        detail={learning === 'busy' ? 'Learning your voice…'
+          : learned ? `Learned from ${speechTime(settings.myVoiceSeconds ?? 0)} of your voice. It keeps learning in calls when it’s clearly you, and never leaves this PC.`
+          : learning ?? 'Talk on the meter above, then teach it here.'}
         error={learning !== null && learning !== 'busy' ? learning : null}>
-        {learned ? <button type="button" className="exo-set-btn" onClick={forget}>Forget</button>
-          : <button type="button" className="exo-set-btn" disabled={learning === 'busy'} onClick={learn}>Teach Exo my voice</button>}
+        {learned ? (
+          <>
+            <button type="button" className="exo-set-btn" disabled={learning === 'busy'} onClick={learn}>Teach again</button>
+            <button type="button" className="exo-set-btn" onClick={forget}>Forget</button>
+          </>
+        ) : <button type="button" className="exo-set-btn" disabled={learning === 'busy'} onClick={learn}>Teach Exo my voice</button>}
       </Row>
     </>
   )

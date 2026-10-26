@@ -14,6 +14,15 @@ internal static class Repo
         throw new InvalidOperationException("ExoLauncher.sln not found above " + AppContext.BaseDirectory);
     }
 
+    /// <summary>
+    /// A native part of Discord voice that voice\build.ps1 builds into voice\out (dave.dll, opus.dll, exo_apm.dll), beside
+    /// the tests: CI builds and tests without them (they take vcpkg, OpenSSL and a long native build), so a test that
+    /// needs one skips there and says why; on a PC that ran voice\build.ps1 it runs. Build-Release.ps1 refuses a release
+    /// without them.
+    /// </summary>
+    internal static void RequireVoice(string dll) =>
+        Assert.SkipUnless(File.Exists(Path.Combine(AppContext.BaseDirectory, dll)), $"{dll} isn't built here (voice\\build.ps1)");
+
     /// <summary>The host's C# sources, without build output.</summary>
     internal static IEnumerable<string> HostSources() =>
         new[] { "ExoLauncher", "ExoLauncher.SteamIpc" }

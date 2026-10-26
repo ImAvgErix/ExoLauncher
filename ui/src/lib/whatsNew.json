@@ -1,5 +1,40 @@
 [
   {
+    "version": "3.15.2",
+    "items": [
+      {
+        "icon": "Mic",
+        "title": "Your mic keeps going",
+        "detail": "Only my voice can no longer mute you for a whole call: if it holds back most of your own speech, it stops and tells you."
+      },
+      {
+        "icon": "Mic",
+        "title": "Only my voice keeps learning",
+        "detail": "After you teach it once, it learns from calls where it’s clearly you, and Settings shows how much it has learned."
+      },
+      {
+        "icon": "Chats",
+        "title": "Purges clear at once",
+        "detail": "Messages a moderator’s bot purges disappear right away, and mentions name the person instead of @unknown-user."
+      },
+      {
+        "icon": "Hash",
+        "title": "New forum posts appear live",
+        "detail": "A forum you have open shows new posts as they’re made."
+      },
+      {
+        "icon": "Mouse",
+        "title": "Razer receivers connect",
+        "detail": "Exo Mouse finds the right interface on a Razer receiver by itself."
+      },
+      {
+        "icon": "Library",
+        "title": "A lighter Refresh",
+        "detail": "Library’s Refresh skips the games you hid."
+      }
+    ]
+  },
+  {
     "version": "3.15.1",
     "items": [
       {

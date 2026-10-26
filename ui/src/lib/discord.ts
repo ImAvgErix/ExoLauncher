@@ -146,7 +146,9 @@ export type DiscordChannel = {
 }
 export type DiscordVoiceMember = { id: string; name: string; avatar: string | null; look?: DiscordLook | null; mute: boolean; deaf: boolean; video?: boolean; stream?: boolean; serverMute?: boolean; serverDeaf?: boolean }
 /** message: why the call ended on its own (a join Discord never answered, a connection that gave up). */
-export type DiscordVoice = { state: 'off' | 'connecting' | 'connected'; guildId: string | null; channelId: string | null; muted: boolean; deafened: boolean; e2ee: boolean; micSilent?: boolean; message?: string | null; ringing?: string | null; recorded?: boolean }
+export type DiscordVoice = { state: 'off' | 'connecting' | 'connected'; guildId: string | null; channelId: string | null; muted: boolean; deafened: boolean; e2ee: boolean; micSilent?: boolean
+  /** Only My Voice held back the user's own speech and stopped holding back for this call. */
+  myVoiceStopped?: boolean; message?: string | null; ringing?: string | null; recorded?: boolean }
 export type DiscordChannels = {
   name: string | null
   channels: DiscordChannel[]

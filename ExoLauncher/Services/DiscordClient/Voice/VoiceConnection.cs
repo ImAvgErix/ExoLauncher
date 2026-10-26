@@ -48,6 +48,7 @@ internal sealed class VoiceConnection : IAsyncDisposable
     private VoiceAudio? _audio;
     // The microphone's processing: the same chain Voice Check and Voice Tune play back.
     private readonly VoiceChain _chain = new();
+    private bool _toldMyVoiceStopped;
     private VoiceStages _loggedStages;
     private int _gateFrames;
     private nint _encoder;
@@ -309,6 +310,12 @@ internal sealed class VoiceConnection : IAsyncDisposable
         // The microphone as it came, before anything cleans or levels it: a mic that sends nothing (unplugged in all but
         // name, muted on its own button, its gain knob all the way down) is said in the voice panel, as Discord does.
         if (_micSilence.Hear(frame, Muted) is { } silent) Changed?.Invoke("micSilent", new { silent });
+        // Only My Voice stopped holding back (it held back the user's own speech): said once, in the voice panel.
+        if (!_toldMyVoiceStopped && _chain.MyVoiceStopped)
+        {
+            _toldMyVoiceStopped = true;
+            Changed?.Invoke("myVoiceStopped", new { });
+        }
         if (Muted)
         {
             // A recording that takes its voice from this chain (RecordedVoice) keeps hearing it while Discord doesn't.

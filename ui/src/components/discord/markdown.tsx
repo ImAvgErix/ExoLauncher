@@ -1,7 +1,8 @@
-import { useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { openLink } from '../../lib/music'
 import { jumpToMessage, openDiscord, type DiscordRoleIcon, type DiscordUser } from '../../lib/discord'
 import { accountSettings } from '../../lib/discordPrefs'
+import { host } from '../../lib/host'
 import { showProfile } from './extras'
 import { emojiUrl } from './emojiUrl'
 
@@ -140,9 +141,38 @@ function token(m: RegExpMatchArray, ctx: MarkdownContext, jumbo: boolean, k: str
   return m[0]
 }
 
+/** People looked up for a mention the message didn't carry: their user, null when Discord has none. For the session. */
+const lookedUp = new Map<string, DiscordUser | null>()
+const looking = new Map<string, Promise<DiscordUser | null>>()
+
+/**
+ * A mention's user when the message didn't carry it (a bot posting with pings off, as Exo Bot files bugs): looked up
+ * once, as Discord's own client does, so it reads @name, not @unknown-user; @unknown-user only when Discord has nobody.
+ */
+function useMentioned(id: string, known: DiscordUser | undefined, guildId: string | null): DiscordUser | null | undefined {
+  const [, setFound] = useState(0)
+  const kept = known ?? lookedUp.get(id)
+  useEffect(() => {
+    if (kept !== undefined) return
+    let live = true
+    let request = looking.get(id)
+    if (!request) {
+      request = host.discordProfile(id, guildId)
+        .then(res => (res.ok && res.profile?.user ? res.profile.user as DiscordUser : null))
+        .catch(() => null)
+        .then(user => { lookedUp.set(id, user); looking.delete(id); return user })
+      looking.set(id, request)
+    }
+    void request.then(() => { if (live) setFound(n => n + 1) })
+    return () => { live = false }
+  }, [id, guildId, kept])
+  return kept
+}
+
 // @name, as Discord draws a mention; a click opens their profile card, as in Discord.
 function UserMention({ id, ctx }: { id: string; ctx: MarkdownContext }) {
-  const user = ctx.users.get(id)
+  const user = useMentioned(id, ctx.users.get(id), ctx.guildId)
+  if (user === undefined) return <span className="exo-dc-mention">@…</span>
   if (!user) return <span className="exo-dc-mention">@unknown-user</span>
   return (
     <span className={`exo-dc-mention is-clickable${id === ctx.meId ? ' is-me' : ''}`} role="button" tabIndex={0}

@@ -28,8 +28,10 @@ public sealed partial class WebHostBridge
         }
         await RefreshAllReportedHoursAsync(force: true, ct).ConfigureAwait(false);
 
+        // Games the user hid stay as they are: Refresh reads what shows (the stores are still read whole, to know what is owned).
+        var hidden = _services.Settings.Current.HiddenGames.ToHashSet(StringComparer.OrdinalIgnoreCase);
         var played = _services.Library.PeekCachedLibrary()
-            .Where(game => game.Installed || (game.PlaytimeMinutes ?? 0) > 0)
+            .Where(game => (game.Installed || (game.PlaytimeMinutes ?? 0) > 0) && !hidden.Contains(game.Id))
             .ToList();
         var achievements = 0;
         await Parallel.ForEachAsync(played, new ParallelOptions { MaxDegreeOfParallelism = 3, CancellationToken = ct }, async (game, token) =>
@@ -44,9 +46,9 @@ public sealed partial class WebHostBridge
         }).ConfigureAwait(false);
 
         _queue.TryEnqueue(() => _ = ReadGiftsAsync());
-        var covers = await _services.Artwork.RefetchAllAsync(ct).ConfigureAwait(false);
+        var covers = await _services.Artwork.RefetchAllAsync(hidden, ct).ConfigureAwait(false);
         OnLibraryUpdated();
-        AppLog.Info($"Library read again, achievements for {played.Count} games ({achievements} answered), {covers} covers.");
+        AppLog.Info($"Library read again, achievements for {played.Count} games ({achievements} answered), {covers} covers; {hidden.Count} hidden games left as they were.");
         return new { ok = true, achievements, covers };
     }
 }

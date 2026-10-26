@@ -7,7 +7,8 @@ import type { MouseStatus } from '@openmouse/protocol/drivers/mouse-types'
 import { exoHid, onHostEvent } from './exo-hid'
 
 /** One connectable device: the interface its best driver wants. */
-export type Candidate = { id: string; device: HIDDevice; name: string }
+/** others: the product's other interfaces, the next best first, tried when this one won't open (a Razer receiver's). */
+export type Candidate = { id: string; device: HIDDevice; name: string; others: HIDDevice[] }
 
 type Phase = 'looking' | 'none' | 'opening' | 'ready' | 'error'
 
@@ -40,17 +41,23 @@ function invoke(client: SupportedClient, method: string, args: unknown[]): Promi
 /** The best interface per physical product: receivers and mice expose several, one of which answers. */
 async function findCandidates(): Promise<Candidate[]> {
   const [devices, drivers] = await Promise.all([exoHid().getDevices(), registry()])
-  const best = new Map<string, { device: HIDDevice; score: number }>()
+  const byId = new Map<string, { device: HIDDevice; score: number }[]>()
   for (const device of devices) {
     const score = drivers.clientSupportScore(device)
     if (score <= 0) continue
     const id = `${device.vendorId.toString(16)}:${device.productId.toString(16)}`
-    const known = best.get(id)
-    if (!known || score > known.score) best.set(id, { device, score })
+    byId.set(id, [...(byId.get(id) ?? []), { device, score }])
   }
-  return [...best.entries()]
-    .sort((a, b) => b[1].score - a[1].score)
-    .map(([id, { device }]) => ({ id, device, name: device.productName || 'Mouse' }))
+  // A receiver's interfaces often score alike; the one with feature reports carries a mouse's settings (Razer's
+  // control reports), so it goes first. In a browser the user picks the interface; here Exo does.
+  return [...byId.entries()]
+    .map(([id, found]) => ({ id, found: found.sort((a, b) => b.score - a.score || featureReports(b.device) - featureReports(a.device)) }))
+    .sort((a, b) => b.found[0].score - a.found[0].score)
+    .map(({ id, found }) => ({ id, device: found[0].device, name: found[0].device.productName || 'Mouse', others: found.slice(1).map(f => f.device) }))
+}
+
+function featureReports(device: HIDDevice): number {
+  return device.collections.reduce((n, c) => n + (c.featureReports?.length ?? 0), 0)
 }
 
 const REFRESH_VISIBLE_MS = 4_000
@@ -125,19 +132,26 @@ export function useMouse() {
       if (!pick) { setState({ phase: 'none', candidates, current: null, brand: '', status: null, error: null, busy: false, readAt: 0 }); return }
       setState({ phase: 'opening', candidates, current: pick, brand: '', status: null, error: null, busy: false, readAt: 0 })
       const drivers = await registry()
-      const next = drivers.createSupportedClient(pick.device)
-      if (!next) { setState(s => ({ ...s, phase: 'error', error: 'No driver answers for this mouse.' })); return }
-      try {
-        if (can(next, 'open')) await invoke(next, 'open', [])
-        const status = await next.readStatus()
-        if (!live) { await next.close().catch(() => undefined); return }
-        client.current = next
-        reopened.current = false
-        setState({ phase: 'ready', candidates, current: pick, brand: drivers.deviceBrand(next), status, error: null, busy: false, readAt: Date.now() })
-      } catch (e) {
-        await next.close().catch(() => undefined)
-        if (live) setState(s => ({ ...s, phase: 'error', error: message(e) }))
+      // The best interface first, then the product's others: the first that opens and answers is the mouse.
+      let failed: unknown = null
+      for (const device of [pick.device, ...pick.others]) {
+        const next = drivers.createSupportedClient(device)
+        if (!next) continue
+        try {
+          if (can(next, 'open')) await invoke(next, 'open', [])
+          const status = await next.readStatus()
+          if (!live) { await next.close().catch(() => undefined); return }
+          client.current = next
+          reopened.current = false
+          const current = device === pick.device ? pick : { ...pick, device, others: [pick.device, ...pick.others.filter(d => d !== device)] }
+          setState({ phase: 'ready', candidates, current, brand: drivers.deviceBrand(next), status, error: null, busy: false, readAt: Date.now() })
+          return
+        } catch (e) {
+          failed ??= e
+          await next.close().catch(() => undefined)
+        }
       }
+      if (live) setState(s => ({ ...s, phase: 'error', error: failed === null ? 'No driver answers for this mouse.' : message(failed) }))
     }).catch(() => undefined)
     return () => { live = false }
   }, [scan, wanted])
@@ -225,6 +239,14 @@ export function useMouse() {
 }
 
 function message(e: unknown): string {
-  const text = e instanceof Error ? e.message : String(e)
-  return text.replace(/\s+/g, ' ').trim() || 'The mouse did not answer.'
+  const text = (e instanceof Error ? e.message : String(e)).replace(/\s+/g, ' ').trim()
+  // OpenMouse writes for a browser: its advice to re-add the device, pick another interface or allow Chrome on macOS
+  // means nothing here, where Exo tries every interface itself. What is left to do is close what holds the mouse.
+  if (/^Chrome could not write the (.+?)'s feature report/.test(text)) {
+    const name = /^Chrome could not write the (.+?)'s feature report/.exec(text)![1]
+    return /Razer Synapse/.test(text)
+      ? `Exo couldn't send settings to your ${name}. If Razer Synapse is running, quit it (it holds the mouse's settings), then Try again.`
+      : `Exo couldn't send settings to your ${name}. If its maker's app is running, quit it, then Try again.`
+  }
+  return text || 'The mouse did not answer.'
 }

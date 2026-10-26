@@ -136,14 +136,4 @@ internal static class SpeakerModel
         }
     }
 
-    /// <summary>How alike 16 kHz voice is to a voiceprint (cosine, -1 to 1); null when it can't be judged.</summary>
-    internal static float? Similarity(ReadOnlySpan<float> voice16k, float[] print) =>
-        Embed(voice16k) is { } now && now.Length == print.Length ? Dot(now, print) : null;
-
-    private static float Dot(float[] a, float[] b)
-    {
-        float sum = 0;
-        for (var i = 0; i < a.Length; i++) sum += a[i] * b[i];
-        return sum;
-    }
 }

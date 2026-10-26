@@ -43,6 +43,21 @@ public sealed class DiscordCacheTests
             .Select(c => c.GetProperty("name").GetString()!).ToArray();
 
     [Fact]
+    public void APurgeTakesEveryMessageItNamesAwayAndNothingInAChannelYouCantSee()
+    {
+        var cache = Ready("");
+        using var purge = JsonDocument.Parse("""{ "ids": ["501", "502", "503"], "channel_id": "10", "guild_id": "1" }""");
+        var deletes = cache.Apply("MESSAGE_DELETE_BULK", purge.RootElement)
+            .Where(e => e.Name == "discord.message")
+            .Select(e => JsonSerializer.SerializeToElement(e.Data))
+            .ToList();
+        Assert.Equal(["501", "502", "503"], deletes.Select(e => e.GetProperty("id").GetString()));
+        Assert.All(deletes, e => Assert.Equal("delete", e.GetProperty("kind").GetString()));
+        using var hidden = JsonDocument.Parse("""{ "ids": ["601"], "channel_id": "11", "guild_id": "1" }""");
+        Assert.Empty(cache.Apply("MESSAGE_DELETE_BULK", hidden.RootElement));
+    }
+
+    [Fact]
     public void HiddenChannelsNeverListed()
     {
         Assert.Equal(["general", "secret-member"], Names(Ready("")));

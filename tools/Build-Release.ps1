@@ -29,8 +29,8 @@ npm run -s build
 if ($LASTEXITCODE) { throw "UI build failed ($LASTEXITCODE)." }
 Pop-Location
 
-# Discord voice (dave.dll, opus.dll from voice\build.ps1) is built once into voice\out; the app project copies it.
-if (-not (Test-Path (Join-Path $repo 'voice\out\dave.dll'))) {
+# Discord voice (dave.dll, opus.dll and exo_apm.dll from voice\build.ps1) is built once into voice\out; the app project copies them.
+if (@('dave.dll', 'opus.dll', 'exo_apm.dll') | Where-Object { -not (Test-Path (Join-Path $repo "voice\out\$_")) }) {
     pwsh -NoProfile -File (Join-Path $repo 'voice\build.ps1')
     if ($LASTEXITCODE) { throw "Discord voice build failed ($LASTEXITCODE)." }
 }
@@ -38,6 +38,9 @@ dotnet publish ExoLauncher\ExoLauncher.csproj -c Release -p:Platform=x64 -r win-
 if ($LASTEXITCODE) { throw "dotnet publish failed ($LASTEXITCODE)." }
 $publish = Get-ChildItem -Recurse -Directory ExoLauncher\bin | Where-Object { $_.FullName -match 'Release\\.*win-x64\\publish$' } | Select-Object -First 1
 if (-not $publish) { throw 'No publish folder.' }
+# The app copies each voice library only once it is built (CI goes without): a release without one would have no voice.
+$noVoice = @('dave.dll', 'opus.dll', 'exo_apm.dll') | Where-Object { -not (Test-Path (Join-Path $publish.FullName $_)) }
+if ($noVoice) { throw "The app folder lacks Discord voice's $($noVoice -join ', ')." }
 
 # Exo Shaders (GPL-3.0-or-later, github.com/ImAvgErix/exo-shaders): the built engine and page.
 $engine = Join-Path $ShadersWork 'engine\out\service'

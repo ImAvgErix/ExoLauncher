@@ -105,6 +105,7 @@ public sealed class DiscordVoiceTests
     [Fact]
     public void TheVoiceGoesOutAsOneChannelAndPlaysOnBoth()
     {
+        Repo.RequireVoice("opus.dll");
         var encoder = Opus.NewEncoder();
         var decoder = Opus.NewDecoder();
         try
@@ -321,6 +322,7 @@ public sealed class DiscordVoiceTests
     [Fact]
     public void OpusRoundTripsATone()
     {
+        Repo.RequireVoice("opus.dll");
         var encoder = Opus.NewEncoder();
         var decoder = Opus.NewDecoder();
         try
@@ -351,6 +353,7 @@ public sealed class DiscordVoiceTests
     [Fact]
     public void DaveSendsAKeyPackageForAnE2eeCallAndPassesThroughOtherwise()
     {
+        Repo.RequireVoice("dave.dll");
         Assert.True(DaveSession.MaxVersion >= 1);
         var sent = new List<(byte Op, byte[] Payload)>();
         using (var plain = new DaveSession("100000000000000001", 400000000000000001, (op, p) => sent.Add((op, p)), (_, _) => { }))
@@ -603,12 +606,13 @@ public sealed class VoiceChainTests
 [Collection("DeepFilterNet")]
 public sealed class NoiseSuppressorTests
 {
-    // The plugin voice\build.ps1 fetched for the tests (the app fetches the same pinned file at run time).
+    // The plugin voice\build.ps1 fetched for the tests (the app fetches the same pinned file at run time); without it
+    // (CI, which doesn't run voice\build.ps1) the test skips and says why.
     internal static void UseTestPlugin()
     {
-        var root = new DirectoryInfo(AppContext.BaseDirectory);
-        while (root is not null && !Directory.Exists(Path.Combine(root.FullName, "voice", "build"))) root = root.Parent;
-        NoiseSuppressor.PluginPath = Path.Combine(root!.FullName, "voice", "build", "dfn", "exo-deepfilter.dll");
+        var plugin = Repo.PathOf("voice", "build", "dfn", "exo-deepfilter.dll");
+        Assert.SkipUnless(File.Exists(plugin), "DeepFilterNet's plugin isn't fetched here (voice\\build.ps1)");
+        NoiseSuppressor.PluginPath = plugin;
     }
 
     [Fact]
@@ -915,6 +919,7 @@ public sealed class EchoCancellerTests
     [Fact]
     public void TheCallsEchoComesOutOfTheMic()
     {
+        Repo.RequireVoice("exo_apm.dll");
         using var echo = EchoCanceller.Create();
         Assert.NotNull(echo);
         var played = Talk(1, 8 * Rate, 0.3f);
@@ -927,6 +932,7 @@ public sealed class EchoCancellerTests
     [Fact]
     public void AVoiceWithNothingPlayingKeepsItsLevel()
     {
+        Repo.RequireVoice("exo_apm.dll");
         using var echo = EchoCanceller.Create();
         Assert.NotNull(echo);
         var voice = Talk(3, 6 * Rate, 0.1f);
@@ -936,5 +942,10 @@ public sealed class EchoCancellerTests
     }
 
     [Fact]
-    public void ExoAPMShipsBesideExo() => Assert.True(File.Exists(Path.Combine(AppContext.BaseDirectory, "exo_apm.dll")));
+    public void ExoAPMShipsBesideExo()
+    {
+        // Built (voice\build.ps1), it is copied beside Exo; CI doesn't build it, and Build-Release.ps1 checks the release.
+        Assert.SkipUnless(File.Exists(Repo.PathOf("voice", "out", "exo_apm.dll")), "exo_apm.dll isn't built here (voice\\build.ps1)");
+        Assert.True(File.Exists(Path.Combine(AppContext.BaseDirectory, "exo_apm.dll")));
+    }
 }

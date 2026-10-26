@@ -10,6 +10,20 @@ namespace ExoLauncher.Tests;
 [Collection("DeepFilterNet")]
 public sealed class MyVoiceTests
 {
+    // The safety stop: a voiceprint that misjudges the user's own voice held them back for the rest of a call (seen in a
+    // game: 64 holds to 5 "your voice again"). Over half of 20 s of speech held back stops it; a voice held back now and
+    // then (a cough, someone talking over them) never does.
+    [Fact]
+    public void HoldingBackMostOfTwentySecondsOfSpeechStopsItAndNowAndThenNeverDoes()
+    {
+        var mostly = Enumerable.Repeat(30, MyVoice.StopSeconds).ToArray(); // 30 of each second's 50 voiced frames held
+        Assert.True(MyVoice.ShouldStop(mostly));
+        var half = Enumerable.Repeat(25, MyVoice.StopSeconds).ToArray();
+        Assert.False(MyVoice.ShouldStop(half)); // exactly half is not more than half
+        var nowAndThen = Enumerable.Range(0, MyVoice.StopSeconds).Select(i => i % 4 == 0 ? 50 : 5).ToArray();
+        Assert.False(MyVoice.ShouldStop(nowAndThen));
+    }
+
     [Fact]
     public void AVoiceIsHeldBackOnlyAfterTwoLowJudgmentsAndComesBackAtOnce()
     {
@@ -61,9 +75,11 @@ public sealed class MyVoiceTests
         {
             Assert.False(Voiceprint.Learned);
             var print = Enumerable.Range(0, 192).Select(i => MathF.Sin(i)).ToArray();
-            Voiceprint.Save(print);
+            Voiceprint.Save(new VoiceprintLearning.State(print, print, 12.5f, 3));
             Assert.True(Voiceprint.Learned);
             Assert.Equal(print, Voiceprint.Load());
+            Assert.Equal(12, Voiceprint.Seconds);
+            Assert.Equal(3, Voiceprint.LoadState()!.Updates);
             var clear = System.Runtime.InteropServices.MemoryMarshal.AsBytes(print.AsSpan(0, 8)).ToArray();
             Assert.True(File.ReadAllBytes(path).AsSpan().IndexOf(clear) < 0); // not stored in the clear
             Voiceprint.Forget();
@@ -94,7 +110,7 @@ public sealed class MyVoiceTests
             {
                 var talk = Voiced(Wav(Path.Combine(dir!, who + "-talk.wav")));
                 var scores = new List<float>();
-                for (var at = 0; at + 16000 <= talk.Length; at += 8000) scores.Add(SpeakerModel.Similarity(talk.AsSpan(at, 16000), me!)!.Value);
+                for (var at = 0; at + 16000 <= talk.Length; at += 8000) scores.Add(VoiceprintLearning.Dot(SpeakerModel.Embed(talk.AsSpan(at, 16000))!, me!));
                 return [.. scores];
             }
             Assert.True(Scores("david").Min() >= MyVoice.Mine, $"the learned voice scored {Scores("david").Min():0.00}");

@@ -139,8 +139,13 @@
   </Target>
 
   <ItemGroup>
-    <!-- Discord voice: libdave (DAVE end-to-end encryption), libopus and exo_apm (WebRTC's echo cancellation), built by voice\build.ps1. -->
-    <Content Include="..\voice\out\dave.dll;..\voice\out\opus.dll;..\voice\out\exo_apm.dll;..\voice\out\LICENSE-*.txt" Link="%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <!-- Discord voice: libdave (DAVE end-to-end encryption), libopus and exo_apm (WebRTC's echo cancellation), built by voice\build.ps1.
+         Each is copied once it is built: CI builds and tests without them (their tests skip), and tools\Build-Release.ps1
+         builds them first and refuses a release whose app folder lacks any. -->
+    <Content Include="..\voice\out\dave.dll" Condition="Exists('..\voice\out\dave.dll')" Link="%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="..\voice\out\opus.dll" Condition="Exists('..\voice\out\opus.dll')" Link="%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="..\voice\out\exo_apm.dll" Condition="Exists('..\voice\out\exo_apm.dll')" Link="%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="..\voice\out\LICENSE-*.txt" Link="%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
 
     <Content Include="..\LICENSE" Link="LICENSE.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="..\THIRD_PARTY_NOTICES.md" Link="THIRD_PARTY_NOTICES.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
