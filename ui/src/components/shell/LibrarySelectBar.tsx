@@ -1,15 +1,14 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useRef } from 'react'
 import { Eye, EyeOff, Folder, FolderPlus, Trash } from '../../brand/icons'
 import type { Game, LibraryFolder } from '../../lib/host'
 import { useLens } from '../../lib/glass'
-import { useDisarm } from '../game/ManageStrip'
+import { confirm } from '../ui/Dialog'
 import { Menu } from '../ui/Menu'
 
 /**
  * Select mode's bar: glass floating over the grid's foot, as Discord's call bar does. The count, then what applies to
  * every picked game: Hide (Unhide in Hidden games), Add to folder, Uninstall for installed games that aren't running
- * (a second press confirms, as on a game's page; Remove when they were all added from a folder); then Select all and
- * Clear.
+ * (it asks first, as on a game's page; Remove when they were all added from a folder); then Select all and Clear.
  */
 export function LibrarySelectBar({ games, total, hiddenView, folders, onAll, onClear, onHide, onFolder, onUninstall }: {
   /** The picked games. */
@@ -28,10 +27,18 @@ export function LibrarySelectBar({ games, total, hiddenView, folders, onAll, onC
   const count = games.length
   const removable = count > 0 && games.every(game => game.installed && !game.canStop && !game.isRunning)
   const verb = games.every(game => game.store === 'local') ? 'Remove' : 'Uninstall'
-  const [armed, setArmed] = useState(false)
-  const disarm = useCallback(() => setArmed(false), [])
-  useDisarm(armed, disarm)
-  useEffect(disarm, [count, disarm])
+  const uninstall = async () => {
+    const one = count === 1
+    const sure = await confirm({
+      title: `${verb} ${one ? games[0].title : `${count} games`}?`,
+      body: verb === 'Remove'
+        ? one ? 'It leaves your Library. Its files stay where they are.' : 'They leave your Library. Their files stay where they are.'
+        : one ? 'Its files leave this PC. It stays in your Library, ready to install again.' : 'Their files leave this PC. They stay in your Library, ready to install again.',
+      action: verb,
+      danger: true,
+    })
+    if (sure === true) onUninstall()
+  }
   const glass = useRef<HTMLDivElement>(null)
   useLens(glass)
   return (
@@ -57,11 +64,9 @@ export function LibrarySelectBar({ games, total, hiddenView, folders, onAll, onC
         />
       )}
       {removable ? (
-        <button type="button" className="exo-set-btn is-danger" onBlur={disarm}
-          aria-label={armed ? `Confirm: ${verb.toLowerCase()} ${count} ${count === 1 ? 'game' : 'games'}` : undefined}
-          onClick={() => { if (armed) { setArmed(false); onUninstall() } else setArmed(true) }}>
+        <button type="button" className="exo-set-btn is-danger" onClick={() => void uninstall()}>
           <Trash size={16} />
-          {armed ? 'Confirm' : verb}
+          {verb}
         </button>
       ) : null}
       <span className="exo-select-rule" aria-hidden="true" />

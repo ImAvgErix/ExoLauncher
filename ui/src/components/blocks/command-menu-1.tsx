@@ -11,36 +11,10 @@ import {
 } from "react";
 import { Search } from "../../brand/icons";
 import { useDismiss } from "../../lib/dismiss";
+import { DictateButton } from "../ui/DictateButton";
 
 const cx = (...c: (string | false | null | undefined)[]) =>
   c.filter(Boolean).join(" ");
-
-function useScrollFade<T extends HTMLElement>() {
-  const ref = useRef<T>(null);
-  const [edges, setEdges] = useState({ start: false, end: false });
-
-  const update = useCallback(() => {
-    const el = ref.current;
-    if (!el) return;
-    const { scrollTop, scrollHeight, clientHeight } = el;
-    setEdges({
-      start: scrollTop > 1,
-      end: Math.ceil(scrollTop + clientHeight) < scrollHeight - 1,
-    });
-  }, []);
-
-  useEffect(() => {
-    update();
-    const el = ref.current;
-    const view = el?.ownerDocument.defaultView;
-    if (!el || !view?.ResizeObserver) return;
-    const observer = new view.ResizeObserver(update);
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [update]);
-
-  return { ref, edges, onScroll: update };
-}
 
 export type Command = {
   id: string;
@@ -104,7 +78,7 @@ export default function CommandMenu({
   const title = inputPlaceholder;
   const uid = useId();
   const dialogRef = useRef<HTMLDivElement>(null);
-  const list = useScrollFade<HTMLDivElement>();
+  const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const returnFocusRef = useRef<HTMLElement | null>(null);
   const frameRef = useRef<number | undefined>(undefined);
@@ -164,7 +138,7 @@ export default function CommandMenu({
   }, [isOpen]);
 
   useEffect(() => {
-    const scroller = list.ref.current;
+    const scroller = listRef.current;
     const row = scroller?.querySelector<HTMLElement>('[data-active="true"]');
     if (!scroller || !row) return;
     const listBox = scroller.getBoundingClientRect();
@@ -174,7 +148,7 @@ export default function CommandMenu({
     } else if (rowBox.bottom > listBox.bottom) {
       scroller.scrollTop += rowBox.bottom - listBox.bottom;
     }
-  }, [activeIndex, query, list.ref]);
+  }, [activeIndex, query]);
 
   useEffect(
     () => () => {
@@ -311,15 +285,16 @@ export default function CommandMenu({
                 placeholder={inputPlaceholder}
                 className="h-8 min-w-0 flex-1 bg-transparent text-[length:calc(13px*var(--exo-scale,1))] text-fg placeholder:text-muted focus:outline-none"
               />
+              <DictateButton target={inputRef} />
             </div>
 
-            <div className="relative flex min-h-0 flex-1 flex-col">
+            <div className="flex min-h-0 flex-1 flex-col">
               <div
-                ref={list.ref}
+                ref={listRef}
                 // The combobox owns the keyboard; a focusable scroller let Tab leave the modal.
                 tabIndex={-1}
-                onScroll={list.onScroll}
-                className="min-h-0 flex-1 overflow-y-auto bg-transparent p-1.5"
+                // Fades into the glass's edge where it scrolls on (exo-shell.css › Infinity pool), never a band painted over the glass.
+                className="exo-command-list min-h-0 flex-1 overflow-y-auto bg-transparent p-1.5"
               >
                 {filtered.length > 0 ? (
                   <div id={listboxId} role="listbox" aria-label="Commands">
@@ -405,20 +380,6 @@ export default function CommandMenu({
                   </div>
                 )}
               </div>
-              <div
-                aria-hidden="true"
-                className={cx(
-                  "pointer-events-none absolute inset-x-0 top-0 h-8 bg-gradient-to-b from-(--exo-float) to-transparent transition-opacity duration-200 ease-out",
-                  list.edges.start ? "opacity-100" : "opacity-0",
-                )}
-              />
-              <div
-                aria-hidden="true"
-                className={cx(
-                  "pointer-events-none absolute inset-x-0 bottom-0 h-8 bg-gradient-to-t from-(--exo-float) to-transparent transition-opacity duration-200 ease-out",
-                  list.edges.end ? "opacity-100" : "opacity-0",
-                )}
-              />
             </div>
           </div>
         </>

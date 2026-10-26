@@ -1,5 +1,5 @@
 /* Exo Setup (setup/src/main.cpp): one 460 x 520 window in Exo's look. Buttons, the switch, colors and Inter come
-   from Exo's own tokens.css; this file only lays the screens out and moves them as Exo moves (--ease-out). */
+   from Exo's own tokens.css and exo-shell.css; this file only lays the screens out and moves them as Exo moves (--ease-out). */
 html,
 body,
 #root {
@@ -68,18 +68,6 @@ body,
   }
 }
 
-/* While the engine works, the mark breathes. */
-.exo-setup-mark.is-working {
-  animation: exo-setup-breathe 2.4s var(--ease-in-out) infinite;
-}
-
-@keyframes exo-setup-breathe {
-  50% {
-    scale: 0.96;
-    opacity: 0.85;
-  }
-}
-
 .exo-setup-actions {
   display: flex;
   flex-direction: column;
@@ -92,6 +80,11 @@ body,
 .exo-setup-cta {
   width: 220px;
   height: 40px;
+}
+
+/* Uninstall asks as Exo's dialog does (styles/dialog.css › .exo-dialog-actions): equal capsules on one row, its width. */
+.exo-setup-ask {
+  width: 100%;
 }
 
 .exo-setup-more svg.exo-setup-chevron {
@@ -144,23 +137,10 @@ body,
   overflow-wrap: anywhere;
 }
 
-/* Progress: a thin white bar that eases to each value the engine reports. */
-.exo-setup-bar-track {
-  overflow: hidden;
+/* Progress: Exo's own bar (components/ui/Progress.tsx; its look comes with tokens.css), the window's one. */
+.exo-setup-progress {
   width: 280px;
-  height: 4px;
   margin-top: 28px;
-  border-radius: 999px;
-  background: var(--exo-track);
-}
-
-.exo-setup-bar-fill {
-  display: block;
-  height: 100%;
-  border-radius: inherit;
-  background: var(--color-fg);
-  transform-origin: left;
-  transition: transform var(--dur-move) var(--ease-out);
 }
 
 .exo-setup-status {
@@ -207,12 +187,26 @@ body,
   .exo-setup-screen,
   .exo-setup-mark,
   .exo-setup-badge,
-  .exo-setup-options,
-  .exo-setup-bar-fill {
+  .exo-setup-options {
     transition: none;
   }
 
-  .exo-setup-mark.is-working {
+  /* The bar holds still as Exo's does under Reduce motion (progress.css), which here is Windows' own setting. */
+  .exo-setup-progress :is(.exo-progress-fill, .exo-progress-head) {
+    transition: none;
+  }
+
+  .exo-setup-progress .exo-progress-fill::after {
     animation: none;
+  }
+
+  .exo-setup-progress.is-unknown :is(.exo-progress-fill, .exo-progress-head) {
+    width: 100%;
+    animation: none;
+    opacity: 0.45;
+  }
+
+  .exo-setup-progress.is-unknown .exo-progress-head {
+    opacity: 0;
   }
 }

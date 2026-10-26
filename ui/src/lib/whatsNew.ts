@@ -1,5 +1,5 @@
 import type { ComponentType } from 'react'
-import { Appearance, Calendar, Chats, Cover, Devices, Download, EyeOff, Folder, FolderOpen, Gamepad, Gift, GraphicsCard, Hash, ImageUpload, Library, Live, Mic, Monitor, Mouse, MusicNotes, New, Shaders, Sliders, Smile, StoreBag, Users, Volume, type IconProps } from '../brand/icons'
+import { Appearance, Calendar, Chats, Cover, Devices, Download, EyeOff, Folder, FolderOpen, Gamepad, Gift, GraphicsCard, Hash, ImageUpload, Library, Live, Mic, Monitor, Mouse, MusicNotes, New, Shaders, Sliders, Smile, StoreBag, Trash, Users, Volume, type IconProps } from '../brand/icons'
 import data from './whatsNew.json'
 import type { WhatsNewWire } from './hostWire'
 
@@ -19,7 +19,7 @@ export const WHATS_NEW = 'exo-whats-new'
 /** The icons a release's items may name. A name this build doesn't know (a newer release's) draws as New. */
 const ICONS: Record<string, ComponentType<IconProps>> = {
   Appearance, Calendar, Chats, Cover, Devices, Download, EyeOff, Folder, FolderOpen, Gamepad, Gift, GraphicsCard, Hash, ImageUpload,
-  Library, Live, Mic, Monitor, Mouse, MusicNotes, New, Shaders, Sliders, Smile, StoreBag, Users, Volume,
+  Library, Live, Mic, Monitor, Mouse, MusicNotes, New, Shaders, Sliders, Smile, StoreBag, Trash, Users, Volume,
 }
 
 /** A release as data (whatsNew.json, or the host's validated copy of an update's) with its icons. */

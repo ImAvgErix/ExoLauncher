@@ -3,7 +3,8 @@
 // The screens are Exo's (its tokens, Inter, Lucide icons and motion) drawn by WebView2, the engine
 // Exo itself runs on, from a page packed into this exe. The work is the proven NSIS engine appended
 // to this exe, run silently: it writes each step to a status file this window shows, and the
-// staging folder it fills gives the real progress. /S (the in-app updater) shows no window at all.
+// staging folder it fills gives the real progress. Then the installed Exo fetches its parts (FetchParts).
+// /S (the in-app updater) shows no window at all, and Exo fetches any part a new version changed after it starts.
 // Without WebView2 the engine's own screens run instead.
 #include <windows.h>
 #include <shellapi.h>
@@ -169,6 +170,31 @@ void DeleteTree(const std::wstring& dir) {
 
 std::wstring DesktopLink() { return Known(FOLDERID_Desktop) + L"\\Exo Launcher.lnk"; }
 
+// Exo's parts (the store tools, noise suppression, the voice and speech models): the installed Exo fetches and verifies
+// them itself (ExoLauncher.exe --fetch-components), appending "done<tab>total<tab>words" lines to a file this window
+// shows as its own measured step. What is already here and whole is skipped. A part that doesn't come never fails the
+// install: Exo fetches it after it starts.
+void FetchParts() {
+    std::wstring file = g_temp + L"\\parts.txt";
+    DeleteFileW(file.c_str());
+    HANDLE process = nullptr;
+    if (Run(g_app + L"\\ExoLauncher.exe", L"--fetch-components --progress=\"" + file + L"\"", &process) != 0) return;
+    std::wstring shown;
+    while (WaitForSingleObject(process, 120) == WAIT_TIMEOUT) {
+        std::wstring line = LastLine(file);
+        auto a = line.find(L'\t');
+        auto b = a == std::wstring::npos ? std::wstring::npos : line.find(L'\t', a + 1);
+        if (line == shown || b == std::wstring::npos) continue;
+        shown = line;
+        double done = _wtof(line.substr(0, a).c_str()), total = _wtof(line.substr(a + 1, b - a - 1).c_str());
+        if (total <= 0) continue; // nothing to fetch: no step to show
+        char buf[48];
+        sprintf_s(buf, "%.4f", std::min(1.0, done / total));
+        Post(std::string(R"({"type":"progress","step":"parts","value":)") + buf + R"(,"status":)" + Json(line.substr(b + 1)) + "}");
+    }
+    CloseHandle(process);
+}
+
 // Install or update: the engine silently, its staging folder's growth as the progress, its status file as the step.
 void Install(bool desktop) {
     std::wstring engine = ExtractEngine();
@@ -199,8 +225,10 @@ void Install(bool desktop) {
     DWORD code = 1;
     GetExitCodeProcess(process, &code);
     CloseHandle(process);
-    if (code == 0 && Exists(g_app + L"\\ExoLauncher.exe")) Post(R"({"type":"done"})");
-    else {
+    if (code == 0 && Exists(g_app + L"\\ExoLauncher.exe")) {
+        FetchParts();
+        Post(R"({"type":"done"})");
+    } else {
         std::wstring why = LastLine(g_root + L"\\update-error.log");
         if (why.empty()) why = L"Setup stopped before it finished. Your existing installation was not changed.";
         Post(std::string(R"({"type":"failed","message":)") + Json(why) + "}");

@@ -3,7 +3,7 @@ import { host } from '../../lib/host'
 import { Slider } from '../ui/Slider'
 import { keysLabel, saveCaptureSettings, useCapture, type CaptureSettings, type CaptureState } from '../../lib/capture'
 import { Choice } from '../settings/Choice'
-import { Row, Section, State, SwitchRow } from './parts'
+import { Group, Row, State, SwitchRow } from '../settings/parts'
 
 const MODES = [
   { value: 'games', label: 'While playing' },
@@ -84,28 +84,34 @@ function HotkeyRow({ label, field, settings, ok, disabled }: {
 }
 
 /**
- * Settings > Capture: Exo Capture's instant replay, quality, keys, folder and
- * storage limit. Every row saves at once. Sound has no rows: every capture has the
- * mix, then the game, Discord voice and the microphone each on its own track.
+ * Captures › Capture settings: Exo Capture's instant replay, quality, keys, folder and
+ * storage limit, where the captures are. Every row saves at once. Sound has no rows: every
+ * capture has the mix, then the game, Discord voice and the microphone each on its own track.
  */
-export const CaptureSection = memo(function CaptureSection() {
+export const CaptureSettingsView = memo(function CaptureSettingsView() {
   const { state, settings } = useCapture()
   if (state && !state.present) {
     return (
-      <Section id="capture" title="Capture">
+      <div className="exo-set-list exo-capture-settings">
         <Row label="Exo Capture" detail="Instant replay, recording and snips">
           <State>Not installed</State>
         </Row>
-      </Section>
+      </div>
     )
   }
   return (
-    <Section id="capture" title="Capture">
-      <ReplayRows state={state} settings={settings} />
-      <CaptureKeyRows state={state} settings={settings} />
-      <StorageRows settings={settings} />
-      <ShrinkRow settings={settings} />
-    </Section>
+    <div className="exo-capture-settings">
+      <Group id="capture-recording" title="Recording">
+        <ReplayRows state={state} settings={settings} />
+      </Group>
+      <Group id="capture-keys" title="Keys">
+        <CaptureKeyRows state={state} settings={settings} />
+      </Group>
+      <Group id="capture-storage" title="Storage">
+        <StorageRows settings={settings} />
+        <ShrinkRow settings={settings} />
+      </Group>
+    </div>
   )
 })
 

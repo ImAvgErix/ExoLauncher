@@ -1,5 +1,7 @@
 import { useEffect, useId, useRef, useState, type CSSProperties } from 'react'
 import { host } from '../../lib/host'
+import { notify } from '../../lib/notify'
+import { confirm } from '../ui/Dialog'
 import { report } from '../../lib/report'
 import { musicPosition, playbackAnchor, type MusicPlayback } from '../../lib/music'
 import { shouldReduceMotion } from '../../lib/motionPreference'
@@ -37,7 +39,7 @@ export function QueuePanel({ tick }: { tick: number }) {
       <h2 className="exo-music-panel-title">Queue</h2>
       <Failure error={error} />
       <Failed when={failed} />
-      {!queue && !error ? <Waiting /> : null}
+      {!queue && !error ? <Waiting label="Loading the queue" /> : null}
       {queue?.current ?<><h3>Now playing</h3><TrackList tracks={[queue.current]} onPlay={none} onRow={none} /></> : null}
       <Queued queued={queued} skip={skip} edit={edit} />
       {queue ? <QueueNext queue={queue} onAutoplay={on => edit('autoplay', { on })} onRow={skip} /> : null}
@@ -137,7 +139,7 @@ export function DevicesPanel() {
     <>
       <h2 className="exo-music-panel-title">Play on</h2>
       <Failure error={error ?? failed} />
-      {!data && !error ? <Waiting /> : data && !data.devices?.length ? <p className="exo-music-empty">No devices found</p> : null}
+      {!data && !error ? <Waiting label="Finding devices" /> : data && !data.devices?.length ? <p className="exo-music-empty">No devices found</p> : null}
       <ul className="exo-music-list">
         {(data?.devices ?? []).map((device, index) => (
           <li key={device.id} className="exo-motion-arrive" style={arrive(index)}>
@@ -196,7 +198,7 @@ export function FriendsPanel() {
     <>
       <h2 className="exo-music-panel-title">Friend activity</h2>
       <Failure error={error} />
-      {!data && !error ? <Waiting /> : null}
+      {!data && !error ? <Waiting label="Loading friend activity" /> : null}
       {data && !friends.length ?<p className="exo-music-empty">No friend activity</p> : null}
       <ul className="exo-music-list">
         {friends.map((friend, index) => <FriendRow key={friend.user.uri} friend={friend} index={index} onOpen={open} onPlay={play} />)}
@@ -242,7 +244,6 @@ export function JamPanel({ join, onJoin }: { join?: string | null; onJoin?: () =
   const { adapter } = usePlayer()
   const [tick, setTick] = usePoll(5_000)
   const [busy, setBusy] = useState(false)
-  const [copied, setCopied] = useState(false)
   const [failed, setFailed] = useState<string | null>(null)
   const { data, error } = useView('jam', { offset: tick })
   const session = data?.session ?? null
@@ -254,6 +255,11 @@ export function JamPanel({ join, onJoin }: { join?: string | null; onJoin?: () =
     if (!ok) setFailed(action === 'jamStart' ? 'Spotify could not start a Jam. Try again.' : action === 'jamJoin' ? 'Spotify could not join that Jam. Check the link.' : 'Spotify did not take that. Try again.')
     setBusy(false)
     setTick(n => n + 1)
+  }
+  // Ending a Jam ends it for everyone in it: that asks first. Leaving is yours alone.
+  async function endOrLeave(owner: boolean) {
+    if (owner && await confirm({ title: 'End the Jam?', body: 'It ends for everyone in it, and their music stops.', action: 'End Jam', danger: true }) !== true) return
+    await run(owner ? 'jamEnd' : 'jamLeave')
   }
   const joined = useRef<string | null>(null)
   useEffect(() => {
@@ -268,8 +274,7 @@ export function JamPanel({ join, onJoin }: { join?: string | null; onJoin?: () =
   async function copy(link: string) {
     try {
       await navigator.clipboard.writeText(link)
-      setCopied(true)
-      window.setTimeout(() => setCopied(false), 2400)
+      notify({ text: 'Invite link copied.', tone: 'good' })
     } catch (copyError) {
       report(copyError, 'JamPanel.copy')
       setFailed('Could not copy the link.')
@@ -280,7 +285,7 @@ export function JamPanel({ join, onJoin }: { join?: string | null; onJoin?: () =
     <>
       <h2 className="exo-music-panel-title">Jam</h2>
       <Failure error={error ?? failed} />
-      {!data && !error ? <Waiting /> : null}
+      {!data && !error ? <Waiting label="Loading Jam" /> : null}
       {data && !session ? (
         data.experience === 'NONE'
           ? <p className="exo-music-empty">Not available on this account</p>
@@ -295,12 +300,12 @@ export function JamPanel({ join, onJoin }: { join?: string | null; onJoin?: () =
         <>
           <div className="exo-music-jam-actions">
             {session.link ? (
-              <button type="button" className={`exo-set-btn${copied ? ' is-done' : ''}`} onClick={() => void copy(session.link)}>
-                <LinkIcon size={14} /> {copied ? 'Copied' : 'Copy invite link'}
+              <button type="button" className="exo-set-btn" onClick={() => void copy(session.link)}>
+                <LinkIcon size={14} /> Copy invite link
               </button>
             ) : null}
             <button type="button" className="exo-set-btn" disabled={busy}
-              onClick={() => void run(session.owner ? 'jamEnd' : 'jamLeave')}>{session.owner ? 'End' : 'Leave'}</button>
+              onClick={() => void endOrLeave(session.owner)}>{session.owner ? 'End' : 'Leave'}</button>
           </div>
           {session.link ? <Qr text={session.link} label="Jam invite code" className="exo-music-jam-qr" /> : null}
           {session.owner && session.guestsPlay !== undefined ? (
@@ -383,7 +388,7 @@ export function CreditsPanel({ uri }: { uri: string }) {
     <>
       <h2 className="exo-music-panel-title">Credits</h2>
       <Failure error={error} />
-      {!data && !error ? <Waiting /> : null}
+      {!data && !error ? <Waiting label="Loading credits" /> : null}
       {data?.title ? <p className="exo-music-row-sub">{data.title}</p> : null}
       {data && !groups.length ? <p className="exo-music-empty">No credits for this song</p> : null}
       {groups.map(group => (
@@ -450,7 +455,7 @@ function SongTabs({ uri, playback, receivedAt }: { uri: string; playback: MusicP
 function Related({ uri }: { uri: string }) {
   const { data, error, fresh } = useView('related', { uri })
   const sections = fresh ? (data?.sections ?? []).filter(section => section.items.length) : []
-  if (!fresh) return <Waiting />
+  if (!fresh) return <Waiting label="Loading related music" />
   if (!sections.length) return error ? <Failure error={error} /> : <p className="exo-music-empty">Nothing related to this song</p>
   return <>{sections.map((section, index) => <Shelf key={`${index}:${section.title}`} title={section.title} cards={section.items} more={section.more} />)}</>
 }
@@ -491,7 +496,7 @@ function Lyrics({ uri, playback, receivedAt }: { uri: string; playback: MusicPla
   function seek(start: number) {
     void host.musicControl('seek', { positionMs: start }).catch(seekError => report(seekError, 'NowPlaying.seek'))
   }
-  if (!fresh) return <Waiting />
+  if (!fresh) return <Waiting label="Loading lyrics" />
   if (!lines.length) return error ? <Failure error={error} /> : <p className="exo-music-empty">No lyrics for this song</p>
   return (
     <ol ref={list} className={`exo-music-lyrics${synced ? ' is-synced' : ''}`}>

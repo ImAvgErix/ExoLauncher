@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { notify } from '../../lib/notify'
 import { report } from '../../lib/report'
 import { loadView, runAction, runActionFor, type Page, type Player } from './playerContext'
 
@@ -13,26 +14,17 @@ export function shareLink(adapter: Player['adapter'], item: { uri: string; url?:
   return item.url ?? adapter.shareUrl?.(item.uri) ?? null
 }
 
-/** A share link on the clipboard; false when Windows refused it. */
+/** A share link on the clipboard, said in the notice stack; false when Windows refused it. */
 export async function copyLink(url: string): Promise<boolean> {
   try {
     await navigator.clipboard.writeText(url)
+    notify({ text: 'Link copied.', tone: 'good' })
     return true
   } catch (error) {
     report(error, 'MusicPlayer.copyLink')
+    notify({ text: "Couldn't copy the link.", tone: 'bad' })
     return false
   }
-}
-
-/** A word that answers an action for a moment ("Copied", "Didn't work"), then goes. */
-export function useFlash(ms = 2400) {
-  const [word, setWord] = useState<{ text: string; failed: boolean } | null>(null)
-  useEffect(() => {
-    if (!word) return
-    const timer = window.setTimeout(() => setWord(null), ms)
-    return () => window.clearTimeout(timer)
-  }, [word, ms])
-  return [word, (text: string, failed = false) => setWord({ text, failed })] as const
 }
 
 /** Song or artist radio: Spotify makes the playlist, the room opens it. */
@@ -54,17 +46,6 @@ export function NameField({ value, label, onDone }: { value: string; label: stri
         onChange={event => setName(event.target.value)} onBlur={() => onDone(name.trim() && name.trim() !== value ? name.trim() : null)}
         onKeyDown={event => { if (event.key === 'Escape') { event.preventDefault(); onDone(null) } }} />
     </form>
-  )
-}
-
-/** A delete asks once, in place, under what it deletes. */
-export function Confirm({ text, action, onConfirm, onCancel }: { text: string; action: string; onConfirm: () => void; onCancel: () => void }) {
-  return (
-    <div className="exo-music-confirm" role="alertdialog" aria-label={text}>
-      <span>{text}</span>
-      <button type="button" className="exo-set-btn is-danger" onClick={onConfirm} autoFocus>{action}</button>
-      <button type="button" className="exo-set-btn" onClick={onCancel}>Cancel</button>
-    </div>
   )
 }
 

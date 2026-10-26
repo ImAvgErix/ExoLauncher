@@ -189,10 +189,6 @@
   background: var(--exo-primary-hover);
 }
 
-.exo-dc-cv-button.is-primary .exo-dc-typing-dots i {
-  background: rgb(var(--exo-ink-rgb) / 0.04);
-}
-
 .exo-dc-cv-button.is-success {
   color: var(--color-good);
 }
@@ -213,10 +209,6 @@
 
 .exo-dc-cv-button.is-busy:disabled {
   color: var(--color-fg);
-}
-
-.exo-dc-cv-button .exo-dc-typing-dots {
-  margin: 0;
 }
 
 .exo-dc-cv-emoji {
@@ -402,6 +394,7 @@
   transform: rotate(-90deg);
 }
 
+/* A select's choices are a menu: large glass (Components.tsx gives it the glass), 14px as menus are. */
 .exo-dc-cv-select-list {
   position: absolute;
   top: calc(100% + 4px);
@@ -414,9 +407,7 @@
   max-height: 300px;
   padding: 6px;
   overflow-y: auto;
-  border: 1px solid var(--exo-float-line);
   border-radius: 14px;
-  background: var(--exo-float);
 }
 
 .exo-dc-cv-select-list .exo-dc-modal-input {
@@ -466,7 +457,8 @@
   white-space: nowrap;
 }
 
-/* An answer still coming, and an answer only you see. */
+/* An answer only you see. */
+/* An app's answer still on its way: Discord's typing dots and "is thinking", muted. */
 .exo-dc-thinking {
   display: flex;
   align-items: center;

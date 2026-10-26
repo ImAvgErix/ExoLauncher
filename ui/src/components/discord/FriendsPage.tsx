@@ -11,6 +11,7 @@ import { Confirm, StrangerConfirm } from './admin'
 import { usePageActive } from '../../lib/pageActivity'
 import { useDismiss } from '../../lib/dismiss'
 import { GuildTag } from './guildTag'
+import { DictateButton } from '../ui/DictateButton'
 
 type Tab = 'online' | 'all' | 'pending' | 'add'
 
@@ -24,6 +25,7 @@ export function FriendsPage({ onOpenDm }: { onOpenDm: (channelId: string) => voi
   const [removing, setRemoving] = useState<DiscordFriend | null>(null)
   const [stranger, setStranger] = useState<DiscordFriend | null>(null)
   const tabs = useGlide<HTMLSpanElement>()
+  const search = useRef<HTMLInputElement>(null)
 
   const refresh = useCallback(() => {
     host.discordFriends().then(result => setFriends(result.friends)).catch((err: unknown) => report(err, 'FriendsPage.load'))
@@ -80,7 +82,8 @@ export function FriendsPage({ onOpenDm }: { onOpenDm: (channelId: string) => voi
         <div className="exo-dc-friend-list">
           <label className="exo-dc-friend-search">
             <Icons.Search size={16} />
-            <input placeholder="Search" value={query} onChange={event => setQuery(event.target.value)} aria-label="Search friends" />
+            <input ref={search} placeholder="Search" value={query} onChange={event => setQuery(event.target.value)} aria-label="Search friends" />
+            <DictateButton target={search} />
           </label>
           <p className="exo-dc-side-label">{heading} — {shown.length}</p>
           {error ? <p className="exo-dc-note" role="alert">{error}</p> : null}
@@ -121,8 +124,8 @@ export function FriendsPage({ onOpenDm }: { onOpenDm: (channelId: string) => voi
         <StrangerConfirm name={stranger.name} onClose={() => setStranger(null)} onConfirm={() => { const friend = stranger; setStranger(null); void act('accept', friend, true) }} />
       ) : null}
       {removing ? (
-        <Confirm title={`Remove '${removing.name}'`} action="Remove friend" onClose={() => setRemoving(null)} onConfirm={() => { const friend = removing; setRemoving(null); void act('remove', friend) }}>
-          <p>Are you sure you want to remove <strong>{removing.name}</strong> from your friends?</p>
+        <Confirm title={`Remove '${removing.name}'?`} action="Remove friend" onClose={() => setRemoving(null)} onConfirm={() => { const friend = removing; setRemoving(null); void act('remove', friend) }}>
+          <p>They'll be removed from your friends.</p>
         </Confirm>
       ) : null}
     </section>

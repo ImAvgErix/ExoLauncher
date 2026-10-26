@@ -24,6 +24,7 @@ import { LEVELS, MUTE_FOR } from './ChatHeader'
 import { SubContext, Submenu } from './UserMenu'
 import { dmData, DmCopyId, DmMuteItem, DmReadItem } from './dmMenu'
 import { useDismiss } from '../../lib/dismiss'
+import { DictateButton } from '../ui/DictateButton'
 
 export const FRIENDS = 'friends'
 export const SHOP = 'shop'
@@ -100,6 +101,7 @@ export function DmSidebar({ home, open, onPick }: {
 }) {
   const [query, setQuery] = useState('')
   const [starting, setStarting] = useState(false)
+  const find = useRef<HTMLInputElement>(null)
   const glide = useGlide<HTMLDivElement>()
   useEffect(() => {
     const open = () => setStarting(true)
@@ -114,7 +116,8 @@ export function DmSidebar({ home, open, onPick }: {
   return (
     <nav className="exo-dc-side" aria-label="Direct messages" onPointerOver={peek} onPointerLeave={unpeek}>
       <header className="exo-dc-side-head">
-        <input className="exo-dc-find" placeholder="Find or start a conversation" value={query} onChange={event => setQuery(event.target.value)} aria-label="Find or start a conversation" />
+        <input ref={find} className="exo-dc-find" placeholder="Find or start a conversation" value={query} onChange={event => setQuery(event.target.value)} aria-label="Find or start a conversation" />
+        <DictateButton target={find} place="overlay" />
       </header>
       <div ref={glide} className="exo-dc-side-list exo-glide">
         <button type="button" className="exo-dc-item is-big" aria-current={open === FRIENDS} onClick={() => onPick(FRIENDS)}>
@@ -166,8 +169,8 @@ function DmRow({ dm, current, onPick }: { dm: DiscordDm; current: boolean; onPic
         onClick={() => { if (dm.group) setLeaving(true); else close() }}><Close size={14} /></button>
       {menu ? <GroupDmMenu dm={dm} {...menu} onLeave={() => { setMenu(null); setLeaving(true) }} onClose={() => setMenu(null)} /> : null}
       {leaving ? (
-        <Confirm title={`Leave '${dm.name}'`} action="Leave group" onClose={() => setLeaving(false)} onConfirm={() => { setLeaving(false); close() }}>
-          <p>Are you sure you want to leave <strong>{dm.name}</strong>? You won't be able to rejoin this group unless you are re-invited.</p>
+        <Confirm title={`Leave '${dm.name}'?`} action="Leave group" onClose={() => setLeaving(false)} onConfirm={() => { setLeaving(false); close() }}>
+          <p>You won't be able to rejoin this group unless you are re-invited.</p>
         </Confirm>
       ) : null}
     </div>
@@ -308,8 +311,8 @@ function ServerHeader({ guildId, name, guild, list, onMarkRead, onLeave, inviteT
         </header>
         {dialog ? <HeaderDialog dialog={dialog} guildId={guildId} name={name} inviteTo={inviteTo} onClose={() => setDialog(null)} /> : null}
         {confirmLeave ? (
-          <Confirm title={`Leave '${name}'`} action="Leave server" onClose={() => setConfirmLeave(false)} onConfirm={() => { setConfirmLeave(false); onLeave() }}>
-            <p>Are you sure you want to leave <strong>{name}</strong>? You won't be able to rejoin this server unless you are re-invited.</p>
+          <Confirm title={`Leave '${name}'?`} action="Leave server" onClose={() => setConfirmLeave(false)} onConfirm={() => { setConfirmLeave(false); onLeave() }}>
+            <p>You won't be able to rejoin this server unless you are re-invited.</p>
           </Confirm>
         ) : null}
         {settings && list?.moderation ? <Suspense fallback={null}><ServerSettings guildId={guildId} name={name} moderation={list.moderation} channels={list.channels} onClose={() => void transition(() => setSettings(false))} onMembers={onMembers} /></Suspense> : null}
@@ -661,9 +664,9 @@ function GuildMenu({ guild, x, y, onGo, onClose }: { guild: DiscordGuild; x: num
   if (inviteTo) return <InviteDialog name={guild.name} channelId={inviteTo.id} channelName={inviteTo.name} onClose={onClose} />
   if (leaving) {
     return (
-      <Confirm title={`Leave '${guild.name}'`} action="Leave server" error={note} onClose={onClose}
+      <Confirm title={`Leave '${guild.name}'?`} action="Leave server" error={note} onClose={onClose}
         onConfirm={() => void host.discordServer('leave', { guildId: guild.id }).then(result => { if (result.ok) { onClose(); onGo('@me') } else setNote(result.message ?? why) }, () => setNote(why))}>
-        <p>Are you sure you want to leave <strong>{guild.name}</strong>? You won't be able to rejoin this server unless you are re-invited.</p>
+        <p>You won't be able to rejoin this server unless you are re-invited.</p>
       </Confirm>
     )
   }
@@ -915,8 +918,8 @@ function ChannelMenu({ channel, x, y, inCategory, guildId, serverName, canManage
   if (dialog) return { status: <VoiceStatusDialog channel={channel} onClose={onClose} />, invite: <InviteDialog name={serverName} channelId={channel.id} channelName={channel.name} onClose={onClose} /> }[dialog]
   if (confirmDelete) {
     return (
-      <Confirm title="Delete channel" action="Delete channel" error={note} onClose={onClose} onConfirm={() => run(host.discordChannel(channel.id, 'delete'))}>
-        <p>Are you sure you want to delete <strong>#{channel.name}</strong>? This cannot be undone.</p>
+      <Confirm title={`Delete ${channel.kind === 'voice' ? channel.name : `#${channel.name}`}?`} action="Delete channel" error={note} onClose={onClose} onConfirm={() => run(host.discordChannel(channel.id, 'delete'))}>
+        <p>This cannot be undone.</p>
       </Confirm>
     )
   }
@@ -1048,8 +1051,8 @@ function CategoryMenu({ category, x, y, channels, collapsed, canManage, onToggle
   const notify = (change: Parameters<typeof host.discordChannelNotify>[1]) => run(host.discordChannelNotify(category.id, change))
   if (deleting) {
     return (
-      <Confirm title="Delete category" action="Delete category" error={note} onClose={onClose} onConfirm={() => run(host.discordChannel(category.id, 'delete'))}>
-        <p>Are you sure you want to delete <strong>{category.name}</strong>? This cannot be undone.</p>
+      <Confirm title={`Delete ${category.name}?`} action="Delete category" error={note} onClose={onClose} onConfirm={() => run(host.discordChannel(category.id, 'delete'))}>
+        <p>This cannot be undone.</p>
       </Confirm>
     )
   }
@@ -1118,7 +1121,7 @@ function VoiceStatusDialog({ channel, onClose }: { channel: DiscordChannel; onCl
     }).catch(() => { setBusy(false); setError('Discord did not set that status.') })
   }
   return (
-    <Confirm title="What are we chatting about?" action="Set status" danger={false} busy={busy || text.length > 500} error={error} onClose={onClose} onConfirm={save}>
+    <Confirm title="What are we chatting about?" action="Set status" danger={false} form busy={busy} disabled={text.length > 500} error={error} onClose={onClose} onConfirm={save}>
       <p>Let others know what you're up to in the voice channel!</p>
       <input className="exo-dc-modal-input" value={text} autoFocus maxLength={500} placeholder={`Status for ${channel.name}`} aria-label="Status"
         onChange={event => setText(event.target.value.replace(/\n/g, ' '))} onKeyDown={event => { if (event.key === 'Enter') save() }} />

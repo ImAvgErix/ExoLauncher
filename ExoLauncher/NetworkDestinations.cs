@@ -25,7 +25,7 @@ internal static class NetworkDestinations
     internal sealed record Destination(string Host, string PrivacyRow);
 
     internal const string ExoReleases = "GitHub (ExoLauncher releases)";
-    internal const string ToolReleases = "GitHub (Legendary, gogdl and Nile releases, Exo's own build of DeepFilterNet from Exo's release, and NVIDIA's TitaNet voice model from sherpa-onnx's release)";
+    internal const string ToolReleases = "GitHub (Legendary, gogdl and Nile releases, Exo's own build of DeepFilterNet from Exo's release, and NVIDIA's TitaNet voice model and Parakeet speech model from sherpa-onnx's releases)";
     internal const string StoreTools = "Epic, GOG, Amazon (through Legendary, gogdl, Nile)";
     internal const string EpicServices = "Epic account and library services";
     internal const string LegendaryApi = "Legendary's optional content lists (api.legendary.gl)";
@@ -53,7 +53,8 @@ internal static class NetworkDestinations
     internal const string DiscordGifs = "GIF hosts Discord points to (klipy.com, tenor.com, giphy.com)";
     internal const string LucidUpdates = "Lucid's version feed (raw.githubusercontent.com/tekkusai/Lucid)";
     internal const string SpotifyShareLinks = "Spotify share links (spotify.link, spotify.app.link)";
-    internal const string Installers = "Microsoft (Visual C++ and other runtimes), Spotify";
+    internal const string Installers = "Game runtimes and app installers: Microsoft (Visual C++, DirectX, .NET and its release list, XNA, WebView2; GameInput from NuGet's `globalcdn.nuget.org`), Creative (OpenAL, `openal.org`), NVIDIA (PhysX, `us.download.nvidia.com`), Spotify";
+    internal const string DevicePictures = "Device pictures (the makers' own image servers: gmedia.playstation.com, cdn-dynmedia-1.microsoft.com, assets.nintendo.com, cdn.shopify.com, hyperx.com, ca.sennheiser-hearing.com, api.beyerdynamic.de, images.ctfassets.net, resource.logitechg.com, cdn.prod.website-files.com; for IEMs whose maker publishes no large picture, the stores of Linsoul (www.linsoul.com) and Bloom Audio (on cdn.shopify.com); OpenMouse's img.openmouse.app)";
 
     internal static readonly Destination[] Hosts =
     [
@@ -193,9 +194,27 @@ internal static class NetworkDestinations
         // LucidCompanion.AvailableUpdateAsync: the version Lucid's own updater reads.
         new("raw.githubusercontent.com", LucidUpdates),
 
-        // DependencyService, DesktopClientHost: installers you chose, and their download redirects.
+        // DeviceImages: one product picture per device model, from the links in Assets/device-images.json (exact hosts only).
+        new("gmedia.playstation.com", DevicePictures),
+        new("cdn-dynmedia-1.microsoft.com", DevicePictures),
+        new("assets.nintendo.com", DevicePictures),
+        new("cdn.shopify.com", DevicePictures), // Wooting's and Bloom Audio's stores
+        new("hyperx.com", DevicePictures),
+        new("ca.sennheiser-hearing.com", DevicePictures),
+        new("api.beyerdynamic.de", DevicePictures),
+        new("images.ctfassets.net", DevicePictures), // SteelSeries' image server
+        new("resource.logitechg.com", DevicePictures),
+        new("cdn.prod.website-files.com", DevicePictures), // Truthear's site
+        new("www.linsoul.com", DevicePictures),
+        new("img.openmouse.app", DevicePictures),
+
+        // DependencyService, DesktopClientHost: installers you chose, and their download redirects; .NET's release list
+        // (builds.dotnet.microsoft.com) when Game runtimes shows.
         new("aka.ms", Installers),
         new("*.microsoft.com", Installers),
+        new("globalcdn.nuget.org", Installers),
+        new("openal.org", Installers),
+        new("us.download.nvidia.com", Installers),
         new("download.scdn.co", Installers),
     ];
 

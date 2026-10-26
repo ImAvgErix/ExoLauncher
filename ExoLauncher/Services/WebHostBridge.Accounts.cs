@@ -372,7 +372,7 @@ public sealed partial class WebHostBridge
         while (ProcessHelper.IsProcessRunning("steam") && DateTimeOffset.UtcNow < deadline)
             await Task.Delay(500, ct).ConfigureAwait(false);
         if (!ProcessHelper.IsProcessRunning("steam")) return true;
-        AppLog.Warn("Steam: did not close within 30 s; account change skipped.");
+        AppLog.Warn("Steam: did not close within 30 s.");
         return false;
     }
 

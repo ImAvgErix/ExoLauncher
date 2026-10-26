@@ -13,6 +13,8 @@ import { CustomStatusLine } from '../presence'
 import { Choice } from '../../settings/Choice'
 import { Dialog } from '../settingsAccess'
 import { EmojiField } from '../settingsGuide'
+import { Spinner } from '../../ui/Spinner'
+import { Skeleton } from '../../ui/Skeleton'
 
 type Status = 'online' | 'idle' | 'dnd' | 'invisible'
 
@@ -67,7 +69,7 @@ export function AccountPage({ home, onProfiles, onDevices }: { home: DiscordHome
       <div className="exo-dc-account-top">
       <AccountCard home={home} onEdit={onProfiles} />
       <div>
-      {me ? null : error ? <LoadError error={error} onRetry={reload} /> : <p className="exo-dc-settings-note" role="status">Loading your account</p>}
+      {me ? null : error ? <LoadError error={error} onRetry={reload} /> : <Skeleton label="Loading your account" />}
       {me ? (
         <Category title="Account info">
           <Row label="Display name" detail={me.globalName ?? "You haven't set a display name yet."}>
@@ -214,7 +216,7 @@ export function DevicesPage({ onBack }: { onBack: () => void }) {
       <button type="button" className="exo-dc-settings-back" onClick={onBack}>Account</button>
       <h1>Logged-in devices</h1>
       <p className="exo-dc-settings-lede">These are all the devices that are currently logged-in with your Discord account. Log out of devices that you don&apos;t recognize.</p>
-      {loading ? <p className="exo-dc-settings-note" role="status">Loading devices</p> : null}
+      {loading ? <Skeleton label="Loading devices" /> : null}
       {error ? <p className="exo-dc-settings-note" role="alert">{error}</p> : null}
       {failed ? <p className="exo-dc-settings-note" role="alert">{failed}</p> : null}
       {current ? <Category title="Current device"><Device session={current} /></Category> : null}
@@ -370,7 +372,9 @@ function ServerProfiles({ meId, guilds }: { meId: string | null; guilds: Discord
           <span className="exo-dc-settings-buttons">
             <input className="exo-field exo-dc-settings-input" value={current.text} maxLength={32} disabled={!current.can} placeholder="No nickname" aria-label="Server nickname"
               onChange={e => setNick({ ...current, text: e.target.value })} onKeyDown={e => { if (e.key === 'Enter') save() }} />
-            {current.text.trim() !== current.saved ? <button type="button" className="exo-set-btn is-primary" disabled={busy} onClick={save}>{busy ? 'Saving' : 'Save'}</button> : null}
+            {current.text.trim() !== current.saved ? <button type="button" className="exo-set-btn is-primary" disabled={busy} onClick={save}>
+              {busy ? <Spinner label="Saving your nickname" /> : null}Save
+            </button> : null}
           </span>
         </Row>
       ) : null}
@@ -387,7 +391,7 @@ function UserProfile({ home }: { home: DiscordHome['me'] }) {
   const [saving, setSaving] = useState(false)
   const [failed, setFailed] = useState<string | null>(null)
   if (me && (!draft || (base && base !== me && JSON.stringify(draft) === JSON.stringify(draftOf(base))))) { setBase(me); setDraft(draftOf(me)) }
-  if (!me || !draft) return error ? <LoadError error={error} onRetry={reload} /> : <p className="exo-dc-settings-note" role="status">Loading your profile</p>
+  if (!me || !draft) return error ? <LoadError error={error} onRetry={reload} /> : <Skeleton label="Loading your profile" />
   const changed = JSON.stringify(draft) !== JSON.stringify(draftOf(me))
   const set = (change: Partial<Draft>) => { setFailed(null); setDraft(d => d && { ...d, ...change }) }
   const save = () => {
@@ -412,7 +416,9 @@ function UserProfile({ home }: { home: DiscordHome['me'] }) {
           <span>Careful — you have unsaved changes!</span>
           {failed ? <em role="alert">{failed}</em> : null}
           <button type="button" className="exo-set-btn" disabled={saving} onClick={() => { setFailed(null); setDraft(draftOf(me)) }}>Reset</button>
-          <button type="button" className="exo-set-btn is-primary" disabled={saving} onClick={save}>{saving ? 'Saving' : 'Save changes'}</button>
+          <button type="button" className="exo-set-btn is-primary" disabled={saving} onClick={save}>
+            {saving ? <Spinner label="Saving your profile" /> : null}Save changes
+          </button>
         </div>
       ) : null}
     </>

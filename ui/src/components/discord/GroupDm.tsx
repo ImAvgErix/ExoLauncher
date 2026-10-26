@@ -52,8 +52,8 @@ function MemberMenu({ channelId, member, x, y, onClose }: { channelId: string; m
     .then(result => { if (result.ok) onClose(); else setNote(result.message ?? 'Discord did not take that.') }, () => setNote('Discord did not take that.'))
   if (handing) {
     return (
-      <Confirm title="Transfer group ownership" action="Transfer group ownership" danger={false} error={note} onClose={onClose} onConfirm={() => run('makeOwner')}>
-        <p>Transfer ownership of this group to <strong>{member.name}</strong>?</p>
+      <Confirm title="Transfer group ownership?" action="Transfer ownership" danger={false} error={note} onClose={onClose} onConfirm={() => run('makeOwner')}>
+        <p><strong>{member.name}</strong> becomes the group's owner.</p>
       </Confirm>
     )
   }

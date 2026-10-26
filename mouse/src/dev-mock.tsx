@@ -19,6 +19,7 @@ import type { Candidate, Step, useMouse } from './mouse'
  * Viper V3 Pro on its HyperSpeed receiver instead, as a friend's reads it
  * (Razer's button controls, asymmetric lift-off, low power mode), for the
  * room with many panels. ?lamzu is a Lamzu with X and Y stored per DPI stage.
+ * ?core=set shows the CPU core panel after Windows' restart, with its reads before and after.
  */
 
 const params = new URLSearchParams(location.search)
@@ -174,17 +175,51 @@ const PROFILES = {
   ],
 }
 
+/**
+ * Exo's CPU core (exo.mouseCore): Measure takes its 10 s and finds the mouse late on busy CPU 0 with CPU 6 quiet;
+ * Give it its own core then waits on Windows' restart. ?core=set is after the restart, measured before and after.
+ */
+const CORE_BEFORE = { rate: 1000, checked: 9951, missed: 40, longest: 2.1, p999: 2, refresh: true, cpu: 0 }
+const CORE_AFTER = { rate: 1000, checked: 9963, missed: 2, longest: 1.6, p999: 1.1, refresh: false, cpu: 6 }
+let coreStage: 'none' | 'restart' | 'set' = params.get('core') === 'set' ? 'set' : 'none'
+let coreMeasured = false
+
+function mockCore(action: unknown) {
+  if (action === 'measure') coreMeasured = true
+  if (action === 'apply') coreStage = 'restart'
+  if (action === 'undo') coreStage = 'none'
+  const set = coreStage === 'set'
+  return {
+    ok: true,
+    stage: coreStage,
+    detail: coreStage === 'restart' ? "CPU 6 takes your mouse's input after you restart Windows."
+      : set ? "Fewer late reports since CPU 6 took your mouse's input." : null,
+    cpu: coreStage === 'none' ? null : 6,
+    better: set ? true : null,
+    canUndo: coreStage !== 'none',
+    before: coreStage === 'none' ? null : CORE_BEFORE,
+    after: set ? CORE_AFTER : null,
+    test: !coreMeasured ? null : set
+      ? { verdict: 'fine', detail: '1000 Hz, 2 of 9,963 reports late, the longest 1.6 ms. Too few to matter, so nothing to change.', offer: null, result: CORE_AFTER }
+      : { verdict: 'fix', detail: "1000 Hz, 40 of 9,951 reports late, the longest 2.1 ms. They come with your screen's refresh. Its input lands on CPU 0, where Windows and most drivers go first. CPU 6 is quiet.", offer: 6, result: CORE_BEFORE },
+  }
+}
+
 /** Exo's side of the frame's messages, answered in the page itself (standalone, the frame's parent is itself). */
 function answerHost() {
   const post = window.postMessage.bind(window)
   window.postMessage = ((message: unknown, ...rest: unknown[]) => {
-    const m = message as { exo?: string; id?: number; method?: string } | null
+    const m = message as { exo?: string; id?: number; method?: string; params?: { action?: unknown } } | null
     if (m?.exo !== 'mouse') return (post as (...a: unknown[]) => void)(message, ...rest)
     if (typeof m.id !== 'number') return
+    const action = m.method === 'exo.mouseCore' ? m.params?.action : undefined
     const result = m.method === 'exo.profiles.read' ? { ok: true, data: PROFILES }
       : m.method === 'exo.games' ? { ok: true, games: GAMES }
-        : { ok: true }
-    window.setTimeout(() => window.dispatchEvent(new MessageEvent('message', { data: { exo: 'mouse', id: m.id, result }, source: window })), 40)
+        : m.method === 'exo.mouseCore' ? mockCore(action)
+          : { ok: true }
+    // The core's measure takes the host's 10 s; Windows' prompt behind its change, a moment.
+    const wait = action === 'measure' ? 10_000 : action ? 900 : 40
+    window.setTimeout(() => window.dispatchEvent(new MessageEvent('message', { data: { exo: 'mouse', id: m.id, result }, source: window })), wait)
   }) as typeof window.postMessage
 }
 

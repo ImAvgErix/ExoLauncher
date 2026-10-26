@@ -7,6 +7,7 @@ import { uploadFile } from './Chat'
 import { Markdown, type MarkdownContext } from './markdown'
 import { ModalBack } from './SettingsLayer'
 import { Switch } from '../Switch'
+import { Spinner } from '../ui/Spinner'
 
 // Form component types.
 const ROW = 1, TEXT_INPUT = 4, TEXT = 10, LABEL = 18, FILE_UPLOAD = 19, RADIO = 21, CHECKS = 22, CHECKBOX = 23
@@ -96,7 +97,9 @@ function AppForm({ modal, guildId, onClose }: { modal: AppModal; guildId: string
         {error ? <p className="is-bad" role="alert">{error}</p> : null}
         <div className="exo-dc-modal-row">
           <button type="button" className="exo-dc-tab" onClick={onClose}>Cancel</button>
-          <button type="submit" className="exo-set-btn is-primary" disabled={busy}>{busy ? 'Submitting…' : 'Submit'}</button>
+          <button type="submit" className="exo-set-btn is-primary" disabled={busy}>
+            {busy ? <Spinner label="Submitting" /> : null}Submit
+          </button>
         </div>
       </form>
     </ModalBack>

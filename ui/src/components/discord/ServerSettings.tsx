@@ -17,6 +17,7 @@ import { Access } from './settingsAccess'
 import { Onboarding } from './settingsOnboarding'
 import { Members } from './serverPages'
 import { pushPage } from '../../lib/viewTransition'
+import { Skeleton } from '../ui/Skeleton'
 
 export type Guild = {
   id: string; name: string; icon: string | null; banner: string | null; description: string | null; owner_id: string
@@ -193,7 +194,7 @@ function SectionPage({ section, error, ...props }: PageProps & { section: Sectio
   // A page that needs the server waits for it like the server's own pages.
   if (page && (guild || !['tag', 'boost', 'soundboard', 'access', 'template', 'community', 'onboarding', 'insights', 'welcome'].includes(section))) return page(props)
   // A failed read keeps what the page had, with Try Again.
-  if (!guild) return error ? <ReadError error={error} onRetry={onSaved} /> : <p className="exo-dc-note">Loading</p>
+  if (!guild) return error ? <ReadError error={error} onRetry={onSaved} /> : <Skeleton label="Loading the server" />
   return (
     <>
       <Overview key={section} section={section} guild={guild} moderation={moderation} channels={channels} onSaved={onSaved} />
@@ -454,8 +455,8 @@ function DeleteServer({ guildId, name, confirmByName, onClose, onDeleted }: { gu
     if (result.ok) { onClose(); onDeleted() } else if (result.message !== MFA_CANCELLED) setError(result.message ?? 'Discord did not delete it.')
   }
   return (
-    <Confirm title={`Delete '${name}'`} action="Delete server" busy={busy} error={error} onClose={onClose} onConfirm={() => void remove()}>
-      <p>Are you sure you want to delete <strong>{name}</strong>? This action cannot be undone.</p>
+    <Confirm title={`Delete '${name}'?`} action="Delete server" busy={busy} error={error} form={confirmByName} onClose={onClose} onConfirm={() => void remove()}>
+      <p>This action cannot be undone.</p>
       {confirmByName ? (
         <input className="exo-dc-modal-input" value={typed} autoFocus aria-label="Enter server name" placeholder="Enter server name"
           onChange={event => { setTyped(event.target.value); setError(null) }} />

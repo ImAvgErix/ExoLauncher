@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { Close, Loader2 } from '../../brand/icons'
+import { Close } from '../../brand/icons'
 import { host, type DlssRunResult, type DlssStatus, type Game, type GameProperties, type GamePropertyKey, type PropertyChoice } from '../../lib/host'
 import { useDialogFocus } from '../../lib/focusTrap'
 import { useDismiss } from '../../lib/dismiss'
@@ -11,19 +11,24 @@ import { formatSize, storeLabel } from '../../lib/utils'
 import { Choice } from '../settings/Choice'
 import { Row, State } from '../settings/parts'
 import { Switch } from '../Switch'
+import { ConfirmDialog } from '../ui/Dialog'
+import { Progress } from '../ui/Progress'
+import { Spinner } from '../ui/Spinner'
+import { Skeleton } from '../ui/Skeleton'
 import { ArtworkTools, type Artwork } from './Artwork'
 
 /**
- * A change that downloads, deletes or moves files (or lets Exo change an anti-cheat game's) waits in
- * its row for a second press; `also` is a second way to confirm it (Stop and restore).
+ * A change that downloads, deletes or moves files (or lets Exo change an anti-cheat game's) asks first, in Exo's
+ * dialog: `title` asks it, `body` says what it costs; `also` is a second way to go on (Stop and restore).
  */
 type Pending = {
   key: GamePropertyKey | 'verify' | 'restore' | 'consent'
   value: string
-  text: string
+  title: string
+  body: string
   verb: string
   danger?: boolean
-  also?: { verb: string; value: string; blocked?: string | null }
+  also?: { verb: string; value: string }
 }
 
 /** What every section needs: the properties, what is in flight, and the row helpers. */
@@ -54,13 +59,14 @@ function label(choices: PropertyChoice[], value: string): string {
   return choices.find(choice => choice.value === value)?.label ?? value
 }
 
-/** Which row an armed change belongs to: one row per DLC, Verify's own row. */
+/** Which row a change belongs to: one row per DLC, Verify's own row. */
 function rowOf(pending: Pending): string {
   return pending.key === 'content' ? `content:${pending.value.slice(0, pending.value.lastIndexOf(':'))}` : pending.key
 }
 
-function Spinner({ on }: { on: boolean }) {
-  return on ? <Loader2 size={14} className="animate-spin motion-reduce:animate-none" /> : null
+/** A change going through: the ring beside the row's control, or before the words of the button that made it. */
+function Working({ on, label }: { on: boolean; label: string }) {
+  return on ? <Spinner label={label} /> : null
 }
 
 /** The sections this game's store has, in Steam's order, with Artwork (Exo's own) last. */
@@ -84,8 +90,8 @@ function sectionsFor(props: GameProperties): { id: SectionId; title: string }[] 
  * saves, the overlay, files, updates, betas, DLC; Epic: optional content and
  * cloud saves), only the rows that store has, and Exo's own: the folder, the
  * upscalers' original files and the cover. A row that downloads, deletes or
- * moves files says how much and asks once more in place; the store's own
- * download then shows in Exo's downloads.
+ * moves files asks first, saying how much; the store's own download then shows
+ * in Exo's downloads.
  */
 export function PropertiesSheet({ game, artwork, upscalers: upscalerStatus, onUpscalersChanged, onClose, onStatus }: {
   game: Game
@@ -126,7 +132,7 @@ export function PropertiesSheet({ game, artwork, upscalers: upscalerStatus, onUp
       if (event.key !== 'Escape') return
       // A dropdown open in the panel (language, beta, folder) takes the key first.
       if (document.querySelector('[popover]:popover-open')) return
-      // Escape closes this panel, not the game page under it; an armed row stands down first.
+      // Escape closes this panel, not the game page under it; a question open over it is canceled first.
       event.preventDefault()
       event.stopPropagation()
       if (pending) setPending(null)
@@ -172,12 +178,12 @@ export function PropertiesSheet({ game, artwork, upscalers: upscalerStatus, onUp
       .finally(() => setBusy(null))
   }
 
-  const confirm = (armed: Pending, value = armed.value) => {
-    if (armed.key === 'restore') {
+  const confirm = (asked: Pending, value = asked.value) => {
+    if (asked.key === 'restore') {
       upscalers('restore', () => host.dlssRestore(game.id), 'The game\'s own files are back.')
       return
     }
-    if (armed.key === 'consent') {
+    if (asked.key === 'consent') {
       // Consent changes no file; Stop and restore also puts the game's own files back.
       const allow = value === 'allow'
       upscalers('consent', async () => {
@@ -187,8 +193,8 @@ export function PropertiesSheet({ game, artwork, upscalers: upscalerStatus, onUp
       }, allow ? 'Exo may update this game\'s upscalers.' : value === 'restore' ? 'Stopped. The game\'s own files are back.' : 'Stopped.')
       return
     }
-    if (armed.key !== 'verify') {
-      void apply(armed.key, armed.value, undefined, rowOf(armed))
+    if (asked.key !== 'verify') {
+      void apply(asked.key, asked.value, undefined, rowOf(asked))
       return
     }
     setPending(null)
@@ -198,30 +204,8 @@ export function PropertiesSheet({ game, artwork, upscalers: upscalerStatus, onUp
       .catch((error: unknown) => onStatus(errorText(error), true))
   }
 
-  /** The row's own line: an armed change waiting for its second press, or what the last change said. */
+  /** The row's own line: what the last change said. */
   const line = (row: string): ReactNode => {
-    if (pending && rowOf(pending) === row) {
-      return (
-        <div className="exo-props-confirm" role="group" aria-label="Confirm">
-          <span>{pending.text}</span>
-          <button type="button" className="exo-set-btn" onClick={() => setPending(null)}>Cancel</button>
-          <button type="button" className={`exo-set-btn${pending.danger ? ' is-danger' : ' is-primary'}`} data-autofocus onClick={() => confirm(pending)}>
-            {pending.verb}
-          </button>
-          {pending.also && (
-            <button
-              type="button"
-              className="exo-set-btn"
-              disabled={!!pending.also.blocked}
-              aria-label={pending.also.blocked ? `${pending.also.verb}: ${pending.also.blocked}` : undefined}
-              onClick={() => confirm(pending, pending.also?.value)}
-            >
-              {pending.also.verb}
-            </button>
-          )}
-        </div>
-      )
-    }
     const said = notes[row]
     if (!said?.text) return null
     return <p className={said.bad ? 'exo-set-error' : 'exo-props-note'} role={said.bad ? 'alert' : 'status'}>{said.text}</p>
@@ -288,10 +272,14 @@ export function PropertiesSheet({ game, artwork, upscalers: upscalerStatus, onUp
               )}
             </div>
           ) : (
-            <p className={loadError ? 'exo-set-error' : 'exo-props-note'}>{loadError ?? 'Reading properties…'}</p>
+            loadError ? <p className="exo-set-error">{loadError}</p> : <Skeleton label="Reading properties" rows={6} />
           )}
         </div>
       </div>
+      {pending ? (
+        <ConfirmDialog title={pending.title} body={pending.body} action={pending.verb} danger={pending.danger} also={pending.also?.verb}
+          onConfirm={() => confirm(pending)} onAlso={() => confirm(pending, pending.also?.value)} onClose={() => setPending(null)} />
+      ) : null}
     </div>,
     document.body,
   )
@@ -315,42 +303,42 @@ function GeneralSection({ props, locked, busy, arm, apply, line }: Rows) {
       )}
       {languages && (
         <PropRow label="Language" line={line('language')}>
-          <Spinner on={busy === 'language'} />
+          <Working on={busy === 'language'} label="Switching the language" />
           <Choice
             label="Language"
             value={props.language ?? ''}
             choices={languages}
             disabled={locked || busy !== null}
             onChange={value => arm({
-              key: 'language', value, verb: 'Switch',
-              text: `${label(languages, value)}. ${sizeLine('Downloads', languages.find(choice => choice.value === value)?.sizeBytes)}`,
+              key: 'language', value, verb: 'Switch', title: `Switch to ${label(languages, value)}?`,
+              body: sizeLine('Downloads', languages.find(choice => choice.value === value)?.sizeBytes),
             })}
           />
         </PropRow>
       )}
       {props.cloud !== null && (
         <PropRow label="Cloud saves" line={line('cloud')}>
-          <Spinner on={busy === 'cloud'} />
+          <Working on={busy === 'cloud'} label="Changing cloud saves" />
           <Switch checked={props.cloud} label="Cloud saves" disabled={busy !== null} onChange={on => void apply('cloud', on ? 'on' : 'off')} />
         </PropRow>
       )}
       {props.cloudSync && (
         <PropRow label="Cloud saves" line={line('cloudSync')}>
           <button type="button" className="exo-set-btn" disabled={busy !== null || locked} onClick={() => void apply('cloudSync')}>
-            <Spinner on={busy === 'cloudSync'} />Sync now
+            <Working on={busy === 'cloudSync'} label="Syncing cloud saves" />Sync now
           </button>
         </PropRow>
       )}
       {props.overlay !== null && (
         <PropRow label="Steam overlay" detail="Off saves frames. Steam closes for a moment to change it." line={line('overlay')}>
-          <Spinner on={busy === 'overlay'} />
+          <Working on={busy === 'overlay'} label="Changing the Steam overlay" />
           <Switch checked={props.overlay} label="Steam overlay" disabled={busy !== null} onChange={on => void apply('overlay', on ? 'on' : 'off')} />
         </PropRow>
       )}
       {props.storeProperties && (
         <PropRow label={`Controller in ${props.storeProperties}`} line={line('storeProperties')}>
           <button type="button" className="exo-set-btn" disabled={busy !== null} onClick={() => void apply('storeProperties')}>
-            <Spinner on={busy === 'storeProperties'} />Open {props.storeProperties}
+            <Working on={busy === 'storeProperties'} label={`Opening ${props.storeProperties}`} />Open {props.storeProperties}
           </button>
         </PropRow>
       )}
@@ -376,8 +364,8 @@ function FilesSection({ props, locked, busy, arm, line, gameId, game, upscalers 
             className="exo-set-btn"
             disabled={locked || busy !== null}
             onClick={() => arm({
-              key: 'verify', value: '', verb: props.verifyLabel ?? 'Verify',
-              text: `Checks ${size ? `all ${size}` : 'every file'} and downloads any damaged files.`,
+              key: 'verify', value: '', verb: props.verifyLabel ?? 'Verify', title: 'Check every file?',
+              body: `Checks ${size ? `all ${size}` : 'every file'} and downloads any damaged files.`,
             })}
           >
             {props.verifyLabel}
@@ -386,20 +374,20 @@ function FilesSection({ props, locked, busy, arm, line, gameId, game, upscalers 
       )}
       {folders && (
         <PropRow label="Library folder" line={line('folder')}>
-          {props.moving ? <State>Moving {Math.floor(props.moving.done / Math.max(1, props.moving.total) * 100)}%</State> : (
+          {props.moving ? <><State>Moving</State><Progress size="small" value={props.moving.done / Math.max(1, props.moving.total)} label="Moving the game" /></> : (
             <Choice
               label="Library folder"
               value={props.folder ?? ''}
               choices={folders.map(choice => ({ value: choice.value, label: choice.detail ? `${choice.label} · ${choice.detail}` : choice.label }))}
               disabled={locked || busy !== null}
-              onChange={value => arm({ key: 'folder', value, verb: 'Move', text: `Moves ${size ?? 'the game'} to ${label(folders, value)}.` })}
+              onChange={value => arm({ key: 'folder', value, verb: 'Move', title: 'Move the game?', body: `Moves ${size ?? 'the game'} to ${label(folders, value)}.` })}
             />
           )}
         </PropRow>
       )}
       {view.antiCheatName && (view.consent === 'available' || view.consent === 'given') && (
         <PropRow label="Upscaler changes" detail={`This game uses ${view.antiCheatName}.`} line={line('consent')}>
-          <Spinner on={busy === 'consent'} />
+          <Working on={busy === 'consent'} label="Saving your choice" />
           <State>{view.consent === 'given' ? 'Allowed' : 'Not allowed'}</State>
           <button
             type="button"
@@ -407,12 +395,13 @@ function FilesSection({ props, locked, busy, arm, line, gameId, game, upscalers 
             disabled={busy !== null}
             onClick={() => arm(view.consent === 'given'
               ? {
-                key: 'consent', value: 'stop', verb: 'Stop allowing', text: 'Stop allowing changes to this game?',
-                also: view.restorable > 0 ? { verb: 'Stop and restore', value: 'restore', blocked: gate } : undefined,
+                key: 'consent', value: 'stop', verb: 'Stop allowing', title: 'Stop allowing changes?',
+                body: `Exo stops updating this game's upscalers.${view.restorable > 0 && gate ? ` ${gate} to also put its own files back.` : ''}`,
+                also: view.restorable > 0 && !gate ? { verb: 'Stop and restore', value: 'restore' } : undefined,
               }
               : {
-                key: 'consent', value: 'allow', verb: 'Allow, at my risk', danger: true,
-                text: `This game uses ${view.antiCheatName}. Changing its files can get your account banned, and that risk is yours.`,
+                key: 'consent', value: 'allow', verb: 'Allow, at my risk', danger: true, title: 'Allow upscaler changes?',
+                body: `This game uses ${view.antiCheatName}. Changing its files can get your account banned, and that risk is yours.`,
               })}
           >
             {view.consent === 'given' ? 'Stop allowing' : 'Allow changes'}
@@ -421,13 +410,13 @@ function FilesSection({ props, locked, busy, arm, line, gameId, game, upscalers 
       )}
       {view.restorable > 0 && (
         <PropRow label="Upscaler files" detail="Exo keeps the game's own files when it updates them." line={line('restore')}>
-          <Spinner on={busy === 'restore'} />
+          <Working on={busy === 'restore'} label="Putting the original files back" />
           <button
             type="button"
             className="exo-set-btn"
             disabled={!!gate || busy !== null}
             aria-label={gate ? `Restore the originals: ${gate}` : undefined}
-            onClick={() => arm({ key: 'restore', value: '', verb: 'Restore', text: 'Puts the game\'s own upscaler files back.' })}
+            onClick={() => arm({ key: 'restore', value: '', verb: 'Restore', title: 'Restore the original files?', body: 'Puts the game\'s own upscaler files back.' })}
           >
             Restore originals
           </button>
@@ -442,14 +431,14 @@ function UpdatesSection({ props, busy, apply, line }: Rows) {
     <>
       {props.autoUpdate !== null && (
         <PropRow label="Automatic updates" line={line('autoUpdate')}>
-          <Spinner on={busy === 'autoUpdate'} />
+          <Working on={busy === 'autoUpdate'} label="Changing automatic updates" />
           <Choice label="Automatic updates" value={props.autoUpdate} choices={props.autoUpdateChoices} disabled={busy !== null}
             onChange={value => void apply('autoUpdate', value)} />
         </PropRow>
       )}
       {props.background !== null && (
         <PropRow label="Downloads while playing" line={line('background')}>
-          <Spinner on={busy === 'background'} />
+          <Working on={busy === 'background'} label="Changing downloads while playing" />
           <Choice label="Downloads while playing" value={props.background} choices={props.backgroundChoices} disabled={busy !== null}
             onChange={value => void apply('background', value)} />
         </PropRow>
@@ -463,15 +452,15 @@ function BetasSection({ props, store, locked, busy, arm, apply, line }: Rows) {
   return (
     <>
       <PropRow label="Beta" line={line('beta')}>
-        <Spinner on={busy === 'beta'} />
+        <Working on={busy === 'beta'} label="Switching the beta" />
         <Choice
           label="Beta"
           value={props.beta}
           choices={props.betaChoices}
           disabled={locked || busy !== null}
           onChange={value => arm({
-            key: 'beta', value, verb: 'Switch',
-            text: value ? `${label(props.betaChoices, value)}. ${store} downloads its build.` : `The current release. ${store} downloads it.`,
+            key: 'beta', value, verb: 'Switch', title: value ? `Switch to ${label(props.betaChoices, value)}?` : 'Leave the beta?',
+            body: value ? `${store} downloads its build.` : `${store} downloads the current release.`,
           })}
         />
       </PropRow>
@@ -489,21 +478,21 @@ function ContentSection({ props, locked, busy, arm, line, pending }: Rows & { pe
     <div className={`exo-props-content${content.length > 6 ? ' is-columns' : ''}`}>
       {content.map((item) => {
         const row = `content:${item.id}`
-        // An armed switch shows where it is going until the change is confirmed or canceled.
-        const armed = pending?.key === 'content' && rowOf(pending) === row
+        // A switch shows where it is going while its question is open.
+        const asking = pending?.key === 'content' && rowOf(pending) === row
         return (
           <PropRow key={item.id} label={item.name} detail={item.toggle && item.sizeBytes ? formatSize(item.sizeBytes) : undefined} line={line(row)}>
             {item.toggle ? (
               <>
-                <Spinner on={busy === row} />
+                <Working on={busy === row} label={`Changing ${item.name}`} />
                 <Switch
-                  checked={armed ? !item.enabled : item.enabled}
+                  checked={asking ? !item.enabled : item.enabled}
                   label={item.name}
                   disabled={locked || busy !== null}
                   onChange={(on) => {
                     arm(on === item.enabled ? null : {
                       key: 'content', value: `${item.id}:${on ? 'on' : 'off'}`, verb: on ? 'Download' : 'Remove', danger: !on,
-                      text: sizeLine(on ? 'Downloads' : 'Frees', item.sizeBytes),
+                      title: `${on ? 'Download' : 'Remove'} ${item.name}?`, body: sizeLine(on ? 'Downloads' : 'Frees', item.sizeBytes),
                     })
                   }}
                 />
@@ -523,7 +512,7 @@ function LaunchOptions({ value, busy, onSave, line }: { value: string; busy: boo
   const save = () => { if (draft.trim() !== value.trim()) void onSave(draft) }
   return (
     <PropRow label="Launch options" line={line}>
-      <Spinner on={busy} />
+      <Working on={busy} label="Saving launch options" />
       <input
         className="exo-field exo-props-field"
         aria-label="Launch options"
@@ -559,7 +548,7 @@ function AccessCode({ busy, disabled, onCheck, line }: { busy: boolean; disabled
         onKeyDown={(event) => { if (event.key === 'Enter') check() }}
       />
       <button type="button" className="exo-set-btn" disabled={disabled || !code.trim()} onClick={check}>
-        <Spinner on={busy} />Check
+        <Working on={busy} label="Checking the code" />Check
       </button>
     </PropRow>
   )

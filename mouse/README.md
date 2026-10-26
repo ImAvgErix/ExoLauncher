@@ -9,6 +9,8 @@ driver or account, for every mouse
   battery and profile in Exo's top bar.
 - **Settings:** DPI, polling rate, lift-off, motion sync, buttons, lighting,
   sleep and more, showing only what your mouse has.
+- **CPU core:** measures whether the mouse's input waits on a busy CPU and,
+  through Exo, gives it a quiet one of its own.
 - **Profiles:** each one linked to games and switched on by itself when one of
   them starts.
 - **Wired or wireless:** on its cable or its receiver, the same mouse with the
@@ -43,6 +45,7 @@ own; it reaches devices only through a small message protocol with its host:
 | event `hid.changed` | A device arrived or left |
 | `exo.games` | Installed games (id, title and Exo's own cached cover thumbnail), to link a profile to games |
 | `exo.profiles.read` / `exo.profiles.write { data }` | Exo Mouse's saved profiles, kept in Exo's data folder |
+| `exo.mouseCore { action? }` | The CPU core panel: no action reads where the mouse's CPU stands; `measure` (10 s of the mouse moving), `apply` or `undo` asks the host to act. The host does the reading and the change |
 | one-way `{ notice }` / `{ state }` / `{ profile }` | A one-line notice for Exo to show; the mouse's name, battery and charging, and the name of the profile on it, for Exo's top bar |
 | event `game.runState { id, isRunning }` | A game started or stopped |
 | event `room.visible` | Whether the Devices room is on screen |

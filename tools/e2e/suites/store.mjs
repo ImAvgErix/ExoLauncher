@@ -57,14 +57,16 @@ export async function run(t) {
   })
 
   await run.check('store', 'calendar', 'the calendar lists games by release day, exact dates only, with its filters', async (c) => {
-    const chip = (name) => () => [...document.querySelectorAll('.exo-store-top .exo-shelf-chip')].find(b => b.textContent.trim() === name) ?? null
-    if (!await t.shell.click(chip('Calendar'))) return ['the Store has no Calendar view']
+    // The finder runs in the page, so its name goes as an argument (a closure's would be undefined there).
+    const chip = (name) => [...document.querySelectorAll('.exo-store-top .exo-shelf-chip')].find(b => b.textContent.trim() === name) ?? null
+    if (!await t.shell.click(chip, 'Calendar')) return ['the Store has no Calendar view']
     const state = await t.shell.waitFor(() => document.querySelector('.exo-cal-note') ? 'ready' : document.querySelector('.exo-store-error') ? 'error' : null, { timeoutMs: 30000 })
     if (state === 'error') c.skip('the store did not answer')
     if (state !== 'ready') return ['the calendar never showed']
     const view = await t.shell.eval(`({
-      days: [...document.querySelectorAll('section[aria-labelledby^="exo-cal-"]')].map(s => ({
-        title: s.querySelector('h2')?.textContent.trim(),
+      // Each day is its own section under Coming up and Out recently, titled by its date.
+      days: [...document.querySelectorAll('section.exo-cal-day')].map(s => ({
+        title: s.querySelector('.exo-cal-date')?.textContent.trim(),
         cards: s.querySelectorAll('.exo-cal-item .exo-store-card').length,
         whens: [...s.querySelectorAll('.exo-store-when')].map(w => w.textContent.trim()),
       })),
@@ -84,7 +86,7 @@ export async function run(t) {
     }
     await c.shot('calendar', t.shell)
     failures.push(...await k.look(c, 'calendar'))
-    await t.shell.click(chip('Discover'))
+    await t.shell.click(chip, 'Discover')
     await t.shell.waitFor(() => document.querySelector('.exo-store-hero'), { timeoutMs: 10000 })
     return failures
   })

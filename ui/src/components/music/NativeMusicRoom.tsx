@@ -7,6 +7,8 @@ import type { PlayerRoomState } from '../../lib/player'
 import { MusicRoom } from '../MusicRoom'
 import { MusicPlayer } from './MusicPlayer'
 import { MusicSignIn } from './MusicSignIn'
+import { MusicWait } from './MusicWait'
+import { Spinner } from '../ui/Spinner'
 
 const adapters = { spotify: spotifyAdapter, youtube: youtubeAdapter, apple: appleAdapter }
 
@@ -151,23 +153,26 @@ export function NativeMusicRoom({ service, active, shown, nowPlaying }: {
     return (
       <main className="exo-hosted-room">
         <div className="exo-hosted-room-state" role="status">
-          <p>{switching ? 'Switching to Spotify’s app…' : switchError ?? message ?? 'Spotify from the Microsoft Store can’t play inside Exo.'}</p>
+          <p>{switchError ?? message ?? 'Spotify from the Microsoft Store can’t play inside Exo.'}</p>
           <button type="button" className="exo-set-btn" disabled={switching} onClick={() => void switchToClassic()}>
+            {switching ? <Spinner label="Switching to Spotify’s app" /> : null}
             Switch to Spotify’s app
           </button>
         </div>
       </main>
     )
   }
-  if (state !== 'running') {
+  if (state === 'error') {
     return (
       <main className="exo-hosted-room">
-        <div className="exo-hosted-room-state" role={state === 'error' ? 'alert' : 'status'}>
-          <p>{state === 'error' ? message ?? `${adapter.name} could not open.` : `Opening ${adapter.name}`}</p>
-          {state === 'error' ? <button type="button" className="exo-set-btn" onClick={() => setAttempt(n => n + 1)}>Open again</button> : null}
+        <div className="exo-hosted-room-state" role="alert">
+          <p>{message ?? `${adapter.name} could not open.`}</p>
+          <button type="button" className="exo-set-btn" onClick={() => setAttempt(n => n + 1)}>Open again</button>
         </div>
       </main>
     )
   }
+  // Opening: the room's own frame, shining, the same one the player lies under until its first page is in.
+  if (state !== 'running') return <MusicWait name={adapter.name} />
   return <MusicPlayer key={service} adapter={adapter} active={active} nowPlaying={nowPlaying} />
 }

@@ -6,7 +6,7 @@ import { report } from '../../lib/report'
 
 /**
  * First run's tuning: Exo's driver profile for this card and screen (NVIDIA, Radeon or Intel: lowest latency, the right sync), on by
- * default and applied when setup finishes, when there is one to apply; System > Graphics can undo it. Then Lucid, the
+ * default and applied when setup finishes, when there is one to apply; PC › Graphics can undo it. Then Lucid, the
  * optional headphone EQ app: Start with Exo (off until the user turns it on) and its setup when this PC has it, else
  * its download page.
  */
@@ -22,7 +22,7 @@ export function PcStep({ profile, tune, onTune, lucid, onLucid }: {
     <div className="exo-set-list">
       {profile ? (
         <Row label={`Exo's profile for ${profile.gpu ?? 'your graphics card'}`} labelId="ob-nvidia"
-          detail={`Lowest input latency and ${syncName(profile)} for ${screen}. Undo any time in System › Graphics.`}>
+          detail={`Lowest input latency and ${syncName(profile)} for ${screen}. Undo any time in PC › Graphics.`}>
           <Switch checked={tune} labelledBy="ob-nvidia" onChange={onTune} />
         </Row>
       ) : null}

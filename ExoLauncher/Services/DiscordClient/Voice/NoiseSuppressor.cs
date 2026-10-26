@@ -7,6 +7,12 @@ namespace ExoLauncher.Services.DiscordClient.Voice;
 /// <summary>Fetching Exo's DeepFilterNet library (outside the unsafe class: it awaits).</summary>
 internal static class NoiseSuppressorDownload
 {
+    /// <summary>DeepFilterNet as one of Exo's parts (<see cref="ExoComponents"/>): setup fetches it with Exo.</summary>
+    internal static readonly ExoComponent Component = new("DeepFilterNet noise suppression", "Noise suppression",
+        NoiseSuppressor.Plugin.ExpectedSize, 0, Ready,
+        (progress, ct) => VerifiedGitHubReleaseDownloader.Shared.DownloadPinnedAsync(NoiseSuppressor.Plugin, NoiseSuppressor.PluginPath, _ => true, ct, done => progress(done, unpacking: false)),
+        () => NoiseSuppressor.PluginPath);
+
     // The library file last found whole (its size and time): hashing 50 MB again is skipped while it's unchanged.
     private static (long Size, DateTime Written, bool Whole)? _checked;
 
@@ -56,9 +62,9 @@ internal static class NoiseSuppressorDownload
 /// Noise suppression for the microphone and, with Noise Suppression for Others, for each voice heard: DeepFilterNet 3's
 /// low-latency model (Rikorose/DeepFilterNet v0.5.6, MIT/Apache-2.0) through its own C interface, built by Exo from that
 /// release's source (voice\build.ps1) with three entry points of Exo's added (the built-in model, the stage
-/// thresholds, and a frame call that never unwinds into Exo). Fetched once from Exo's GitHub release (pinned size and
-/// SHA-256, <see cref="VerifiedGitHubReleaseDownloader"/>) when Exo's Discord client starts, so its 50 MB stays out of
-/// the installer for everyone who never uses it. A 20 ms stereo frame is mixed to mono, cleaned as DeepFilterNet's two
+/// thresholds, and a frame call that never unwinds into Exo). Fetched from Exo's GitHub release (pinned size and
+/// SHA-256, <see cref="VerifiedGitHubReleaseDownloader"/>) by Exo's setup with Exo's other parts (<see cref="ExoComponents"/>),
+/// so it is ready for the first call. A 20 ms stereo frame is mixed to mono, cleaned as DeepFilterNet's two
 /// 10 ms hops on the caller's own thread, and spread back to both channels.
 /// It used to run through DeepFilterNet's LADSPA plugin, which hands each frame to a worker thread that polls every 2 ms
 /// and, whenever that thread falls behind (a busy PC, a coarse timer), pushes silence into the output and adds 10 ms of

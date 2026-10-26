@@ -10,6 +10,8 @@ import {
 } from '../lib/host'
 import { useCapture } from '../lib/capture'
 import { Button } from './ui/Button'
+import { Progress } from './ui/Progress'
+import { Spinner } from './ui/Spinner'
 import { CaptureStep } from './onboarding/CaptureStep'
 import { CleanupStep } from './onboarding/CleanupStep'
 import { report } from '../lib/report'
@@ -42,7 +44,7 @@ function missingInstallableRuntimes(result: { items?: DependencyItem[] | null })
 }
 
 const LEDE: Record<StepId, string> = {
-  welcome: 'Exo looks at this PC and sets up the rest. Everything here can be changed later in Settings.',
+  welcome: 'Exo looks at this PC and sets up the rest. Everything here can be changed later.',
   capture: 'Keep the last moments of a game, record, or snip the screen. Change the keys if they clash with a game.',
   cleanup: 'Exo does the job of these. Remove the ones you don’t need, with every file and setting they leave behind.',
   stores: "Exo found these on this PC. Sign in where offered so games you own but haven't installed, and games friends give you, show up too.",
@@ -237,17 +239,11 @@ export function OnboardingPanel({
     setRuntimeBusy(true)
     setFeedback(null)
     try {
-      const results = await Promise.allSettled(missingRuntimes.map((item) => host.offerDepInstall(item.id)))
-      const failures = results.flatMap((result, i) => {
-        if (result.status === 'fulfilled' && result.value.ok) return []
-        const reason = result.status === 'rejected'
-          ? result.reason instanceof Error ? result.reason.message : 'The request failed.'
-          : result.value.message ?? 'Installation could not be completed.'
-        return [`${missingRuntimes[i].name}: ${reason}`]
-      })
-      const restart = results.some(result => result.status === 'fulfilled' && result.value.ok && result.value.restartRequired)
-      // A handoff only opened the vendor's installer or download page; success is whatever the recheck finds.
-      const handedOff = results.some(result => result.status === 'fulfilled' && result.value.status === 'handoff')
+      // All of them in one install: Windows asks once.
+      const result = await host.runtimesInstall('missing', missingRuntimes.map((item) => item.id))
+      const failures = result.results.filter(item => item.outcome === 'failed').map(item => `${item.name}: ${item.message}`)
+      if (!result.ok && failures.length === 0 && result.message && !result.canceled) failures.push(result.message)
+      const restart = result.results.some(item => item.outcome === 'restart')
       let stillMissing = missingRuntimes.length
       try {
         const next = missingInstallableRuntimes(await host.listDeps())
@@ -258,8 +254,8 @@ export function OnboardingPanel({
       }
       setFeedback(failures.length
         ? { message: failures.join(' '), error: true }
-        : stillMissing > 0 || handedOff
-          ? { message: 'Finish the installer that opened, then continue.' }
+        : stillMissing > 0
+          ? { message: 'Windows doesn’t list them all yet. Restart Windows, then check again.' }
           : { message: restart ? 'Runtimes installed. Restart Windows to finish.' : 'Runtimes installed.' })
     } finally {
       runtimeBusyRef.current = false
@@ -321,11 +317,8 @@ export function OnboardingPanel({
       <main className="exo-ob-stage">
         <section className={`exo-ob-step${current.id === 'welcome' ? ' is-welcome' : ''}`} key={current.id} data-direction={direction < 0 ? 'back' : 'forward'} aria-labelledby="exo-ob-title">
           {current.id === 'welcome' ? <img className="exo-ob-mark" src="logo.svg" alt="" draggable={false} /> : (
-            <ol className="exo-ob-progress" aria-label={`Step ${index} of ${steps.length - 1}`}>
-              {steps.slice(1).map((item, i) => (
-                <li key={item.id} className={i + 1 < index ? 'is-done' : i + 1 === index ? 'is-current' : undefined} />
-              ))}
-            </ol>
+            // The steps done out of all of them (Welcome is not one).
+            <Progress value={(index - 1) / (steps.length - 1)} label={`Step ${index} of ${steps.length - 1}`} className="exo-ob-progress" />
           )}
           <h1 id="exo-ob-title" ref={headingRef} tabIndex={-1} className="exo-ob-title">{current.title}</h1>
           <p className="exo-ob-lede">{lede}</p>
@@ -359,7 +352,7 @@ function Footer({ feedback, index, last, completing, onBack, onNext }: {
   onBack: () => void
   onNext: () => void
 }) {
-  const label = last ? (completing ? 'Opening Exo…' : 'Start using Exo') : index === 0 ? 'Get started' : 'Continue'
+  const label = last ? 'Start using Exo' : index === 0 ? 'Get started' : 'Continue'
   return (
     <footer className={`exo-ob-foot${index === 0 ? ' is-welcome' : ''}`}>
       <p className={`exo-ob-note${feedback?.error ? ' is-error' : ''}`} role={feedback?.error ? 'alert' : 'status'} aria-live="polite">
@@ -367,7 +360,10 @@ function Footer({ feedback, index, last, completing, onBack, onNext }: {
       </p>
       <div className="exo-ob-actions">
         {index > 0 ? <Button variant="ghost" isDisabled={completing} onPress={onBack}>Back</Button> : null}
-        <Button variant="primary" className="exo-ob-cta" isDisabled={completing} onPress={onNext}>{label}</Button>
+        <Button variant="primary" className="exo-ob-cta" isDisabled={completing} onPress={onNext}>
+          {completing ? <Spinner label="Opening Exo" /> : null}
+          {label}
+        </Button>
       </div>
     </footer>
   )

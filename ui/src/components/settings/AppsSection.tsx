@@ -5,7 +5,9 @@ import { host, onHostEvent, type WebClientOptions } from '../../lib/host'
 import { savedMusicService, saveMusicService, type MusicService } from '../../lib/music'
 import { report } from '../../lib/report'
 import { Choice } from '../settings/Choice'
-import { Row, Section, State } from './parts'
+import { SkeletonWord } from '../ui/Skeleton'
+import { Spinner } from '../ui/Spinner'
+import { Group, Row, State } from './parts'
 
 type AppState = 'loading' | 'installing' | 'notInstalled' | 'storeEdition' | 'installed' | 'running' | 'closed' | 'error'
 type DesktopApp = { id: string; title: string; state: AppState }
@@ -26,8 +28,8 @@ const ICONS: Record<string, (props: { size: number }) => ReactNode> = {
 }
 
 const STATE_LABEL: Record<AppState, string> = {
-  loading: 'Checking…',
-  installing: 'Installing…',
+  loading: 'Checking',
+  installing: 'Installing',
   notInstalled: 'Not installed',
   storeEdition: 'Microsoft Store edition',
   installed: 'Installed',
@@ -111,7 +113,12 @@ function AppRow({ app, onInstalled }: { app: DesktopApp; onInstalled: () => Prom
   }
   return (
     <Row label={app.title} icon={<Icon size={22} />} detail={store ? 'Can’t play inside Exo. Your account and library stay when you switch' : undefined} error={error}>
-      <State on={app.state === 'running'}>{busy ? (store ? 'Switching…' : 'Installing…') : STATE_LABEL[app.state] ?? app.state}</State>
+      {app.state === 'loading' && !busy ? <SkeletonWord label={`Checking ${app.title}`} /> : (
+        <State on={app.state === 'running' && !busy}>
+          {busy || app.state === 'installing' ? <><Spinner label={busy && store ? 'Switching to Spotify’s app' : `Installing ${app.title}`} /> </> : null}
+          {busy ? (store ? 'Switching' : 'Installing') : STATE_LABEL[app.state] ?? app.state}
+        </State>
+      )}
       {canInstall ? (
         <button type="button" className="exo-set-btn" onClick={() => void install()}>{store ? 'Switch to Spotify’s app' : `Install ${app.title}`}</button>
       ) : null}
@@ -155,7 +162,7 @@ export const AppsSection = memo(function AppsSection() {
   const music = (apps ?? []).filter(app => app.id === service)
 
   return (
-    <Section id="apps" title="Music">
+    <Group id="music" title="Music">
       <Row label="Music service" labelId="set-music-service" error={error?.row === 'service' ? error.text : null}>
         <Choice
           label="Music service"
@@ -182,6 +189,6 @@ export const AppsSection = memo(function AppsSection() {
           />
         </Row>
       ) : null}
-    </Section>
+    </Group>
   )
 })

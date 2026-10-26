@@ -11,10 +11,14 @@ import { showProfile } from './extras'
 import { Markdown } from './markdown'
 import { ChannelIcon } from './Sidebar'
 import { openUserMenu } from './UserMenu'
-import { Confirm, useLayer } from './admin'
+import { useLayer } from './admin'
 import { ModalBack } from './SettingsLayer'
 import { useDismiss } from '../../lib/dismiss'
 import { changeAccountSettings, useAccountSettings } from '../../lib/discordPrefs'
+import { notify } from '../../lib/notify'
+import { Dialog } from '../ui/Dialog'
+import { Spinner } from '../ui/Spinner'
+import { Skeleton } from '../ui/Skeleton'
 
 /** Discord's rows over a server's channels, opened in place of a channel. */
 export const PAGES = { guide: 'page:guide', browse: 'page:browse', members: 'page:members' } as const
@@ -115,7 +119,7 @@ function Guide({ guildId, list, onPick, side }: { guildId: string; list: Discord
   const [opened, setOpened] = useState<string | null>(null)
   const guide = data?.guide
   if (error) return <p className="exo-dc-note" role="alert">{error}</p>
-  if (!data) return <p className="exo-dc-note">Loading</p>
+  if (!data) return <Skeleton label="Loading the server guide" />
   const channel = opened ? list?.channels.find(c => c.id === opened) : undefined
   return (
     <div className={`exo-dc-guide${channel ? ' has-side' : ''}`}>
@@ -186,14 +190,12 @@ function GuideHead({ list }: { list: DiscordChannels | null }) {
 
 // Discord's Invite button: a 7-day invite, copied.
 function GuideInvite({ channelId }: { channelId: string | null }) {
-  const [copied, setCopied] = useState(false)
   if (!channelId) return null
   return (
     <button type="button" className="exo-dc-tab exo-dc-guide-invite" onClick={() => void host.discordChannel(channelId, 'invite').then(result => {
       if (!result.url) return
-      void navigator.clipboard.writeText(result.url).catch(() => { })
-      setCopied(true)
-    }).catch(() => { })}>{copied ? 'Invite link copied' : 'Invite'}</button>
+      void navigator.clipboard.writeText(result.url).then(() => notify({ id: 'dc-copied', text: 'Invite link copied', tone: 'good' })).catch(() => { })
+    }).catch(() => { })}>Invite</button>
   )
 }
 
@@ -214,7 +216,7 @@ function GuideCard({ name, online, total, founded }: { name: string; online: num
 function Browse({ guildId, list, onPick }: { guildId: string; list: DiscordChannels | null; onPick: (id: string) => void }) {
   const [query, setQuery] = useState('')
   const [creating, setCreating] = useState(false)
-  if (!list) return <p className="exo-dc-note">Loading</p>
+  if (!list) return <Skeleton label="Loading channels" />
   const q = query.trim().toLowerCase()
   const groups: { category: DiscordChannel | null; channels: DiscordChannel[] }[] = []
   for (const c of list.channels) {
@@ -376,7 +378,7 @@ export function Members({ guildId, canPrune }: { guildId: string; canPrune: bool
   const needMore = !!loaded && !loaded.done && !error && (at + 1) * size >= all.length
   useEffect(() => { if (needMore) more() })
   if (error && !loaded) return <p className="exo-dc-note" role="alert">{error}</p>
-  if (!loaded) return <p className="exo-dc-note">Loading</p>
+  if (!loaded) return <Skeleton label="Loading members" rows={8} avatar />
   const roles = loaded.roles
   return (
     <>
@@ -462,10 +464,13 @@ function Prune({ guildId, onClose, onPruned }: { guildId: string; onClose: () =>
         {[7, 30].map(d => (
           <button key={d} type="button" className="exo-dc-card" aria-pressed={days === d} onClick={() => setDays(d)}>More than {d} days ago</button>
         ))}
-        <p>{error ?? (count === null ? 'Counting' : `${count} ${count === 1 ? 'member' : 'members'} will be removed.`)}</p>
+        {!error && count === null ? <Skeleton label="Counting members" rows={1} />
+          : <p>{error ?? `${count} ${count === 1 ? 'member' : 'members'} will be removed.`}</p>}
         <div className="exo-dc-modal-row">
           <button type="button" className="exo-dc-tab" onClick={onClose}>Cancel</button>
-          <button type="button" className="exo-set-btn is-danger" disabled={busy || !count} onClick={() => void prune()}>Prune</button>
+          <button type="button" className="exo-set-btn is-danger" disabled={busy || !count} onClick={() => void prune()}>
+            {busy ? <Spinner label="Pruning members" /> : null}Prune
+          </button>
         </div>
       </div>
     </ModalBack>
@@ -529,7 +534,8 @@ export function ServerPrivacy({ guildId, name, onClose }: { guildId: string; nam
   }
   const dms = on('restrictedGuildIds')
   return (
-    <Confirm title="Privacy settings" action="Done" danger={false} error={error} onConfirm={onClose} onClose={onClose}>
+    <Dialog title="Privacy settings" form portal={false} onClose={onClose}
+      actions={<button type="button" className="exo-set-btn is-primary" data-autofocus onClick={onClose}>Done</button>}>
       <p>{name}</p>
       <div className="exo-dc-form-rows">
         <span className="exo-dc-form-switch">
@@ -549,7 +555,8 @@ export function ServerPrivacy({ guildId, name, onClose }: { guildId: string; nam
           <Switch checked={on('activityJoiningRestrictedGuildIds')} label="Activity joining" onChange={value => set('activityJoiningRestrictedGuildIds', value)} />
         </span>
       </div>
-    </Confirm>
+      {error ? <p className="exo-dialog-error" role="alert">{error}</p> : null}
+    </Dialog>
   )
 }
 

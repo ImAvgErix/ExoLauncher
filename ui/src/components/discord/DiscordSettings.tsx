@@ -1,11 +1,11 @@
-import { useEffect, useLayoutEffect, useRef } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Close } from '../../brand/icons'
 import type { DiscordHome } from '../../lib/discord'
 import { useDialogFocus } from '../../lib/focusTrap'
 import { loadAccountSettings } from '../../lib/discordPrefs'
 import { useGlide } from '../../lib/glide'
 import { AccountPage, DevicesPage, ProfilesPage } from './settings/AccountPages'
-import { AccessibilityPage, AppearancePage, DeveloperPage, LanguagePage, LogOutPage, NotificationsPage } from './settings/AppPages'
+import { AccessibilityPage, AppearancePage, DeveloperPage, LanguagePage, LogOut, NotificationsPage } from './settings/AppPages'
 import { SystemPage } from './settings/KeybindsPage'
 import { ActivityPage, ConnectedAppsPage, DataPrivacyPage, MessagingPage } from './settings/PrivacyPages'
 import { SettingsLayer } from './SettingsLayer'
@@ -15,11 +15,12 @@ import { pushPage } from '../../lib/viewTransition'
 export type DiscordSettingsSection =
   | 'profiles' | 'account' | 'devices' | 'privacy' | 'messaging' | 'notifications'
   | 'voice' | 'appearance' | 'accessibility' | 'system' | 'language'
-  | 'activity' | 'apps' | 'developer' | 'logout'
+  | 'activity' | 'apps' | 'developer'
 
 // Discord's User Settings sidebar (October 2026), with what applies to Exo's client: Billing, Clips,
-// Family Center, Registered Games and the Game Overlay are Discord app features Exo's client doesn't have.
-const GROUPS: { title?: string; items: { id: DiscordSettingsSection; label: string }[] }[] = [
+// Family Center, Registered Games and the Game Overlay are Discord app features Exo's client doesn't have. Log Out
+// is a question, not a page.
+const GROUPS: { title?: string; items: { id: DiscordSettingsSection | 'logout'; label: string }[] }[] = [
   { items: [{ id: 'profiles', label: 'Profiles' }] },
   {
     items: [
@@ -69,13 +70,14 @@ export function DiscordSettings({ open, section, home, onSection, onClose }: {
 }) {
   const glide = useGlide<HTMLDivElement>()
   const dialog = useRef<HTMLDivElement>(null)
+  const [loggingOut, setLoggingOut] = useState(false)
   useDialogFocus(dialog, open)
   // Escape closes Settings once it reaches the window: an open menu, a keybind being recorded or a dialog over
   // Settings takes it first.
   useEffect(() => {
     if (!open) return
     const escape = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape' || event.defaultPrevented || document.querySelector('.exo-dc-modal-back')) return
+      if (event.key !== 'Escape' || event.defaultPrevented || document.querySelector('.exo-dc-modal-back, .exo-dialog-back')) return
       event.preventDefault()
       onClose()
     }
@@ -103,11 +105,11 @@ export function DiscordSettings({ open, section, home, onSection, onClose }: {
             <div key={i} className="exo-dc-settings-group">
               {group.title ? <h2>{group.title}</h2> : null}
               <ul>
-                {group.items.map(item => (
-                  <li key={item.id}>
-                    <button type="button" aria-current={current === item.id ? 'true' : undefined}
-                      className={[current === item.id ? 'is-current' : '', item.id === 'logout' ? 'is-danger' : ''].filter(Boolean).join(' ') || undefined}
-                      onClick={() => void pushPage(() => onSection(item.id), '.exo-dc-settings-page', '.exo-dc-settings-nav [aria-current="true"]')}>{item.label}</button>
+                {group.items.map(({ id, label }) => (
+                  <li key={id}>
+                    <button type="button" aria-current={current === id ? 'true' : undefined}
+                      className={[current === id ? 'is-current' : '', id === 'logout' ? 'is-danger' : ''].filter(Boolean).join(' ') || undefined}
+                      onClick={() => id === 'logout' ? setLoggingOut(true) : void pushPage(() => onSection(id), '.exo-dc-settings-page', '.exo-dc-settings-nav [aria-current="true"]')}>{label}</button>
                   </li>
                 ))}
               </ul>
@@ -118,20 +120,20 @@ export function DiscordSettings({ open, section, home, onSection, onClose }: {
       <div ref={body} className="exo-dc-settings-body">
         <button type="button" className="exo-game-close exo-dc-settings-close" aria-label="Close Discord settings" onClick={onClose}><Close size={16} /></button>
         <div key={section} className="exo-dc-settings-page exo-motion-switch">
-          <Page section={section} me={home?.me ?? null} guilds={home?.guilds ?? []} onSection={onSection} onClose={onClose} />
+          <Page section={section} me={home?.me ?? null} guilds={home?.guilds ?? []} onSection={onSection} />
         </div>
       </div>
+      {loggingOut ? <LogOut onDone={() => { setLoggingOut(false); onClose() }} onClose={() => setLoggingOut(false)} /> : null}
     </div>
     </SettingsLayer>
   )
 }
 
-function Page({ section, me, guilds, onSection, onClose }: {
+function Page({ section, me, guilds, onSection }: {
   section: DiscordSettingsSection
   me: DiscordHome['me']
   guilds: DiscordHome['guilds']
   onSection: (section: DiscordSettingsSection) => void
-  onClose: () => void
 }) {
   switch (section) {
     case 'profiles': return <ProfilesPage home={me} guilds={guilds} />
@@ -148,6 +150,5 @@ function Page({ section, me, guilds, onSection, onClose }: {
     case 'activity': return <ActivityPage />
     case 'apps': return <ConnectedAppsPage />
     case 'developer': return <DeveloperPage />
-    case 'logout': return <LogOutPage onDone={onClose} />
   }
 }

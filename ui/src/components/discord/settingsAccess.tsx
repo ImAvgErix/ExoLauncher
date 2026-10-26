@@ -1,12 +1,13 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Switch } from '../Switch'
 import { Choice } from '../settings/Choice'
+import { ConfirmDialog, Dialog as ExoDialog } from '../ui/Dialog'
 import { Menu } from '../ui/Menu'
-import { admin, Field, ReadError, SaveBar, useAdmin, useLayer, type AdminReply } from './admin'
+import { admin, Confirm, Field, ReadError, SaveBar, useAdmin, type AdminReply } from './admin'
 import { Icons } from './icons'
-import { ModalBack } from './SettingsLayer'
 import { LANGUAGES } from './settings/AppPages'
 import type { PageGuild } from './settingsPages'
+import { Skeleton } from '../ui/Skeleton'
 
 /**
  * Discord's Access, as its web client draws and saves it: how people join (Invite only, Apply to join, Discoverable),
@@ -245,10 +246,10 @@ function Application({ questions, waiting, disabled, onChange, recruit, profileV
       </Field>
       {editing ? <QuestionDialog field={editing.field} onSave={field => { put(field); setEditing(null) }} onClose={() => setEditing(null)} /> : null}
       {warning ? (
-        <Dialog title={`You have ${waiting} pending review!`} onClose={() => setWarning(null)}
-          actions={<button type="button" className="exo-set-btn is-primary" onClick={() => { setWarned(true); setEditing(warning); setWarning(null) }}>Continue editing</button>}>
-          <p>You can still make changes, but keep in mind the changes will not affect the existing applications that are pending review.</p>
-        </Dialog>
+        <Confirm title="Edit the application?" action="Continue editing" danger={false} onClose={() => setWarning(null)}
+          onConfirm={() => { setWarned(true); setEditing(warning); setWarning(null) }}>
+          <p>You can still make changes, but they won't affect the {waiting} {waiting === 1 ? 'application' : 'applications'} pending review.</p>
+        </Confirm>
       ) : null}
     </section>
   )
@@ -299,7 +300,7 @@ function QuestionDialog({ field, onSave, onClose }: { field: FormField; onSave: 
           {list.length < MAX_CHOICES ? <span className="exo-dc-settings-buttons"><button type="button" className="exo-set-btn" onClick={() => setList([...list, ''])}>Add an option</button></span> : null}
         </>
       ) : null}
-      {error ? <p className="is-bad" role="alert">{error}</p> : null}
+      {error ? <p className="exo-dialog-error" role="alert">{error}</p> : null}
     </Dialog>
   )
 }
@@ -307,31 +308,24 @@ function QuestionDialog({ field, onSave, onClose }: { field: FormField; onSave: 
 // Leaving Apply to join with applications waiting: Discord's choice, Reject all or Accept all (more than 200 can only
 // be rejected).
 function PendingDialog({ count, onChoose, onClose }: { count: number; onChoose: (choice: 'APPROVED' | 'REJECTED') => void; onClose: () => void }) {
-  const many = count > 200
-  return (
-    <Dialog title={`You have ${count} pending review!`} onClose={onClose} actions={<>
-      <button type="button" className="exo-set-btn is-danger" onClick={() => onChoose('REJECTED')}>Reject all</button>
-      {many ? null : <button type="button" className="exo-set-btn is-primary" onClick={() => onChoose('APPROVED')}>Accept all</button>}
-    </>}>
-      <p>{many ? 'Turning off manual applications will automatically reject all pending applications.' : 'Before you can disable Member Requirements, you have to either approve or reject all applications.'}</p>
-    </Dialog>
+  const pending = `${count} ${count === 1 ? 'application' : 'applications'}`
+  return count > 200 ? (
+    <Confirm title={`Reject ${pending}?`} action="Reject all" onClose={onClose} onConfirm={() => onChoose('REJECTED')}>
+      <p>Turning off manual applications will automatically reject all pending applications.</p>
+    </Confirm>
+  ) : (
+    <ConfirmDialog title={`Accept or reject ${pending}?`} body="Before you can disable Member Requirements, you have to either approve or reject all applications."
+      also="Reject all" alsoDanger action="Accept all" portal={false} onAlso={() => onChoose('REJECTED')} onConfirm={() => onChoose('APPROVED')} onClose={onClose} />
   )
 }
 
+/** A dialog of fields in Discord's settings: Exo's one dialog (ui/Dialog.tsx) drawn in the room, Cancel first, then its own buttons. */
 export function Dialog({ title, children, actions, onClose }: { title: string; children: React.ReactNode; actions: React.ReactNode; onClose: () => void }) {
-  const box = useRef<HTMLDivElement>(null)
-  useLayer(box, onClose)
   return (
-    <ModalBack top onClose={onClose}>
-      <div ref={box} className="exo-dc-modal exo-dc-confirm exo-dc-access-dialog" role="dialog" aria-modal="true" aria-label={title} tabIndex={-1} onClick={event => event.stopPropagation()}>
-        <strong>{title}</strong>
-        {children}
-        <div className="exo-dc-modal-row">
-          <button type="button" className="exo-dc-tab" onClick={onClose}>Cancel</button>
-          <span className="exo-dc-settings-buttons">{actions}</span>
-        </div>
-      </div>
-    </ModalBack>
+    <ExoDialog title={title} form portal={false} onClose={onClose} actions={<>
+      <button type="button" className="exo-set-btn" onClick={onClose}>Cancel</button>
+      {actions}
+    </>}>{children}</ExoDialog>
   )
 }
 
@@ -354,7 +348,7 @@ function Discovery({ guild, listing, onListing, onEligible }: { guild: AccessGui
   const sufficient = req ? req.sufficient === true : null
   useEffect(() => { if (sufficient !== null) onEligible(sufficient) }, [sufficient, onEligible])
   if (data.error) return <ReadError error={data.error} onRetry={data.reload} />
-  if (!data.data || !req) return <p className="exo-dc-note">Checking if your server passes requirements…</p>
+  if (!data.data || !req) return <Skeleton label="Checking if your server passes requirements" />
   if (!req.sufficient) return <Checklist req={req} />
   const meta = data.data.metadata
   const value: Listing = listing ?? {

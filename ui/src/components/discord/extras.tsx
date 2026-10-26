@@ -14,6 +14,7 @@ import { ModalBack } from './SettingsLayer'
 import { useDismiss } from '../../lib/dismiss'
 import { openLink } from '../../lib/music'
 import { saveImage } from './ImageMenu'
+import { Skeleton } from '../ui/Skeleton'
 
 // The room's overlays are asked for by event, so any message or list can open them. The person as the
 // message or list shows them stands in when Discord doesn't send their profile.
@@ -147,7 +148,7 @@ function ProfilePopout({ at, meId, onClose, onMessage }: { at: ProfileAt; meId: 
           </div>
           <ProfileEffectOf data={data} guildId={at.guildId} />
         </>
-      ) : <p className="exo-dc-note exo-dc-pf-wait" role={failed ? 'alert' : 'status'}>{failed ? "Discord didn't send this profile. Try again." : 'Loading'}</p>}
+      ) : failed ? <p className="exo-dc-note exo-dc-pf-wait" role="alert">Discord didn't send this profile. Try again.</p> : <Skeleton label="Loading the profile" />}
     </div>
   )
 }

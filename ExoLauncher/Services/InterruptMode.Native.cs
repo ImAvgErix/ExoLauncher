@@ -15,7 +15,8 @@ namespace ExoLauncher.Services;
 internal sealed partial class InterruptMode
 {
     private const string MsiKey = @"\Device Parameters\Interrupt Management\MessageSignaledInterruptProperties";
-    private const string PriorityKey = @"\Device Parameters\Interrupt Management\Affinity Policy";
+    /// <summary>DevicePriority (this class), DevicePolicy and AssignmentSetOverride (<see cref="MouseCore"/>) share it; each side writes only its own names.</summary>
+    private const string AffinityKey = @"\Device Parameters\Interrupt Management\Affinity Policy";
 
     internal sealed class NativeDevices : IDevices
     {
@@ -27,6 +28,7 @@ internal sealed partial class InterruptMode
         private static readonly DevPropKey DescKey = new(DeviceProps, 2), ServiceKey = new(DeviceProps, 6), FriendlyKey = new(DeviceProps, 14);
         private static readonly DevPropKey RankKey = new(DriverProps, 14);
         private static readonly DevPropKey InstanceIdKey = new(new Guid("78c34fc8-104a-4aca-9ea4-524d52996e57"), 256);
+        private static readonly DevPropKey LocalKey = new(new Guid("8c7ed206-3f8a-4827-b3ab-ae9e1faefc6c"), 4); // DEVPKEY_Device_InLocalMachineContainer
         private static readonly Guid DiskInterface = new("53f56307-b6bf-11d0-94f2-00a0c91efb8b"); // GUID_DEVINTERFACE_DISK
 
         public IReadOnlyList<Device> List()
@@ -40,11 +42,24 @@ internal sealed partial class InterruptMode
             {
                 if (CM_Locate_DevNode(out var node, id, 0) != 0) continue;
                 var problem = CM_Get_DevNode_Status(out _, out var code, node, 0) == 0 ? code : uint.MaxValue;
+                var (mode, affinity) = ReadMode(node);
+                var policy = ReadAffinityPolicy(id);
                 list.Add(new Device(id, String(node, FriendlyKey) ?? String(node, DescKey) ?? "PCI device", String(node, ServiceKey), problem,
                     Byte(node, BaseClassKey), Byte(node, SubClassKey), Byte(node, ProgIfKey), UInt(node, SupportKey), UInt(node, MessageMaxKey),
-                    UInt(node, RankKey), ReadMode(node), Value(id, MsiKey, MsiName), Value(id, PriorityKey, PriorityName)));
+                    UInt(node, RankKey), mode, Value(id, MsiKey, MsiName), policy.Priority,
+                    policy.Policy, policy.Override, policy.Odd, affinity, Raw(node, LocalKey, 0x11) is [var local, ..] ? local != 0 : null));
             }
             return list;
+        }
+
+        /// <summary>The device instance behind an interface path (a disk's, a Raw Input mouse's); null when Windows doesn't say.</summary>
+        internal static string? InstanceOf(string path)
+        {
+            var key = InstanceIdKey;
+            var data = new byte[800];
+            var size = (uint)data.Length;
+            return CM_Get_Device_Interface_Property(path, ref key, out var type, data, ref size, 0) == 0 && type == 0x12
+                ? Encoding.Unicode.GetString(data, 0, (int)size).TrimEnd('\0') : null;
         }
 
         public string? Parent(string id)
@@ -68,11 +83,7 @@ internal sealed partial class InterruptMode
             foreach (var path in MultiSz(buffer))
             {
                 if (DiskNumber(path) is not { } number || !numbers.Contains(number)) continue;
-                var key = InstanceIdKey;
-                var data = new byte[800];
-                var size = (uint)data.Length;
-                if (CM_Get_Device_Interface_Property(path, ref key, out var type, data, ref size, 0) == 0 && type == 0x12)
-                    disks.Add(Encoding.Unicode.GetString(data, 0, (int)size).TrimEnd('\0'));
+                if (InstanceOf(path) is { } disk) disks.Add(disk);
             }
             return disks;
         }
@@ -87,12 +98,36 @@ internal sealed partial class InterruptMode
             catch (Exception ex) when (ex is System.Security.SecurityException or UnauthorizedAccessException or IOException) { return null; }
         }
 
-        /// <summary>From the IRQs Windows gave the device: a message interrupt's number is negative (Device Manager shows 0xFFFFFFxx).</summary>
-        private static Mode ReadMode(uint node)
+        /// <summary>
+        /// The Affinity Policy key's three values: DevicePriority, DevicePolicy (REG_DWORD) and AssignmentSetOverride (REG_BINARY,
+        /// a KAFFINITY). Odd: DevicePolicy or AssignmentSetOverride is there as another type or length, which Exo neither backs up nor writes over.
+        /// </summary>
+        private static (int? Priority, int? Policy, byte[]? Override, bool Odd) ReadAffinityPolicy(string id)
         {
-            if (CM_Get_First_Log_Conf(out var conf, node, 2 /* ALLOC_LOG_CONF */) != 0) return Mode.None;
+            try
+            {
+                using var key = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64).OpenSubKey(@"SYSTEM\CurrentControlSet\Enum\" + id + AffinityKey);
+                if (key is null) return (null, null, null, false);
+                var priority = key.GetValue(PriorityName) is int p ? p : (int?)null;
+                var policy = key.GetValue(MouseCore.PolicyName);
+                var mask = key.GetValue(MouseCore.OverrideName);
+                var odd = (policy is not null && (policy is not int || key.GetValueKind(MouseCore.PolicyName) != RegistryValueKind.DWord))
+                    || (mask is not null && (mask is not byte[] { Length: > 0 and <= 64 } || key.GetValueKind(MouseCore.OverrideName) != RegistryValueKind.Binary));
+                return (priority, odd ? null : policy as int?, odd ? null : mask as byte[], odd);
+            }
+            catch (Exception ex) when (ex is System.Security.SecurityException or UnauthorizedAccessException or IOException) { return (null, null, null, false); }
+        }
+
+        /// <summary>
+        /// From the IRQs Windows gave the device: a message interrupt's number is negative (Device Manager shows 0xFFFFFFxx);
+        /// the affinity is every IRQ's target processors together (IRQ_DES_64.IRQD_Affinity), null when none said.
+        /// </summary>
+        private static (Mode Mode, ulong? Affinity) ReadMode(uint node)
+        {
+            if (CM_Get_First_Log_Conf(out var conf, node, 2 /* ALLOC_LOG_CONF */) != 0) return (Mode.None, null);
             var line = false;
             var msi = false;
+            ulong? affinity = null;
             nuint current = conf;
             var owned = false;
             try
@@ -107,6 +142,7 @@ internal sealed partial class InterruptMode
                     if (CM_Get_Res_Des_Data(next, data, size, 0) != 0) continue;
                     if (BitConverter.ToInt32(data, 12) < 0) msi = true; // IRQ_DES.IRQD_Alloc_Num
                     else line = true;
+                    if (size >= 24) affinity = (affinity ?? 0) | BitConverter.ToUInt64(data, 16);
                 }
             }
             finally
@@ -114,7 +150,7 @@ internal sealed partial class InterruptMode
                 if (owned) CM_Free_Res_Des_Handle(current);
                 CM_Free_Log_Conf_Handle(conf);
             }
-            return msi ? Mode.Msi : line ? Mode.Line : Mode.None;
+            return (msi ? Mode.Msi : line ? Mode.Line : Mode.None, affinity);
         }
 
         private static List<uint> VolumeDisks(string volume)
@@ -160,43 +196,67 @@ internal sealed partial class InterruptMode
     /// <summary>One cmd.exe, run as administrator, chaining a reg.exe per device: Windows asks once.</summary>
     internal sealed class ElevatedWriter : IWriter
     {
-        public string? Write(IReadOnlyList<(string Id, string Name, int? Value)> values)
+        public string? Write(IReadOnlyList<(string Id, string Name, int? Value)> values) =>
+            RunElevated(values.Select(v => new RegValue(v.Id, v.Name, v.Value)).ToList());
+    }
+
+    /// <summary>One value under a PCI device's Interrupt Management key: an int is REG_DWORD, bytes are REG_BINARY (a KAFFINITY), null deletes it.</summary>
+    internal sealed record RegValue(string Id, string Name, object? Value);
+
+    /// <summary>
+    /// The reg.exe line for one value, or null when Exo wouldn't write it: an id cmd could read specially, a name that isn't one of
+    /// Exo's four (each under its own key), or a value of the wrong type for its name.
+    /// </summary>
+    internal static string? RegCommand(string reg, RegValue v)
+    {
+        if (!PciId().IsMatch(v.Id)) return null;
+        var (subkey, binary) = v.Name switch
         {
-            if (values.Count == 0) return null;
-            if (values.Any(v => !PciId().IsMatch(v.Id))) return "Exo didn't recognize a device, so nothing changed.";
-            var reg = Path.Combine(Environment.SystemDirectory, "reg.exe");
-            var commands = values.Select(v =>
+            MsiName => (MsiKey, false),
+            PriorityName or MouseCore.PolicyName => (AffinityKey, false),
+            MouseCore.OverrideName => (AffinityKey, true),
+            _ => ((string?)null, false),
+        };
+        if (subkey is null) return null;
+        var key = $"\"HKLM\\SYSTEM\\CurrentControlSet\\Enum\\{v.Id}{subkey}\"";
+        return v.Value switch
+        {
+            null => $"\"{reg}\" delete {key} /v {v.Name} /f /reg:64",
+            int value when !binary => $"\"{reg}\" add {key} /v {v.Name} /t REG_DWORD /d {(uint)value} /f /reg:64",
+            byte[] { Length: > 0 and <= 64 } bytes when binary => $"\"{reg}\" add {key} /v {v.Name} /t REG_BINARY /d {Convert.ToHexString(bytes)} /f /reg:64",
+            _ => null,
+        };
+    }
+
+    /// <summary>Every value in one cmd.exe run as administrator, a reg.exe each: Windows asks once. Null when it ran, else the line to show.</summary>
+    internal static string? RunElevated(IReadOnlyList<RegValue> values)
+    {
+        if (values.Count == 0) return null;
+        var reg = Path.Combine(Environment.SystemDirectory, "reg.exe");
+        var commands = values.Select(v => RegCommand(reg, v)).ToList();
+        if (commands.Any(c => c is null)) return "Exo didn't recognize a device, so nothing changed.";
+        try
+        {
+            // /s: cmd strips only the outer quotes, so each quoted path stays whole.
+            using var process = Process.Start(new ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "cmd.exe"), "/d /s /c \"" + string.Join(" & ", commands) + "\"")
             {
-                // Only Exo's two names reach reg.exe, each under its own key.
-                var (subkey, name) = v.Name == PriorityName ? (PriorityKey, PriorityName) : (MsiKey, MsiName);
-                var key = $"\"HKLM\\SYSTEM\\CurrentControlSet\\Enum\\{v.Id}{subkey}\"";
-                return v.Value is { } value
-                    ? $"\"{reg}\" add {key} /v {name} /t REG_DWORD /d {value} /f /reg:64"
-                    : $"\"{reg}\" delete {key} /v {name} /f /reg:64";
+                UseShellExecute = true,
+                Verb = "runas",
+                WindowStyle = ProcessWindowStyle.Hidden,
+                WorkingDirectory = Environment.SystemDirectory,
             });
-            try
-            {
-                // /s: cmd strips only the outer quotes, so each quoted path stays whole.
-                using var process = Process.Start(new ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "cmd.exe"), "/d /s /c \"" + string.Join(" & ", commands) + "\"")
-                {
-                    UseShellExecute = true,
-                    Verb = "runas",
-                    WindowStyle = ProcessWindowStyle.Hidden,
-                    WorkingDirectory = Environment.SystemDirectory,
-                });
-                if (process is null) return "Windows didn't start the change.";
-                if (!process.WaitForExit(TimeSpan.FromSeconds(60))) return "The change didn't finish.";
-                return null;
-            }
-            catch (System.ComponentModel.Win32Exception ex) when (ex.NativeErrorCode == 1223)
-            {
-                return "Windows' permission was declined, so nothing changed.";
-            }
-            catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException)
-            {
-                AppLog.Warn("Interrupts: the change didn't start: " + ex.Message);
-                return "Windows didn't start the change.";
-            }
+            if (process is null) return "Windows didn't start the change.";
+            if (!process.WaitForExit(TimeSpan.FromSeconds(60))) return "The change didn't finish.";
+            return null;
+        }
+        catch (System.ComponentModel.Win32Exception ex) when (ex.NativeErrorCode == 1223)
+        {
+            return "Windows' permission was declined, so nothing changed.";
+        }
+        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException)
+        {
+            AppLog.Warn("Interrupts: the change didn't start: " + ex.Message);
+            return "Windows didn't start the change.";
         }
     }
 

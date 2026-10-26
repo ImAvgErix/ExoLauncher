@@ -28,6 +28,24 @@ internal static class AuthenticodeVerifier
         catch { return false; }
     }
 
+    /// <summary>
+    /// Signed by Microsoft itself: the organization a certificate authority checked is Microsoft Corporation, under one
+    /// of the names Microsoft signs installers with ("Microsoft Corporation"; ".NET" for .NET's own since 2024).
+    /// </summary>
+    internal static bool IsMicrosoft(string path)
+    {
+        if (!HasPublisher(path, "Microsoft Corporation", ".NET")) return false;
+        try
+        {
+#pragma warning disable SYSLIB0057
+            using var certificate = new X509Certificate2(X509Certificate.CreateFromSignedFile(path));
+#pragma warning restore SYSLIB0057
+            return certificate.SubjectName.EnumerateRelativeDistinguishedNames()
+                .Any(name => name.GetSingleElementType().Value == "2.5.4.10" && name.GetSingleElementValue() == "Microsoft Corporation");
+        }
+        catch { return false; }
+    }
+
     internal static bool WinTrustValid(string path)
     {
         var result = Verify(path, revocation: true);

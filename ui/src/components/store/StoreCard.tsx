@@ -59,22 +59,22 @@ export function Price({ final, initial, discount, currency, priceText, wasText, 
 }
 
 /**
- * Warms the game's page so the click opens it whole: as soon as the card is on
- * screen (in the background, a few games at a time), and at once when the
- * pointer rests on it or it takes focus.
+ * Warms the game's page so the click opens it whole: once the card has stayed on
+ * screen a moment (in the background, a few games at a time; not with watch
+ * false), and at once when the pointer rests on it or it takes focus.
  */
-export function useWarm(appId: string, art?: StoreArt | null) {
+export function useWarm(appId: string, art?: StoreArt | null, watch = true) {
   const timer = useRef(0)
   useEffect(() => () => window.clearTimeout(timer.current), [])
   return useMemo(() => ({
-    ref: (card: HTMLElement | null) => card ? watchCard(card, appId, art) : undefined,
+    ref: watch ? (card: HTMLElement | null) => card ? watchCard(card, appId, art) : undefined : undefined,
     onPointerEnter: () => {
       window.clearTimeout(timer.current)
       timer.current = window.setTimeout(() => void warmGame(appId, art), 60)
     },
     onPointerLeave: () => window.clearTimeout(timer.current),
     onFocus: () => void warmGame(appId, art),
-  }), [appId, art])
+  }), [appId, art, watch])
 }
 
 /**

@@ -4,6 +4,7 @@ import { report } from '../../lib/report'
 import { DiscordQrSignIn } from '../discord/DiscordSignIn'
 import { CompanyLogo } from '../../brand/CompanyLogo'
 import { Row, State } from '../settings/parts'
+import { Skeleton } from '../ui/Skeleton'
 
 /**
  * First run's Discord: Exo's own client, signed in with Discord's phone QR code (or already signed in). Skipping is fine; the Discord room offers the same code later.
@@ -20,7 +21,7 @@ export function DiscordStep() {
   }, [])
 
   return signedIn === null ? (
-    <div className="exo-set-list"><Row label="Checking Discord…" /></div>
+    <Skeleton label="Checking Discord" rows={1} avatar />
   ) : signedIn ? (
     <div className="exo-set-list">
       <Row label="Discord" icon={<CompanyLogo company="discord" size={22} />}><State on>Signed in</State></Row>

@@ -3,6 +3,9 @@ import { host, onHostEvent, type Game } from '../../lib/host'
 import { thumbUrl } from '../../lib/coverThumb'
 import { usePageClock, usePageVisible } from '../../lib/pageActivity'
 import { report } from '../../lib/report'
+import { Progress } from '../ui/Progress'
+import { Skeleton } from '../ui/Skeleton'
+import { Spinner } from '../ui/Spinner'
 
 type Tone = 'good' | 'warn' | 'primary' | 'muted' | 'bad'
 /**
@@ -58,22 +61,25 @@ const stale = (prev: Snapshot | null, next: Snapshot) =>
 /** Each engine counts its revs from 1: what an earlier one sent reads as rev 0, so the running one's states win. */
 const rebase = (prev: Snapshot | null) => prev && prev.rev > 0 ? { ...prev, rev: 0 } : prev
 
+/** The board before the engine has ever run: no games read yet, nothing queued. */
+const NEVER_RAN: Snapshot = { rev: 0, games: [], queue: { waiting: [], running: false, paused: false, canStart: false }, app: {} }
+
 /**
- * The engine's state: the last one it left when it exited, until the board is on screen; then the engine runs, read
- * once and kept live by its own events (a state event is the whole snapshot, a progress event the queue). The engine
- * compiles the same whether or not anything shows, and exits by itself a minute after nothing needs it.
+ * The engine's state: the last one it left when it exited, read without starting it (Exo answers the board from that
+ * while the engine is stopped). Only Refresh and Compile start the engine; while it runs its own events keep the board
+ * live (a state event is the whole snapshot, a progress event the queue), and once it exits, soon after its work ends,
+ * the board goes back to the state it left.
  */
 function useShaderEngine(shown: boolean) {
   const [snap, setSnap] = useState<Snapshot | null>(null)
   const [missing, setMissing] = useState(false)
   const [failed, setFailed] = useState<string | null>(null)
   const take = useCallback((next: Snapshot) => setSnap(prev => stale(prev, next) ? prev : next), [])
-  const read = useCallback(() => call('snapshot').then(next => { take(next as Snapshot); setFailed(null) }).catch((error: unknown) => {
+  const read = useCallback(() => call('snapshot').then(next => { take((next as Snapshot | null) ?? NEVER_RAN); setFailed(null) }).catch((error: unknown) => {
     report(error, 'ShadersBoard.snapshot', { level: 'warn' })
     setFailed(message(error, 'The shader engine did not answer.'))
   }), [take])
-  // Once with the room, as it's first built: the last state, so the board is filled by the time it's scrolled to,
-  // without starting the engine.
+  // Once with the room, as it's first built: the last state, so the board is filled by the time it's scrolled to.
   useEffect(() => {
     let live = true
     void host.shadersAddon().then(status => {
@@ -91,6 +97,7 @@ function useShaderEngine(shown: boolean) {
     void host.shadersAddon().then(status => {
       if (!live) return
       if (!status.present) { setMissing(true); return }
+      // Neither starts the engine: a running one sends its states again, a stopped one's last state is read.
       void call('ui.visible', { visible: true }).catch(() => { })
       void read()
     }).catch(() => { if (live) setMissing(true) })
@@ -100,7 +107,13 @@ function useShaderEngine(shown: boolean) {
         const next = data as { rev: number; queue: Queue }
         setSnap(prev => prev && next.rev > prev.rev ? { ...prev, rev: next.rev, queue: next.queue } : prev)
       } else if (name === 'ready') { setSnap(rebase); void read() }
-      else if (name === 'addon') void read()
+      else if (name === 'addon') {
+        // Started (Refresh, Compile): its board. Exited: the state it left replaces its last live one.
+        const state = (data as { state?: string } | null)?.state
+        if (state === 'starting') return
+        if (state !== 'running') setSnap(rebase)
+        void read()
+      }
     })
     return () => {
       live = false
@@ -181,11 +194,11 @@ function coverFinder(games: readonly Game[]) {
 const wallClock = () => Date.now()
 
 /**
- * System > Shaders, in Exo itself: games are scanned on their own (each time the engine starts, and when Exo's games
- * change) and on Refresh, and only those that still need compiling show, each as its poster with its state; Compile
- * queues every ready game in the order shown, and the queue plays out live on the posters (the one compiling first,
- * with its progress, then the rest). The waiting and ready posters drag (or move with Ctrl and the arrow keys) into
- * the order to compile. The engine runs while the board is on screen, and shows its last state before that.
+ * PC › Graphics › Shaders, in Exo itself: games are scanned when you press Refresh (and as Compile starts the engine), and
+ * only those that still need compiling show, each as its poster with its state; Compile queues every ready game in the
+ * order shown, and the queue plays out live on the posters (the one compiling first, with its progress, then the rest).
+ * The waiting and ready posters drag (or move with Ctrl and the arrow keys) into the order to compile. Nothing starts
+ * on its own: opening the board shows the engine's last state, and the engine runs only for Refresh and Compile.
  */
 export function ShadersBoard({ active, games }: { active: boolean; games: readonly Game[] }) {
   const [root, setRoot] = useState<HTMLElement | null>(null)
@@ -209,7 +222,7 @@ export function ShadersBoard({ active, games }: { active: boolean; games: readon
       .finally(() => { setBusy(null); void read().finally(() => setPending(null)) })
   }
   if (missing) return <p className="exo-shaders-empty">Exo Shaders is not installed on this PC.</p>
-  // Before the first snapshot: nothing while it is read, else why it failed and Try again. The same element as the
+  // Before the first snapshot: the bar while it is read, else why it failed and Try again. The same element as the
   // board's, so its observer (useShown) doesn't see it leave the screen when the snapshot comes.
   if (!snap) return (
     <div ref={setRoot} className="exo-shaders-board" aria-busy={failed ? undefined : true}>
@@ -218,7 +231,7 @@ export function ShadersBoard({ active, games }: { active: boolean; games: readon
           <span className="exo-shaders-line is-bad" role="alert">{failed}</span>
           <button type="button" className="exo-set-btn" onClick={() => void read()}>Try again</button>
         </header>
-        : null}
+        : <Skeleton label="Reading your games' shaders" tiles={8} className="exo-shaders-wait" />}
     </div>
   )
   const { queue } = snap
@@ -251,11 +264,7 @@ export function ShadersBoard({ active, games }: { active: boolean; games: readon
       <Bar snap={snap} view={view} estimates={estimates} busy={busy} run={run} />
       <Delivery snap={snap} />
       {error || failed ? <p className="exo-shaders-error" role="alert">{error ?? failed}</p> : null}
-      {current && typeof current.percent === 'number'
-        ? <div className="exo-shaders-progress" role="progressbar" aria-label={current.name} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(current.percent)}>
-          <span style={{ transform: `scaleX(${Math.min(1, Math.max(0, current.percent / 100))})` }} />
-        </div>
-        : null}
+      {current ? <Progress value={fraction(current)} label={`Compiling ${current.name}`} /> : null}
       <Posters
         posters={view.posters}
         lane={lane}
@@ -347,6 +356,7 @@ function Bar({ snap, view, estimates, busy, run }: {
   const current = queue.current ?? null
   const { waitingIds, readyIds, lane } = view
   const working = !!current || queue.running
+  const scanning = !!snap.app.scanning || busy === 'scan'
   return (
     <header className="exo-shaders-bar">
       <span className="exo-shaders-line">
@@ -355,8 +365,9 @@ function Bar({ snap, view, estimates, busy, run }: {
           : working ? `${waitingIds.length} waiting` : idleLine(snap, lane.length)}
         {working || lane.length ? eta(queueTime(current, working ? waitingIds : lane, estimates), now, working, queue.paused) : null}
       </span>
-      <button type="button" className="exo-set-btn" disabled={!!snap.app.scanning || busy === 'scan'} onClick={() => run('scan', ['scan'])}>
-        {snap.app.scanning || busy === 'scan' ? 'Refreshing' : 'Refresh'}
+      <button type="button" className="exo-set-btn" disabled={scanning} aria-busy={scanning} onClick={() => run('scan', ['scan'])}>
+        {scanning ? <Spinner label="Looking for games" /> : null}
+        Refresh
       </button>
       {working
         ? <>
@@ -410,8 +421,8 @@ function Posters({ posters, lane, onMove, render }: {
       dragged.current = true
       measureLane()
     }
-    // The System room scrolls the list (it's one page); near its top or bottom edge it scrolls on.
-    const scroller = list.current?.closest<HTMLElement>('.exo-system') ?? list.current
+    // The PC room's Graphics page scrolls the list; near its top or bottom edge it scrolls on.
+    const scroller = list.current?.closest<HTMLElement>('.exo-pc-page') ?? list.current
     const box = scroller?.getBoundingClientRect()
     if (box && scroller) {
       const edge = event.clientY < box.top + 48 ? -1 : event.clientY > box.bottom - 48 ? 1 : 0
@@ -457,6 +468,7 @@ function Posters({ posters, lane, onMove, render }: {
 /** The bar's line while nothing compiles: what Compile would queue, else what a scan found (or that none has run yet). */
 function idleLine(snap: Snapshot, toCompile: number) {
   if (snap.app.scanning) return 'Looking for games'
+  if (!snap.games.length) return 'No games found yet'
   return toCompile ? `${toCompile} ${toCompile === 1 ? 'game' : 'games'} ready to compile` : 'Every game is compiled'
 }
 
@@ -567,9 +579,14 @@ function otherCompile(game: ShaderGame) {
   return text && text !== 'Compile' && text.startsWith('Compile') ? text : null
 }
 
-/** The poster's state: its progress while it compiles, else its place in the queue or its state, with how long it takes. */
+/** How far the compiling game is, 0 to 1, or null while the engine hasn't said. */
+function fraction(current: QueueItem) {
+  return typeof current.percent === 'number' ? current.percent / 100 : null
+}
+
+/** The poster's state: what it is doing and how far while it compiles, else its place in the queue or its state, with how long it takes. */
 function posterLine(game: ShaderGame, current: QueueItem | null, place: number | undefined, estimate: Estimate | undefined) {
-  if (current) return typeof current.percent === 'number' ? `${Math.round(current.percent)}%` : current.stageText ?? 'Compiling'
+  if (current) return typeof current.percent === 'number' ? `Compiling · ${Math.round(current.percent)}%` : current.stageText ?? 'Compiling'
   const time = estimate && (place || game.inAddAllReady) ? ` · ${timeText(estimate)}` : ''
   return place ? `${place === 1 ? 'Next' : `#${place}`} in queue${time}` : `${game.statusText ?? ''}${time}`
 }
@@ -598,9 +615,7 @@ function Poster({ game, cover, current, estimate, place, orderable, drop, error,
         aria-describedby={orderable ? 'exo-shaders-move-help' : undefined}>
         <span className="exo-shaders-art">
           {cover ? <img src={cover} alt="" loading="lazy" decoding="async" draggable={false} /> : <span className="exo-shaders-art-name">{game.name}</span>}
-          {current && typeof current.percent === 'number'
-            ? <span className="exo-shaders-art-fill" style={{ transform: `scaleY(${1 - Math.min(1, current.percent / 100)})` }} />
-            : null}
+          {current ? <Progress edge size="small" value={fraction(current)} label={`Compiling ${game.name}`} /> : null}
         </span>
         <span className="exo-shaders-name">{game.name}</span>
         <span className="exo-shaders-state">{line}</span>

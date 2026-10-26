@@ -34,7 +34,7 @@ public sealed partial class MainWindow
     /// Apple Music or YouTube Music page), so Music, the song in the bar and its controls are ready
     /// the moment they're wanted instead of a minute after the room first opens. An idle music app is
     /// frozen as before, so waiting costs memory, not processor time. Exo Capture starts here too
-    /// (PrewarmCapture); Exo Shaders' engine only starts when something needs it (PrewarmShaders).
+    /// (PrewarmCapture); Exo Shaders' engine starts only from Compile or Refresh on its page.
     internal async Task<object> PrepareConnectedRoomsAsync(string? musicService)
     {
         if (PackagedSmoke.Enabled || _closingWindow) return new { ok = true };
@@ -47,7 +47,7 @@ public sealed partial class MainWindow
         var milestone = !_connectedPreloadLogged;
         _connectedPreloadLogged = true;
         if (milestone) LogStartupMilestone("connected-preload-start");
-        var work = new List<Task> { PrewarmShaders(), PrewarmCapture(), Task.Run(Services.DiscordClient.DiscordSession.Start) };
+        var work = new List<Task> { PrewarmCapture(), Task.Run(Services.DiscordClient.DiscordSession.Start) };
         // The music engine starts with the Music room (its adapter's start), so a PC that never opens Music never runs
         // it (Spotify's eight processes took 570 MB at every start). A desktop app already running is adopted now: it
         // costs nothing more, and the Bar's player shows its song at once.
@@ -161,16 +161,12 @@ public sealed partial class MainWindow
                 () => _connectedPermissionChanged.Task, _connectedDialogGate, async token =>
                 {
                     token.ThrowIfCancellationRequested();
+                    if (surface.XamlRoot is not { } root) return false;
                     var label = service is null ? "This app" : MusicWebPolicy.Label(service);
-                    dialog = new ContentDialog {
-                        XamlRoot = surface.XamlRoot, RequestedTheme = ElementTheme.Dark,
-                        Title = "Allow " + label + " to use your " + resource + "?",
-                        Content = "You can choose ongoing access in Exo Settings → Connected apps.",
-                        PrimaryButtonText = "Allow this time", CloseButtonText = "Not now",
-                        DefaultButton = ContentDialogButton.Close,
-                    };
-                    StyleConnectedDialog(dialog);
-                    return await dialog.ShowAsync() == ContentDialogResult.Primary;
+                    (dialog, var answered) = Question(root, "Allow " + label + " to use your " + resource + "?",
+                        "You can choose ongoing access in Exo Settings → Connected apps.", "Allow this time", cancel: "Not now");
+                    await dialog.ShowAsync();
+                    return answered();
                 }, request.Token);
             e.State = allowed ? CoreWebView2PermissionState.Allow : CoreWebView2PermissionState.Deny;
         }

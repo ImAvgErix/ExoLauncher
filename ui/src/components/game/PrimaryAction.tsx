@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { Button } from '../ui/Button'
-import { Download, ExternalLink, Loader2, Play, Stop } from '../../brand/icons'
+import { confirm } from '../ui/Dialog'
+import { Progress } from '../ui/Progress'
+import { Download, ExternalLink, Play, Stop } from '../../brand/icons'
 import { host, primaryCtaLabel, type Game, type InstallProgress, type PrimaryAction as ActionKind } from '../../lib/host'
 import { buyLabel } from '../../lib/social'
-import { formatSpeed, installProgressLabel, transferMetaLine, transferPercent, formatTransferPercent } from '../../lib/utils'
+import { installProgressLabel, transferMetaLine, transferPercent } from '../../lib/utils'
 
 export type PrimaryActionProps = {
   selected: Game
@@ -88,54 +89,25 @@ function IdleIcon({ selected, action, buyUrl }: Pick<PrimaryActionProps, 'select
   return <Play size={16} className="shrink-0" />
 }
 
-/**
- * The pill doubles as the download's Cancel and the queue's Remove. One stray
- * click must not throw away a large download, so the first press only asks.
- */
-function useSecondPress(enabled: boolean, resetKey: string) {
-  const [armed, setArmed] = useState(false)
-  const disarm = useRef<number | undefined>(undefined)
-  useEffect(() => {
-    window.clearTimeout(disarm.current)
-    setArmed(false)
-  }, [enabled, resetKey])
-  useEffect(() => () => window.clearTimeout(disarm.current), [])
-  const asking = armed && enabled
-  function confirmThen(run: () => void) {
-    window.clearTimeout(disarm.current)
-    setArmed(!asking)
-    if (asking) run()
-    else disarm.current = window.setTimeout(() => setArmed(false), 4000)
-  }
-  return { asking, confirmThen }
-}
-
 type PillInput = Pick<PrimaryActionProps, 'selected' | 'action' | 'buyUrl' | 'busy' | 'statusMsg' | 'progress'> & {
-  percent: number | null
   waiting: boolean
-  asking: boolean
 }
 
-function pillView({ selected, action, buyUrl, busy, statusMsg, progress, percent, waiting, asking }: PillInput) {
-  const cta = waiting
-    ? asking ? 'Press again to remove' : 'Queued'
-    : ctaLabelFor(selected, action, buyUrl)
+function pillView({ selected, action, buyUrl, busy, statusMsg, progress, waiting }: PillInput) {
+  const cta = waiting ? 'Queued' : ctaLabelFor(selected, action, buyUrl)
   const inFlight = busy || !!progress
   const stateLabel = stateLabelFor(selected, busy, statusMsg, progress ? activeLabelFor(progress, action) : null, cta)
   return {
     cta,
     inFlight,
-    activeText: asking ? 'Press again to cancel'
-      : percent == null ? stateLabel : `${stateLabel} ${formatTransferPercent(percent)}%`,
+    stateLabel,
     disabled: !waiting && isDisabled(selected, action, buyUrl, busy, progress),
     reason: inFlight || waiting ? null : unavailableReason(selected, action, buyUrl),
-    ariaLabel: waiting ? `${cta}: ${selected.title}`
-      : asking ? `Press again to cancel: ${selected.title}`
-      : ariaLabelFor(selected, progress, busy, action, cta),
+    ariaLabel: waiting ? `${cta}: ${selected.title}` : ariaLabelFor(selected, progress, busy, action, cta),
   }
 }
 
-/** Play | Install | Update | Stop | Buy — one pill, progress painted inside it. */
+/** Play | Install | Update | Stop | Buy — one pill, the Exo bar along its foot while it works. */
 export function PrimaryAction({
   selected,
   action,
@@ -151,17 +123,27 @@ export function PrimaryAction({
 }: PrimaryActionProps) {
   const percent = transferPercent(progress)
   const waiting = queued && !progress && !busy && !!onDequeue
-  const { asking, confirmThen } = useSecondPress(!!progress?.canCancel || waiting, selected.id)
-  const { cta, inFlight, activeText, disabled, reason, ariaLabel } =
-    pillView({ selected, action, buyUrl, busy, statusMsg, progress, percent, waiting, asking })
+  const { cta, inFlight, stateLabel, disabled, reason, ariaLabel } =
+    pillView({ selected, action, buyUrl, busy, statusMsg, progress, waiting })
 
-  function activate() {
+  // The pill doubles as the download's Cancel and the queue's Remove: one stray click must not throw either away.
+  async function activate() {
     if (progress) {
-      if (progress.canCancel) confirmThen(onCancel)
+      if (!progress.canCancel) return
+      const update = action === 'update'
+      const sure = await confirm({
+        title: `Stop ${update ? 'updating' : 'downloading'} ${selected.title}?`,
+        body: update ? 'The update stops where it is. You can update it again later.' : 'The download stops where it is. You can install it again later.',
+        action: update ? 'Stop update' : 'Stop download',
+        cancel: update ? 'Keep updating' : 'Keep downloading',
+        danger: true,
+      })
+      if (sure === true) onCancel()
       return
     }
     if (waiting) {
-      confirmThen(onDequeue)
+      const sure = await confirm({ title: 'Remove from the queue?', body: `${selected.title} won't download. Install it again to queue it.`, action: 'Remove' })
+      if (sure === true) onDequeue?.()
       return
     }
     if (selected.canStop) {
@@ -180,34 +162,28 @@ export function PrimaryAction({
       <Button
         type="button"
         isDisabled={disabled}
-        onPress={activate}
+        onPress={() => void activate()}
         className={`exo-play exo-primary-action${inFlight ? ' is-active' : ''}`}
         aria-label={ariaLabel}
       >
-        {progress && (
-          <span
-            className={`exo-action-progress${percent == null ? ' is-unknown' : ''}`}
-            style={percent == null ? undefined : { '--progress': percent / 100 } as CSSProperties}
-            aria-hidden="true"
-          />
-        )}
         <span className="exo-action-state">
           <span className="exo-action-content exo-action-idle" aria-hidden={inFlight}>
             {waiting ? null : <IdleIcon selected={selected} action={action} buyUrl={buyUrl} />}
             <span className="exo-action-copy">{cta}</span>
           </span>
           <span className="exo-action-content exo-action-active" aria-hidden={!inFlight}>
-            <Loader2 size={16} className="shrink-0 animate-spin motion-reduce:animate-none" />
             <span className="exo-action-copy">
               <span>
-                {activeText}
+                {stateLabel}
               </span>
               {progress && <small>{transferMetaLine(progress, false)}</small>}
             </span>
           </span>
         </span>
+        {inFlight ? <Progress edge value={percent == null ? null : percent / 100} label={`${selected.title} progress`} /> : null}
       </Button>
       {reason ? <p className="exo-action-reason">{reason}</p> : null}
+      {/* A button's insides are not read as their own parts: screen readers get the download's figures here. */}
       {progress && (
         <span
           className="sr-only"
@@ -216,11 +192,7 @@ export function PrimaryAction({
           aria-valuemin={0}
           aria-valuemax={100}
           aria-valuenow={percent ?? undefined}
-          aria-valuetext={[
-            progress.status || progress.phase,
-            percent == null ? null : `${formatTransferPercent(percent)}%`,
-            progress.bytesPerSecond == null ? null : formatSpeed(progress.bytesPerSecond),
-          ].filter(Boolean).join(' · ')}
+          aria-valuetext={[stateLabel, transferMetaLine(progress, false)].filter(Boolean).join(' · ')}
         />
       )}
     </>

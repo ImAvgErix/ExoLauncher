@@ -4,6 +4,8 @@ import { useStoreAccounts } from '../settings/StoreAccounts'
 import { SteamSignIn } from '../settings/StoresSection'
 import { useState } from 'react'
 import { Row, State } from '../settings/parts'
+import { Spinner } from '../ui/Spinner'
+import { Skeleton } from '../ui/Skeleton'
 import { canConnectStore, canOpenStoreClient, signsInInOwnApp, storeState } from '../../lib/stores'
 import type { MissingRuntime, StoreAction, StoreCheckState } from './model'
 
@@ -46,15 +48,15 @@ function StoreRow({ store, busy, error, found, onAction }: {
       {store.store === 'steam' ? <SteamSignIn onLine={setSteamLine} onError={setSteamError} /> : null}
       {connect ? (
         <button type="button" className="exo-set-btn" disabled={!!busy} onClick={() => onAction('connect')}>
-          {busy === 'connect' ? 'Signing in…' : 'Sign in'}
+          {busy === 'connect' ? <Spinner label="Signing in" /> : null}Sign in
         </button>
       ) : handoff ? (
         <button type="button" className="exo-set-btn" disabled={!!busy} onClick={() => onAction('connect')}>
-          {busy === 'connect' ? 'Opening…' : `Open ${store.displayName}`}
+          {busy === 'connect' ? <Spinner label={`Opening ${store.displayName}`} /> : null}{`Open ${store.displayName}`}
         </button>
       ) : open ? (
         <button type="button" className="exo-set-btn" disabled={!!busy} onClick={() => onAction('open')}>
-          {busy === 'open' ? 'Opening…' : 'Open'}
+          {busy === 'open' ? <Spinner label={`Opening ${store.displayName}`} /> : null}Open
         </button>
       ) : null}
     </Row>
@@ -78,9 +80,9 @@ export function StoresStep({
   return (
     <div className="exo-set-list">
       {storeCheckState === 'checking' && storeRows.length === 0 ? (
-        <Row label="Looking for stores on this PC…" />
+        <Skeleton label="Looking for stores on this PC" avatar />
       ) : storeCheckState === 'error' && storeRows.length === 0 ? (
-        <Row label="Could not check for store apps" detail="You can keep going. Exo checks again from Settings, under Game stores." />
+        <Row label="Could not check for store apps" detail="You can keep going. Exo checks again from Settings, under Accounts and keys." />
       ) : storeRows.length === 0 ? (
         <Row label="No store apps found" detail="Add a game folder below, or install Steam, Epic or another store and Exo picks it up." />
       ) : storeRows.map(store => (
@@ -97,14 +99,14 @@ export function StoresStep({
         <Row label="Game runtimes" detail={missingRuntimes.map(item => item.name).join(', ')}>
           <State>{missingRuntimes.length} missing</State>
           <button type="button" className="exo-set-btn" disabled={runtimeBusy} onClick={onInstallRuntimes}>
-            {runtimeBusy ? 'Installing…' : 'Install'}
+            {runtimeBusy ? <Spinner label="Installing game runtimes" /> : null}Install
           </button>
         </Row>
       ) : null}
       {canAddFolder ? (
         <Row label="Games outside a store" detail="A folder of games Exo adds to your library">
           <button type="button" className="exo-set-btn" disabled={folderBusy} onClick={onAddFolder}>
-            {folderBusy ? 'Choosing…' : 'Add a folder'}
+            {folderBusy ? <Spinner label="Adding a game folder" /> : null}Add a folder
           </button>
         </Row>
       ) : null}

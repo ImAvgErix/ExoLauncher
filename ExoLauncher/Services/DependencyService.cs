@@ -1,145 +1,121 @@
+using System.Security.Cryptography;
 using ExoLauncher.Helpers;
 using ExoLauncher.Models;
-using Microsoft.Win32;
-using System.Collections.Concurrent;
 
 namespace ExoLauncher.Services;
 
 /// <summary>
-/// Detect common runtimes. Offer official installers with consent — never silent-force.
+/// Game runtimes: what this PC has of the catalog (DependencyService.Catalog.cs), what a game says it needs
+/// (DependencyService.Games.cs), and installing them, asked first and with one Windows permission prompt
+/// (DependencyService.Install.cs). Installers come only from their makers' servers, each checked against its pinned
+/// SHA-256 (or Microsoft's own SHA-512 for .NET) and its maker's signature. Exo never uninstalls a runtime.
 /// </summary>
-public sealed class DependencyService
+public sealed partial class DependencyService
 {
-    private sealed class InstallJob(CancellationTokenSource cancellation)
-    {
-        internal CancellationTokenSource Cancellation { get; } = cancellation;
-        internal bool Installing;
-    }
-    internal sealed record InstallResult(bool ok, string message, int? exitCode = null, bool restartRequired = false, string? status = null);
-    private readonly ConcurrentDictionary<string, InstallJob> _downloads = new(StringComparer.OrdinalIgnoreCase);
-    private readonly Func<IReadOnlyList<DependencyInfo>> _detect;
-    private readonly Func<string, string, Action<long, long?>?, CancellationToken, Task> _download;
-    private readonly Action<string> _verify;
-    private readonly Func<string, string?, Task<int>> _runInstaller;
-    private readonly Action _cleanupStaging;
+    private static readonly string StagingRoot = Path.Combine(Path.GetTempPath(), "ExoLauncherDependencies");
 
-    public DependencyService()
+    /// <summary>runtimes.list: every runtime that applies to this PC, with its version, the newest, and its state.</summary>
+    public async Task<object> ListAsync(CancellationToken ct = default)
     {
-        _detect = DetectAll;
-        _download = (url, destination, progress, ct) => DownloadToAsync(url, destination, progress, ct,
-            cacheDirectory: Path.Combine(Path.GetTempPath(), "ExoLauncherDependencies", "downloads"));
-        _verify = RequireMicrosoftInstaller;
-        _runInstaller = RunInstallerAsync;
-        _cleanupStaging = CleanupStaging;
+        var dotnet = DotnetReleasesAsync(ct);
+        var snapshot = await Task.Run(() => WithGraphics(CurrentSnapshot()), ct).ConfigureAwait(false);
+        var statuses = Evaluate(snapshot, await dotnet.ConfigureAwait(false));
+        return new { ok = true, busy = _job is not null, items = statuses.Select(Shown).ToArray() };
     }
 
-    public object CancelInstall(string dependencyId)
-    {
-        if (!_downloads.TryGetValue(dependencyId, out var job))
-            return new { ok = false, message = "No download is running." };
-        lock (job)
-        {
-            if (job.Installing) return new { ok = false, message = "The installer is running. Use its Cancel button to stop installation." };
-            try { job.Cancellation.Cancel(); }
-            catch (ObjectDisposedException) { }
-            return new { ok = true, message = "Canceling download…" };
-        }
-    }
-    public IReadOnlyList<DependencyInfo> DetectAll()
-    {
-        return new[]
-        {
-            DetectVcRedist(),
-            DetectDirectX(),
-            DetectWebView2(),
-        };
-    }
+    /// <summary>The snapshot with what Direct3D 12 does on this PC's graphics, for the page (asked once a session).</summary>
+    internal static Snapshot WithGraphics(Snapshot snapshot) =>
+        snapshot with { Graphics = Graphics.Value ?? "Windows couldn't say what Direct3D 12 does on this PC's graphics." };
 
-    public IReadOnlyList<DependencyInfo> GetMissingRequired(GameEntry game)
+    /// <summary>One runtime as the page shows it.</summary>
+    internal static object Shown(RuntimeStatus status) => new
     {
-        // Launcher tooling is not a game requirement. Only prompt for explicitly declared dependencies.
-        return DetectAll().Where(d => d.Status == "Missing" &&
-            game.Deps.Contains(d.Id, StringComparer.OrdinalIgnoreCase)).ToList();
-    }
+        id = status.Runtime.Id,
+        name = status.Runtime.Name,
+        group = status.Runtime.Group switch { Group.VisualCpp => "vc", Group.DirectX => "directx", Group.DotNet => "dotnet", _ => "other" },
+        installed = status.Found?.Shown,
+        latest = status.Latest,
+        state = status.State switch { State.Current => "current", State.Outdated => "outdated", State.Missing => "missing", _ => "info" },
+        detail = status.Detail,
+        // The download's size where Exo pins it (0: known once it starts, as for .NET).
+        size = status.Runtime.Size,
+        endOfSupport = status.EndOfSupport,
+        // "Install what's missing" leaves out what Microsoft no longer supports; a game that names one still gets it.
+        bulk = status.Runtime.Installable && !status.EndOfSupport,
+    };
+
+    /// <summary>deps.list (Settings › About, First run): the runtimes as present or missing; one Microsoft no longer supports is only offered when a game asks.</summary>
+    public IReadOnlyList<DependencyInfo> DetectAll() =>
+        Evaluate(CurrentSnapshot(), _dotnet?.Releases).Where(s => s.Runtime.Installable && !(s.State == State.Missing && s.EndOfSupport)).Select(Legacy).ToList();
+
+    private static DependencyInfo Legacy(RuntimeStatus status) => new()
+    {
+        Id = status.Runtime.Id,
+        Name = status.Runtime.Name,
+        Status = status.State == State.Missing ? "Missing" : "Present",
+        Detail = status.Found is { } found ? found.Shown : "Not installed",
+        CanOfferInstall = status.Runtime.Installable,
+        OfficialUrl = status.Runtime.Url,
+    };
 
     /// <summary>
-    /// Downloads and verifies the official installer, then observes its result without blocking the UI.
+    /// The runtimes a game's store says it needs (<see cref="RuntimesFor"/>) that this PC doesn't have. Only missing ones
+    /// stop Play: an older version still runs what was built for it.
     /// </summary>
-    public async Task<object> OfferInstallAsync(string dependencyId, Action<long, long?>? progress = null,
-        CancellationToken cancellationToken = default)
+    public IReadOnlyList<DependencyInfo> GetMissingRequired(GameEntry game)
     {
-        var dep = (await Task.Run(_detect, cancellationToken).ConfigureAwait(false)).FirstOrDefault(d =>
-            string.Equals(d.Id, dependencyId, StringComparison.OrdinalIgnoreCase));
-        if (dep is null)
-            return new { ok = false, message = "Unknown dependency." };
-        if (string.Equals(dep.Status, "Present", StringComparison.OrdinalIgnoreCase))
-            return new { ok = true, message = $"{dep.Name} is already on this PC." };
-
-        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        cancellation.CancelAfter(TimeSpan.FromMinutes(4));
-        var job = new InstallJob(cancellation);
-        if (!_downloads.TryAdd(dependencyId, job))
-            return new { ok = false, message = "This dependency is already downloading or installing." };
-        var stage = Path.Combine(Path.GetTempPath(), "ExoLauncherDependencies", Guid.NewGuid().ToString("N"));
         try
         {
-            await Task.Run(_cleanupStaging, cancellation.Token).ConfigureAwait(false);
-            if (string.IsNullOrWhiteSpace(dep.OfficialUrl) ||
-                !LooksLikeInstaller(dep.OfficialUrl))
-            {
-                if (string.IsNullOrWhiteSpace(dep.OfficialUrl))
-                    return new { ok = false, message = "Exo cannot install this one. Get it from its official site." };
-                StartVisible(dep.OfficialUrl);
-                return new { ok = true, status = "handoff", message = $"Opened the {dep.Name} download page. Finish installation there, then Check again." };
-            }
-
-            var dest = Path.Combine(stage, "installer.exe");
-            await _download(dep.OfficialUrl, dest, progress, cancellation.Token).ConfigureAwait(false);
-            _verify(dest);
-            BeginInstaller(job);
-
-            // Microsoft's unattended switches: the WebView2 bootstrapper's
-            // /silent, the VC++ bundle's /passive (a progress bar, nothing to
-            // click). Windows still asks for permission; Exo shows the progress.
-            var args = string.Equals(dep.Id, "webview2", StringComparison.OrdinalIgnoreCase)
-                ? "/silent /install"
-                : "/install /passive /norestart";
-            return await ObserveInstallerAsync(dep, dest, args).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException)
-        {
-            return new { ok = false, message = cancellationToken.IsCancellationRequested || cancellation.IsCancellationRequested
-                ? "The download was canceled or timed out. Try again." : "The download stopped. Try again." };
+            var wanted = RuntimesFor(game);
+            if (wanted.Count == 0) return [];
+            return Evaluate(CurrentSnapshot(), _dotnet?.Releases)
+                .Where(s => s.State == State.Missing && wanted.Contains(s.Runtime.Id, StringComparer.OrdinalIgnoreCase))
+                .Select(Legacy).ToList();
         }
         catch (Exception ex)
         {
-            // A file or Windows error names the temp installer's path: the log has it, the page does not.
-            AppLog.Warn("Dependency install: " + ex.GetType().Name + ": " + ex.Message);
-            return new { ok = false, message = ex is IOException or UnauthorizedAccessException or System.ComponentModel.Win32Exception ? "Exo could not finish that. The details are in the log." : ex.Message };
-        }
-        finally
-        {
-            _downloads.TryRemove(dependencyId, out _);
-            try { RemoveStage(stage); }
-            catch { /* A failed staging cleanup cannot hide the installer result. */ }
+            // A check that can't finish never stands between you and Play.
+            AppLog.Warn("Runtimes: a game's needs couldn't be checked: " + ex.GetType().Name + ": " + ex.Message);
+            return [];
         }
     }
+
+    /// <summary>deps.offerInstall: one runtime, through the same install as the rest.</summary>
+    public async Task<object> OfferInstallAsync(string dependencyId, Action<long, long?>? progress = null, CancellationToken cancellationToken = default)
+    {
+        var result = await InstallAsync([dependencyId], "missing", update =>
+        {
+            if (update.Phase == "download") progress?.Invoke(update.Bytes, update.Total);
+        }, cancellationToken).ConfigureAwait(false);
+        var mine = result.Results.FirstOrDefault();
+        return new
+        {
+            ok = result.Ok,
+            message = mine?.Message ?? result.Message,
+            exitCode = mine?.Code,
+            restartRequired = mine?.Outcome == "restart",
+            status = mine?.Outcome,
+        };
+    }
+
+    /// <summary>deps.cancelInstall.</summary>
+    public object CancelInstall(string dependencyId) => Cancel();
 
     private static void RemoveStage(string stage)
     {
         if (!Directory.Exists(stage) || (File.GetAttributes(stage) & FileAttributes.ReparsePoint) != 0) return;
-        foreach (var name in new[] { "installer.exe", "installer.exe.partial" })
-            File.Delete(Path.Combine(stage, name));
-        Directory.Delete(stage); // Do not recurse into unexpected or user-authored contents.
+        // Exo's own files only, at the top: never recurse into unexpected or user-authored contents.
+        foreach (var file in Directory.EnumerateFiles(stage).Take(256))
+            if ((File.GetAttributes(file) & FileAttributes.ReparsePoint) == 0) File.Delete(file);
+        Directory.Delete(stage);
     }
 
     private static void CleanupStaging()
     {
         try
         {
-            var root = Path.Combine(Path.GetTempPath(), "ExoLauncherDependencies");
-            if (!Directory.Exists(root) || (File.GetAttributes(root) & FileAttributes.ReparsePoint) != 0) return;
-            foreach (var stage in Directory.EnumerateDirectories(root).Take(128))
+            if (!Directory.Exists(StagingRoot) || (File.GetAttributes(StagingRoot) & FileAttributes.ReparsePoint) != 0) return;
+            foreach (var stage in Directory.EnumerateDirectories(StagingRoot).Take(128))
             {
                 if (!Guid.TryParseExact(Path.GetFileName(stage), "N", out _) ||
                     Directory.GetLastWriteTimeUtc(stage) > DateTime.UtcNow.AddDays(-1)) continue;
@@ -149,18 +125,13 @@ public sealed class DependencyService
         catch { /* Best-effort expiry of Exo-owned installer payloads only. */ }
     }
 
-    private static bool LooksLikeInstaller(string url) =>
-        url.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ||
-        url.Contains("fwlink", StringComparison.OrdinalIgnoreCase) ||
-        url.Contains("aka.ms", StringComparison.OrdinalIgnoreCase);
-
     internal static async Task DownloadToAsync(string url, string dest, Action<long, long?>? progress,
-        CancellationToken cancellationToken, string? cacheDirectory = null)
+        CancellationToken cancellationToken, string? cacheDirectory = null, long? expectedSize = null)
     {
         using var http = ExoHttp.Create(Timeout.InfiniteTimeSpan, new SocketsHttpHandler { AllowAutoRedirect = false });
         await ResumableDownload.DownloadAsync(new Uri(url), dest, cacheDirectory ?? Path.GetDirectoryName(Path.GetFullPath(dest))!,
             (request, ct) => SendFollowingInstallerRedirectsAsync(http, request, ct),
-            null, null, progress, cancellationToken).ConfigureAwait(false);
+            expectedSize, null, progress, cancellationToken).ConfigureAwait(false);
     }
 
     /// Follows at most five redirects, each to an https host on the PRIVACY.md installers row.
@@ -189,127 +160,33 @@ public sealed class DependencyService
         uri.Scheme == Uri.UriSchemeHttps && uri.IsDefaultPort &&
         NetworkDestinations.Hosts.Any(d => d.PrivacyRow == NetworkDestinations.Installers && NetworkDestinations.Covers(d.Host, uri.IdnHost));
 
-    private static void BeginInstaller(InstallJob job)
+    /// <summary>
+    /// The installer is the one Exo means to run: the exact file its maker published (its pinned SHA-256, or the SHA-512
+    /// Microsoft's .NET release list gives) and signed by its maker. Throws with the reason when it isn't.
+    /// </summary>
+    internal static void Verify(string path, Runtime runtime, string? sha256, string? sha512)
     {
-        lock (job)
-        {
-            job.Cancellation.Token.ThrowIfCancellationRequested();
-            job.Cancellation.CancelAfter(Timeout.InfiniteTimeSpan);
-            job.Installing = true;
-        }
+        if (sha256 is not null && !HashOf(path, SHA256.Create()).Equals(sha256, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidDataException($"{runtime.Name}'s download isn't the file its maker published.");
+        if (sha512 is not null && !HashOf(path, SHA512.Create()).Equals(sha512, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidDataException($"{runtime.Name}'s download doesn't match Microsoft's release list.");
+        RequireSigned(path, runtime);
     }
 
-    private async Task<InstallResult> ObserveInstallerAsync(DependencyInfo dependency, string path, string? arguments)
+    /// <summary>Signed by its maker: Microsoft itself for Microsoft's runtimes, else the named publisher.</summary>
+    internal static void RequireSigned(string path, Runtime runtime)
     {
-        var exitCode = await _runInstaller(path, arguments).ConfigureAwait(false);
-        var after = (await Task.Run(_detect).ConfigureAwait(false)).FirstOrDefault(item => item.Id.Equals(dependency.Id, StringComparison.OrdinalIgnoreCase));
-        var present = after?.Status.Equals("Present", StringComparison.OrdinalIgnoreCase) == true;
-        if (exitCode is 3010 or 1641)
-            return new InstallResult(true, $"{dependency.Name} installation completed. Restart Windows to finish setup.", exitCode, true, after?.Status);
-        if (exitCode == 1602)
-            return new InstallResult(false, $"{dependency.Name} installation was canceled.", exitCode, false, after?.Status);
-        if (exitCode != 0)
-            return new InstallResult(false, $"{dependency.Name} installer exited with code {exitCode}. You can retry.", exitCode, false, after?.Status);
-        return present
-            ? new InstallResult(true, $"{dependency.Name} is installed and detected.", exitCode, false, after!.Status)
-            : new InstallResult(false, $"{dependency.Name} installer finished, but the runtime is still missing. Retry or use its official download page.", exitCode, false, after?.Status);
+        var signed = runtime.Publishers.SequenceEqual(MicrosoftOnly)
+            ? AuthenticodeVerifier.IsMicrosoft(path)
+            : AuthenticodeVerifier.HasPublisher(path, runtime.Publishers);
+        if (!signed)
+            throw new InvalidDataException($"{runtime.Name}'s installer isn't signed by {(runtime.Publishers.SequenceEqual(MicrosoftOnly) ? "Microsoft" : runtime.Publishers[0])}, so Exo won't run it.");
     }
 
-    private static async Task<int> RunInstallerAsync(string fileName, string? arguments)
+    internal static string HashOf(string path, HashAlgorithm algorithm)
     {
-        var info = new System.Diagnostics.ProcessStartInfo(fileName) { UseShellExecute = true };
-        if (!string.IsNullOrWhiteSpace(arguments)) info.Arguments = arguments;
-        using var process = System.Diagnostics.Process.Start(info)
-            ?? throw new InvalidOperationException("Windows did not start the runtime installer.");
-        // Once Windows owns the installer, cancellation belongs to its own UI.
-        await process.WaitForExitAsync().ConfigureAwait(false);
-        return process.ExitCode;
+        using (algorithm)
+        using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read))
+            return Convert.ToHexString(algorithm.ComputeHash(stream));
     }
-
-    private static void RequireMicrosoftInstaller(string path)
-    {
-        if (!AuthenticodeVerifier.HasPublisher(path, "Microsoft Corporation"))
-            throw new IOException("The installer could not be verified as signed by Microsoft. Retry or use the official download page.");
-    }
-
-    private static void StartVisible(string fileName, string? arguments = null)
-    {
-        var psi = new System.Diagnostics.ProcessStartInfo(fileName)
-        {
-            UseShellExecute = true,
-        };
-        if (!string.IsNullOrWhiteSpace(arguments))
-            psi.Arguments = arguments;
-        System.Diagnostics.Process.Start(psi);
-    }
-
-    private static DependencyInfo DetectVcRedist()
-    {
-        // Presence of recent VC++ runtime keys is a practical signal, not a full matrix.
-        var present = false;
-        try
-        {
-            using var key = Registry.LocalMachine.OpenSubKey(
-                @"SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\X64");
-            present = key?.GetValue("Installed") is int i && i == 1;
-        }
-        catch { }
-
-        return new DependencyInfo
-        {
-            Id = "vcredist",
-            Name = "Visual C++ Redistributable",
-            Status = present ? "Present" : "Missing",
-            Detail = present
-                ? "VC++ 2015–2022 x64 runtime key found."
-                : "VC++ 2015–2022 x64 runtime not found.",
-            CanOfferInstall = true,
-            OfficialUrl = "https://aka.ms/vs/17/release/vc_redist.x64.exe",
-        };
-    }
-
-    private static DependencyInfo DetectDirectX()
-    {
-        var sys = Environment.SystemDirectory;
-        var d3d = File.Exists(Path.Combine(sys, "d3d11.dll"));
-        return new DependencyInfo
-        {
-            Id = "directx",
-            Name = "DirectX",
-            Status = d3d ? "Present" : "Missing",
-            Detail = d3d
-                ? "d3d11.dll present (OS component)."
-                : "DirectX runtime files are missing.",
-            CanOfferInstall = true,
-            OfficialUrl = "https://www.microsoft.com/download/details.aspx?id=35",
-        };
-    }
-
-    private static DependencyInfo DetectWebView2()
-    {
-        // A stale registration is common after a failed Edge update: the
-        // Clients key still names a version whose Application folder has been
-        // emptied, and every CreateCoreWebView2Environment call fails with
-        // "Unable to find the specified file". Verify the browser binary, not
-        // just the registry value.
-        var pv = WebViewRuntimeLocator.RegisteredVersion();
-        var binariesPresent =
-            WebViewRuntimeLocator.IsRuntimeExe(WebViewRuntimeLocator.RegisteredEvergreenExe())
-            || WebViewRuntimeLocator.IsRuntimeFolder(WebViewRuntimeLocator.DiscoverInstalledRuntimeFolder());
-
-        return new DependencyInfo
-        {
-            Id = "webview2",
-            Name = "WebView2 Runtime",
-            Status = binariesPresent ? "Present" : "Missing",
-            Detail = binariesPresent
-                ? $"Evergreen WebView2 runtime {pv} verified."
-                : pv is null
-                    ? "Required for Music catalog and store sign-in."
-                    : $"WebView2 {pv} is registered but its files are missing — run the installer below to repair.",
-            CanOfferInstall = true,
-            OfficialUrl = "https://go.microsoft.com/fwlink/p/?LinkId=2124703",
-        };
-    }
-
 }

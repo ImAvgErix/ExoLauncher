@@ -19,6 +19,11 @@ internal static class SpeakerModel
 
     internal static string ModelPath { get; set; } = Path.Combine(PathHelper.AppDataDir, "voice", "titanet_small.onnx");
 
+    /// <summary>TitaNet as one of Exo's parts (<see cref="ExoComponents"/>): setup fetches it, so a teach never waits on it.</summary>
+    internal static readonly ExoComponent Component = new("TitaNet voice model", "Only My Voice", Model.ExpectedSize, 0, Ready,
+        (progress, ct) => VerifiedGitHubReleaseDownloader.Shared.DownloadPinnedAsync(Model, ModelPath, _ => true, ct, done => progress(done, unpacking: false)),
+        () => ModelPath);
+
     private static (long Size, DateTime Written, bool Whole)? _checked;
 
     /// <summary>Whether the model is here and whole; hashes it only when the file changed since it last checked.</summary>

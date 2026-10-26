@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Button } from './ui/Button'
 import { host } from '../lib/host'
+import { notify } from '../lib/notify'
 import { report } from '../lib/report'
 import { useGlide } from '../lib/glide'
 import { useDismiss } from '../lib/dismiss'
@@ -175,7 +176,7 @@ export function ActivateKeySheet({
           isDisabled={busy || !trimmed}
           onPress={() => {
             void navigator.clipboard.writeText(trimmed)
-              .then(() => setNote('Key copied.'))
+              .then(() => { setNote(''); notify({ text: 'Key copied.', tone: 'good' }) })
               .catch(() => setNote('Select the key and press Ctrl+C to copy it.'))
           }}
         >

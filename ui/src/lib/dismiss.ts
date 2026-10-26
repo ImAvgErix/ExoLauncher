@@ -31,7 +31,7 @@ let seq = 0
 let lastPress: { at: Element; time: number } | null = null
 
 /** Belong to no layer: tooltips, toasts and notices float over everything; window buttons act on the window. */
-const FREE = '[role="tooltip"], .exo-toast-stack, .exo-dc-toast, .exo-dc-notices, .exo-winbtn'
+const FREE = '[role="tooltip"], .exo-notices, .exo-winbtn'
 /** A press this recent opened the layer that registers now: its popup button is the layer's trigger. */
 const OPENER_MS = 1000
 const TRIGGER = '[aria-expanded], [aria-pressed], [aria-haspopup]'

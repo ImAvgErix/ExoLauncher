@@ -66,13 +66,15 @@ export function LibraryTools({ selecting, onSelecting, sort, onSort, hidden, onH
 
 export type RefreshState = 'idle' | 'working' | 'done'
 
-/** The Refresh button; LibraryPane owns its state so a run survives the menu leaving with its route. */
+/** Library › Refresh under way: stores, once every store has been read again (the covers shine until then); done, once every cover has too. */
+export type LibraryRefreshRun = { stores: Promise<unknown>; done: Promise<unknown> }
+
+/** The Refresh button, its glyph turning while it runs; LibraryPane owns its state so a run survives the menu leaving with its route. */
 function RefreshLibrary({ state, onRun }: { state: RefreshState; onRun: () => void }) {
   return (
     <button
       type="button"
       className="exo-add-game-btn exo-refresh-covers"
-      data-state={state}
       aria-label={state === 'working' ? 'Refreshing the library' : 'Refresh the library and covers'}
       aria-busy={state === 'working'}
       disabled={state === 'working'}
@@ -80,7 +82,7 @@ function RefreshLibrary({ state, onRun }: { state: RefreshState; onRun: () => vo
     >
       {state === 'done'
         ? <svg className="exo-refresh-covers-check" viewBox="0 0 24 24" aria-hidden="true"><path d={CHECK_PATH} pathLength="1" /></svg>
-        : <Refresh size={16} />}
+        : <Refresh size={16} className={state === 'working' ? 'exo-spin' : undefined} />}
     </button>
   )
 }

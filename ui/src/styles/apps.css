@@ -1,0 +1,118 @@
+/* System › Apps, Exo's uninstaller (components/apps/AppsPanel.tsx): Settings' rows with each app's icon, and under
+   one that was removed, what it left behind. */
+
+.exo-apps,
+.exo-apps-list {
+  display: grid;
+  align-content: start;
+  gap: 18px;
+}
+
+.exo-apps-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.exo-apps-tools .exo-field {
+  flex: 1 1 220px;
+  max-width: 320px;
+}
+
+.exo-apps-group {
+  margin: 0 0 6px;
+  color: var(--color-muted);
+  font-size: calc(13px * var(--exo-scale, 1));
+  font-weight: 600;
+}
+
+/* A row carries the Exo bar along its foot while its app is being removed. */
+.exo-apps .exo-set-item {
+  position: relative;
+}
+
+.exo-apps-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  overflow: hidden;
+  border-radius: 6px;
+  color: var(--color-muted);
+  font-size: calc(12px * var(--exo-scale, 1));
+  font-weight: 600;
+}
+
+.exo-apps-icon > img {
+  width: 24px;
+  height: 24px;
+  object-fit: contain;
+}
+
+/* What it left: under its row, lined up with its name (the 24px icon and the row's gap). */
+.exo-apps-review {
+  display: grid;
+  gap: 12px;
+  padding: 4px 16px 16px 56px;
+  animation: exo-arrive 280ms var(--ease-out) backwards;
+}
+
+.exo-apps-found {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.exo-apps-said {
+  margin: 0;
+  color: var(--color-fg);
+  font-size: calc(13px * var(--exo-scale, 1));
+}
+
+.exo-apps-said.is-muted {
+  color: var(--color-muted);
+}
+
+.exo-apps-said.is-done {
+  color: var(--color-good);
+}
+
+.exo-apps-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.exo-apps-items {
+  display: grid;
+  gap: 6px;
+  max-height: 280px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  list-style: none;
+}
+
+.exo-apps-items > li {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr) auto;
+  gap: 12px;
+  font-size: calc(12px * var(--exo-scale, 1));
+}
+
+.exo-apps-items > li.is-likely .exo-apps-path {
+  color: var(--color-muted);
+}
+
+.exo-apps-kind,
+.exo-apps-size {
+  color: var(--color-muted);
+}
+
+.exo-apps-path {
+  color: var(--color-fg);
+  overflow-wrap: anywhere;
+}

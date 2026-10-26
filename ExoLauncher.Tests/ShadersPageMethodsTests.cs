@@ -6,10 +6,19 @@ namespace ExoLauncher.Tests;
 /// <summary>
 /// The Shaders page and the methods Exo lets it ask its engine, which nobody notices drifting apart until a button
 /// fails with "Unknown request.": a page method left off the list (Refresh, Pause, Resume and Stop were, in 3.15.1's
-/// first build); a method the page never calls left on it, widening what the page can reach for nothing.
+/// first build); a method the page never calls left on it, widening what the page can reach for nothing; a method that
+/// does no work (reading the board, saying it is on screen, moving or pausing what isn't running) starting the engine,
+/// which then runs with nothing pressed.
 /// </summary>
 public sealed partial class ShadersPageMethodsTests
 {
+    [Fact]
+    public void Only_Compile_and_Refresh_start_the_engine()
+    {
+        Assert.Equal(["game.compile", "queue.add", "queue.resume", "queue.start", "scan"], ShadersAddon.StartMethods.Order(StringComparer.Ordinal));
+        Assert.True(ShadersAddon.StartMethods.IsSubsetOf(ShadersAddon.PageMethods));
+    }
+
     private static HashSet<string> PageCalls()
     {
         var source = string.Join('\n', Directory.GetFiles(Repo.PathOf("ui", "src", "components", "shaders"), "*.tsx").Select(File.ReadAllText));

@@ -9,7 +9,9 @@ namespace ExoLauncher.Tests;
 /// sibling folder, the NVIDIA driver's key) goes with it; an app that is still installed reads as leftovers and they are
 /// cleared under it; an Apps &amp; features entry whose uninstaller is gone keeps the app "installed" forever; a leftover
 /// in Program Files is deleted without Windows' permission (it can't be) instead of in the one elevated step; a declined
-/// permission prompt reads as success; Game Bar's removal leaves Windows asking for the removed app.
+/// permission prompt reads as success; Game Bar's removal leaves Windows asking for the removed app; Discord's own
+/// uninstaller leaves Update.exe beside a .dead file and the app reads as installed, so nothing is cleaned (3.15.4); the
+/// deep clean misses what Windows keeps about the app, or takes another app's.
 /// </summary>
 public sealed class ReplacedAppsTests : IDisposable
 {
@@ -38,6 +40,7 @@ public sealed class ReplacedAppsTests : IDisposable
         ["CommonPrograms"] = Path.Combine(_root, "CommonPrograms"),
         ["ProgramFiles"] = Path.Combine(_root, "Program Files"),
         ["ProgramData"] = Path.Combine(_root, "ProgramData"),
+        ["Temp"] = Path.Combine(_root, "Temp"),
     };
 
     private ReplacedApps Apps() => new(Places, _packages,
@@ -56,9 +59,16 @@ public sealed class ReplacedAppsTests : IDisposable
             if (!_adminAllowed) return Task.FromResult(false);
             foreach (var command in commands)
             {
+                // Taking a Store app out of Windows' image runs in PowerShell; the sandbox has no image.
+                if (command.StartsWith("powershell", StringComparison.Ordinal)) continue;
                 var path = command.Split('"')[1];
                 if (command.StartsWith("rd ", StringComparison.Ordinal)) Directory.Delete(path, true);
-                else if (command.StartsWith("del ", StringComparison.Ordinal)) File.Delete(path);
+                else if (command.StartsWith("(if not exist ", StringComparison.Ordinal)) File.Delete(command.Split('"')[3]);
+                else if (command.Contains(" /v ", StringComparison.Ordinal))
+                {
+                    using var key = Registry.CurrentUser.OpenSubKey(path[5..], writable: true);
+                    key?.DeleteValue(command.Split('"')[3], false);
+                }
                 else Registry.CurrentUser.DeleteSubKeyTree(path[5..], false);
             }
             return Task.FromResult(true);
@@ -140,7 +150,8 @@ public sealed class ReplacedAppsTests : IDisposable
         File_("ProgramData", @"NVIDIA Corporation\Drs\nvdrsdb0.bin");
         var cleared = Apps().CleanLeftovers();
 
-        Assert.Equal(1, cleared);
+        Assert.Equal(1, cleared.Values.Sum(summary => summary.Count));
+        Assert.Equal(1, cleared["nvidia"].Folders);
         Assert.False(Directory.Exists(Place("LocalAppData", @"NVIDIA Corporation\NVIDIA App")));
         Assert.True(File.Exists(Place("ProgramData", @"NVIDIA Corporation\NVIDIA App\log.txt"))); // needs Windows' permission: asked for only on a removal
         Assert.True(File.Exists(Place("ProgramData", @"NVIDIA Corporation\Drs\nvdrsdb0.bin"))); // the driver's
@@ -157,7 +168,7 @@ public sealed class ReplacedAppsTests : IDisposable
         }
         var apps = Apps();
         Assert.False(apps.Scan().Single(app => app.Id == "discord").Installed);
-        Assert.Equal(1, apps.CleanLeftovers());
+        Assert.Equal(1, apps.CleanLeftovers()["discord"].Registry);
         Assert.Null(Registry.CurrentUser.OpenSubKey(_hkcu + @"\Software\Microsoft\Windows\CurrentVersion\Uninstall\Discord"));
     }
 
@@ -217,6 +228,107 @@ public sealed class ReplacedAppsTests : IDisposable
         Assert.Equal(0, dvr!.GetValue("AppCaptureEnabled"));
         using var store = Registry.CurrentUser.OpenSubKey(_hkcu + @"\System\GameConfigStore");
         Assert.Equal(0, store!.GetValue("GameDVR_Enabled"));
+    }
+
+    // What this PC showed after Discord's own uninstaller ran: Update.exe still there beside a .dead file (Squirrel can't
+    // delete itself), the entry gone. Exo read Discord as installed and stopped before cleaning anything.
+    [Fact]
+    public void DiscordsOwnUninstallLeavesADeadUpdaterThatIsNoInstall()
+    {
+        File_("LocalAppData", @"Discord\Update.exe");
+        File_("LocalAppData", @"Discord\.dead");
+        File_("AppData", @"discord\Local Storage\leveldb\000003.log");
+        File_("Desktop", "Discord.lnk");
+        var apps = Apps();
+        var discord = apps.Scan().Single(app => app.Id == "discord");
+        Assert.False(discord.Installed);
+        Assert.Equal(2, discord.Found.Folders);
+
+        var cleared = apps.CleanLeftovers()["discord"];
+
+        Assert.Equal((2, 1), (cleared.Folders, cleared.Shortcuts));
+        Assert.False(Directory.Exists(Place("LocalAppData", "Discord")));
+        Assert.False(Directory.Exists(Place("AppData", "discord")));
+        Assert.Equal(0, apps.Scan().Single(app => app.Id == "discord").Leftovers);
+    }
+
+    // Revo's advanced scan: what Windows keeps about Discord once it is gone, found by what points into its folders, its
+    // names and its app id; the same records of another app stay.
+    [Fact]
+    public async Task TheDeepCleanTakesWhatWindowsKeepsAboutTheAppAndNoOtherAppsRecords()
+    {
+        InstallDiscord();
+        var discordExe = Place("LocalAppData", @"Discord\app-1.0.9\Discord.exe");
+        var spotifyExe = Place("AppData", @"Spotify\Spotify.exe");
+        File_("AppData", @"Spotify\Spotify.exe");
+        void Values(string path, params (string Name, string Data)[] values)
+        {
+            using var key = Key("HKCU", path);
+            foreach (var (name, data) in values) key.SetValue(name, data);
+        }
+        Values(@"Software\Classes\Local Settings\Software\Microsoft\Windows\Shell\MuiCache",
+            (discordExe + ".FriendlyAppName", "Discord"), (spotifyExe + ".FriendlyAppName", "Spotify"));
+        Values(@"Software\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Compatibility Assistant\Store", (discordExe, "x"), (spotifyExe, "x"));
+        Values(@"Software\Microsoft\Windows\CurrentVersion\Explorer\FeatureUsage\AppSwitched", ("com.squirrel.Discord.Discord", "4"), ("Spotify", "9"));
+        Key("HKCU", @"Software\Microsoft\Windows\CurrentVersion\Notifications\Settings\com.squirrel.Discord.Discord").Dispose();
+        Key("HKCU", @"Software\Microsoft\Windows\CurrentVersion\Notifications\Settings\Spotify").Dispose();
+        Values(@"System\GameConfigStore\Children\1", ("MatchedExeFullPath", discordExe));
+        Values(@"System\GameConfigStore\Children\2", ("MatchedExeFullPath", spotifyExe));
+        Values(@"Software\Classes\Discord.Url\shell\open\command", ("", $"\"{discordExe}\" --url \"%1\""));
+        Values(@"Software\Classes\spotify\shell\open\command", ("", $"\"{spotifyExe}\" --uri=%1"));
+        File_("LocalAppData", @"CrashDumps\Discord.exe.1234.dmp");
+        File_("LocalAppData", @"CrashDumps\Spotify.exe.42.dmp");
+        File_("Temp", @"Discord\installer.log");
+        using (var rules = Key("HKLM", @"SYSTEM\CurrentControlSet\Services\SharedAccess\Parameters\FirewallPolicy\FirewallRules"))
+        {
+            rules.SetValue("TCP Query User{1}" + discordExe.ToLowerInvariant(), $"v2.33|Action=Allow|Dir=In|App={discordExe.ToLowerInvariant()}|Name=discord.exe|");
+            rules.SetValue("{2}", $"v2.33|Action=Allow|Dir=In|App={spotifyExe}|Name=Spotify|");
+        }
+        var chat = Place("Desktop", "Chat.lnk");
+        var music = Place("Desktop", "Music.lnk");
+        Assert.SkipUnless(Shortcut(chat, Place("LocalAppData", @"Discord\Update.exe")) && Shortcut(music, spotifyExe), "WScript.Shell isn't here");
+        Assert.Equal(Place("LocalAppData", @"Discord\Update.exe"), ReplacedApps.ShortcutTarget(chat), StringComparer.OrdinalIgnoreCase);
+
+        var result = await Apps().RemoveAsync("discord", CancellationToken.None);
+
+        Assert.True(result.Ok, result.Message);
+        string?[] Names(string path)
+        {
+            using var key = Registry.CurrentUser.OpenSubKey(_hkcu + '\\' + path);
+            return key?.GetValueNames() ?? [];
+        }
+        Assert.Equal([spotifyExe + ".FriendlyAppName"], Names(@"Software\Classes\Local Settings\Software\Microsoft\Windows\Shell\MuiCache"));
+        Assert.Equal([spotifyExe], Names(@"Software\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Compatibility Assistant\Store"));
+        Assert.Equal(["Spotify"], Names(@"Software\Microsoft\Windows\CurrentVersion\Explorer\FeatureUsage\AppSwitched"));
+        Assert.Null(Registry.CurrentUser.OpenSubKey(_hkcu + @"\Software\Microsoft\Windows\CurrentVersion\Notifications\Settings\com.squirrel.Discord.Discord"));
+        Assert.NotNull(Registry.CurrentUser.OpenSubKey(_hkcu + @"\Software\Microsoft\Windows\CurrentVersion\Notifications\Settings\Spotify"));
+        Assert.Null(Registry.CurrentUser.OpenSubKey(_hkcu + @"\System\GameConfigStore\Children\1"));
+        Assert.NotNull(Registry.CurrentUser.OpenSubKey(_hkcu + @"\System\GameConfigStore\Children\2"));
+        Assert.Null(Registry.CurrentUser.OpenSubKey(_hkcu + @"\Software\Classes\Discord.Url"));
+        Assert.NotNull(Registry.CurrentUser.OpenSubKey(_hkcu + @"\Software\Classes\spotify"));
+        Assert.False(File.Exists(Place("LocalAppData", @"CrashDumps\Discord.exe.1234.dmp")));
+        Assert.True(File.Exists(Place("LocalAppData", @"CrashDumps\Spotify.exe.42.dmp")));
+        Assert.False(Directory.Exists(Place("Temp", "Discord")));
+        Assert.False(File.Exists(chat));
+        Assert.True(File.Exists(music));
+        // The firewall rule is the machine's: it went in the one elevated step, the other app's stayed.
+        Assert.Single(_admin);
+        using (var rules = Registry.CurrentUser.OpenSubKey(_hklm + @"\SYSTEM\CurrentControlSet\Services\SharedAccess\Parameters\FirewallPolicy\FirewallRules"))
+            Assert.Equal(["{2}"], rules!.GetValueNames());
+        Assert.NotNull(result.Cleared);
+        Assert.Equal(2, result.Cleared.Shortcuts); // the Desktop's Discord.lnk and Chat.lnk; the Start menu's went with its folder
+        Assert.True(result.Cleared.Registry >= 10, $"{result.Cleared.Registry} registry entries");
+        Assert.Equal(0, Apps().Scan().Single(app => app.Id == "discord").Leftovers);
+    }
+
+    // A real shortcut, as Windows writes one; false where WScript.Shell isn't available.
+    private static bool Shortcut(string path, string target)
+    {
+        if (Type.GetTypeFromProgID("WScript.Shell") is not { } type || Activator.CreateInstance(type) is not { } shell) return false;
+        var link = type.InvokeMember("CreateShortcut", System.Reflection.BindingFlags.InvokeMethod, null, shell, [path])!;
+        link.GetType().InvokeMember("TargetPath", System.Reflection.BindingFlags.SetProperty, null, link, [target]);
+        link.GetType().InvokeMember("Save", System.Reflection.BindingFlags.InvokeMethod, null, link, null);
+        return File.Exists(path);
     }
 
     [Theory]

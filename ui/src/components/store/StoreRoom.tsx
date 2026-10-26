@@ -10,6 +10,8 @@ import { onScreen, pane, pressedArt, transition, visible } from '../../lib/viewT
 import { useTopOnChange } from '../../lib/topOnChange'
 import { onStoreSearch, takeStoreSearch } from '../../lib/storeSearch'
 import { Switch } from '../Switch'
+import { Spinner } from '../ui/Spinner'
+import { DictateButton } from '../ui/DictateButton'
 import { SteamImage, StoreCard, useWarm } from './StoreCard'
 import { CoverArt } from '../CoverArt'
 import { StoreGamePage } from './StoreGamePage'
@@ -118,7 +120,7 @@ export function StoreRoom({ active, games, onSale, onOpenGame }: {
     <main className="exo-store" aria-label="Store" data-room-scroll>
       <h1 className="sr-only">Store</h1>
       <header className="exo-store-top">
-        <StoreTools view={view} query={query} wished={wish.items.length} refreshing={home.loading}
+        <StoreTools view={view} query={query} wished={wish.items.length} refreshing={home.refreshing}
           onTab={next => void transition(() => { setTab(next); setQuery(''); setOpenError(null) }, { kind: 'push', back: next === 'home', morph: pane(scroller.current) })} onQuery={setQuery} onRefresh={() => void home.load(true)}>
           {onSale ? <span className="exo-store-sale">{onSale} on sale</span> : null}
           <p className="exo-store-status" role="status">{status}</p>
@@ -131,7 +133,7 @@ export function StoreRoom({ active, games, onSale, onOpenGame }: {
             : view === 'wishlist' ? <Wishlist wish={wish} owned={owned} card={card} />
               : view === 'calendar' ? <Calendar cal={calendar} card={card} />
               : <Discover home={home.data} error={home.error} retrying={home.loading} onRetry={() => void home.load(false)} card={card} similar={similar} onOpen={openPage}
-                  still={!!page || !active} working={home.refreshing} />}
+                  still={!!page || !active} shining={home.refreshing} />}
         </div>
       </div>
 
@@ -167,7 +169,7 @@ function viewStatus(view: string, s: {
   return s.wish.loaded ? s.wish.error : null
 }
 
-function Discover({ home, error, retrying, onRetry, card, similar, onOpen, still, working }: {
+function Discover({ home, error, retrying, onRetry, card, similar, onOpen, still, shining }: {
   home: StoreHome | null
   similar: (ids?: string[] | null) => Game[]
   error: string | null
@@ -176,15 +178,16 @@ function Discover({ home, error, retrying, onRetry, card, similar, onOpen, still
   card: CardFn
   onOpen: (t: StoreTile) => void
   still: boolean
-  working: boolean
+  /** The refresh you asked for: the banner and the shelves shine where they are until it lands (DESIGN.md › Waits). */
+  shining: boolean
 }) {
   const arrive = useArrive('home', !!home)
   if (!home) return error ? <Unreachable message={error} busy={retrying} onRetry={onRetry} /> : <Skeleton />
   return (
     <>
-      {home.hero?.length ? <Hero items={home.hero} similar={similar} onOpen={onOpen} still={still} working={working} arrive={arrive} /> : null}
+      {home.hero?.length ? <Hero items={home.hero} similar={similar} onOpen={onOpen} still={still} shining={shining} arrive={arrive} /> : null}
       {(home.shelves ?? []).map(s => s.items.length
-        ? <Row key={s.id} id={s.id} title={s.title} count={s.items.length} working={working}>{s.items.map((t, i) => card(t, i, arrive))}</Row>
+        ? <Row key={s.id} id={s.id} title={s.title} count={s.items.length} shining={shining}>{s.items.map((t, i) => card(t, i, arrive))}</Row>
         : null)}
     </>
   )
@@ -195,7 +198,7 @@ function Unreachable({ message, busy, onRetry }: { message: string; busy: boolea
   return (
     <div className="exo-store-empty exo-store-error" role="alert">
       <p>{message}</p>
-      <button type="button" className="exo-set-btn" disabled={busy} aria-busy={busy} onClick={onRetry}>Retry</button>
+      <button type="button" className="exo-set-btn" disabled={busy} onClick={onRetry}>{busy ? <Spinner label="Trying again" /> : null}Retry</button>
     </div>
   )
 }
@@ -214,7 +217,7 @@ function heroWhen(when?: string | null): string {
  * the pick, so the two never disagree; under Reduce motion it does not turn.
  * The next game's art loads while this one shows.
  */
-function Hero({ items, similar, onOpen, still, working, arrive }: { items: StoreTile[]; similar: (ids?: string[] | null) => Game[]; onOpen: (t: StoreTile) => void; still: boolean; working: boolean; arrive: boolean }) {
+function Hero({ items, similar, onOpen, still, shining, arrive }: { items: StoreTile[]; similar: (ids?: string[] | null) => Game[]; onOpen: (t: StoreTile) => void; still: boolean; shining: boolean; arrive: boolean }) {
   const [index, setIndex] = useState(0)
   const [hovered, setHovered] = useState(false)
   const [focused, setFocused] = useState(false)
@@ -237,7 +240,7 @@ function Hero({ items, similar, onOpen, still, working, arrive }: { items: Store
       onFocus={e => setFocused(e.target.matches(':focus-visible'))}
       onBlur={e => { if (!e.currentTarget.contains(e.relatedTarget)) setFocused(false) }}>
       <HeroLight tile={current} />
-      <button type="button" className={`exo-store-hero-stage${working ? ' exo-motion-work' : ''}`} data-vt-art onClick={() => onOpen(current)} {...warm} aria-label={`Open ${current.name}`}>
+      <button type="button" className={`exo-store-hero-stage${shining ? ' exo-shine' : ''}`} data-vt-art onClick={() => onOpen(current)} {...warm} aria-label={`Open ${current.name}`}>
         <HeroArt tile={current} />
         <span className="exo-store-hero-copy">
           <HeroTags tile={current} like={similar(current.similarTo)[0]} />
@@ -303,7 +306,8 @@ function HeroLight({ tile }: { tile: StoreTile }) {
 }
 
 function HeroPick({ tile, on, onPick }: { tile: StoreTile; on: boolean; onPick: () => void }) {
-  const warm = useWarm(tile.appId, tile.art)
+  // The list's games warm when pointed at, not all at once for being on screen: the banner's own game already has.
+  const warm = useWarm(tile.appId, tile.art, false)
   return (
     <button type="button" className={`exo-store-hero-pick${on ? ' is-on' : ''}`} onClick={onPick} {...warm} aria-current={on}>
       <span className="exo-store-hero-pick-art" data-vt-art><SteamImage eager sources={artSources(tile, ['capsule', 'header'])} /></span>
@@ -321,7 +325,7 @@ function HeroLogo({ tile }: { tile: StoreTile }) {
 }
 
 /** A shelf: one horizontal row, scrolled by its arrows (a page at a time) or the wheel. Arrows change only when an edge is reached or left. */
-function Row({ id, title, count, working, children }: { id: string; title: string; count: number; working: boolean; children: ReactNode }) {
+function Row({ id, title, count, shining, children }: { id: string; title: string; count: number; shining: boolean; children: ReactNode }) {
   const track = useRef<HTMLDivElement>(null)
   const [edges, setEdges] = useState({ start: true, end: false })
   const measure = useCallback(() => {
@@ -341,7 +345,7 @@ function Row({ id, title, count, working, children }: { id: string; title: strin
   }, [measure, count])
   const page = (dir: 1 | -1) => track.current?.scrollBy({ left: dir * track.current.clientWidth * 0.9, behavior: shouldReduceMotion() ? 'auto' : 'smooth' })
   return (
-    <section className={`exo-store-row${working ? ' exo-motion-work' : ''}`} aria-labelledby={`exo-store-${id}`}>
+    <section className={`exo-store-row${shining ? ' exo-shine' : ''}`} aria-labelledby={`exo-store-${id}`}>
       <div className="exo-shelf-head">
         <h2 id={`exo-store-${id}`} className="exo-shelf-title">{title}</h2>
         <span className="exo-store-arrows">
@@ -354,16 +358,16 @@ function Row({ id, title, count, working, children }: { id: string; title: strin
   )
 }
 
-/** The last answer stays up under the work band while a newer query is on its way. */
+/** The last answer stays up, shining, while a newer query is on its way (DESIGN.md › Waits). */
 function Results({ hits, card, onClear }: { hits: ReturnType<typeof useSearch>; card: CardFn; onClear: () => void }) {
-  if (!hits.items) return hits.error ? <Unreachable message={hits.error} busy={false} onRetry={hits.retry} /> : <GridSkeleton />
+  if (!hits.items) return hits.error ? <Unreachable message={hits.error} busy={false} onRetry={hits.retry} /> : <GridSkeleton label="Searching the store" />
   if (hits.items.length === 0) return (
-    <div className={`exo-store-empty${hits.pending ? ' exo-motion-work' : ''}`}>
+    <div className={`exo-store-empty${hits.pending ? ' exo-shine' : ''}`}>
       <p>Nothing on the store matches “{hits.query}”</p>
       <button type="button" className="exo-set-btn" onClick={onClear}>Clear search</button>
     </div>
   )
-  return <div className={`exo-store-grid${hits.pending ? ' exo-motion-work' : ''}`}>{hits.items.map((t, i) => card(t, i, true))}</div>
+  return <div className={`exo-store-grid${hits.pending ? ' exo-shine' : ''}`}>{hits.items.map((t, i) => card(t, i, true))}</div>
 }
 
 /** On sale now leaves out games the library already owns; they stay with the rest. Empty only once the host has said so. */
@@ -374,7 +378,7 @@ function Wishlist({ wish, owned, card }: {
 }) {
   const { items, check: onCheck, checking, checked } = wish
   const arrive = useArrive('wishlist', wish.loaded)
-  if (!wish.loaded) return wish.error ? <Unreachable message={wish.error} busy={false} onRetry={wish.reload} /> : <GridSkeleton />
+  if (!wish.loaded) return wish.error ? <Unreachable message={wish.error} busy={false} onRetry={wish.reload} /> : <GridSkeleton label="Loading your wishlist" />
   if (items.length === 0) return <div className="exo-store-empty"><p>Your wishlist is empty</p></div>
   const sale = items.filter(w => w.discount > 0 && !owned(w.appId, w.name))
   const rest = items.filter(w => !sale.includes(w))
@@ -383,10 +387,10 @@ function Wishlist({ wish, owned, card }: {
       <div className="exo-shelf-head">
         {/* The Wishlist chip already names the list and its count; a heading only when it splits by sale. */}
         {sale.length ? <h2 className="exo-shelf-title">On sale now<span className="exo-shelf-count">{sale.length}</span></h2> : <span />}
-        <button type="button" className="exo-set-btn" disabled={checking} onClick={onCheck} aria-label={checking ? 'Checking prices' : 'Check prices'}>
+        <button type="button" className="exo-set-btn" disabled={checking} onClick={onCheck} aria-label="Check prices">
+          {checking ? <Spinner label="Checking prices" /> : null}
           <span className="exo-store-stack">
-            <span className={checking || checked ? 'is-hidden' : undefined}>Check prices</span>
-            <span className={checking ? undefined : 'is-hidden'}>Checking…</span>
+            <span className={checked && !checking ? 'is-hidden' : undefined}>Check prices</span>
             {checked && !checking ? <svg className="exo-motion-check exo-store-check" viewBox="0 0 24 24" aria-hidden="true"><path d={CHECK_PATH} pathLength="1" /></svg> : null}
           </span>
         </button>
@@ -424,7 +428,7 @@ function Calendar({ cal, card }: { cal: ReturnType<typeof useCalendar>; card: Ca
   const [wishOnly, setWishOnly] = useState(false)
   const [hideEarly, setHideEarly] = useState(false)
   const arrive = useArrive('calendar', !!cal.data)
-  if (!cal.data) return cal.error ? <Unreachable message={cal.error} busy={cal.loading} onRetry={() => void cal.load()} /> : <GridSkeleton />
+  if (!cal.data) return cal.error ? <Unreachable message={cal.error} busy={cal.loading} onRetry={() => void cal.load()} /> : <GridSkeleton label="Loading the calendar" />
   const shown = (cal.data.days ?? [])
     .map(d => ({ ...d, entries: d.entries.filter(e => !(hideOwned && e.owned) && !(wishOnly && !e.wished) && !(hideEarly && e.earlyAccess)) }))
     .filter(d => d.entries.length > 0)
@@ -507,39 +511,50 @@ function useCalendar(active: boolean) {
   return { data, error, loading, load }
 }
 
-/** The home page on its way: black frames under the work band. */
+/** A poster on its way: the card's own shape, its art and its name, as clear skeleton cards that shine. */
+function GhostCard() {
+  return <span className="exo-store-card is-skeleton"><span className="exo-store-ghost exo-skeleton exo-shine" /><span className="exo-store-ghost-name exo-skeleton exo-shine" /></span>
+}
+
+/** The home page on its way (DESIGN.md › Waits): the banner, the list beside it and two shelves as skeleton cards, shining. */
 function Skeleton() {
   return (
-    <div aria-hidden="true">
-      <div className="exo-store-hero is-skeleton"><span className="exo-store-hero-stage exo-motion-work" /></div>
-      <div className="exo-store-row">
-        <div className="exo-shelf-head" />
-        <div className="exo-store-track">
-          {Array.from({ length: 8 }, (_, i) => <span key={i} className="exo-store-card is-skeleton"><span className="exo-store-poster exo-motion-work" /></span>)}
-        </div>
+    <div role="status" aria-label="Loading the store">
+      <div className="exo-store-hero is-skeleton" aria-hidden="true">
+        <span className="exo-store-ghost-hero exo-skeleton exo-shine" />
+        <span className="exo-store-hero-list">
+          {Array.from({ length: 6 }, (_, i) => <span key={i} className="exo-store-ghost-pick exo-skeleton exo-shine" />)}
+        </span>
       </div>
+      {[0, 1].map(row => (
+        <div key={row} className="exo-store-row" aria-hidden="true">
+          <div className="exo-shelf-head"><span className="exo-store-ghost-title exo-skeleton exo-shine" /></div>
+          <div className="exo-store-track">{Array.from({ length: 10 }, (_, i) => <GhostCard key={i} />)}</div>
+        </div>
+      ))}
     </div>
   )
 }
 
-/** Search's first answer on its way: posters only, no banner. */
-function GridSkeleton() {
+/** A grid's first answer on its way: its posters as skeleton cards, shining, no banner. */
+function GridSkeleton({ label }: { label: string }) {
   return (
-    <div className="exo-store-grid" aria-hidden="true">
-      {Array.from({ length: 12 }, (_, i) => <span key={i} className="exo-store-card is-skeleton"><span className="exo-store-poster exo-motion-work" /></span>)}
+    <div className="exo-store-grid" role="status" aria-label={label}>
+      {Array.from({ length: 12 }, (_, i) => <GhostCard key={i} />)}
     </div>
   )
 }
+
+/** The last home page shown, kept while Exo runs: the room built again (after it sat unused) shows it at once. */
+let keptHome: StoreHome | null = null
 
 /**
- * The saved home page at once, then whatever the host refreshes; read each
- * time the room shows (the host answers from memory, and a refresh that
- * landed while the room was hidden shows too) and when the host says the home page changed.
- * loading counts every read in flight, so Refresh stays off until the last
- * one lands; refreshing is only the one the user asked for.
+ * The last home page at once, then whatever the host refreshes, quietly behind it (stale while it revalidates); read
+ * each time the room is built (the host answers from memory) and when the host says the home page changed.
+ * loading counts every read in flight; refreshing is only the one the user asked for, which the room shows.
  */
 function useHome() {
-  const [data, setData] = useState<StoreHome | null>(null)
+  const [data, setData] = useState<StoreHome | null>(keptHome)
   const [error, setError] = useState<string | null>(null)
   const [inFlight, setInFlight] = useState(0)
   const [refreshing, setRefreshing] = useState(false)
@@ -549,7 +564,11 @@ function useHome() {
     try {
       const res = await host.storeHome(refresh)
       // The same page again (the room showing) keeps the one on screen, so its cards do not render again.
-      if (res.ok) { setData(d => d && d.at === res.at ? d : res); setError(null) } else setError(res.message ?? 'The store could not be reached.')
+      if (res.ok) {
+        setData(d => d && d.at === res.at ? d : res)
+        if (keptHome?.at !== res.at) keptHome = res
+        setError(null)
+      } else setError(res.message ?? 'The store could not be reached.')
     } catch (e) {
       report(e, 'Store.home')
       setError('The store could not be reached. Check your connection and try again.')
@@ -600,12 +619,14 @@ function StoreTools({ view, query, wished, refreshing, onTab, onQuery, onRefresh
   view: string
   query: string
   wished: number
+  /** The refresh you asked for: its glyph turns until it lands. */
   refreshing: boolean
   onTab: (tab: Tab) => void
   onQuery: (query: string) => void
   onRefresh: () => void
 }) {
   const chipGlide = useGlide<HTMLDivElement>()
+  const searchField = useRef<HTMLInputElement>(null)
   return (
     <>
       <div ref={chipGlide} className="exo-shelf-chips exo-glide" role="group" aria-label="Store view">
@@ -618,17 +639,19 @@ function StoreTools({ view, query, wished, refreshing, onTab, onQuery, onRefresh
       {children}
       <label className="exo-store-search">
         <Search size={15} />
-        <input type="search" placeholder="Search the store" value={query} onChange={e => onQuery(e.target.value)} aria-label="Search the store" />
+        <input ref={searchField} type="search" placeholder="Search the store" value={query} onChange={e => onQuery(e.target.value)} aria-label="Search the store" />
         <button type="button" aria-label="Clear search" tabIndex={query ? 0 : -1} className={query ? undefined : 'is-hidden'} onClick={() => onQuery('')}><Close size={13} /></button>
+        <DictateButton target={searchField} />
       </label>
       <button
         type="button"
         className={`exo-set-btn exo-store-refresh${view === 'home' ? '' : ' is-hidden'}`}
         disabled={refreshing || view !== 'home'}
         onClick={onRefresh}
-        aria-label="Refresh the store"
+        aria-label={refreshing ? 'Refreshing the store' : 'Refresh the store'}
+        aria-busy={refreshing}
       >
-        <Refresh size={14} />
+        <Refresh size={14} className={refreshing ? 'exo-spin' : undefined} />
       </button>
     </>
   )

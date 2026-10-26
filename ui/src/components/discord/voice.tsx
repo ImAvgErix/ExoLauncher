@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type CSSProperties } from 'react'
 import { host, onHostEvent } from '../../lib/host'
+import { useNotice } from '../../lib/notify'
 import { report } from '../../lib/report'
 import { useLens } from '../../lib/glass'
 import type { DiscordChannel, DiscordVoice, DiscordVoiceMember } from '../../lib/discord'
@@ -12,6 +13,7 @@ import { SoundboardButton } from './Soundboard'
 import { setAudioUser, useAccountSettings } from '../../lib/discordPrefs'
 import { Slider } from '../ui/Slider'
 import { Decoration } from './collectibles'
+import { Spinner } from '../ui/Spinner'
 
 const OFF: DiscordVoice = { state: 'off', guildId: null, channelId: null, muted: false, deafened: false, e2ee: false }
 
@@ -261,7 +263,8 @@ export function VoiceRoom({ channel, controls, meId, onJoin, dm = false, chat }:
   const live = useGoLive()
   const [cameraError, setCameraError] = useState<string | null>(null)
   const notes = [error, cameraError, live.state === 'off' ? live.message : null].filter((note): note is string => !!note)
-  const dismiss = () => { controls.dismissError(); setCameraError(null); clearGoLiveMessage() }
+  // What went wrong with the call, in Exo's notices while its room is open; dismissing it clears them.
+  useNotice('dc-voice', notes.length > 0 && { text: notes.join(' '), tone: 'bad', onDismiss: () => { controls.dismissError(); setCameraError(null); clearGoLiveMessage() } })
   const { watching, big, small, watch, stop, focus } = useWatching(channel.id, members, here)
   // Discord's Hide Members while watching: the stream takes the room, the people strip folds away.
   const [membersHidden, setMembersHidden] = useState(false)
@@ -273,11 +276,12 @@ export function VoiceRoom({ channel, controls, meId, onJoin, dm = false, chat }:
       {dm ? null : <VoiceHead channel={channel} chat={chat} />}
       {big ? <StreamStage key={big.id} member={big} onStop={() => stop(big.id)} onRetry={() => watch(big.id)} membersHidden={membersHidden} onToggleMembers={() => setMembersHidden(h => !h)} /> : null}
       <div ref={stage} className="exo-dc-voice-stage" hidden={!!big && membersHidden} style={{ '--tile-w': `${tileWidth}px` } as CSSProperties}>
-        {members.length === 0 ? (
+        {/* Joining: your tile on its way, shining in its place (DESIGN.md › Waits). */}
+        {members.length === 0 ? here ? <span className="exo-dc-voice-tile exo-shine" role="status" aria-label="Connecting to voice" /> : (
           <div className="exo-dc-voice-empty">
             <span className="exo-dc-voice-empty-icon" aria-hidden="true"><Icons.Voice size={28} /></span>
             <strong>{channel.name}</strong>
-            <span>{here ? 'Connecting…' : 'No one is here yet.'}</span>
+            <span>No one is here yet.</span>
           </div>
         ) : members.map(member => (
           <VoiceTile key={member.id} member={member} me={member.id === meId} speaking={speaking.has(member.id) && !audio[member.id]?.muted} muted={member.mute || audio[member.id]?.muted === true} canWatch={here && member.stream === true && !watching.includes(member.id) && member.id !== meId}
@@ -286,12 +290,6 @@ export function VoiceRoom({ channel, controls, meId, onJoin, dm = false, chat }:
         {members.length > 0 ? small.map(member => <StreamTile key={`stream-${member.id}`} member={member} onFocus={() => focus(member.id)} onStop={() => stop(member.id)} />) : null}
         {myStream && members.length > 0 ? <MyStreamTile meId={meId} /> : null}
       </div>
-      {notes.length ? (
-        <div className="exo-dc-voice-notes exo-glass" role="alert">
-          <span>{notes.map(note => <span key={note}>{note}</span>)}</span>
-          <button type="button" className="exo-dc-icon-btn" aria-label="Dismiss" onClick={dismiss}><Close size={14} /></button>
-        </div>
-      ) : null}
       <VoiceBar here={here} dm={dm} channel={channel} controls={controls} onJoin={onJoin} onCameraError={setCameraError} />
     </section>
   )
@@ -484,7 +482,7 @@ function StreamStage({ member, onStop, onRetry, membersHidden, onToggleMembers }
     return () => window.clearTimeout(idleTimer.current)
   }, [])
   return (
-    <div ref={box} className={`exo-dc-stream${membersHidden ? ' is-alone' : ''}${idle && stream.live ? ' is-idle' : ''}`} onDoubleClick={toggleFull}
+    <div ref={box} className={`exo-dc-stream${membersHidden ? ' is-alone' : ''}${idle && stream.live ? ' is-idle' : ''}${stream.live || failed ? '' : ' exo-shine'}`} onDoubleClick={toggleFull}
       onPointerMove={wake} onPointerLeave={() => { window.clearTimeout(idleTimer.current); setIdle(true) }}>
       <canvas ref={stream.ref} className="exo-dc-stream-video" hidden={!stream.live} />
       {stream.live ? null : failed ? (
@@ -492,7 +490,7 @@ function StreamStage({ member, onStop, onRetry, membersHidden, onToggleMembers }
           {member.name}'s stream didn't start.{' '}
           <button type="button" className="exo-dc-tab" onClick={retry}>Try again</button>
         </p>
-      ) : <p className="exo-dc-note">Joining {member.name}'s stream…</p>}
+      ) : <span className="sr-only" role="status">Joining {member.name}'s stream</span>}
       <span className="exo-dc-live">LIVE</span>
       <span className="exo-dc-stream-bar">
         <span className="exo-dc-stream-name">{member.name}</span>
@@ -531,7 +529,8 @@ export function VoicePanel({ controls, place, onOpen }: { controls: VoiceControl
     <section className="exo-dc-voice" aria-label="Voice">
       <div className="exo-dc-voice-status">
         <strong className={voice.state === 'connected' ? 'is-on' : undefined}>
-          {voice.state === 'connected' ? 'Voice connected' : voice.state === 'connecting' ? 'Connecting…' : 'Voice'}
+          {voice.state === 'connecting' ? <Spinner label="Connecting to voice" /> : null}
+          {voice.state === 'connected' ? 'Voice connected' : voice.state === 'connecting' ? 'Connecting' : 'Voice'}
           {voice.state === 'connected' && voice.e2ee ? <span className="exo-dc-voice-e2ee" role="img" aria-label="End-to-end encrypted"><Icons.Lock size={12} /></span> : null}
         </strong>
         {error ? <span role="alert">{error}</span> : voice.state !== 'off' && place

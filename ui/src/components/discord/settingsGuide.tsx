@@ -186,7 +186,7 @@ function ItemDialog({ place, kind, item, taken, onSave, onRemove, onClose }: {
         </Field>
       )}
       <Field label="Emoji" detail="Optional, shown beside it."><EmojiField emoji={draft.emoji ?? null} onChange={emoji => set({ emoji })} /></Field>
-      {error ? <p className="is-bad" role="alert">{error}</p> : null}
+      {error ? <p className="exo-dialog-error" role="alert">{error}</p> : null}
     </Dialog>
   )
 }

@@ -50,27 +50,13 @@ internal static class ExoConnectedTheme
     internal static void Resources(ResourceDictionary resources)
     {
         // Keep native keyboard/accessibility behavior, replace Fluent paint.
-        foreach (var key in new[] { "MenuFlyoutPresenterBackground", "ContentDialogBackground", "TextControlBackground", "TextControlBackgroundFocused", "TextControlBackgroundPointerOver", "ListViewItemBackground" }) resources[key] = Brush(Tokens.Surface);
-        foreach (var key in new[] { "MenuFlyoutPresenterBorderBrush", "ContentDialogBorderBrush", "TextControlBorderBrush", "TextControlBorderBrushPointerOver", "TextControlBorderBrushFocused", "MenuFlyoutSeparatorBackground" }) resources[key] = Brush(Tokens.Line);
+        foreach (var key in new[] { "MenuFlyoutPresenterBackground", "TextControlBackground", "TextControlBackgroundFocused", "TextControlBackgroundPointerOver", "ListViewItemBackground" }) resources[key] = Brush(Tokens.Surface);
+        foreach (var key in new[] { "MenuFlyoutPresenterBorderBrush", "TextControlBorderBrush", "TextControlBorderBrushPointerOver", "TextControlBorderBrushFocused", "MenuFlyoutSeparatorBackground" }) resources[key] = Brush(Tokens.Line);
         foreach (var key in new[] { "MenuFlyoutItemForeground", "MenuFlyoutItemForegroundPointerOver", "MenuFlyoutItemForegroundPressed", "MenuFlyoutSubItemForeground", "TextControlForeground", "TextControlForegroundFocused", "ListViewItemForeground", "ListViewItemForegroundSelected", "ListViewItemForegroundSelectedPointerOver", "ListViewItemForegroundSelectedPressed" }) resources[key] = Brush(Tokens.Fg);
         foreach (var key in new[] { "MenuFlyoutItemBackgroundPointerOver", "MenuFlyoutItemBackgroundPressed", "MenuFlyoutSubItemBackgroundPointerOver", "MenuFlyoutSubItemBackgroundSubMenuOpened", "ListViewItemBackgroundPointerOver", "ListViewItemBackgroundSelected", "ListViewItemBackgroundSelectedPointerOver", "ListViewItemBackgroundSelectedPressed" }) resources[key] = Brush(Tokens.NavOn);
         foreach (var key in new[] { "SystemControlHighlightAccentBrush", "SystemControlHighlightListAccentLowBrush", "ListViewItemSelectionIndicatorBrush", "ListViewItemCheckBoxBrush" }) resources[key] = Brush(Tokens.Muted);
         resources["TextControlSelectionHighlightColor"] = Tokens.Muted;
         resources["MenuFlyoutItemFontFamily"] = new FontFamily(Tokens.InterVariable);
-        resources["ContentDialogCornerRadius"] = new CornerRadius(14);
-    }
-    internal static void Dialog(ContentDialog dialog)
-    {
-        dialog.RequestedTheme = ElementTheme.Dark;
-        dialog.FontFamily = new FontFamily(Tokens.InterVariable);
-        dialog.Foreground = Brush(Tokens.Fg); dialog.Background = Brush(Tokens.Surface);
-        dialog.BorderBrush = Brush(Tokens.Line); dialog.BorderThickness = new Thickness(1); dialog.CornerRadius = new CornerRadius(14);
-        Resources(dialog.Resources);
-        dialog.Resources["ContentDialogTopOverlay"] = dialog.Background;
-        dialog.Resources["ContentDialogSeparatorBorderBrush"] = dialog.BorderBrush;
-        if (dialog.Title is string title) dialog.Title = Heading(title);
-        if (Application.Current.Resources.TryGetValue("ExoPrimaryButtonStyle", out var primary)) dialog.PrimaryButtonStyle = (Style)primary;
-        if (Application.Current.Resources.TryGetValue("ExoGhostButtonStyle", out var secondary)) dialog.CloseButtonStyle = (Style)secondary;
     }
     internal static Grid WindowContent(Window window, string title, FrameworkElement content, bool compact = false)
     {

@@ -1,7 +1,8 @@
 import { memo, useState } from 'react'
 import { host, type LauncherSettings } from '../../lib/host'
 import { HoursRows } from './HoursRows'
-import { Row, Section, State } from './parts'
+import { Spinner } from '../ui/Spinner'
+import { Group, Row, State } from './parts'
 
 type KeyField =
   | 'steamWebApiKey'
@@ -59,7 +60,7 @@ function KeyRow({ label, detail, field, saved, getUrl, onSettings }: {
             onChange={event => setDraft(event.target.value)}
           />
           <button type="submit" className="exo-set-btn" disabled={busy || !draft.trim()}>
-            {busy ? 'Saving…' : 'Save'}
+            {busy ? <Spinner label="Saving" /> : null}Save
           </button>
           {editing ? (
             <button type="button" className="exo-set-btn" disabled={busy} onClick={() => { setEditing(false); setDraft('') }}>Cancel</button>
@@ -124,7 +125,7 @@ function RiotIdRow({ settings, onSettings }: {
           onChange={event => setDraft(event.target.value)}
         />
         <button type="submit" className="exo-set-btn" disabled={busy || !valid || draft.trim() === saved}>
-          {busy ? 'Saving…' : 'Save'}
+          {busy ? <Spinner label="Saving" /> : null}Save
         </button>
         {saved ? (
           <button type="button" className="exo-set-btn" disabled={busy} onClick={() => void save('')}>Remove</button>
@@ -161,7 +162,7 @@ function IgdbConnect({ settings, onSettings }: {
             .finally(() => setBusy(false))
         }}
       >
-        {busy ? 'Checking…' : 'Verify'}
+        {busy ? <Spinner label="Checking the key" /> : null}Verify
       </button>
     </Row>
   )
@@ -172,7 +173,7 @@ export const KeysSection = memo(function KeysSection({ settings, onSettings }: {
   onSettings: (next: LauncherSettings) => void
 }) {
   return (
-    <Section id="keys" title="Optional keys">
+    <Group id="keys" title="Optional keys">
       <KeyRow
         label="Steam Web API key"
         detail="Optional. Games and achievements without Steam open"
@@ -219,6 +220,6 @@ export const KeysSection = memo(function KeysSection({ settings, onSettings }: {
           <IgdbConnect settings={settings} onSettings={onSettings} />
         </>
       ) : null}
-    </Section>
+    </Group>
   )
 })

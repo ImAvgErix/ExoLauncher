@@ -212,7 +212,7 @@ internal static class SteamContentLogProgress
         }
     }
 
-    private static string ReadTail(string path, int maxBytes)
+    internal static string ReadTail(string path, int maxBytes)
     {
         using var stream = new FileStream(
             path,

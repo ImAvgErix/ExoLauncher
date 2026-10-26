@@ -7,6 +7,7 @@ import { admin, colorOf, Confirm, Field, personName, ReadError, SaveBar, useAdmi
 import { Icons } from './icons'
 import { Avatar } from './presence'
 import { RoleLinks, type RoleLink } from './settingsRoleLinks'
+import { Skeleton } from '../ui/Skeleton'
 
 type Role = { id: string; name: string; color: number; position: number; hoist: boolean; mentionable: boolean; managed: boolean; permissions: string }
 type RolesData = { roles: Role[]; counts: Record<string, number> | null; top: number }
@@ -111,7 +112,7 @@ export function Roles({ guildId }: { guildId: string }) {
   const [open, setOpen] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
-  if (!roles.data) return <><h1>Roles</h1>{roles.error ? <ReadError error={roles.error} onRetry={roles.reload} /> : <p className="exo-dc-note">Loading</p>}</>
+  if (!roles.data) return <><h1>Roles</h1>{roles.error ? <ReadError error={roles.error} onRetry={roles.reload} /> : <Skeleton label="Loading roles" />}</>
   const data = roles.data
   const sorted = [...data.roles].sort((a, b) => b.position - a.position)
   const role = open ? sorted.find(r => r.id === open) : undefined
@@ -337,8 +338,8 @@ function RoleDisplay({ role, value, editable, change, guildId, onDeleted }: {
         </Field>
       ) : null}
       {confirm ? (
-        <Confirm title="Delete role" action="Delete" error={error} busy={busy} onConfirm={remove} onClose={() => setConfirm(false)}>
-          <p>Are you sure you want to delete the <strong>{role.name}</strong> role? This action cannot be undone.</p>
+        <Confirm title={`Delete the ${role.name} role?`} action="Delete" error={error} busy={busy} onConfirm={remove} onClose={() => setConfirm(false)}>
+          <p>This action cannot be undone.</p>
         </Confirm>
       ) : null}
     </>
@@ -401,7 +402,7 @@ function RoleMembers({ guildId, role, editable, onChanged }: { guildId: string; 
       {error ? <p className="exo-dc-note is-bad" role="alert">{error}</p> : null}
       <ReadError error={members.error} onRetry={members.reload} />
       {members.data && shown.length === 0 ? <p className="exo-dc-note">No members were found.</p> : null}
-      {!members.data && !members.error ? <p className="exo-dc-note">Loading</p> : null}
+      {!members.data && !members.error ? <Skeleton label="Loading members" avatar /> : null}
       <ul className="exo-dc-mod-list">
         {shown.map(row => (
           <li key={row.member.user.id} data-dc-user={row.member.user.id}>
@@ -447,7 +448,7 @@ function AddMembers({ guildId, role, onClose, onAdded }: { guildId: string; role
     })
   }
   return (
-    <Confirm title="Add members" action="Add" danger={false} error={error} busy={busy || picked.size === 0} onConfirm={add} onClose={onClose}>
+    <Confirm title="Add members" action="Add" danger={false} form error={error} busy={busy} disabled={picked.size === 0} onConfirm={add} onClose={onClose}>
       <p>{role.name}</p>
       <input className="exo-dc-modal-input" placeholder="Search members" value={query} autoFocus aria-label="Search members" onChange={event => setQuery(event.target.value)} />
       {picked.size >= MAX_ADD ? <p className="exo-dc-note">You can add {MAX_ADD} members at a time.</p> : null}

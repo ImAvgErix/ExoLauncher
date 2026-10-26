@@ -12,6 +12,7 @@ import { Avatar } from './presence'
 import { pressedArt, transition, visible } from '../../lib/viewTransition'
 import { Decoration, effectSkuOf, lookOf, ProfileEffect, StyledName, themeStyle } from './collectibles'
 import { GuildTag } from './guildTag'
+import { Skeleton } from '../ui/Skeleton'
 
 /** A profile as every surface shows it: Discord's reply, what Exo adds (roles, presence), and your note. */
 export type Loaded = { profile: DiscordProfile; extras: DiscordProfileExtras | null; note: string | null }
@@ -572,7 +573,7 @@ export function MutualServers({ data, onOpen }: { data: Loaded; onOpen?: () => v
 
 /** Mutual Friends: each opens their profile. */
 export function MutualFriends({ friends, onPerson }: { friends: DiscordUser[] | null; onPerson: (friend: DiscordUser) => void }) {
-  if (!friends) return <p className="exo-dc-note" role="status">Loading</p>
+  if (!friends) return <Skeleton label="Loading mutual friends" avatar />
   if (!friends.length) return <p className="exo-dc-note">No friends in common</p>
   return (
     <div className="exo-dc-pf-list">

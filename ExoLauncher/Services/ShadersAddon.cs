@@ -16,9 +16,9 @@ namespace ExoLauncher.Services;
 /// Exo runs no part of it in-process. It starts the engine hidden at below-normal
 /// priority, speaks newline-delimited JSON over its stdin and stdout, and passes
 /// requests and events between the engine and Exo's Shaders page. Without the add-on, Shaders says it is not installed.
-/// The engine runs only while something needs it (<see cref="WakeReason"/>): Exo's page on screen, a compile, a check
-/// after a driver update, a game update or a new install, after a game it has work for exits, or work that waits for the
-/// PC to be idle. It exits by itself a minute after the last of these, and leaves its last state for the page.
+/// The engine starts only when you press Compile or Refresh on the page (<see cref="StartMethods"/>): never for the page
+/// opening, a driver or game update, a new install, a game exiting, the PC idling or the time of day. It exits by itself
+/// <see cref="IdleExitSeconds"/> after its last scan or compile ends, and leaves its last state for the page.
 /// </summary>
 internal sealed class ShadersAddon : IDisposable
 {
@@ -32,6 +32,15 @@ internal sealed class ShadersAddon : IDisposable
     {
         "snapshot", "ui.visible", "scan", "queue.add", "queue.move", "queue.remove", "queue.start", "queue.pause", "queue.resume",
         "queue.stop", "game.compile",
+    };
+
+    /// <summary>
+    /// The page's methods that start a stopped engine: Refresh (scan) and Compile (game.compile; queue.add then queue.start;
+    /// queue.resume). Every other one is answered without it: the board from the last state it left, the rest as done.
+    /// </summary>
+    internal static readonly IReadOnlySet<string> StartMethods = new HashSet<string>(StringComparer.Ordinal)
+    {
+        "scan", "game.compile", "queue.add", "queue.start", "queue.resume",
     };
 
     internal const string VirtualHost = "shaders.exo-launcher.local";
@@ -53,8 +62,8 @@ internal sealed class ShadersAddon : IDisposable
     /// <summary>The engine exits with this when another engine (SCSKiller's own app) holds the shader data.</summary>
     private const int OtherInstanceExit = 3;
 
-    /// <summary>The engine exits by itself once nothing has needed it for this long (its exitWhenIdle).</summary>
-    internal const int IdleExitSeconds = 60;
+    /// <summary>The engine exits by itself once nothing has needed it for this long (its exitWhenIdle, at least 5).</summary>
+    internal const int IdleExitSeconds = 15;
 
     private readonly object _gate = new();
     private readonly ConcurrentDictionary<long, TaskCompletionSource<JsonNode?>> _pending = new();
@@ -73,7 +82,7 @@ internal sealed class ShadersAddon : IDisposable
     internal event Action<string, JsonNode?>? Event;
 
     /// <summary>Starts the engine if it isn't running. Safe to call often. <paramref name="reason"/> goes to the log.</summary>
-    internal void Start(string reason = "the Shaders page")
+    private void Start(string reason)
     {
         lock (_gate)
         {
@@ -111,15 +120,18 @@ internal sealed class ShadersAddon : IDisposable
         }
     }
 
-    /// <summary>One request to the engine; the reply's <c>result</c>, or an exception with its <c>error</c>. <paramref name="start"/> false: only a running engine is asked.</summary>
-    internal async Task<JsonNode?> CallAsync(string method, JsonNode? parameters, CancellationToken ct, bool start = true)
+    /// <summary>
+    /// One request to the engine; the reply's <c>result</c>, or an exception with its <c>error</c>. Only a running engine is
+    /// asked, unless <paramref name="startFor"/> (what the user pressed, for the log) starts a stopped one.
+    /// </summary>
+    internal async Task<JsonNode?> CallAsync(string method, JsonNode? parameters, CancellationToken ct, string? startFor = null)
     {
         Process? engine;
         lock (_gate) engine = _engine is { HasExited: false } live ? live : null;
         if (engine is null)
         {
-            if (!start) throw new InvalidOperationException("The shader engine is not running.");
-            Start();
+            if (startFor is null) throw new InvalidOperationException("The shader engine is not running.");
+            Start(startFor);
             lock (_gate) engine = _engine is { HasExited: false } live ? live : null;
             if (engine is null) throw new InvalidOperationException(Message ?? "The shader engine is not running.");
         }
@@ -157,11 +169,7 @@ internal sealed class ShadersAddon : IDisposable
                     else reply.TrySetResult(message["result"]?.DeepClone());
                 }
                 else if (message["event"]?.GetValue<string>() is { } name)
-                {
-                    if (name == "ready") Interlocked.Exchange(ref _driverAtReady, GpuCapability.DriverFingerprint());
-                    else if (name == "exiting") Volatile.Write(ref _exitIdleWork, message["data"]?["idleWork"] is JsonValue w && w.TryGetValue<bool>(out var idle) && idle ? 1 : 0);
                     Event?.Invoke(name, message["data"]?.DeepClone());
-                }
             }
         }
         catch (Exception ex) { AppLog.Debug("Shaders engine read ended: " + ex.Message); }
@@ -171,20 +179,18 @@ internal sealed class ShadersAddon : IDisposable
     {
         int code;
         try { code = engine.ExitCode; } catch { code = -1; }
-        // Its last lines (exiting: whether work waits for the PC to be idle) are read before what it saw is kept.
+        // Its last lines (replies, its exiting event) are read before the requests still open are failed.
         try { reading.Wait(TimeSpan.FromSeconds(2)); } catch { }
         lock (_gate) if (ReferenceEquals(_engine, engine)) _engine = null;
         // The next engine knows none of Exo's games.
         Volatile.Write(ref _syncedGames, null);
+        var blocked = code == OtherInstanceExit ? "SCSKiller is open. Quit it from its tray icon, then try again." : null;
         foreach (var pending in _pending.Values)
-            pending.TrySetException(new InvalidOperationException("The shader engine stopped."));
-        KeepRun(code);
+            pending.TrySetException(new InvalidOperationException(blocked ?? "The shader engine stopped."));
         if (_disposed) return;
         AppLog.Info("Shaders add-on engine exited: code " + code + ".");
-        if (code == OtherInstanceExit)
-            SetState("blocked", "SCSKiller is open. Quit it from its tray icon, then try again.");
-        else
-            SetState(code == 0 ? "notRunning" : "failed", code == 0 ? null : "The shader engine stopped.");
+        if (blocked is not null) SetState("blocked", blocked);
+        else SetState(code == 0 ? "notRunning" : "failed", code == 0 ? null : "The shader engine stopped.");
     }
 
     private void SetState(string state, string? message)
@@ -216,18 +222,18 @@ internal sealed class ShadersAddon : IDisposable
     private string? _syncedGames;
 
     /// <summary>
-    /// Exo's installed games (every installed store copy), so the engine can compile
+    /// Exo's installed games (every installed store copy), so a running engine can compile
     /// games its own launcher readers miss. Coalesced: library updates come in bursts.
     /// Most library updates (cover warms, size measurements) leave the installed
     /// list as it was; that list is not sent again unless the engine just started
-    /// (<paramref name="force"/>, its "ready" event). A list the engine hasn't taken yet
-    /// (a new install, an uninstall) starts it; a new engine is sent the list when ready.
-    /// An engine without exo.library answers with an error, which is ignored.
+    /// (<paramref name="force"/>, its "ready" event). A stopped engine is never started for
+    /// it: the next one is sent the list when ready. An engine without exo.library answers
+    /// with an error, which is ignored.
     /// </summary>
     internal void SyncLibrary(Func<IReadOnlyList<Models.GameEntry>> library, bool force = false)
     {
         if (force) Interlocked.Exchange(ref _syncForced, 1);
-        if (_disposed || Interlocked.Exchange(ref _syncPending, 1) == 1) return;
+        if (_disposed || !Running || Interlocked.Exchange(ref _syncPending, 1) == 1) return;
         _ = Task.Run(async () =>
         {
             await Task.Delay(TimeSpan.FromSeconds(3)).ConfigureAwait(false);
@@ -250,21 +256,14 @@ internal sealed class ShadersAddon : IDisposable
                     }
                 }
                 var payload = games.ToJsonString();
-                var hash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(payload)))[..16];
-                if (!Running)
-                {
-                    if (hash != _wake.Library) Wake("Exo's installed games changed");
-                    return;
-                }
-                if (!forced && payload == Volatile.Read(ref _syncedGames)) return;
-                try { await CallAsync("exo.library", new JsonObject { ["games"] = games }, CancellationToken.None, start: false).ConfigureAwait(false); }
+                if (!Running || !forced && payload == Volatile.Read(ref _syncedGames)) return;
+                try { await CallAsync("exo.library", new JsonObject { ["games"] = games }, CancellationToken.None).ConfigureAwait(false); }
                 catch (InvalidOperationException) when (Running) { }   // an engine without exo.library: it has the list all the same
                 Volatile.Write(ref _syncedGames, payload);
-                if (hash != _wake.Library) UpdateWake(w => w with { Library = hash });
             }
             catch (Exception ex)
             {
-                _due = true;   // the engine stopped before it took the list: the next wake check starts it again
+                // The engine stopped before it took the list: the next one is sent it when ready.
                 AppLog.Debug("Shaders add-on library sync: " + ex.Message);
             }
         });
@@ -277,144 +276,6 @@ internal sealed class ShadersAddon : IDisposable
 
     /// <summary>The page opened or closed.</summary>
     internal void SetUiVisible(bool visible) => _uiVisible = visible;
-
-    // ------------------------------------------------------------------ on demand
-
-    /// <summary>The engine's own wait for the user to be away before work that waits for the PC to be idle starts (ScsKiller.IdleAfter).</summary>
-    internal static readonly TimeSpan IdleAfter = TimeSpan.FromMinutes(2);
-    /// <summary>The engine checks its games at least this often (its server lists are daily), at an idle moment.</summary>
-    internal static readonly TimeSpan CheckEvery = TimeSpan.FromHours(24);
-    /// <summary>No start in the background this soon after the engine last stopped: an engine that keeps failing isn't
-    /// started again every minute.</summary>
-    internal static readonly TimeSpan RestAfterRun = TimeSpan.FromMinutes(10);
-
-    /// <summary>
-    /// What Exo knew when the engine last ran (<c>shaders-engine.json</c>): the graphics driver it saw, a hash of Exo's
-    /// installed games it took, a hash of its games' exes (<see cref="ScsKillerStatus.ExeStamp"/>), when it stopped, and
-    /// whether work waited for the PC to be idle.
-    /// </summary>
-    internal sealed record WakeState(string? Driver = null, string? Library = null, string? Exes = null, DateTimeOffset? RanAt = null, bool IdleWork = false);
-
-    /// <summary>
-    /// Why the engine should start now in the background, else null; never while a game runs or the engine runs (the
-    /// caller's). Its first check (nothing kept yet), a new graphics driver, a game's exe changed (an update, an
-    /// uninstall), or <paramref name="due"/> (a game it has work for exited, Exo's games changed while it couldn't
-    /// start): now. Once the PC has been idle for <see cref="IdleAfter"/> and isn't on battery: work it left waiting for
-    /// the PC to be idle, or its daily check. Not within <see cref="RestAfterRun"/> of its last stop.
-    /// </summary>
-    internal static string? WakeReason(WakeState last, string driver, string? exes, bool due, TimeSpan idleFor, bool onBattery, DateTimeOffset now)
-    {
-        if (last.RanAt is { } ran && now >= ran && now - ran < RestAfterRun) return null;
-        if (last.Driver is null) return "its first check";
-        if (driver != last.Driver) return "a graphics driver change";
-        if (exes != last.Exes) return "a game update";
-        if (due) return "a game it has work for, or Exo's games";
-        if (idleFor < IdleAfter || onBattery) return null;
-        if (last.IdleWork) return "work that waits for the PC to be idle";
-        return last.RanAt is not { } at || now - at >= CheckEvery || now < at ? "its daily check" : null;
-    }
-
-    private static string WakePath => Path.Combine(PathHelper.AppDataDir, "shaders-engine.json");
-    private readonly object _wakeGate = new();
-    private WakeState _wake = LoadWake();
-    private Timer? _tick;
-    private volatile bool _due;
-    private string? _driverAtReady;
-    private int _exitIdleWork = -1;   // the exiting event's idleWork: -1 none came, 0 no, 1 yes
-
-    /// <summary>Exo is ready: the engine starts in the background when something needs it, checked every minute.</summary>
-    internal void Watch()
-    {
-        lock (_gate) _tick ??= new Timer(_ => Tick(), null, TimeSpan.FromSeconds(15), TimeSpan.FromMinutes(1));
-    }
-
-    private void Tick()
-    {
-        try
-        {
-            if (_disposed || !Present || Running) return;
-            var reason = WakeReason(_wake, GpuCapability.DriverFingerprint(), App.Services.Shaders.ExeStamp(), _due,
-                DownloadPolicy.IdleFor(), new PcHealth.NativePower().Battery(), DateTimeOffset.UtcNow);
-            if (reason is null || GameRunning()) return;
-            _due = false;
-            Start(reason);
-        }
-        catch (Exception ex) { AppLog.Debug("Shaders add-on wake check: " + ex.Message); }
-    }
-
-    /// <summary>Starts the engine for <paramref name="reason"/> now, or at the next wake check while a game runs or it rests.</summary>
-    private void Wake(string reason)
-    {
-        if (_disposed || GameRunning() || _wake.RanAt is { } ran && DateTimeOffset.UtcNow - ran is var since && since >= TimeSpan.Zero && since < RestAfterRun)
-        {
-            _due = true;
-            return;
-        }
-        Start(reason);
-    }
-
-    /// <summary>A library game runs now, however it was started (one process snapshot, as the bridge's run-state poll takes).</summary>
-    private static bool GameRunning()
-    {
-        if (App.Services.Launcher.AnyGameRunning) return true;
-        var installed = App.Services.Library.PeekCachedLibrary()
-            .SelectMany(g => g.Variants.Count == 0 ? [g] : g.Variants.Where(v => v.Installed).Select(v => v.ToGameEntry(g)))
-            .Where(g => g.Installed && !string.IsNullOrWhiteSpace(g.Path))
-            .ToArray();
-        return installed.Length > 0 && App.Services.Launcher.GetGameRunStates(installed, underRootOnly: true).Values.Any(s => s.IsRunning);
-    }
-
-    /// <summary>
-    /// A library game started or stopped, however it was launched. An AMD game with a kept-aside cache needs it back in
-    /// the driver's cache as it starts: the engine starts and puts it back. When one the engine has work for exits (its
-    /// recording, what it compiled), the engine checks it once no game runs.
-    /// </summary>
-    internal void GameRunStateChanged(Models.GameEntry game, bool running)
-    {
-        if (!Present) return;
-        var engine = App.Services.Shaders;
-        if (running && engine.KeptAside(game)) Start("a game with a kept-aside cache");
-        else if (!running && engine.WorkAfterExit(game)) _due = true;
-    }
-
-    /// <summary>A run is over: what it saw is kept (only a run that got as far as ready and exited cleanly), and when it stopped.</summary>
-    private void KeepRun(int code)
-    {
-        var driver = Interlocked.Exchange(ref _driverAtReady, null);
-        var idleWork = Interlocked.Exchange(ref _exitIdleWork, -1);
-        string? exes = null;
-        if (driver is not null && code == 0)
-            try { exes = App.Services.Shaders.ExeStamp(); } catch (Exception ex) { AppLog.Debug("Shaders add-on: " + ex.Message); }
-        UpdateWake(w => driver is not null && code == 0
-            ? w with { RanAt = DateTimeOffset.UtcNow, Driver = driver, Exes = exes, IdleWork = idleWork == -1 ? w.IdleWork : idleWork == 1 }
-            : w with { RanAt = DateTimeOffset.UtcNow });
-    }
-
-    private static WakeState LoadWake()
-    {
-        try
-        {
-            if (!File.Exists(WakePath) || new FileInfo(WakePath).Length > 4096) return new();
-            return JsonSerializer.Deserialize<WakeState>(File.ReadAllText(WakePath)) ?? new();
-        }
-        catch { return new(); }
-    }
-
-    private void UpdateWake(Func<WakeState, WakeState> change)
-    {
-        lock (_wakeGate)
-        {
-            var state = _wake = change(_wake);
-            var temporary = WakePath + "." + Guid.NewGuid().ToString("N") + ".tmp";
-            try
-            {
-                File.WriteAllText(temporary, JsonSerializer.Serialize(state));
-                File.Move(temporary, WakePath, overwrite: true);
-            }
-            catch (Exception ex) { AppLog.Debug("Shaders add-on: its state wasn't kept: " + ex.Message); }
-            finally { try { File.Delete(temporary); } catch { } }
-        }
-    }
 
     /// <summary>The engine's last state, which it leaves when it exits (<c>exo-snapshot.json</c>, rev 0, no queue): the
     /// page shows it until the running engine's own states replace it. Null when there is none.</summary>
@@ -439,8 +300,6 @@ internal sealed class ShadersAddon : IDisposable
             if (_disposed) return;
             _disposed = true;
             engine = _engine;
-            _tick?.Dispose();
-            _tick = null;
         }
         if (engine is null) return;
         try

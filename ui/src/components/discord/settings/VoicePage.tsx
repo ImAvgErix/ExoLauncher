@@ -10,6 +10,8 @@ import { SoundRow } from './AppPages'
 import { Category, ChoiceRow, LoadError, Row, SliderRow, ToggleRow, useClientSettings, useRemembered } from './parts'
 import { cameraError } from '../../../lib/goLive'
 import { usePageActive } from '../../../lib/pageActivity'
+import { Skeleton } from '../../ui/Skeleton'
+import { Spinner } from '../../ui/Spinner'
 
 type Audio = Awaited<ReturnType<typeof host.discordAudio>>
 type Save = (change: Partial<DiscordClientSettings>) => Promise<string | null>
@@ -151,6 +153,7 @@ function speechTime(seconds: number): string {
 function OnlyMyVoice({ settings, save }: { settings: DiscordClientSettings; save: Save }) {
   const learned = settings.myVoiceLearned === true
   const [learning, setLearning] = useState<'busy' | string | null>(null)
+  const teaching = learning === 'busy' ? <Spinner label="Learning your voice" /> : null
   const learn = () => {
     setLearning('busy')
     host.discordMyVoice('learn')
@@ -165,16 +168,16 @@ function OnlyMyVoice({ settings, save }: { settings: DiscordClientSettings; save
           : 'First teach Exo your voice: talk on the meter above for a few seconds, then Teach Exo my voice.'}
         onChange={value => save({ onlyMyVoice: value })} />
       <Row label="Your voice"
-        detail={learning === 'busy' ? 'Learning your voice…'
+        detail={learning === 'busy' ? 'Learning your voice'
           : learned ? `Learned from ${speechTime(settings.myVoiceSeconds ?? 0)} of your voice. It keeps learning in calls when it’s clearly you, and never leaves this PC.`
           : learning ?? 'Talk on the meter above, then teach it here.'}
         error={learning !== null && learning !== 'busy' ? learning : null}>
         {learned ? (
           <>
-            <button type="button" className="exo-set-btn" disabled={learning === 'busy'} onClick={learn}>Teach again</button>
+            <button type="button" className="exo-set-btn" disabled={learning === 'busy'} onClick={learn}>{teaching}Teach again</button>
             <button type="button" className="exo-set-btn" onClick={forget}>Forget</button>
           </>
-        ) : <button type="button" className="exo-set-btn" disabled={learning === 'busy'} onClick={learn}>Teach Exo my voice</button>}
+        ) : <button type="button" className="exo-set-btn" disabled={learning === 'busy'} onClick={learn}>{teaching}Teach Exo my voice</button>}
       </Row>
     </>
   )
@@ -196,7 +199,7 @@ function HearYourVoice() {
 }
 
 const SUPPRESSION: Record<VoiceStages['suppression'], string> = {
-  standard: 'Standard (WebRTC)', on: 'Exo’s own AI', light: 'Exo’s own AI, its lighter stage alone while your PC is busy', mic: 'Your microphone’s own, so Exo’s steps aside', loading: 'Loading…', missing: 'Not available', off: 'Off',
+  standard: 'Standard (WebRTC)', on: 'Exo’s own AI', light: 'Exo’s own AI, its lighter stage alone while your PC is busy', mic: 'Your microphone’s own, so Exo’s steps aside', loading: 'Loading Exo’s AI', missing: 'Not available', off: 'Off',
 }
 const GAIN: Record<VoiceStages['gain'], string> = { windows: 'Windows’', exo: 'Exo’s leveler', off: 'Off' }
 const ECHO: Record<VoiceStages['echo'], string> = { on: 'On in calls, for your speakers', head: 'Not needed on headphones', off: 'Off' }
@@ -208,7 +211,7 @@ const fill = (db: number) => ({ '--fill': Math.max(0, Math.min(100, db + 100)) /
  * lets the voice through), and every stage that ran on it, so each switch can be seen working.
  */
 function LiveVoice({ live }: { live: MicLevel | null }) {
-  const detail = !live ? 'Opening your microphone…' : live.voiced ? 'Sending your voice.' : 'Nothing sent: the gate holds back what isn’t your voice.'
+  const detail = !live ? 'Opening your microphone' : live.voiced ? 'Sending your voice.' : 'Nothing sent: the gate holds back what isn’t your voice.'
   return (
     <div className="exo-dc-settings-row is-stacked">
       <span className="exo-dc-settings-copy"><strong>Your mic, live</strong><span>{detail}</span></span>
@@ -216,7 +219,7 @@ function LiveVoice({ live }: { live: MicLevel | null }) {
         <LiveMeter label="Microphone" db={live?.level ?? -100} />
         <LiveMeter label="Sent" db={live?.after ?? -100} voiced={live?.voiced} />
       </div>
-      {live ? <Stages s={live.stages} /> : null}
+      {live ? <Stages s={live.stages} /> : <Skeleton label="Opening your microphone" rows={2} />}
     </div>
   )
 }
@@ -236,7 +239,11 @@ function Stages({ s }: { s: VoiceStages }) {
   const strength = `, turns noise down by up to ${s.suppressionLimitDb} dB`
   return (
     <dl className="exo-dc-tune-facts">
-      <dt>Noise suppression</dt><dd>{SUPPRESSION[s.suppression]}{s.suppression === 'on' || s.suppression === 'light' ? strength : ''}</dd>
+      <dt>Noise suppression</dt>
+      <dd>
+        {s.suppression === 'loading' ? <><Spinner label="Loading Exo’s AI" /> </> : null}
+        {SUPPRESSION[s.suppression]}{s.suppression === 'on' || s.suppression === 'light' ? strength : ''}
+      </dd>
       <dt>Echo cancellation</dt><dd>{ECHO[s.echo]}</dd>
       <dt>Gain control</dt><dd>{GAIN[s.gain]}</dd>
     </dl>

@@ -78,7 +78,7 @@ export function layoutScan() {
           if (a.scrollHeight > a.clientHeight + 1 && /(auto|scroll)/.test(getComputedStyle(a).overflowY) && a.scrollHeight - a.clientHeight - a.scrollTop > 1) { scrolls = true; break }
         }
         // Under an open sheet, dialog or menu, or a toast (it floats over everything until it goes): covered on purpose.
-        const layer = top.closest('[role="dialog"], [role="menu"], .exo-game-overlay, .exo-dc-modal-back, .exo-folder-back, .exo-folder-sheet-back, [popover], [class*="backdrop"], [class*="scrim"], .exo-toast-stack, .exo-dc-toast, .exo-dc-notices')
+        const layer = top.closest('[role="dialog"], [role="menu"], .exo-game-overlay, .exo-dc-modal-back, .exo-folder-back, .exo-folder-sheet-back, [popover], [class*="backdrop"], [class*="scrim"], .exo-notices, .exo-dialog-back')
         if (layer && !layer.contains(el)) scrolls = true
         // A backdrop the size of the window over everything (a dialog's scrim) is meant to cover what is under it.
         const tr = top.getBoundingClientRect()
@@ -194,9 +194,14 @@ export function layoutFaults() {
   }
   // Controls cut by what holds them.
   for (const c of controls) {
+    // Past a box that scrolls on an axis, the boxes around it don't cut on that axis: scrolling reveals what lies past
+    // them (a calendar's last row half below the fold was read as cut by the window).
+    let scrolledX = false, scrolledY = false
     for (const k of c.list) {
-      const cutX = k.x && !k.sx && (c.r.left < k.r.left - 1 || c.r.right > k.r.right + 1)
-      const cutY = k.y && !k.sy && (c.r.top < k.r.top - 1 || c.r.bottom > k.r.bottom + 1)
+      const cutX = k.x && !k.sx && !scrolledX && (c.r.left < k.r.left - 1 || c.r.right > k.r.right + 1)
+      const cutY = k.y && !k.sy && !scrolledY && (c.r.top < k.r.top - 1 || c.r.bottom > k.r.bottom + 1)
+      scrolledX ||= k.sx
+      scrolledY ||= k.sy
       if (!cutX && !cutY) continue
       // A carousel or a list moved by script hides whole items past its edge too: only a lone cut control is a fault.
       const past = [...k.el.querySelectorAll(SEL)].filter(o => o !== c.el && !o.contains(c.el) && !c.el.contains(o)).some(o => {

@@ -1,7 +1,7 @@
 import { useCapture } from '../../lib/capture'
-import { CaptureKeyRows } from '../settings/CaptureSection'
+import { CaptureKeyRows } from '../captures/CaptureSettings'
 
-/** First run's captures: the keys for a replay, a recording and a snip, the same rows as Settings > Capture. */
+/** First run's captures: the keys for a replay, a recording and a snip, the same rows as Captures › Capture settings. */
 export function CaptureStep() {
   const { state, settings } = useCapture()
   return (

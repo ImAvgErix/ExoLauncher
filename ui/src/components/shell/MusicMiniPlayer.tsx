@@ -168,7 +168,6 @@ export function MusicMiniPlayer({ service, onOpen, hidden = false }: { service: 
   const optimisticTimer = useRef(0)
   useEffect(() => { alive.current = true; return () => { alive.current = false; controls.current = []; clearTimeout(optimisticTimer.current) } }, [])
   const playback = withOptimisticPlayback(snapshot?.playback, optimistic)
-  const busy = pending !== null
 
   useEffect(() => {
     if (!error) return
@@ -218,7 +217,8 @@ export function MusicMiniPlayer({ service, onOpen, hidden = false }: { service: 
   return (
     <BarCapsule>
     <div className="exo-music-mini" role="group" aria-label="Mini player" onPointerEnter={warmMusic}>
-      <div className="exo-mini-controls" role="group" aria-label="Music playback" aria-busy={busy}>
+      {/* A press shows its result at once (optimistic) and the player catches up quietly behind it. */}
+      <div className="exo-mini-controls" role="group" aria-label="Music playback" aria-busy={pending !== null}>
         <button className="exo-mini-skip" aria-label="Previous song" disabled={!playback.canPrev} onClick={() => void control('previous')}><Previous size={22} /></button>
         <button className="exo-mini-play" aria-label={playing ? 'Pause music' : 'Play music'} disabled={!(playing ? playback.canPause : playback.canPlay)} onClick={() => void control('toggle')}>{playing ? <Pause size={22} /> : <Play size={22} />}</button>
         <button className="exo-mini-skip" aria-label="Next song" disabled={!playback.canNext} onClick={() => void control('next')}><Next size={22} /></button>

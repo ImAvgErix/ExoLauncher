@@ -152,6 +152,8 @@ public sealed class AppServices
         });
         Store.Start();
         Downloads.Start();
+        // Exo's parts setup didn't fetch (or that no longer match their pins), quietly, when downloads aren't held.
+        ExoComponents.FillInBackground(() => Launcher.HoldReason, _lifetime.Token);
         NvidiaTrayIcon.Soon();
         // Exo's power plan: switched to by itself on Windows' own plans, refreshed while it's on (PowerPlan.Auto).
         _ = Task.Run(() =>

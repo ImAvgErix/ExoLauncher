@@ -41,7 +41,7 @@ export function GameOverlay({ open, instant = false, keep = false, label, childr
     if (!wasOpen.current) previousFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
     // Escape does what the scrim does, so every sheet closes the same way and a
     // locked sheet (disabled scrim) stays. Anything inside that handled Escape
-    // first (an armed Remove, a menu) or focus in another layer keeps it open.
+    // first (a dialog over it, a menu) or focus in another layer keeps it open.
     const closeOnEscape = (event: KeyboardEvent) => {
       const overlay = ref.current
       if (event.defaultPrevented || event.isComposing || !overlay || overlay.getClientRects().length === 0) return

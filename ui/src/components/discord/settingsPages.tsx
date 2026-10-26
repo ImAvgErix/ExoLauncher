@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { DiscordChannel } from '../../lib/discord'
+import { notify } from '../../lib/notify'
 import { Choice } from '../settings/Choice'
 import { Switch } from '../Switch'
 import { admin, Confirm, dropUpload, Field, pickFile, ReadError, useAdmin } from './admin'
@@ -206,7 +207,7 @@ export function Soundboard({ guild }: { guild: PageGuild }) {
       </ul>
       {editing ? <SoundDialog guildId={guild.id} sound={editing === 'new' ? null : editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); sounds.reload() }} /> : null}
       {removing ? (
-        <Confirm title={`Delete ${removing.name}`} action="Delete" error={error} onConfirm={remove} onClose={() => setRemoving(null)}>
+        <Confirm title={`Delete ${removing.name}?`} action="Delete" error={error} onConfirm={remove} onClose={() => setRemoving(null)}>
           <p>This sound will be gone from this server's soundboard.</p>
         </Confirm>
       ) : null}
@@ -235,7 +236,7 @@ function SoundDialog({ guildId, sound, onClose, onSaved }: { guildId: string; so
     if (result.ok) onSaved(); else { dropUpload(uploadId); setError(result.message ?? 'Discord did not save that sound.') }
   }
   return (
-    <Confirm title={sound ? 'Edit sound' : 'Upload a sound'} action={sound ? 'Save' : 'Upload'} danger={false} busy={busy || name.trim().length < 2} error={error} onConfirm={() => void save()} onClose={onClose}>
+    <Confirm title={sound ? 'Edit sound' : 'Upload a sound'} action={sound ? 'Save' : 'Upload'} danger={false} form busy={busy} disabled={name.trim().length < 2} error={error} onConfirm={() => void save()} onClose={onClose}>
       <div className="exo-dc-form-rows">
         {sound ? null : (
           <label><span>File</span>
@@ -258,13 +259,13 @@ export function ServerTemplate({ guild }: { guild: PageGuild }) {
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [busy, setBusy] = useState(false)
-  const [line, setLine] = useState<{ text: string; bad: boolean } | null>(null)
+  const [error, setError] = useState<string | null>(null)
   const template = templates.data?.[0]
   const act = async (action: 'createTemplate' | 'syncTemplate' | 'deleteTemplate', params: Record<string, unknown>) => {
-    setBusy(true); setLine(null)
+    setBusy(true); setError(null)
     const result = await admin(action, { guildId: guild.id, ...params })
     setBusy(false)
-    if (result.ok) templates.reload(); else setLine({ text: result.message ?? 'Discord did not do that.', bad: true })
+    if (result.ok) templates.reload(); else setError(result.message ?? 'Discord did not do that.')
   }
   const link = template ? `https://discord.new/${template.code}` : ''
   return (
@@ -276,7 +277,7 @@ export function ServerTemplate({ guild }: { guild: PageGuild }) {
         <>
           <Field label={template.name} detail={`${template.description ? `${template.description} · ` : ''}Used ${template.usage_count} ${template.usage_count === 1 ? 'time' : 'times'}${template.is_dirty ? ' · Unsynced changes' : ''}`}>
             <span className="exo-dc-settings-buttons">
-              <button type="button" className="exo-set-btn" onClick={() => void navigator.clipboard.writeText(link).then(() => setLine({ text: 'Copied!', bad: false }))}>Copy link</button>
+              <button type="button" className="exo-set-btn" onClick={() => void navigator.clipboard.writeText(link).then(() => notify({ id: 'dc-copied', text: 'Template link copied', tone: 'good' }))}>Copy link</button>
               {template.is_dirty ? <button type="button" className="exo-set-btn is-primary" disabled={busy} onClick={() => void act('syncTemplate', { code: template.code })}>Sync template</button> : null}
               <button type="button" className="exo-set-btn is-danger" disabled={busy} onClick={() => void act('deleteTemplate', { code: template.code })}>Delete template</button>
             </span>
@@ -290,7 +291,7 @@ export function ServerTemplate({ guild }: { guild: PageGuild }) {
           <button type="button" className="exo-set-btn is-primary" disabled={busy || !name.trim()} onClick={() => void act('createTemplate', { name: name.trim(), description: description.trim() })}>Generate template</button>
         </>
       ) : null}
-      {line ? <p className={`exo-dc-note${line.bad ? ' is-bad' : ''}`} role="status">{line.text}</p> : null}
+      {error ? <p className="exo-dc-note is-bad" role="alert">{error}</p> : null}
     </>
   )
 }

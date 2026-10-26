@@ -25,7 +25,7 @@ The source for every build of these programs that Exo ships is published at the 
 | .NET runtime (self-contained) | 10 | MIT |
 | Windows App SDK (WinUI) | 2.x | Microsoft Software License Terms |
 | Microsoft Edge WebView2 SDK | 1.0.4314.35 | BSD-3-Clause |
-| [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) C API (`sherpa-onnx-c-api.dll`) with [ONNX Runtime](https://github.com/microsoft/onnxruntime) (`onnxruntime.dll`), from the org.k2fsa.sherpa.onnx.runtime.win-x64 package, for Only My Voice | 1.13.8 | Apache-2.0 (sherpa-onnx), MIT (ONNX Runtime) |
+| [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) C API (`sherpa-onnx-c-api.dll`) with [ONNX Runtime](https://github.com/microsoft/onnxruntime) (`onnxruntime.dll`), from the org.k2fsa.sherpa.onnx.runtime.win-x64 package, for Only My Voice and dictation | 1.13.8 | Apache-2.0 (sherpa-onnx), MIT (ONNX Runtime) |
 | Microsoft.Data.Sqlite | 10.0.13 | MIT |
 | SQLitePCLRaw | 3.0.5 | Apache-2.0 |
 | SQLite | bundled with SQLitePCLRaw | Public domain |
@@ -49,17 +49,18 @@ The source for every build of these programs that Exo ships is published at the 
 
 The WebView2 Runtime itself is Microsoft's, installed and updated by Windows.
 
-## Downloaded when a feature needs it
+## Downloaded by Exo
 
-Exo does not ship these in its installer; it downloads a fixed release and checks its size and SHA-256 first. The store tools run as their own programs.
+Exo does not ship these in its installer file; it downloads a fixed release and checks its size and SHA-256 first. Exo's setup fetches the store tools, DeepFilterNet and the two NVIDIA models while it installs; the upscaler files come only for a game that ships them. The store tools run as their own programs.
 
 | Tool | Used for | License |
 | --- | --- | --- |
 | [Legendary](https://github.com/derrod/legendary) | Epic Games library, installs and launches | GPL-3.0 |
 | [gogdl](https://github.com/Heroic-Games-Launcher/heroic-gogdl) | GOG library, installs and launches | GPL-3.0 |
 | [Nile](https://github.com/imLinguin/nile) | Amazon Games library, installs and launches | GPL-3.0 |
-| [DeepFilterNet](https://github.com/Rikorose/DeepFilterNet) 3 (Hendrik Schröter), 0.5.6: `exo-deepfilter.dll`, Exo's build of its C interface, libDF, with the low-latency model and the Rust crates it links (tract, ndarray and the rest, each MIT or Apache-2.0), from Exo's own GitHub release | Noise suppression in Discord calls, fetched when Exo's Discord client first needs it | MIT or Apache-2.0 |
-| [TitaNet-small](https://catalog.ngc.nvidia.com/orgs/nvidia/teams/nemo/models/titanet_small) (NVIDIA NeMo) as sherpa-onnx publishes it in ONNX: `titanet_small.onnx`, from [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx)'s release, checked against its size and SHA-256 | Only My Voice in Discord calls, fetched the first time you choose Use as My Voice | CC-BY-4.0 |
+| [DeepFilterNet](https://github.com/Rikorose/DeepFilterNet) 3 (Hendrik Schröter), 0.5.6: `exo-deepfilter.dll`, Exo's build of its C interface, libDF, with the low-latency model and the Rust crates it links (tract, ndarray and the rest, each MIT or Apache-2.0), from Exo's own GitHub release | Noise suppression in Discord calls and dictation | MIT or Apache-2.0 |
+| [TitaNet-small](https://catalog.ngc.nvidia.com/orgs/nvidia/teams/nemo/models/titanet_small) (NVIDIA NeMo) as sherpa-onnx publishes it in ONNX: `titanet_small.onnx`, from [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx)'s release, checked against its size and SHA-256 | Only My Voice in Discord calls | CC-BY-4.0 |
+| [Parakeet TDT 0.6B v3](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3) (NVIDIA NeMo) as sherpa-onnx publishes it in ONNX with int8 weights: `encoder.int8.onnx`, `decoder.int8.onnx`, `joiner.int8.onnx` and `tokens.txt`, unpacked from [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx)'s asr-models release, each checked against its size and SHA-256 | Dictation, the mic in Exo's text boxes | CC-BY-4.0 |
 | NVIDIA DLSS, AMD FidelityFX / FSR, Intel XeSS files, from each vendor's own GitHub release | Upscaler updates, only for files a game already ships | DLSS: [NVIDIA RTX SDKs License](https://github.com/NVIDIA/DLSS/blob/main/LICENSE.txt); FidelityFX / FSR: [AMD's FidelityFX SDK license](https://github.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK/blob/main/docs/license.md); XeSS: [Intel Simplified Software License](https://github.com/intel/xess/blob/main/LICENSE.txt) (October 2022), in full below |
 
 Upscaler builds that NVIDIA, AMD and Intel don't publish on GitHub come from [DLSS Swapper](https://github.com/beeradmoore/dlss-swapper)'s public archive; Exo uses its release list and download archive only, not its code.

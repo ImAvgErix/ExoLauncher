@@ -66,7 +66,7 @@ export function onHostEvent(name: string, handler: (data: unknown) => void): voi
 }
 
 /** Tells Exo something without a reply: { notice: 'one line' }, { state: {...} | null } or { profile: 'name' | null }. */
-export function tell(message: { notice?: string; state?: { name: string; battery: number | null; charging: boolean; low: boolean } | null; profile?: string | null }): void {
+export function tell(message: { notice?: string; state?: { name: string; battery: number | null; charging: boolean; low: boolean; image: string | null; wireless: boolean | null } | null; profile?: string | null }): void {
   window.parent.postMessage({ exo: 'mouse', ...message }, hostOrigin)
 }
 

@@ -11,10 +11,6 @@ export function visibleInstallPercent(percent: number | null | undefined): numbe
   return typeof percent === 'number' && Number.isFinite(percent) && percent >= 0 && percent <= 100 ? percent : null
 }
 
-export function formatTransferPercent(percent: number): string {
-  return percent === 100 ? '100' : percent >= 99 ? (Math.floor(percent * 10) / 10).toFixed(1) : String(Math.floor(percent))
-}
-
 /** Download bytes cannot be used as installation/verification progress. */
 export function transferPercent(progress: {
   phase?: string | null

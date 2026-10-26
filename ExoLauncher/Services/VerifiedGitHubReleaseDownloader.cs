@@ -59,6 +59,9 @@ internal sealed class VerifiedGitHubReleaseDownloader : IDisposable
 
     internal static VerifiedGitHubReleaseDownloader Shared { get; } = new(CreateProductionHandler());
 
+    /// <summary>For a download too big for <see cref="Shared"/>'s five minutes: dictation's 465 MB speech model on a slow line.</summary>
+    internal static VerifiedGitHubReleaseDownloader Large { get; } = new(CreateProductionHandler(), TimeSpan.FromHours(3));
+
     private readonly HttpClient _http;
 
     internal VerifiedGitHubReleaseDownloader(HttpMessageHandler handler, TimeSpan? timeout = null)

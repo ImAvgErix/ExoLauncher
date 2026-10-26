@@ -25,9 +25,9 @@ export function DiscordQrSignIn({ note = null }: { note?: string | null }) {
       <div className="exo-dc-qr" aria-live="polite">
         {step?.state === 'waiting' && step.url ? <Qr text={step.url} label="Discord sign-in code" className="exo-dc-qr-code" />
           : step?.state === 'scanned' ? <p>Confirm on your phone{step.user ? `, ${step.user}` : ''}.</p>
-          : step?.state === 'done' ? <p>Signed in. Connecting…</p>
+          : step?.state === 'done' ? <p>Signed in.</p>
           : ended ? <p role="alert">{step.message ?? 'The code expired.'}</p>
-          : <p>Getting a code…</p>}
+          : <span className="exo-dc-qr-code exo-skeleton exo-shine" role="status" aria-label="Getting a sign-in code" />}
       </div>
       {ended ? <button type="button" className="exo-set-btn is-primary" onClick={() => setAttempt(n => n + 1)}>New code</button> : null}
       {note && !step ? <p className="exo-dc-signin-note" role="alert">{note}</p> : null}

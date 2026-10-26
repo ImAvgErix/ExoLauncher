@@ -13,7 +13,8 @@ import { transition, visible } from '../../lib/viewTransition'
 import { shouldReduceMotion } from '../../lib/motionPreference'
 import { report } from '../../lib/report'
 import { BrowseShelf } from '../BrowseShelf'
-import { LibraryEmpty, LibraryTools, type RefreshState } from './LibraryShelf'
+import { LibraryEmpty, LibraryTools, type LibraryRefreshRun, type RefreshState } from './LibraryShelf'
+import { setCoversShining } from '../GameCard'
 
 export type LibraryPaneProps = {
   mainRef: RefObject<HTMLElement | null>
@@ -59,7 +60,7 @@ export type LibraryPaneProps = {
   onAddGame: () => void
   onActivateKey: () => void
   /** Library › Refresh: stores again, then every cover. */
-  onRefresh: () => Promise<unknown>
+  onRefresh: () => LibraryRefreshRun
   onRetry: () => void
   onStoreSettings: () => void
   /** Select mode's Uninstall: these games, one after another. */
@@ -89,18 +90,23 @@ function useCardWidth(mainRef: RefObject<HTMLElement | null>): number | null {
 /**
  * Refresh: every store again (games that weren't showing appear), then the
  * store's art again for every game, installed or not (covers you chose stay).
- * While it runs the icon turns and a shine travels across the cards
- * (data-exo-refreshing on the page); a check shows for a moment when done.
+ * Its glyph turns for the whole run; the covers shine only while the stores are
+ * read again (DESIGN.md › Waits), then new art swaps in quietly as each cover
+ * lands. The cards stay pressable throughout: the art can take minutes with a
+ * big library, and a list that lands mid-press is what every push does already.
+ * A check shows for a moment when done.
  */
-function useRefresh(onRefresh: () => Promise<unknown>): [RefreshState, () => void, string | null] {
+function useRefresh(onRefresh: () => LibraryRefreshRun): [RefreshState, () => void, string | null] {
   const [state, setState] = useState<RefreshState>('idle')
   const [error, setError] = useState<string | null>(null)
   const run = useCallback(() => {
     if (state === 'working') return
     setState('working')
     setError(null)
-    document.documentElement.dataset.exoRefreshing = ''
-    onRefresh()
+    const { stores, done } = onRefresh()
+    setCoversShining(true)
+    void stores.finally(() => setCoversShining(false))
+    done
       .then(() => {
         setState('done')
         window.setTimeout(() => setState(current => (current === 'done' ? 'idle' : current)), 1600)
@@ -109,7 +115,7 @@ function useRefresh(onRefresh: () => Promise<unknown>): [RefreshState, () => voi
         setError(cause instanceof Error && cause.message ? cause.message : 'Try again.')
         setState('idle')
       })
-      .finally(() => { delete document.documentElement.dataset.exoRefreshing })
+      .finally(() => setCoversShining(false))
   }, [state, onRefresh])
   return [state, run, error]
 }
@@ -260,11 +266,7 @@ export const LibraryPane = memo(function LibraryPane(props: LibraryPaneProps) {
       art?.addEventListener('animationend', () => art.classList.remove('exo-folder-shut'), { once: true })
     })
   }, [open])
-  // Nothing opens while Refresh rebuilds the cards (home.css takes the pointer off them; this catches the keyboard).
-  const refreshing = () => 'exoRefreshing' in document.documentElement.dataset
-  const openGame = useCallback((game: Game) => { if (!refreshing()) onOpen(game) }, [onOpen])
   const select = useCallback((game: Game, event?: MouseEvent) => {
-    if (refreshing()) return
     if (selecting) pick(game, !!event?.shiftKey)
     else if (isFolderTile(game)) openFolder(game.folder.id); else onOpen(game)
   }, [openFolder, onOpen, selecting, pick])
@@ -422,9 +424,9 @@ export const LibraryPane = memo(function LibraryPane(props: LibraryPaneProps) {
         ) : (
           <div className="flex min-h-0 min-w-0 w-full flex-1 flex-col">
             {!showHidden && <>
-              <ContinueRow games={props.playing} transferFor={props.transferFor} startingId={props.startingId} onOpen={openGame} onPlay={props.onPlay} onMenu={openMenu} />
+              <ContinueRow games={props.playing} transferFor={props.transferFor} startingId={props.startingId} onOpen={onOpen} onPlay={props.onPlay} onMenu={openMenu} />
               <GiftsShelf />
-              <FriendsPlaying games={props.games} startingId={props.startingId} onOpen={openGame} onPlay={props.onPlay} onFind={props.onFindInStore} />
+              <FriendsPlaying games={props.games} startingId={props.startingId} onOpen={onOpen} onPlay={props.onPlay} onFind={props.onFindInStore} />
             </>}
             <BrowseShelf
               heading={shelf.heading}
@@ -461,7 +463,7 @@ export const LibraryPane = memo(function LibraryPane(props: LibraryPaneProps) {
           onSort={folderSort => onFolders(sortFolder(folders, openTile.folder.id, folderSort))}
           onEdit={() => editFolder(openTile.folder.id)}
           onClose={closeFolder}
-          onOpen={openGame}
+          onOpen={onOpen}
           onMenu={openMenu}
         />
       ) : null}

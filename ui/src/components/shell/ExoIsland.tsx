@@ -9,6 +9,7 @@ import { CallPersonItems, useDiscordVoice, type VoiceControls } from '../discord
 import { useSoundboardSounds } from '../discord/Soundboard'
 import { startDiscordShell, useAccountSettings } from '../../lib/discordPrefs'
 import { BarCapsule } from './BarCapsule'
+import { Spinner } from '../ui/Spinner'
 import { useDismiss } from '../../lib/dismiss'
 
 /**
@@ -96,7 +97,7 @@ function CallCapsule({ voice, since, onOpen }: { voice: VoiceControls; since: nu
       <button type="button" className="exo-island-main exo-call-place" onClick={onOpen} aria-label={`Open the call${place ? `: ${place.channel}` : ''}`}>
         {place?.icon ? <img className="exo-call-icon" src={place.icon} alt="" draggable={false} /> : <span className="exo-island-dot" aria-hidden="true" />}
         <span className="exo-call-text">
-          <strong>{state === 'connecting' ? 'Connecting…' : place?.channel ?? 'In a call'}</strong>
+          <strong>{state === 'connecting' ? <><Spinner label="Connecting to the call" /> Connecting</> : place?.channel ?? 'In a call'}</strong>
           {place?.server ? <small>{place.server}</small> : null}
         </span>
       </button>

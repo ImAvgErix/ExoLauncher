@@ -1,9 +1,11 @@
-import { useCallback, useEffect, useId, useRef, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { host, onHostEvent, type DriverProgress, type DriverState } from '../../lib/host'
 import { report } from '../../lib/report'
 import { trimStop } from '../../lib/utils'
-import { Row, State } from '../settings/parts'
+import { Row } from '../settings/parts'
 import { Choice } from '../settings/Choice'
+import { ConfirmDialog } from '../ui/Dialog'
+import { Progress } from '../ui/Progress'
 
 type Vendor = NonNullable<DriverState['vendor']>
 type Latest = NonNullable<DriverState['latest']>
@@ -26,6 +28,11 @@ function size(bytes: number) {
   return bytes >= 1e9 ? `${(bytes / 1e9).toFixed(1)} GB` : `${Math.round(bytes / 1e6)} MB`
 }
 
+/** How much of the download is in: "420 MB of 1.0 GB" when its size is known, else "42%" (after the stage's word). */
+function downloaded(percent: number, total: number | undefined) {
+  return total ? `${size(total * percent / 100)} of ${size(total)}` : `${Math.round(percent)}%`
+}
+
 function day(iso: string | null | undefined) {
   if (!iso) return null
   const date = new Date(iso)
@@ -46,12 +53,12 @@ function savedBranch(): Branch {
   try { return localStorage.getItem('exo.driverBranch') === 'studio' ? 'studio' : 'game' } catch { return 'game' }
 }
 
-/** The row's one line: progress while it works, then how it ended, else installed vs newest. */
+/** The row's one line: what it is doing and how much while it works, then how it ended, else installed vs newest. */
 function driverDetail(state: DriverState, vendor: Vendor, progress: DriverProgress | null, starting: boolean) {
   const latest = state.latest
   if (starting) return 'Starting the update'
   if (progress && WORKING.has(progress.stage))
-    return `${progress.message ?? STAGE[progress.stage]}${progress.stage === 'downloading' ? ` · ${progress.percent}%` : ''}`
+    return `${progress.message ?? STAGE[progress.stage]}${progress.stage === 'downloading' ? ` · ${downloaded(progress.percent, latest?.size)}` : ''}`
   if (progress?.stage === 'done' || progress?.stage === 'failed') return trimStop(progress.message) || STAGE[progress.stage]
   if (!latest) return `${state.installed ?? 'No driver'} installed · ${vendor === 'nvidia' ? "NVIDIA's driver list couldn't be reached" : `${VENDOR[vendor].name}'s newest driver for this card couldn't be found`}`
   if (!state.update) return `${state.installed} · the newest ${KIND[latest.kind]} for your card`
@@ -60,7 +67,7 @@ function driverDetail(state: DriverState, vendor: Vendor, progress: DriverProgre
 }
 
 /**
- * System > Graphics > Driver and profile, above the driver profile: the installed driver and the vendor's newest for this
+ * PC › Graphics › Driver and profile, above the driver profile: the installed driver and the vendor's newest for this
  * card. Update (or Reinstall) asks first, then downloads from the vendor and installs. NVIDIA: a clean install of the driver
  * alone, Game Ready or Studio. AMD: AMD Software: Adrenalin Edition with its driver. Intel: the driver without Intel's extras.
  * Exo puts its profile back afterwards.
@@ -126,38 +133,50 @@ export function DriverRow({ active }: { active: boolean }) {
               setBranch(next)
             }} />
         )}
-        {working
-          ? <State>{starting || !progress ? 'Starting' : STAGE[progress.stage]}…</State>
-          : latest && (
-            <button type="button" className={`exo-set-btn${state.update ? ' is-primary' : ''}`} disabled={!!state.blocked || asking}
-              onClick={() => setAsking(true)}>
-              {state.update ? 'Update' : 'Reinstall'}
-            </button>
-          )}
+        {(working || latest) && (
+          <DriverButton update={!!state.update} working={working} progress={progress} label={driverDetail(state, vendor, progress, starting)}
+            disabled={!!state.blocked} onPress={() => setAsking(true)} />
+        )}
       </Row>
-      {asking && latest && <DriverConsent vendor={vendor} latest={latest} onCancel={() => setAsking(false)} onInstall={() => void install()} />}
+      {asking && latest && <DriverConsent vendor={vendor} latest={latest} update={!!state.update} onCancel={() => setAsking(false)} onInstall={() => void install()} />}
     </>
   )
 }
 
+/** Update or Reinstall. While the update runs it keeps its words and carries the bar: the download's share, else gliding. */
+function DriverButton({ update, working, progress, label, disabled, onPress }: {
+  update: boolean
+  working: boolean
+  progress: DriverProgress | null
+  /** What it is doing and how much, for the bar. */
+  label: string
+  disabled: boolean
+  onPress: () => void
+}) {
+  return (
+    <button type="button" className={`exo-set-btn${update ? ' is-primary' : ''}`} disabled={working || disabled} aria-busy={working} onClick={onPress}>
+      {update ? 'Update' : 'Reinstall'}
+      {working ? <Progress edge value={progress?.stage === 'downloading' ? progress.percent / 100 : null} label={label} /> : null}
+    </button>
+  )
+}
+
 /** What the update downloads, installs and leaves out, and the vendor's license, before anything happens. */
-function DriverConsent({ vendor, latest, onCancel, onInstall }: {
+function DriverConsent({ vendor, latest, update, onCancel, onInstall }: {
   vendor: Vendor
   latest: Latest
+  update: boolean
   onCancel: () => void
   onInstall: () => void
 }) {
-  const headingId = useId()
-  const cancel = useRef<HTMLButtonElement>(null)
-  useEffect(() => { cancel.current?.focus() }, [])
   const { name, installs, leavesOut, restores } = VENDOR[vendor]
   const link = (url: string, label: string) => <button type="button" className="exo-set-link" onClick={() => void host.openUrl(url)}>{label}</button>
-  const title = vendor === 'amd' ? `Install AMD Software: Adrenalin Edition ${latest.version}${latest.kind === 'optional' ? ' (optional)' : ''}?`
-    : vendor === 'intel' ? `Install Intel's graphics driver ${latest.version}, driver only?`
-      : `Install NVIDIA ${KIND[latest.kind]} ${latest.version}, driver only?`
+  const version = vendor === 'amd' ? `AMD Software: Adrenalin Edition ${latest.version}${latest.kind === 'optional' ? ' (optional)' : ''}`
+    : vendor === 'intel' ? `Intel's graphics driver ${latest.version}, driver only`
+      : `NVIDIA ${KIND[latest.kind]} ${latest.version}, driver only`
   return (
-    <div className="exo-graphics-import" role="group" aria-labelledby={headingId}>
-      <p id={headingId} className="exo-graphics-import-title">{title}</p>
+    <ConfirmDialog title={`${update ? 'Update' : 'Reinstall'} the ${name} driver?`} action="Install" form onConfirm={onInstall} onClose={onCancel}>
+      <p>{version}</p>
       <ul className="exo-graphics-import-list">
         <li><span>Downloads from {name}</span><span className="exo-graphics-import-value">{latest.size ? size(latest.size) : 'About 1 GB'}</span></li>
         <li><span>Installs</span><span className="exo-graphics-import-value">{installs}</span></li>
@@ -169,10 +188,6 @@ function DriverConsent({ vendor, latest, onCancel, onInstall }: {
           : vendor === 'amd' ? link(AMD_LICENSE, "AMD's license")
             : <>the license on {latest.page ? link(latest.page, "Intel's download page") : "Intel's download page"}</>}. The screen may go black for a moment.
       </p>
-      <span className="exo-graphics-import-actions">
-        <button ref={cancel} type="button" className="exo-set-btn" onClick={onCancel}>Cancel</button>
-        <button type="button" className="exo-set-btn is-primary" onClick={onInstall}>Install</button>
-      </span>
-    </div>
+    </ConfirmDialog>
   )
 }

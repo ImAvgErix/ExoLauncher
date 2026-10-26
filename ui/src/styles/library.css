@@ -167,9 +167,10 @@
   transition: background-color 120ms var(--ease-out), scale 120ms var(--ease-out);
 }
 
-/* Starting…: busy, not unavailable, so it stays solid (at 60% the white pill and its words went see-through over the art). */
+/* Starting: busy, not unavailable, so it stays solid with the Exo bar along its foot (at 60% the white pill and its
+   words went see-through over the art). */
 .exo-continue-play:disabled {
-  cursor: progress;
+  cursor: default;
 }
 
 @media (hover: hover) and (pointer: fine) {
@@ -181,28 +182,6 @@
   .exo-friend-pill-text:hover {
     background: var(--hover-fill);
   }
-}
-
-.exo-continue-ring {
-  display: grid;
-  flex: none;
-  place-items: center;
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  background: conic-gradient(var(--color-fg) var(--p), rgb(var(--exo-ink-rgb) / 0.2) var(--p));
-}
-
-.exo-continue-ring > span {
-  display: grid;
-  place-items: center;
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  background: var(--color-bg);
-  font-size: calc(12px * var(--exo-scale, 1));
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
 }
 
 /* Friends are playing: one capsule per game, faces, names, the game, Play. */
@@ -379,8 +358,7 @@
   margin: 4px 0 0;
 }
 
-.exo-gift-line.is-bad,
-.exo-gift .exo-set-btn.is-danger {
+.exo-gift-line.is-bad {
   color: var(--color-bad);
 }
 

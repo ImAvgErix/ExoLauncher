@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { host } from '../../lib/host'
 import type { PlayerCard, PlayerHeader, PlayerLink, PlayerViewData } from '../../lib/player'
 import { ExternalLink } from '../../brand/icons'
+import { Spinner } from '../ui/Spinner'
 import { Art } from './Art'
 import { Facts, Failed, Shelf } from './pages'
 import { loadView, usePlayer, type Page } from './playerContext'
@@ -141,7 +142,9 @@ export function DiscographyPage({ page, data }: { page: Page; data: PlayerViewDa
       <header className="exo-music-header-text exo-music-disc-head"><h2>Discography</h2>{page.title ? <p className="exo-music-header-sub">{page.title}</p> : null}</header>
       <Shelf title="" cards={items} grid />
       {items.length < (data.total ?? 0) ? (
-        <button type="button" className="exo-set-btn exo-music-more" disabled={busy} onClick={() => void next()}>{busy ? 'Loading' : 'Show more'}</button>
+        <button type="button" className="exo-set-btn exo-music-more" disabled={busy} onClick={() => void next()}>
+          {busy ? <Spinner label="Loading more releases" /> : null}Show more
+        </button>
       ) : null}
       <Failed when={failed} />
       {!items.length ? <p className="exo-music-empty">No releases yet</p> : null}

@@ -6,6 +6,8 @@ import { FOLDER_COLORS, FOLDER_COLOR_NAMES, folderColor, type FolderColor } from
 import type { Game, LibraryFolder } from '../../lib/host'
 import { useDismiss } from '../../lib/dismiss'
 import { useDialogFocus } from '../../lib/focusTrap'
+import { confirm } from '../ui/Dialog'
+import { DictateButton } from '../ui/DictateButton'
 
 /** What the folder's picture may be, as the host takes it (FolderArtStore). */
 const PICTURE_TYPES = ['image/png', 'image/jpeg', 'image/webp']
@@ -36,11 +38,13 @@ export function FolderSheet({ folder, library, folders, onSave, onCancel }: {
   const [dropping, setDropping] = useState(false)
   const [query, setQuery] = useState('')
   const nameField = useRef<HTMLInputElement>(null)
+  const searchField = useRef<HTMLInputElement>(null)
   const picker = useRef<HTMLInputElement>(null)
   // Back from the cropper, the keyboard is on the picture's button rather than the name.
   const [cropped, setCropped] = useState(false)
   const sheet = useRef<HTMLDivElement>(null)
-  useDismiss(sheet, onCancel, { modal: true })
+  const leave = useLeave(folder, { name, color, art, picked }, onCancel)
+  useDismiss(sheet, () => void leave(), { modal: true })
   useDialogFocus(sheet)
   // The other folders each game is in, by name: shown under it, since ticking it here keeps it there too.
   const elsewhere = useMemo(() => {
@@ -83,7 +87,7 @@ export function FolderSheet({ folder, library, folders, onSave, onCancel }: {
         if (event.key !== 'Escape' || event.defaultPrevented) return
         event.preventDefault()
         event.stopPropagation()
-        onCancel()
+        void leave()
       }}
     >
       <div
@@ -160,7 +164,8 @@ export function FolderSheet({ folder, library, folders, onSave, onCancel }: {
             <div className="exo-folder-sheet-tools">
               <label className="exo-folder-sheet-search">
                 <Search size={16} />
-                <input className="exo-field" placeholder="Search your games" aria-label="Search your games" value={query} onChange={event => setQuery(event.currentTarget.value)} />
+                <input ref={searchField} className="exo-field" placeholder="Search your games" aria-label="Search your games" value={query} onChange={event => setQuery(event.currentTarget.value)} />
+                <DictateButton target={searchField} place="overlay" />
               </label>
               {notInstalled.length > 0 ? (
                 <button type="button" className="exo-set-btn" aria-pressed={allNotInstalled} onClick={toggleNotInstalled}>
@@ -194,7 +199,7 @@ export function FolderSheet({ folder, library, folders, onSave, onCancel }: {
             </div>
             <footer className="exo-folder-sheet-foot">
               <span className="exo-folder-sheet-count" data-picked="">{picked.length === 1 ? '1 game' : `${picked.length} games`}</span>
-              <button type="button" className="exo-set-btn" onClick={onCancel}>Cancel</button>
+              <button type="button" className="exo-set-btn" onClick={() => void leave()}>Cancel</button>
               <button type="button" className="exo-set-btn is-primary" disabled={!ready} onClick={save}>{folder.isNew ? 'Create' : 'Save'}</button>
             </footer>
           </>
@@ -202,4 +207,23 @@ export function FolderSheet({ folder, library, folders, onSave, onCancel }: {
       </div>
     </div>
   )
+}
+
+/** Closing with changes made asks first (DESIGN.md › Confirm); closing as it opened just closes. */
+function useLeave(folder: LibraryFolder & { isNew: boolean }, now: { name: string; color: FolderColor; art: string | null; picked: string[] }, onCancel: () => void) {
+  const asking = useRef(false)
+  const changed = now.name !== folder.name || now.color !== folderColor(folder.color) || now.art !== (folder.art ?? null) ||
+    now.picked.length !== folder.games.length || now.picked.some(id => !folder.games.includes(id))
+  return async () => {
+    if (!changed) { onCancel(); return }
+    if (asking.current) return
+    asking.current = true
+    const go = await confirm({
+      title: folder.isNew ? 'Discard this folder?' : 'Discard your changes?',
+      body: folder.isNew ? "It isn't made until you press Create." : `${folder.name} stays as it was.`,
+      action: 'Discard', danger: true, cancel: 'Keep editing',
+    })
+    asking.current = false
+    if (go === true) onCancel()
+  }
 }

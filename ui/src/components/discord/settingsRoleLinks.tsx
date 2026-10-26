@@ -5,6 +5,7 @@ import { Menu, type MenuItem } from '../ui/Menu'
 import { Field, ReadError, useAdmin } from './admin'
 import { ConnectionMark, connectionLabel } from './profileParts'
 import { Avatar } from './presence'
+import { Skeleton } from '../ui/Skeleton'
 
 /**
  * Discord's Links tab of the role editor (Linked Roles): the accounts members must connect before they get the role, and
@@ -80,7 +81,7 @@ export function RoleLinks({ guildId, roleId, members, editable, draft, onChange 
   const saved = useAdmin<RoleLink[][]>('roleLinks', { guildId, roleId })
   // The server's apps that link roles; without Manage Server there are none to offer.
   const linked = useAdmin<{ integrations?: Integration[] | null }>('integrations', { guildId })
-  if (!draft && !saved.data) return saved.error ? <ReadError error={saved.error} onRetry={saved.reload} /> : <p className="exo-dc-note">Loading</p>
+  if (!draft && !saved.data) return saved.error ? <ReadError error={saved.error} onRetry={saved.reload} /> : <Skeleton label="Loading linked roles" />
   const groups = draft ?? saved.data ?? []
   const links = groups.flat()
   const any = groups.length > 1

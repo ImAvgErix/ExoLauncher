@@ -66,7 +66,7 @@ export type GamePageProps = {
   onStop: () => void
   onCancel: () => void
   onDequeue?: () => void
-  /** Opens a System page: Graphics (every game's upscalers) or Shaders. */
+  /** Opens the PC room's Graphics page: every game's upscalers, or its Shaders. */
   onOpenSystem?: (page: 'graphics' | 'shaders') => void
   onClose: () => void
   /** Switches the exact store entry behind a grouped library card. */
@@ -82,7 +82,7 @@ export type GamePageProps = {
   onPropertiesOpen: (open: boolean) => void
 }
 
-/** Upscalers and Shaders, one row each, each opening its System page. */
+/** Upscalers and Shaders, one row each, each opening its part of PC › Graphics. */
 function GameLines({ selected, details, onOpenSystem }: {
   selected: Game
   details: ReturnType<typeof useGameDetails>
@@ -170,7 +170,7 @@ export function GamePage({
   const selectedProgress = transferForGame(progress, selected)
   const hostLocked = busy || !!selectedProgress?.isActive
   const sources = sourceVariants(selected)
-  // Work and Done (DESIGN.md › Motion) on the cover: while it downloads, and when it lands installed.
+  // Done (DESIGN.md › Motion) on the cover when a download lands installed; while it runs, the pill carries the bar.
   const downloading = !!selectedProgress?.isActive
   const finished = useJustFinished(downloading, isCurrent(selected))
   const close = useRef<HTMLButtonElement>(null)
@@ -202,9 +202,9 @@ export function GamePage({
           <div className="exo-game-cover-col">
             <div className="exo-game-detail-cover">
               <CoverArt game={artworkView} large preload />
-              {(downloading || finished) && (
-                <span className={`exo-game-cover-motion ${downloading ? 'exo-motion-work' : 'exo-motion-done'}`} aria-hidden="true">
-                  {finished && <svg className="exo-motion-check" viewBox="0 0 24 24"><path d={CHECK_PATH} pathLength="1" /></svg>}
+              {finished && (
+                <span className="exo-game-cover-motion exo-motion-done" aria-hidden="true">
+                  <svg className="exo-motion-check" viewBox="0 0 24 24"><path d={CHECK_PATH} pathLength="1" /></svg>
                 </span>
               )}
             </div>

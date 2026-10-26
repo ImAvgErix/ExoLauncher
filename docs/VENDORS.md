@@ -27,4 +27,4 @@ Legendary, gogdl and Nile aren't bundled in Exo's installer. Each runs as its ow
 - It doesn't click through a store's window for you, with one exception: when you press Play on a Steam game, Exo accepts that game's EULA and Steam's default launch choice if Steam asks. It never accepts Steam's Subscriber Agreement or a purchase.
 - It doesn't invent ownership, account state, installs or updates for stores that don't offer them to other apps. For those, Exo shows only what's installed on your PC.
 - It never modifies Riot games and never closes anti-cheat such as Riot Vanguard.
-- It doesn't edit game files, except upscaler files you choose to update in System > Graphics > Upscalers, with a restore.
+- It doesn't edit game files, except upscaler files you choose to update in PC > Graphics > Upscalers, with a restore.

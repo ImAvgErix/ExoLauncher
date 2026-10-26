@@ -21,8 +21,6 @@ public sealed partial class MainWindow
         core.ScriptDialogOpening += (_, args) => ShowConnectedScriptDialogAsync(surface, label, trusted, args);
     }
 
-    private static void StyleConnectedDialog(ContentDialog dialog) => ExoConnectedTheme.Dialog(dialog);
-
     private void ShowConnectedContextMenu(WebView2 surface, CoreWebView2ContextMenuRequestedEventArgs args)
     {
         if (_closingWindow || surface.XamlRoot is null) { args.Handled = true; return; }
@@ -97,22 +95,17 @@ public sealed partial class MainWindow
             await _connectedDialogGate.WaitAsync(_lifetimeCts.Token);
             try
             {
-                if (_closingWindow || surface.XamlRoot is null) return;
-                var prompt = args.Kind == CoreWebView2ScriptDialogKind.Prompt;
-                var alert = args.Kind == CoreWebView2ScriptDialogKind.Alert;
-                var leaving = args.Kind == CoreWebView2ScriptDialogKind.Beforeunload;
-                var content = new StackPanel { Spacing = 16, MaxWidth = 460 };
-                content.Children.Add(new TextBlock { Text = args.Message, TextWrapping = TextWrapping.Wrap, MaxHeight = 280 });
-                TextBox? input = null;
-                if (prompt) { input = new TextBox { Text = args.DefaultText }; content.Children.Add(input); }
-                var dialog = new ContentDialog {
-                    XamlRoot = surface.XamlRoot, Title = label + " · Exo", Content = content,
-                    PrimaryButtonText = leaving ? "Leave page" : "OK",
-                    CloseButtonText = alert ? "" : leaving ? "Stay" : "Cancel",
-                    DefaultButton = alert ? ContentDialogButton.Primary : ContentDialogButton.Close,
+                if (_closingWindow || surface.XamlRoot is not { } root) return;
+                // Exo's question, under the app's name so a page never speaks as Exo; the page's words are its body.
+                var input = args.Kind == CoreWebView2ScriptDialogKind.Prompt ? new TextBox { Text = args.DefaultText } : null;
+                var (dialog, answered) = args.Kind switch
+                {
+                    CoreWebView2ScriptDialogKind.Alert => Question(root, label + " says", args.Message, null, cancel: "Close"),
+                    CoreWebView2ScriptDialogKind.Beforeunload => Question(root, "Leave this page?", "Changes you made here may not be saved.", "Leave", cancel: "Stay"),
+                    _ => Question(root, label + " asks", args.Message, "Continue", field: input),
                 };
-                StyleConnectedDialog(dialog);
-                if (await dialog.ShowAsync() == ContentDialogResult.Primary)
+                await dialog.ShowAsync();
+                if (answered())
                 {
                     if (input is not null) args.ResultText = input.Text;
                     args.Accept();

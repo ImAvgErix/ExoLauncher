@@ -3,6 +3,7 @@ import { host } from '../../lib/host'
 import { ChevronDown } from '../../brand/icons'
 import { Menu } from '../ui/Menu'
 import type { DiscordPaymentChoice } from '../../lib/discord'
+import { Spinner } from '../ui/Spinner'
 
 // The card form's own origin (wwwroot/pay): the only page that loads Stripe. Exo hears back only what it says.
 const PAY = 'https://pay.exo-launcher.local'
@@ -127,7 +128,9 @@ export function AddCard({ onSaved, onCancel }: { onSaved: (choices: DiscordPayme
       {error ? <p className="exo-dc-pay-note is-bad" role="alert">{error}</p> : null}
       <div className="exo-dc-shop-actions">
         {onCancel ? <button type="button" className="exo-set-btn" disabled={busy} onClick={onCancel}>Back</button> : null}
-        <button type="button" className="exo-set-btn is-primary" disabled={busy || !ready} onClick={save}>{busy ? 'Saving card' : 'Save card'}</button>
+        <button type="button" className="exo-set-btn is-primary" disabled={busy || !ready} onClick={save}>
+          {busy ? <Spinner label="Saving the card" /> : null}Save card
+        </button>
       </div>
     </div>
   )

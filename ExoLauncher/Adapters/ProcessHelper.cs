@@ -165,7 +165,29 @@ internal static class ProcessHelper
     private static HashSet<int>? t_closePids;
 
     internal static bool IsNonGameProcessName(string? processName) =>
-        string.IsNullOrWhiteSpace(processName) || NonGameProcessNames.Contains(processName);
+        string.IsNullOrWhiteSpace(processName) || NonGameProcessNames.Contains(processName) ||
+        HelperWords.Any(word => processName.Contains(word, StringComparison.OrdinalIgnoreCase));
+
+    // A game's own helpers, which its store runs from inside its folder without the game: Call of Duty's install cleaner,
+    // content downloader and broker service run when a DLC is added or removed, and read as the game playing.
+    private static readonly string[] HelperWords =
+    [
+        "install", "cleaner", "downloader", "broker", "crashhandler", "crashreport", "crashlogs", "logsgenerator", "attestation",
+        "redist", "uninst", "updater", "prereq", "dxsetup", "errorreport", "bugreport",
+    ];
+
+    /// <summary>A folder in a game's install that holds only what its store installs alongside it (runtimes, installers).</summary>
+    internal static bool IsInHelperFolder(string executablePath, string root)
+    {
+        var relative = Path.GetRelativePath(root, executablePath);
+        return relative.Split('\\', '/').SkipLast(1).Any(part => HelperFolders.Contains(part));
+    }
+
+    private static readonly HashSet<string> HelperFolders = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "_CommonRedist", "CommonRedist", "__Installer", "_Installer", "Installer", "Installers", "Redist", "Redistributables",
+        "DirectX", "vcredist", "Prerequisites", "Prereqs", "EasyAntiCheat", "BattlEye",
+    };
 
     private delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
 

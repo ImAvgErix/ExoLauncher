@@ -234,6 +234,8 @@ public sealed class LaunchResult
     /// <summary>Missing runtimes — UI should prompt Install (consent) before retrying with skipDeps.</summary>
     public bool NeedsDependencies { get; init; }
     public IReadOnlyList<DependencyInfo> MissingDependencies { get; init; } = Array.Empty<DependencyInfo>();
+    /// <summary>The store's servers are down and it plays this game in its own offline mode after a restart Exo asks about ("steam").</summary>
+    public string? OfflineStore { get; init; }
 }
 
 public sealed record InstallResult
@@ -308,6 +310,8 @@ public sealed class AppSettings
     public bool AntiCheatSafeMode { get; set; } = true;
     /// <summary>When true, Exo keeps motion short. When false, Exo plays its animations even if Windows reduce-animations is on.</summary>
     public bool ReduceMotion { get; set; }
+    /// <summary>Settings › General › Dictation: a mic in Exo's text boxes turns what you say into text, on this PC. On by default.</summary>
+    public bool Dictation { get; set; } = true;
     /// <summary>Always on. Chrome hides until an edge hover; pin insets the page.</summary>
     public bool FramelessMode { get; set; } = true;
     public bool FramelessPinTop { get; set; }

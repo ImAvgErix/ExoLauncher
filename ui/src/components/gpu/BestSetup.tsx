@@ -4,6 +4,7 @@ import { useHdrState } from '../../lib/hdr'
 import { report } from '../../lib/report'
 import { trimStop } from '../../lib/utils'
 import { Row, State } from '../settings/parts'
+import { Spinner } from '../ui/Spinner'
 
 type Step = { key: 'power' | 'profile' | 'hdr'; what: string; run: () => Promise<string | null> }
 
@@ -35,10 +36,10 @@ function pendingSteps(
 }
 
 /**
- * System > This PC, first row: everything Exo can set for this PC in one press, named before it runs (the power plan
- * tuned for the processor, the driver profile for the card, HDR for HDR games). Nothing here is hidden behind it: each
- * lives in its own section of this room with its own Undo, and the rest (display modes, BIOS, Windows settings) stay
- * where they ask first.
+ * PC › Overview, Best settings for this PC: everything Exo can set for this PC in one press, named before it runs (the
+ * power plan tuned for the processor, the driver profile for the card, HDR for HDR games), and Set once nothing is left.
+ * Nothing here is hidden behind it: each lives on its own page of this room with its own Undo, and the rest (display
+ * modes, BIOS, Windows settings) stay where they ask first.
  */
 export function BestSetup({ active, settings, onSave }: {
   active: boolean
@@ -47,7 +48,8 @@ export function BestSetup({ active, settings, onSave }: {
 }) {
   const [profile, setProfile] = useState<GpuProfile | null>(null)
   const [health, setHealth] = useState<PcHealth | null>(null)
-  const [busy, setBusy] = useState(false)
+  // While it runs: how many of its steps are through, of how many it started with (HDR's leaves the list once saved).
+  const [busy, setBusy] = useState<{ done: number; of: number } | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [done, setDone] = useState(false)
   const screen = useHdrState(active)
@@ -72,11 +74,11 @@ export function BestSetup({ active, settings, onSave }: {
 
   const run = async () => {
     if (busy) return
-    setBusy(true)
+    setBusy({ done: 0, of: steps.length })
     setError(null)
     setDone(false)
     const failed: string[] = []
-    for (const step of steps) {
+    for (const [index, step] of steps.entries()) {
       try {
         const problem = await step.run()
         if (problem) failed.push(`${step.what}: ${problem}`)
@@ -84,23 +86,27 @@ export function BestSetup({ active, settings, onSave }: {
         report(e, `BestSetup.${step.key}`)
         failed.push(`${step.what}: not changed`)
       }
+      setBusy({ done: index + 1, of: steps.length })
     }
     await load()
     setError(failed.length ? failed.join('. ') : null)
     setDone(failed.length < steps.length)
-    setBusy(false)
+    setBusy(null)
   }
 
   if (!profile || !health) return null
   if (steps.length === 0) {
-    if (!done) return null
-    return <Row label="Best settings for this PC" detail="Set. Each change is in its own section below, with Undo."><State on>Done</State></Row>
+    return (
+      <Row label="Best settings for this PC" detail={done ? 'Set. Each change has its Undo on its own page.' : 'Everything Exo can set for this PC is set'} error={error}>
+        <State on>{done ? 'Done' : 'Set'}</State>
+      </Row>
+    )
   }
   return (
-    <Row label="Best settings for this PC" detail={`${steps.map(step => step.what).join(', ')}. Each stays in its own section below, with Undo.`} error={error}>
-      {busy
-        ? <State>Working…</State>
-        : <button type="button" className="exo-set-btn is-primary" onClick={() => void run()}>Use best settings</button>}
+    <Row label="Best settings for this PC" detail={`${steps.map(step => step.what).join(', ')}. Each keeps its Undo on its own page.`} error={error}>
+      <button type="button" className="exo-set-btn is-primary" disabled={!!busy} aria-busy={!!busy} onClick={() => void run()}>
+        {busy ? <Spinner label={`Setting up this PC · ${busy.done} of ${busy.of} done`} /> : null}Use best settings
+      </button>
     </Row>
   )
 }

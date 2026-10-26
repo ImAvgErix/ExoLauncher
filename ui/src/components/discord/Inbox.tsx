@@ -6,6 +6,7 @@ import { unsaveMessage } from '../../lib/discordSaved'
 import { Icons } from './icons'
 import { Markdown, MarkdownLine, type MarkdownContext } from './markdown'
 import { Result, useOutside } from './results'
+import { Skeleton } from '../ui/Skeleton'
 
 type Tab = 'forYou' | 'unreads' | 'mentions' | 'bookmarks' | 'reminders'
 const TABS: [Tab, string][] = [['forYou', 'For you'], ['unreads', 'Unreads'], ['mentions', 'Mentions'], ['bookmarks', 'Bookmarks'], ['reminders', 'Reminders']]
@@ -86,7 +87,7 @@ function SavedList({ kind, ctx, here, onClose }: { kind: 'bookmarks' | 'reminder
             onRemove={() => remove(item)} removeLabel={kind === 'bookmarks' ? 'Remove bookmark' : 'Mark complete'} />
         </div>
       ) : null)}
-      {busy ? <p className="exo-dc-note">Loading</p> : null}
+      {busy ? <Skeleton label={kind === 'bookmarks' ? 'Loading saved messages' : 'Loading reminders'} avatar /> : null}
     </div>
   )
 }
@@ -140,7 +141,7 @@ function Mentions({ ctx, here, onClose }: { ctx: MarkdownContext; here: string; 
         {error ? <p className="exo-dc-note" role="alert">{error}</p> : null}
         {!busy && !error && messages.length === 0 ? <p className="exo-dc-note">You're all caught up.</p> : null}
         {messages.map(message => <Result key={message.id} message={message} place={places[message.channel_id] ?? null} here={here} ctx={ctx} onJumped={onClose} onRemove={() => remove(message)} />)}
-        {busy ? <p className="exo-dc-note">Loading</p> : null}
+        {busy ? <Skeleton label="Loading mentions" avatar /> : null}
       </div>
     </>
   )
@@ -188,7 +189,7 @@ function Unreads({ ctx, onClose }: { ctx: MarkdownContext; onClose: () => void }
   return (
     <div className="exo-dc-popover-list" onScroll={event => { if (channels && shown < channels.length && nearFoot(event)) setShown(n => n + UNREAD_PAGE) }}>
       {error ? <p className="exo-dc-note" role="alert">{error}</p> : null}
-      {channels === null ? <p className="exo-dc-note">Loading</p> : null}
+      {channels === null ? <Skeleton label="Loading unread channels" /> : null}
       {channels?.length === 0 ? <p className="exo-dc-note">You're all caught up.</p> : null}
       {groupByServer(visible).map(group => (
         <section key={group.guildId} className="exo-dc-unread-server" aria-label={group.guild}>
@@ -230,7 +231,7 @@ function UnreadChannel({ channel, ctx, onRead, onClose }: { channel: DiscordUnre
         {channel.mentions ? <span className="exo-dc-badge">{channel.mentions}</span> : null}
         <button type="button" className="exo-dc-icon-btn" aria-label={`Mark #${channel.name} as read`} onClick={onRead}><Icons.Check size={16} /></button>
       </header>
-      {messages === null ? <p className="exo-dc-note">Loading</p> : null}
+      {messages === null ? <Skeleton label={`Loading #${channel.name}`} rows={2} avatar /> : null}
       {newest.map(m => (
         <button key={m.id} type="button" className="exo-dc-unread-msg" onClick={() => open(m.id)}>
           <img className="exo-dc-avatar" src={avatarUrl(m.author, 32)} alt="" draggable={false} loading="lazy" />
@@ -298,7 +299,7 @@ function ForYou({ onClose }: { onClose: () => void }) {
           }}>{body}</button>
         ) : <div key={item.id} className="exo-dc-foryou">{body}</div>
       })}
-      {busy ? <p className="exo-dc-note">Loading</p> : null}
+      {busy ? <Skeleton label="Loading For You" avatar /> : null}
     </div>
   )
 }

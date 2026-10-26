@@ -3,6 +3,7 @@ import { ChevronRight, Close } from '../../brand/icons'
 import { host } from '../../lib/host'
 import { onMfaAsk, useLayer, type AdminReply, type MfaAsk } from './admin'
 import { ModalBack } from './SettingsLayer'
+import { Spinner } from '../ui/Spinner'
 
 type Waiting = { ask: MfaAsk; done: (reply: AdminReply<unknown>) => void }
 
@@ -131,15 +132,21 @@ function BackupWarning({ onSure }: { onSure: () => void }) {
 
 // The SMS way: Discord texts the code when it opens (Resend SMS? sends another), to the number it names.
 function SmsSent({ id }: { id: string }) {
-  const [line, setLine] = useState('Sending...')
+  // null while Discord sends the code.
+  const [line, setLine] = useState<string | null>(null)
   const send = () => {
-    setLine('Sending...')
+    setLine(null)
     void (host.discordAdmin('mfa', { id, step: 'sms' }) as Promise<AdminReply<{ phone?: string }>>)
       .then(reply => setLine(reply.ok ? `We've sent a message to ${reply.data?.phone ?? 'your phone'}. Please enter the code you received.` : reply.message ?? 'Discord did not send it.'))
       .catch(() => setLine('Discord did not answer. Try again.'))
   }
   useEffect(send, [id])
   return (
-    <p className="exo-dc-mfa-sms">{line} <button type="button" className="exo-dc-tab" onClick={send}>Resend SMS?</button></p>
+    <p className="exo-dc-mfa-sms">
+      {line ?? 'Sending a code to your phone.'}{' '}
+      <button type="button" className="exo-dc-tab" disabled={line === null} onClick={send}>
+        {line === null ? <Spinner label="Sending the code" /> : null}Resend SMS?
+      </button>
+    </p>
   )
 }

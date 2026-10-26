@@ -211,6 +211,9 @@ export async function run(t) {
       await t.shell.rightClick(() => [...document.querySelectorAll('.exo-folder-tile')].find(f => f.innerText.includes('Exo e2e')).querySelector('button'))
       await sleep(400)
       await t.shell.click(menuItem, 'Delete folder')
+      await sleep(600)
+      // Deleting asks first, in Exo's dialog (its action last, after Cancel).
+      await t.shell.click(() => document.querySelector('.exo-dialog .exo-dialog-actions button:last-child'))
       await sleep(900)
     }
     if (await t.shell.eval(`!![...document.querySelectorAll('.exo-folder-tile')].find(f => f.innerText.includes('Exo e2e'))`)) failures.push('the folder could not be deleted')

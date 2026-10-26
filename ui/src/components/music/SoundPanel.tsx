@@ -57,7 +57,7 @@ function ServiceQuality() {
   const { data, error } = useView('audio', { offset: tick })
   const [picked, setPicked] = useState<string | null>(null)
   const [failed, setFailed] = useState(false)
-  if (!data?.qualities?.length) return error ? <p className="exo-music-error" role="alert">{error}</p> : <Waiting />
+  if (!data?.qualities?.length) return error ? <p className="exo-music-error" role="alert">{error}</p> : <Waiting label="Loading audio quality" />
   const value = picked ?? data.quality ?? ''
   return (
     <div className="exo-music-sound">
@@ -81,7 +81,7 @@ function SpotifySound() {
   const [audio, setAudio] = useState<SpotifyAudio | null>(null)
   const [failed, setFailed] = useState<string | null>(null)
   useEffect(() => { if (data) setAudio(data as unknown as SpotifyAudio) }, [data])
-  if (!audio) return error ? <p className="exo-music-error" role="alert">{error}</p> : <Waiting />
+  if (!audio) return error ? <p className="exo-music-error" role="alert">{error}</p> : <Waiting label="Loading sound settings" />
   const set = (setting: string, options: { index?: number; on?: boolean; uid?: string }, next: Partial<SpotifyAudio>) => {
     setAudio(current => current && { ...current, ...next })
     setFailed(null)

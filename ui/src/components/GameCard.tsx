@@ -1,8 +1,9 @@
 import { resolvePrimaryAction, type Game, type InstallProgress } from '../lib/host'
-import { cn, transferPercent, formatTransferPercent } from '../lib/utils'
+import { cn, transferPercent } from '../lib/utils'
 import { useJustFinished } from '../lib/useJustFinished'
 import { CoverArt } from './CoverArt'
-import { memo, type CSSProperties, type MouseEvent } from 'react'
+import { Progress } from './ui/Progress'
+import { memo, useSyncExternalStore, type CSSProperties, type MouseEvent } from 'react'
 import type { GameMenuAt } from './shell/GameMenu'
 import { CHECK_PATH, Check } from '../brand/icons'
 
@@ -27,10 +28,10 @@ function cardState(game: Game, transfer: Transfer): CardState {
   }
 }
 
-/** One badge at most. Playing beats Downloading beats Update beats Queued. */
-function badgeFor(state: CardState, percent: number | null, queued: boolean): { text: string; tone: string } | null {
+/** One badge at most. Playing beats Downloading beats Update beats Queued. How far a download is, the bar says. */
+function badgeFor(state: CardState, queued: boolean): { text: string; tone: string } | null {
   if (state.isPlaying) return { text: 'Playing', tone: 'is-good' }
-  if (state.transferring) return { text: percent == null ? state.phase : `${formatTransferPercent(percent)}%`, tone: 'is-update' }
+  if (state.transferring) return { text: state.phase, tone: 'is-update' }
   if (state.hasUpdate && state.installed) return { text: 'Update', tone: 'is-update' }
   if (queued) return { text: 'Queued', tone: '' }
   return null
@@ -45,6 +46,18 @@ function ariaLabelFor(title: string, state: CardState, queued: boolean): string 
   return title
 }
 
+
+// Library › Refresh (LibraryPane › useRefresh): every cover shines where it is while the stores are read again
+// (DESIGN.md › Waits); the art that follows swaps in quietly as each lands.
+let coversShining = false
+const shineListeners = new Set<() => void>()
+export function setCoversShining(on: boolean) {
+  if (coversShining === on) return
+  coversShining = on
+  for (const listener of shineListeners) listener()
+}
+const watchShine = (listener: () => void) => { shineListeners.add(listener); return () => { shineListeners.delete(listener) } }
+const shineNow = () => coversShining
 
 export const GameCard = memo(function GameCard({
   game,
@@ -82,9 +95,10 @@ export const GameCard = memo(function GameCard({
 }) {
   const state = cardState(game, transfer)
   const percent = transferPercent(transfer)
-  const badge = badgeFor(state, percent, queued)
+  const badge = badgeFor(state, queued)
   // Done (DESIGN.md › Motion): a download or update that lands on an installed, current game.
   const finished = useJustFinished(state.transferring, state.installed && !state.hasUpdate)
+  const shining = useSyncExternalStore(watchShine, shineNow)
 
   return (
     <article
@@ -125,16 +139,12 @@ export const GameCard = memo(function GameCard({
         {...pickAria(picked)}
       >
         <div className="exo-tile-frame" data-vt-art>
-          <span className="exo-tile-media" aria-hidden="true">
+          <span className={cn('exo-tile-media', shining && 'exo-shine')} aria-hidden="true">
             <CoverArt game={game} preload={preload} dim={!state.installed} className="absolute inset-0 h-full w-full" />
           </span>
-          <TileMotion working={state.transferring} finished={finished} />
+          <TileDone finished={finished} />
           {state.transferring && (
-            <span
-              className={`exo-tile-progress${percent == null ? ' is-unknown' : ''}`}
-              style={percent == null ? undefined : { '--progress': percent / 100 } as CSSProperties}
-              aria-hidden
-            />
+            <Progress edge size="small" value={percent == null ? null : percent / 100} label={`${state.phase} ${game.title}`} />
           )}
           {badge && (
             <div className="absolute left-2 top-2 z-[5]">
@@ -160,12 +170,12 @@ function TileCheck({ picked }: { picked: boolean | null | undefined }) {
   return <span className="exo-tile-check" aria-hidden="true">{picked && <Check size={14} />}</span>
 }
 
-/** Motion's own layer (the frame's ::after is its hover and selection ring): work while it downloads, done when it lands. */
-function TileMotion({ working, finished }: { working: boolean; finished: boolean }) {
-  if (!working && !finished) return null
+/** Done's own layer (the frame's ::after is its hover and selection ring): the check when a download lands. */
+function TileDone({ finished }: { finished: boolean }) {
+  if (!finished) return null
   return (
-    <span className={cn('exo-tile-motion', working ? 'exo-motion-work' : 'exo-motion-done')} aria-hidden="true">
-      {finished && <svg className="exo-motion-check" viewBox="0 0 24 24"><path d={CHECK_PATH} pathLength="1" /></svg>}
+    <span className="exo-tile-motion exo-motion-done" aria-hidden="true">
+      <svg className="exo-motion-check" viewBox="0 0 24 24"><path d={CHECK_PATH} pathLength="1" /></svg>
     </span>
   )
 }

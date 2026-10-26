@@ -115,11 +115,8 @@
   }
 }
 
-/* Library › Refresh covers: the + button's shape; the icon turns while every cover refreshes. */
-.exo-refresh-covers[data-state='working'] svg {
-  animation: exo-refresh-covers-spin 900ms linear infinite;
-}
-
+/* Library › Refresh covers: the + button's shape; its glyph turns while the library and every cover refresh, at full
+   color (busy, not unavailable). */
 .exo-refresh-covers:disabled {
   opacity: 1;
 }
@@ -135,14 +132,6 @@
   stroke-dasharray: 1;
   stroke-dashoffset: 1;
   animation: exo-check-hold 380ms var(--ease-out) forwards;
-}
-
-@keyframes exo-refresh-covers-spin {
-  to { transform: rotate(360deg); }
-}
-
-:root[data-exo-motion='reduce'] .exo-refresh-covers[data-state='working'] svg {
-  animation: none;
 }
 
 :root[data-exo-motion='reduce'] .exo-refresh-covers-check {
@@ -195,24 +184,4 @@
 
 .exo-titlebar .exo-nav-btn.is-on .exo-glyph {
   opacity: 1;
-}
-
-/* A room opened the first time is built out of sight until it's whole (LauncherApp › roomReady): its tab breathes
-   meanwhile, so the press is seen. Its words and glyph, never the capsule: that is glass. */
-.exo-titlebar .exo-nav-btn.is-opening {
-  cursor: progress;
-}
-
-.exo-titlebar .exo-nav-btn.is-opening > * {
-  transition: opacity var(--dur-quick) var(--ease-out);
-  animation: exo-nav-opening var(--dur-flight) var(--ease-out) infinite alternate;
-}
-
-@keyframes exo-nav-opening {
-  to { opacity: 0.45; }
-}
-
-:root[data-exo-motion='reduce'] .exo-titlebar .exo-nav-btn.is-opening > * {
-  animation: none;
-  opacity: 0.6;
 }

@@ -8,10 +8,6 @@
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
                 <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
-                <ResourceDictionary Source="Styles/Tokens.Colors.xaml" />
-                <ResourceDictionary Source="Styles/Tokens.Type.xaml" />
-                <ResourceDictionary Source="Styles/Tokens.Metrics.xaml" />
-                <ResourceDictionary Source="Styles/Controls.xaml" />
             </ResourceDictionary.MergedDictionaries>
         </ResourceDictionary>
     </Application.Resources>

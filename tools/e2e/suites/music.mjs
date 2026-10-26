@@ -7,6 +7,14 @@ export async function run(t) {
   await k.nav('Music')
   const ready = await t.shell.waitFor(() => document.querySelectorAll('.exo-music-card, .exo-music-row').length > 0 ? 'ok' : document.querySelector('.exo-music-signin-note, .exo-music-error') ? 'off' : null, { timeoutMs: 25000 })
 
+  await run.check('music', 'whole', 'the room shows whole: its stand-in is gone once your library and Home are in, and nothing under it was reachable', async (c) => {
+    if (ready !== 'ok') c.skip(ready === 'off' ? 'no music service signed in' : 'Music did not load')
+    const gone = await t.shell.waitFor(() => !document.querySelector('.exo-music-cover.is-over') || null, { timeoutMs: 12000 })
+    const state = await t.shell.eval(`({ cover: !!document.querySelector('.exo-music-cover.is-over'), inert: document.querySelector('main.exo-music')?.inert ?? null, library: document.querySelectorAll('.exo-music-library-item').length, shelves: document.querySelectorAll('.exo-music-shelf, .exo-music-recent').length })`)
+    c.evidence.state = state
+    return [!gone && 'the stand-in stayed over the room', state.inert && 'the room stayed out of reach', !state.library && 'no library under it', !state.shelves && 'no Home under it'].filter(Boolean)
+  })
+
   await run.check('music', 'home', 'Music opens on its home with shelves and your library', async (c) => {
     if (ready !== 'ok') c.skip(ready === 'off' ? 'no music service signed in' : 'Music did not load')
     const parts = await t.shell.eval(`({ sections: document.querySelectorAll('.exo-music-section').length, cards: document.querySelectorAll('.exo-music-card').length, library: document.querySelectorAll('.exo-music-side .exo-music-row, .exo-music-side [class*="library"] button').length })`)

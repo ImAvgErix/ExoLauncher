@@ -708,7 +708,7 @@ public sealed partial class MainWindow
     }
 
     /// <summary>
-    /// Settings > Capture's storage limit: past N days, then the oldest until under N GB, to the Recycle Bin.
+    /// Capture settings' storage limit (in the Captures sheet): past N days, then the oldest until under N GB, to the Recycle Bin.
     /// Only captures Exo Capture saved (in the index) count or go: the folder may be Videos or OneDrive,
     /// full of the user's own media. Favorites are never removed.
     /// </summary>

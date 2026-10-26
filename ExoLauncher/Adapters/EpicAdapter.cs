@@ -140,6 +140,10 @@ public sealed class EpicAdapter : IStoreAdapter, IStoreClientPresence, IStoreAcc
         ExpectedSha256: "4c01a14c0acb0c46069b197ae7212ea4ea6b861661126ca0593cdac31658fb01",
         OwnerAliases: ["legendary-gl"]);
 
+    /// <summary>Legendary as one of Exo's parts (<see cref="ExoComponents"/>): setup fetches it into Exo's tools.</summary>
+    internal static readonly ExoComponent Component = ExoComponent.Pinned("Legendary for Epic Games", "Epic Games",
+        LegendaryReleaseAsset, () => Path.Combine(PathHelper.AppDataDir, "tools", "legendary.exe"), IsValidAmd64Pe);
+
     /// <summary>Download legendary_windows_x64.exe into Exo tools if absent / wrong arch.</summary>
     private static Task<string> DownloadLegendaryAsync(CancellationToken ct)
     {

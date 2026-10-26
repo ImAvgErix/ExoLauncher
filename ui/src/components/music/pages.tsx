@@ -2,17 +2,21 @@ import { useEffect, useId, useMemo, useState, type CSSProperties } from 'react'
 import { Download, Play, More } from '../../brand/icons'
 import { trackLength, type PlayerActOptions, type PlayerAction, type PlayerCard, type PlayerHeader, type PlayerLink, type PlayerTrack, type PlayerViewData } from '../../lib/player'
 import type { MusicFeature } from '../../lib/musicAdapters'
+import { notify } from '../../lib/notify'
+import { confirm } from '../ui/Dialog'
 import { Menu, type MenuItem } from '../ui/Menu'
+import { Spinner } from '../ui/Spinner'
+import { Skeleton } from '../ui/Skeleton'
 import { Art, isLikedCard } from './Art'
 import { ArtistPage } from './artist'
-import { Confirm, copyLink, newPlaylist, openRadio, shareLink, useFlash } from './manage'
+import { copyLink, newPlaylist, openRadio, shareLink } from './manage'
 import { loadView, pageFor, runAction, usePlayer, useView, type Page } from './playerContext'
 
 const arrive = (index: number) => ({ '--i': index }) as CSSProperties
 
-/** A panel or list still on its first read: one quiet line, not a blank. */
-export function Waiting() {
-  return <p className="exo-music-empty" role="status">Loading…</p>
+/** A panel or list still on its first read: its bar and what it waits on, not a blank. */
+export function Waiting({ label }: { label: string }) {
+  return <Skeleton label={label} rows={4} avatar />
 }
 
 /** An action the service refused, under the control that asked. */
@@ -20,9 +24,12 @@ export function Failed({ when }: { when: boolean }) {
   return when ? <p className="exo-music-error" role="alert">Didn't work. Try again.</p> : null
 }
 
-export function HomePage({ data }: { data: PlayerViewData }) {
+export function HomePage({ data, onSettled }: { data: PlayerViewData; onSettled: () => void }) {
   const { has } = usePlayer()
   const recent = useView('recent', {}, !has('recent'))
+  // Home is in once its recent grid is too (or the service has none, or it failed): the room shows it whole.
+  const recentIn = !has('recent') || !!recent.data || !!recent.error
+  useEffect(() => { if (recentIn) onSettled() }, [recentIn, onSettled])
   const sections = (data.sections ?? []).filter(section => section.items.length)
   const recents = recent.data?.items ?? []
   return (
@@ -266,7 +273,7 @@ function ShowMore({ page, data, shown, more, onMore }: {
     <>
       {shown < total && first >= Math.min(pageSize, total) ? (
         <button type="button" className="exo-set-btn exo-music-more" disabled={loading} onClick={() => void load()}>
-          {loading ? 'Loading' : 'Show more'}
+          {loading ? <Spinner label={page.view === 'show' ? 'Loading more episodes' : 'Loading more songs'} /> : null}Show more
         </button>
       ) : null}
       <Failed when={failed} />
@@ -437,8 +444,6 @@ function pageAction(adapter: ReturnType<typeof usePlayer>['adapter'], open: (pag
 
 function PageMenu({ page, header }: { page: Page; header: PlayerHeader }) {
   const { adapter, has, open, editPlaylist, deleted } = usePlayer()
-  const [word, flash] = useFlash()
-  const [confirming, setConfirming] = useState(false)
   const menuId = useId().replace(/[^a-z0-9]/gi, '')
   const link = shareLink(adapter, header)
   const items = pageItems(page, header, has, !!link)
@@ -446,14 +451,14 @@ function PageMenu({ page, header }: { page: Page; header: PlayerHeader }) {
 
   async function choose(id: string) {
     if (id === 'edit') { editPlaylist({ uri: header.uri, title: header.title, description: header.description, privacy: header.privacy, image: header.image }); return }
-    if (id === 'delete') { setConfirming(true); return }
-    if (id === 'link' && link) { const ok = await copyLink(link); flash(ok ? 'Link copied' : "Couldn't copy the link", !ok); return }
-    if (!await pageAction(adapter, open, page, header, id)) flash("Didn't work. Try again.", true)
+    if (id === 'delete') { void remove(); return }
+    if (id === 'link' && link) { void copyLink(link); return }
+    if (!await pageAction(adapter, open, page, header, id)) notify({ text: `${adapter.name} didn't take that. Try again.`, tone: 'bad' })
   }
   async function remove() {
-    setConfirming(false)
+    if (await confirm({ title: `Delete “${header.title}”?`, body: `It leaves your library on ${adapter.name}.`, action: 'Delete', danger: true }) !== true) return
     if (await runAction(adapter, 'deletePlaylist', { uri: header.uri })) deleted(header.uri)
-    else flash("Didn't work. Try again.", true)
+    else notify({ text: `${adapter.name} didn't delete “${header.title}”. Try again.`, tone: 'bad' })
   }
   return (
     <>
@@ -461,8 +466,6 @@ function PageMenu({ page, header }: { page: Page; header: PlayerHeader }) {
         trigger={<More size={16} />} items={items} onAction={id => void choose(id)} />
       {header.downloaded === true || header.downloaded === 'downloading'
         ? <span className="exo-music-state is-on"><Download size={14} /> {header.downloaded === true ? 'Downloaded' : 'Downloading'}</span> : null}
-      {word ? <span className={`exo-music-state${word.failed ? ' is-failed' : ' is-on'}`} role="status">{word.text}</span> : null}
-      {confirming ? <Confirm text={`Delete “${header.title}”?`} action="Delete" onCancel={() => setConfirming(false)} onConfirm={() => void remove()} /> : null}
     </>
   )
 }
@@ -641,7 +644,8 @@ export function TrackList({ tracks, onPlay, showAlbum = false, numbered = false,
       played: act('played', { on: !track.played }, track.played ? 'Unplayed' : 'Played'),
       remove: act('removeFromPlaylist', { context: playlist, uid: track.uid }, 'Removed'),
       radio: async () => ({ ok: await openRadio(adapter, open, track.uri, `${track.title} Radio`), word: '' }),
-      link: async () => ({ ok: !!link && await copyLink(link), word: 'Copied' }),
+      // A copy says how it went in the notice stack (copyLink), not in the row.
+      link: async () => { if (link) await copyLink(link); return { ok: true, word: '' } },
       newPlaylist: async () => ({ ok: await newPlaylist(player, playlists.length, undefined, track.uri), word: adapter.newPlaylistName ? 'Added' : '' }),
       up: async () => ({ ok: !!onMove && await onMove(track, -1), word: 'Moved' }),
       down: async () => ({ ok: !!onMove && await onMove(track, 1), word: 'Moved' }),

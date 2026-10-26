@@ -8,8 +8,8 @@ namespace ExoLauncher.Services.DiscordClient.Voice;
 /// calls by <see cref="VoiceprintLearning"/>) and, in calls, holds back voices that aren't theirs: someone else in the
 /// room, a TV, a stream playing on speakers. A voiceprint is NVIDIA's
 /// TitaNet-small speaker embedding (NeMo, CC-BY-4.0; 192 numbers), run through sherpa-onnx's C interface
-/// (Apache-2.0, with ONNX Runtime, both shipped beside Exo). The model (40 MB) is fetched once, pinned, from
-/// sherpa-onnx's release when the user first teaches Exo their voice. The voiceprint stays on this PC, DPAPI-protected
+/// (Apache-2.0, with ONNX Runtime, both shipped beside Exo). The model (40 MB) comes with Exo: setup fetches it, pinned,
+/// from sherpa-onnx's release (<see cref="ExoComponents"/>). The voiceprint stays on this PC, DPAPI-protected
 /// (<see cref="ExoDpapi"/>); it is never sent anywhere.
 /// Measured on TTS voices through the cleaned 16 kHz voice frames: one second of the enrolled voice scored 0.67-0.87
 /// against its voiceprint, other voices 0.12-0.47 (another man's at most 0.47), so a voice under <see cref="Other"/> twice

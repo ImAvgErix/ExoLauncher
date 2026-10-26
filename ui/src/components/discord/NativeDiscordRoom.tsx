@@ -6,6 +6,7 @@ import { useMenuArrowKeys } from '../../lib/menuKeys'
 import type { DiscordState } from '../../lib/discord'
 import { DiscordClient } from './DiscordClient'
 import { DiscordQrSignIn } from './DiscordSignIn'
+import { Skeleton } from '../ui/Skeleton'
 
 /**
  * The Discord room as Exo's own client. Signed out it
@@ -50,10 +51,12 @@ export function NativeDiscordRoom({ active }: { active: boolean }) {
   if (state === 'signedOut') return <SignIn note={message} />
   return (
     <main className="exo-hosted-room">
-      <div className="exo-hosted-room-state" role={state === 'error' ? 'alert' : 'status'}>
-        <p>{state === 'error' ? message ?? 'Discord could not be reached.' : 'Connecting to Discord'}</p>
-        {state === 'error' ? <button type="button" className="exo-set-btn is-primary" onClick={retry}>Try again</button> : null}
-      </div>
+      {state === 'error' ? (
+        <div className="exo-hosted-room-state" role="alert">
+          <p>{message ?? 'Discord could not be reached.'}</p>
+          <button type="button" className="exo-set-btn is-primary" onClick={retry}>Try again</button>
+        </div>
+      ) : <Skeleton label="Connecting to Discord" rows={10} avatar className="exo-hosted-room-wait" />}
     </main>
   )
 }

@@ -10,6 +10,9 @@ import { useLayer } from './admin'
 import { SubContext, Submenu } from './UserMenu'
 import { ModalBack } from './SettingsLayer'
 import { useDismiss } from '../../lib/dismiss'
+import { notify } from '../../lib/notify'
+import { confirm } from '../ui/Dialog'
+import { Skeleton } from '../ui/Skeleton'
 
 type Item = { event: DiscordEvent; interested: boolean }
 
@@ -33,7 +36,7 @@ export function EventsDialog({ guildId, list, create = false, onClose }: { guild
           <button type="button" className="exo-dc-icon-btn exo-dc-events-close" aria-label="Close" onClick={onClose}><Close size={16} /></button>
         </div>
         {error ? <p className="exo-dc-note" role="alert">{error}</p> : null}
-        {!events && !error ? <p className="exo-dc-note">Loading</p> : null}
+        {!events && !error ? <Skeleton label="Loading events" /> : null}
         {events?.length === 0 ? <p className="exo-dc-note">There are no upcoming events.</p> : null}
         {events?.map(item => <EventCard key={item.event.id} item={item} guildId={guildId} list={list} onChanged={again} onEdit={() => setEditing(item.event)} />)}
       </div>
@@ -58,7 +61,6 @@ const link = (guildId: string, event: DiscordEvent) => `https://discord.com/even
 function EventCard({ item, guildId, list, onChanged, onEdit }: { item: Item; guildId: string; list: DiscordChannels | null; onChanged: () => void; onEdit: () => void }) {
   const { event, interested } = item
   const [note, setNote] = useState<string | null>(null)
-  const [copied, setCopied] = useState(false)
   const channel = event.channel_id ? list?.channels.find(c => c.id === event.channel_id) : undefined
   const run = (work: ReturnType<typeof host.discordServer>) =>
     void work.then(result => result.ok ? onChanged() : setNote(result.message ?? 'Discord did not take that.')).catch(() => setNote('Discord did not take that.'))
@@ -74,10 +76,8 @@ function EventCard({ item, guildId, list, onChanged, onEdit }: { item: Item; gui
       <div className="exo-dc-event-foot">
         <span className="exo-dc-event-where">{channel ? <><Icons.Voice size={16} />{channel.name}</> : event.entity_metadata?.location}</span>
         <EventMenu event={event} guildId={guildId} canManage={list?.canManageEvents === true} run={run} onEdit={onEdit} />
-        <button type="button" className="exo-dc-tab is-raised" onClick={() => {
-          void navigator.clipboard.writeText(link(guildId, event)).catch(() => { })
-          setCopied(true)
-        }}>{copied ? 'Copied' : 'Copy link'}</button>
+        <button type="button" className="exo-dc-tab is-raised" onClick={() => void navigator.clipboard.writeText(link(guildId, event))
+          .then(() => notify({ id: 'dc-copied', text: 'Event link copied', tone: 'good' })).catch(() => { })}>Copy link</button>
         <button type="button" className={`exo-dc-tab is-raised${interested ? ' is-good' : ''}`} aria-pressed={interested}
           onClick={() => run(host.discordServer('rsvp', { guildId, eventId: event.id, interested: !interested }))}>{interested ? <Icons.Check size={14} /> : null}Interested</button>
       </div>
@@ -95,15 +95,17 @@ function EventMenu({ event, guildId, canManage, run, onEdit }: {
 }) {
   const [menu, setMenu] = useState(false)
   const [sub, setSub] = useState<string | null>(null)
-  const [confirm, setConfirm] = useState(false)
-  const [saved, setSaved] = useState(false)
   // Copy Event ID is Developer Mode's (Discord settings > Developer), as in Discord.
   const developer = useAccountSettings().developerMode
-  const close = () => { setMenu(false); setSub(null); setConfirm(false) }
+  const close = () => { setMenu(false); setSub(null) }
   const anchor = useRef<HTMLSpanElement>(null)
   // A click anywhere else closes it, as Discord's menus do.
   useDismiss(anchor, close, { on: menu })
   const status = (s: 2 | 3 | 4) => { close(); run(host.discordServer('eventStatus', { guildId, eventId: event.id, status: s })) }
+  const cancel = async () => {
+    close()
+    if (await confirm({ title: 'Cancel this event?', body: `${event.name} is canceled for everyone. This cannot be undone.`, action: 'Cancel event', cancel: 'Keep event', danger: true })) status(4)
+  }
   const copy = (text: string) => { void navigator.clipboard.writeText(text).catch(() => { }); close() }
   return (
     <span ref={anchor} className="exo-dc-menu-anchor">
@@ -111,36 +113,40 @@ function EventMenu({ event, guildId, canManage, run, onEdit }: {
       {menu ? (
         <SubContext.Provider value={{ open: sub, show: setSub }}>
         <div className="exo-dc-menu is-right" role="menu">
-          <Submenu label="Add to calendar"><Calendar event={event} guildId={guildId} onDone={file => { setSaved(file); close() }} /></Submenu>
+          <Submenu label="Add to calendar"><Calendar event={event} guildId={guildId} onDone={close} /></Submenu>
           {canManage && event.status === 1 ? <button type="button" role="menuitem" onClick={() => status(2)}>Start event</button> : null}
           {canManage && event.status === 2 ? <button type="button" role="menuitem" onClick={() => status(3)}>End event</button> : null}
           {canManage ? <button type="button" role="menuitem" onClick={() => { close(); onEdit() }}>Edit event</button> : null}
           {canManage && event.status === 1 ? (
-            <button type="button" role="menuitem" className="is-danger" onClick={() => confirm ? status(4) : setConfirm(true)}>{confirm ? 'Click again to cancel the event' : 'Cancel event'}</button>
+            <button type="button" role="menuitem" className="is-danger" onClick={() => void cancel()}>Cancel event</button>
           ) : null}
           <button type="button" role="menuitem" onClick={() => copy(link(guildId, event))}>Copy event link</button>
           {developer ? <button type="button" role="menuitem" onClick={() => copy(event.id)}><Icons.CopyId size={16} />Copy event ID</button> : null}
         </div>
         </SubContext.Provider>
       ) : null}
-      {saved ? <span className="exo-dc-event-saved" role="status">Saved to downloads</span> : null}
     </span>
   )
 }
 
-// Add to Calendar: Google, an ICS file in Downloads, Yahoo or Outlook, the ones Discord offers. onDone says whether a file was saved.
-function Calendar({ event, guildId, onDone }: { event: DiscordEvent; guildId: string; onDone: (saved: boolean) => void }) {
+// Add to Calendar: Google, an ICS file in Downloads, Yahoo or Outlook, the ones Discord offers.
+function Calendar({ event, guildId, onDone }: { event: DiscordEvent; guildId: string; onDone: () => void }) {
   const start = new Date(event.scheduled_start_time)
   const end = new Date(event.scheduled_end_time ? Date.parse(event.scheduled_end_time) : start.getTime() + 3_600_000)
   const stamp = (d: Date) => d.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '')
   const details = `${event.description ?? ''}\n\n${link(guildId, event)}`.trim()
   const place = event.entity_metadata?.location ?? ''
   const q = (o: Record<string, string>) => new URLSearchParams(o).toString()
-  const go = (url: string) => { open(url); onDone(false) }
+  const go = (url: string) => { open(url); onDone() }
+  const ics = () => {
+    onDone()
+    const failed = (why?: string | null) => notify({ text: why ?? 'Discord did not send the ICS file.', tone: 'bad' })
+    void host.discordServer('ics', { guildId, eventId: event.id }).then(result => result.ok ? notify({ text: 'Saved to Downloads', tone: 'good' }) : failed(result.message), () => failed())
+  }
   return (
     <>
       <button type="button" role="menuitem" onClick={() => go(`https://calendar.google.com/calendar/render?${q({ action: 'TEMPLATE', text: event.name, dates: `${stamp(start)}/${stamp(end)}`, details, location: place })}`)}>Add to Google calendar</button>
-      <button type="button" role="menuitem" onClick={() => void host.discordServer('ics', { guildId, eventId: event.id }).then(result => onDone(result.ok)).catch(() => onDone(false))}>Download ICS file</button>
+      <button type="button" role="menuitem" onClick={ics}>Download ICS file</button>
       <button type="button" role="menuitem" onClick={() => go(`https://calendar.yahoo.com/?${q({ v: '60', title: event.name, st: stamp(start), et: stamp(end), desc: details, in_loc: place })}`)}>Add to yahoo</button>
       <button type="button" role="menuitem" onClick={() => go(`https://outlook.live.com/calendar/0/deeplink/compose?${q({ path: '/calendar/action/compose', rru: 'addevent', subject: event.name, startdt: start.toISOString(), enddt: end.toISOString(), body: details, location: place })}`)}>Add to outlook</button>
     </>

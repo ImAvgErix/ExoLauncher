@@ -6,6 +6,12 @@
 @layer theme, base, components, utilities;
 @import "tailwindcss";
 @import "./styles/chrome.css";
+@import "./styles/progress.css";
+@import "./styles/waits.css";
+@import "./styles/dialog.css";
+@import "./styles/devices.css";
+@import "./styles/apps.css";
+@import "./styles/runtimes.css";
 @import "./styles/home.css";
 @import "./styles/art.css";
 @import "./styles/game-a.css";
@@ -29,8 +35,10 @@
 @import "./styles/glass.css";
 @import "./styles/library.css";
 @import "./styles/system.css";
+@import "./styles/dictate.css";
 @import "./styles/discord-settings.css";
 @import "./styles/transitions.css";
+@import "./styles/scrollbar.css";
 
 /* motion-reduce: follows Exo's Reduce motion as well as Windows' (useShellLayout sets data-exo-motion for both). */
 @custom-variant motion-reduce (&:where([data-exo-motion='reduce'] *));
@@ -150,7 +158,10 @@ body,
      read as metal). Over art it dims what is behind enough to keep white words readable, lifted by a soft shadow
      (--glassy-words). */
   --glassy-rim: inset 0 0 18px rgb(255 255 255 / 0.09);
-  --glassy-ring: inset 0 1px 0 rgb(255 255 255 / 0.65), inset 0 -1px 0 rgb(255 255 255 / 0.12), inset 0 0 0 1px rgb(255 255 255 / 0.14);
+  /* Apple's glass of 27: a darkened edge holds its shape over bright art, a light hairline just inside it, and a
+     brighter specular along the top. */
+  --glassy-ring: inset 0 1px 0 rgb(255 255 255 / 0.8), inset 0 -1px 0 rgb(255 255 255 / 0.12), inset 0 0 0 1px rgb(0 0 0 / 0.38),
+    inset 0 0 0 2px rgb(255 255 255 / 0.13);
   --glassy-words: 0 1px 3px rgb(0 0 0 / 0.5), 0 0 12px rgb(0 0 0 / 0.3);
   --glassy-shadow: 0 1px 2px rgb(0 0 0 / 0.18), 0 8px 24px -4px rgb(0 0 0 / 0.28);
   --glassy-shadow-raised: 0 2px 6px rgb(0 0 0 / 0.2), 0 30px 60px -18px rgb(0 0 0 / 0.55);
@@ -261,7 +272,10 @@ body,
   /* Dark's own glass and lifts, so Void's black never reaches it (each Appearance stands on its own). */
   --hover-fill: rgb(255 255 255 / 0.1);
   --glassy-rim: inset 0 0 18px rgb(255 255 255 / 0.09);
-  --glassy-ring: inset 0 1px 0 rgb(255 255 255 / 0.65), inset 0 -1px 0 rgb(255 255 255 / 0.12), inset 0 0 0 1px rgb(255 255 255 / 0.14);
+  /* Apple's glass of 27: a darkened edge holds its shape over bright art, a light hairline just inside it, and a
+     brighter specular along the top. */
+  --glassy-ring: inset 0 1px 0 rgb(255 255 255 / 0.8), inset 0 -1px 0 rgb(255 255 255 / 0.12), inset 0 0 0 1px rgb(0 0 0 / 0.38),
+    inset 0 0 0 2px rgb(255 255 255 / 0.13);
   --glassy-words: 0 1px 3px rgb(0 0 0 / 0.5), 0 0 12px rgb(0 0 0 / 0.3);
   --glassy-shadow: 0 1px 2px rgb(0 0 0 / 0.18), 0 8px 24px -4px rgb(0 0 0 / 0.28);
   --glassy-shadow-raised: 0 2px 6px rgb(0 0 0 / 0.2), 0 30px 60px -18px rgb(0 0 0 / 0.55);
@@ -328,7 +342,7 @@ body,
      a soft shade inside, a dark hairline to hold its edge on the light page, and lighter shadows. */
   --glassy-rim: inset 0 0 18px rgb(255 255 255 / 0.3);
   /* The dark hairline on top: under the white highlights it vanished along the top and left (1.03:1 on the page). */
-  --glassy-ring: inset 0 0 0 1px rgb(0 0 0 / 0.11), inset 0 1px 0 rgb(255 255 255 / 0.9), inset 0 -1px 0 rgb(255 255 255 / 0.4);
+  --glassy-ring: inset 0 0 0 1px rgb(0 0 0 / 0.15), inset 0 1px 0 rgb(255 255 255 / 1), inset 0 -1px 0 rgb(255 255 255 / 0.4);
   --glassy-words: 0 1px 2px rgb(255 255 255 / 0.6);
   --glassy-shadow: 0 1px 2px rgb(0 0 0 / 0.06), 0 8px 24px -6px rgb(0 0 0 / 0.14);
   --glassy-shadow-raised: 0 2px 6px rgb(0 0 0 / 0.06), 0 28px 56px -18px rgb(0 0 0 / 0.26);
@@ -365,25 +379,6 @@ body,
 .exo-motion-arrive {
   animation: exo-arrive 280ms var(--ease-out) backwards;
   animation-delay: calc(min(var(--i, 0), 7) * 24ms);
-}
-
-/* Work: a soft diagonal band of light crosses the art while something is done to it. */
-.exo-motion-work {
-  position: relative;
-  overflow: hidden;
-}
-
-/* The band is a layer two and a half times the art's width that slides across it (a transform, so it
-   never repaints the art); the art clips it. */
-.exo-motion-work::after {
-  content: '';
-  position: absolute;
-  inset: 0 auto 0 0;
-  z-index: 4;
-  width: 250%;
-  background: linear-gradient(115deg, transparent 30%, rgb(var(--exo-ink-rgb) / 0.16) 50%, transparent 70%);
-  animation: exo-work 1400ms linear infinite;
-  pointer-events: none;
 }
 
 /* Done: the art dims under a green ring, then eases back; .exo-motion-check draws on top. */
@@ -491,11 +486,6 @@ body,
   to { transform: none; }
 }
 
-/* The band's light runs from one art-width before the art to one past it. */
-@keyframes exo-work {
-  from { translate: -90% 0; }
-  to { translate: 30% 0; }
-}
 
 @keyframes exo-done {
   0% { opacity: 0; }
@@ -525,8 +515,7 @@ body,
   transition: none;
 }
 
-:root[data-exo-motion='reduce'] :is(.exo-motion-arrive, .exo-motion-switch),
-:root[data-exo-motion='reduce'] .exo-motion-work::after {
+:root[data-exo-motion='reduce'] :is(.exo-motion-arrive, .exo-motion-switch) {
   animation: none;
 }
 
@@ -617,22 +606,31 @@ body,
     -webkit-user-select: text;
   }
 
-  /* Loops (spinners, sweeps, waves) pause while Exo is in the background, and so does the Store's
+  /* Loops (the Exo bar's sheen and glide, a spin, a ring, a shine, typing dots, Nitro name effects) pause while Exo is in the background, and so does the Store's
      featured game's time, which would turn the banner with nobody looking; nothing else does.
      A one-shot entry paused on its first frame stays at opacity 0, so a page opened while focus
      is elsewhere (a game, another window) showed nothing. Listing the loops, not exempting the
-     entries, means a new fade-in can never vanish; a loop left off this list only keeps turning. */
+     entries, means a new fade-in can never vanish; a loop left off this list only keeps turning. A pseudo-element is
+     listed on its own: inside :is() it is invalid and dropped, so it never paused. */
   html[data-exo-inactive="true"] .exo-store-hero-time,
-  html[data-exo-inactive="true"] .exo-action-progress.is-unknown,
+  html[data-exo-inactive="true"] .exo-progress-fill,
+  html[data-exo-inactive="true"] .exo-progress-fill::after,
+  html[data-exo-inactive="true"] .exo-progress-head,
+  html[data-exo-inactive="true"] .exo-spin,
   html[data-exo-inactive="true"] .exo-dc-typing-dots i,
-  html[data-exo-inactive="true"] .exo-tile-progress.is-unknown::before,
-  html[data-exo-inactive="true"] .exo-tile-frame::before,
-  html[data-exo-inactive="true"] .exo-glyph.is-loader,
-  html[data-exo-inactive="true"] .animate-spin,
-  html[data-exo-inactive="true"] .exo-refresh-covers svg,
-  html[data-exo-inactive="true"] .exo-motion-work::after,
-  html[data-exo-inactive="true"] .exo-dc-dn.is-loop :is(.exo-dc-dn-text, .exo-dc-dn-text::before, .exo-dc-dn-letter) {
+  html[data-exo-inactive="true"] .exo-dc-dn.is-loop :is(.exo-dc-dn-text, .exo-dc-dn-letter),
+  html[data-exo-inactive="true"] .exo-dc-dn.is-loop .exo-dc-dn-text::before {
     animation-play-state: paused !important;
+  }
+
+  /* The ring and the shine each come in after 300ms on a second animation (waits.css, in this order): only the loop
+     pauses, so one that starts in the background still shows. */
+  html[data-exo-inactive="true"] .exo-spinner {
+    animation-play-state: running, paused !important;
+  }
+
+  html[data-exo-inactive="true"] .exo-shine::after {
+    animation-play-state: paused, running !important;
   }
 
 }

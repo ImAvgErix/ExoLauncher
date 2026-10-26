@@ -13,6 +13,7 @@ import { SettingsLayer } from './SettingsLayer'
 import { Avatar } from './presence'
 import { pushPage } from '../../lib/viewTransition'
 import { useDismiss } from '../../lib/dismiss'
+import { Skeleton } from '../ui/Skeleton'
 
 type Overwrite = { id: string; type: number; allow: string; deny: string }
 type Settings = {
@@ -72,14 +73,14 @@ export function ChannelSettings({ channelId, onClose }: { channelId: string; onC
         <button type="button" className="exo-game-close exo-dc-settings-close" aria-label="Close channel settings" onClick={close}><Close size={16} /></button>
         <div key={section} className="exo-dc-settings-page exo-motion-switch">
           <ReadError error={settings.error} onRetry={settings.reload} />
-          {!data && !settings.error ? <p className="exo-dc-note">Loading</p> : null}
+          {!data && !settings.error ? <Skeleton label="Loading the channel" /> : null}
           {data && section === 'overview' ? <Overview settings={data} onSaved={settings.reload} /> : null}
           {data && section === 'permissions' ? <Permissions settings={data} onSaved={settings.reload} /> : null}
         </div>
       </div>
       {deleting && data ? (
-        <Confirm title="Delete channel" action="Delete channel" error={error} onConfirm={remove} onClose={() => setDeleting(false)}>
-          <p>Are you sure you want to delete {isVoice(data.type) ? data.name : `#${data.name}`}? This cannot be undone.</p>
+        <Confirm title={`Delete ${isVoice(data.type) ? data.name : `#${data.name}`}?`} action="Delete channel" error={error} onConfirm={remove} onClose={() => setDeleting(false)}>
+          <p>This cannot be undone.</p>
         </Confirm>
       ) : null}
     </div>

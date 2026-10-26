@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { host } from '../../lib/host'
+import { notify } from '../../lib/notify'
 import { useLayer } from './admin'
 import { Icons } from './icons'
 import { openLink } from '../../lib/music'
@@ -46,13 +47,14 @@ function pictureAt(target: EventTarget | null) {
   return { src, link: el.getAttribute('data-dc-link') || el.closest('a')?.href || original(src).toString(), still: el.tagName === 'IMG' }
 }
 
-let say: (text: string) => void = () => { }
+// What happened, in Exo's notices (Discord's own toast said "Image Copied!"); a newer one takes the last one's place.
+const say = (ok: boolean, text: string) => notify({ id: 'dc-image', text, tone: ok ? 'good' : 'bad' })
 
 /** Discord's Save Image. */
 export function saveImage(src: string) {
   void host.discordImage('save', original(src).toString())
-    .then(result => say(result.ok ? 'Image saved' : result.message ?? 'Unable to save image'))
-    .catch(() => say('Unable to save image'))
+    .then(result => say(result.ok, result.ok ? 'Image saved' : result.message ?? 'Unable to save image'))
+    .catch(() => say(false, 'Unable to save image'))
 }
 
 /**
@@ -63,7 +65,6 @@ export function saveImage(src: string) {
  */
 export function ImageMenuHost() {
   const [at, setAt] = useState<At | null>(null)
-  const [note, setNote] = useState<string | null>(null)
   useEffect(() => {
     // Capture: ahead of the message's own right-click (its menu) and the person menu.
     const menu = (event: MouseEvent) => {
@@ -76,23 +77,8 @@ export function ImageMenuHost() {
     document.addEventListener('contextmenu', menu, true)
     return () => document.removeEventListener('contextmenu', menu, true)
   }, [])
-  // Discord's toast for what happened: "Image Copied!", "Image Saved", "Link Copied!", or why not.
-  useEffect(() => {
-    say = setNote
-    return () => { say = () => { } }
-  }, [])
-  useEffect(() => {
-    if (!note) return
-    const timer = window.setTimeout(() => setNote(null), 2400)
-    return () => window.clearTimeout(timer)
-  }, [note])
   const close = useCallback(() => setAt(null), [])
-  return (
-    <>
-      {at ? <ImageMenu key={`${at.src}:${at.x}:${at.y}`} at={at} onClose={close} /> : null}
-      {note ? <p className="exo-dc-toast" role="status">{note}</p> : null}
-    </>
-  )
+  return at ? <ImageMenu key={`${at.src}:${at.x}:${at.y}`} at={at} onClose={close} /> : null
 }
 
 function ImageMenu({ at, onClose }: { at: At; onClose: () => void }) {
@@ -110,12 +96,12 @@ function ImageMenu({ at, onClose }: { at: At; onClose: () => void }) {
     <div className="exo-dc-menu exo-dc-ctx" ref={box} role="menu" aria-label="Image actions" style={{ left: at.x, top: at.y }}>
       {copies ? (
         <button type="button" role="menuitem" onClick={run(() => void host.discordImage('copy', picture.toString())
-          .then(result => say(result.ok ? 'Image copied!' : result.message ?? 'Unable to copy image'))
-          .catch(() => say('Unable to copy image')))}><Icons.Copy size={16} />Copy image</button>
+          .then(result => say(result.ok, result.ok ? 'Image copied' : result.message ?? 'Unable to copy image'))
+          .catch(() => say(false, 'Unable to copy image')))}><Icons.Copy size={16} />Copy image</button>
       ) : null}
       {saves ? <button type="button" role="menuitem" onClick={run(() => saveImage(at.src))}><Icons.SaveImage size={16} />Save image</button> : null}
       {copies || saves ? <span className="exo-dc-menu-line" role="separator" /> : null}
-      <button type="button" role="menuitem" onClick={run(() => void navigator.clipboard.writeText(at.link).then(() => say('Link copied!')).catch(() => { }))}>
+      <button type="button" role="menuitem" onClick={run(() => void navigator.clipboard.writeText(at.link).then(() => say(true, 'Link copied')).catch(() => { }))}>
         <Icons.Link size={16} />Copy {kind}
       </button>
       <button type="button" role="menuitem" onClick={run(() => openLink(at.link))}><Icons.Open size={16} />Open {kind}</button>

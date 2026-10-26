@@ -24,6 +24,9 @@ type SongList = {
 /** The unfiltered list per service while Exo runs: Songs opens again at once. */
 const kept = new WeakMap<object, SongList>()
 
+/** A new order or filter on its way while the last list stays, quietly (DESIGN.md › Waits: only what changes moves). */
+const reordering = (list: SongList | null, key: string, error: string | null) => !!list && list.key !== key && !error
+
 /**
  * Every song in your library, one list: Spotify's Liked Songs, Apple Music's
  * library songs, YouTube Music's library Songs. The service orders and
@@ -125,7 +128,7 @@ export function SongsPage({ scroller }: { scroller: RefObject<HTMLDivElement | n
   const playFrom = (track: PlayerTrack, index: number) => list && play(list.contextUri, track, index, list.key.slice(0, list.key.indexOf('#')))
 
   return (
-    <section className="exo-music-section exo-music-songs" aria-busy={!list || list.key !== listKey}>
+    <section className="exo-music-section exo-music-songs">
       <header className="exo-music-songs-head">
         <h2>Songs</h2>
         <button type="button" className="exo-set-btn is-primary" disabled={!tracks[0]?.playable}
@@ -140,8 +143,9 @@ export function SongsPage({ scroller }: { scroller: RefObject<HTMLDivElement | n
             trigger={sorts.find(option => option.id === list?.sort)?.name ?? 'Sort'}
             items={sorts.map(option => ({ id: option.id, label: option.name }))} checked={list?.sort ?? ''} onAction={setSort} />
         ) : null}
+        {reordering(list, listKey, error) ? <span className="sr-only" role="status">Loading your songs</span> : null}
       </header>
-      {error ? <p className="exo-music-error" role="alert">{error}</p> : list ? null : <Waiting />}
+      {error ? <p className="exo-music-error" role="alert">{error}</p> : list ? null : <Waiting label="Loading your songs" />}
       {list && !total ? <p className="exo-music-empty">{settled.trim() ? `No songs match “${settled.trim()}”` : 'No songs in your library yet'}</p> : null}
       <div ref={rows}>
         {total ? (

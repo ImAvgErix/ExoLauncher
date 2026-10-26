@@ -4,6 +4,7 @@ import { avatarUrl, type DiscordUser } from '../../lib/discord'
 import { appIcon, commandEntries, loadCommands, runCommand, type AppChoice, type AppCommand, type AppInfo, type AppOption, type CommandEntry } from '../../lib/discordApps'
 import { uploadFile } from './Chat'
 import { Icons } from './icons'
+import { Skeleton } from '../ui/Skeleton'
 
 // Command option types.
 const STRING = 3, INTEGER = 4, BOOLEAN = 5, USER = 6, CHANNEL = 7, ROLE = 8, MENTIONABLE = 9, NUMBER = 10, ATTACHMENT = 11
@@ -46,7 +47,7 @@ export function CommandList({ channelId, query, keys, onPick, onClose }: { chann
   useEffect(() => () => { keys.current = null }, [keys])
   return (
     <ul className="exo-dc-suggest exo-dc-commands" role="listbox" aria-label="Commands">
-      {entries === null ? <li className="exo-dc-note">Loading commands</li> : null}
+      {entries === null ? <li><Skeleton label="Loading commands" avatar /></li> : null}
       {entries !== null && !shown.length ? <li className="exo-dc-note">{problem ?? (entries.length ? 'No commands match' : 'No apps here have commands')}</li> : null}
       {shown.map((entry, i) => {
         const icon = appIcon(entry.app, 24)

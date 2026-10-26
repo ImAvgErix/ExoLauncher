@@ -26,6 +26,18 @@ public static class Program
         try
         {
             Helpers.NativeProcessSecurity.HardenDllSearch();
+            // Exo's uninstaller, before it deletes Exo: what Exo changed goes back, Windows' records of it go (no window).
+            if (args.Contains("--uninstall-cleanup", StringComparer.OrdinalIgnoreCase))
+            {
+                Services.ExoUninstall.Run();
+                return;
+            }
+            // Exo's setup, once Exo is installed: Exo's parts fetched and verified, with progress for its window (no window here).
+            if (args.Contains("--fetch-components", StringComparer.OrdinalIgnoreCase))
+            {
+                Environment.ExitCode = Services.ExoComponents.RunFromSetup(args);
+                return;
+            }
             // Every program Exo starts (a store's launcher, a game) inherits this folder.
             // Inside the app folder it would hold it open after Exo exits, and the next
             // update could not swap the folder; Exo's data folder is never replaced.

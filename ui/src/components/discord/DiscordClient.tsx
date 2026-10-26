@@ -24,6 +24,7 @@ const DiscordSettings = lazy(() => import('./DiscordSettings').then(m => ({ defa
 import { startDiscordSettings, useRoomLook } from '../../lib/discordPrefs'
 import { prefetchMessages } from './messageCache'
 import { pane, pressedBefore, transition, visible } from '../../lib/viewTransition'
+import { Skeleton } from '../ui/Skeleton'
 
 const HOME = '@me'
 /** The server a place is (Direct messages is none). */
@@ -382,7 +383,11 @@ function sortDms(dms: DiscordDm[], event: { channelId: string; unread: boolean }
 }
 
 function NoChat({ home, loaded }: { home: boolean; loaded: boolean }) {
-  return <section className="exo-dc-chat is-empty"><p className="exo-dc-note">{home ? 'Pick a conversation.' : loaded ? 'No channel here you can read.' : 'Loading channels'}</p></section>
+  return (
+    <section className="exo-dc-chat is-empty">
+      {home || loaded ? <p className="exo-dc-note">{home ? 'Pick a conversation.' : 'No channel here you can read.'}</p> : <Skeleton label="Loading channels" rows={6} avatar />}
+    </section>
+  )
 }
 
 // A server's open channel of one kind (never in Direct messages).

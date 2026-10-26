@@ -1,10 +1,13 @@
-import { useEffect, useId, useMemo, useRef, useState, type CSSProperties } from 'react'
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { host, type DlssStatus, type Game } from '../../lib/host'
 import { thumbUrl, useCoverThumbWidth } from '../../lib/coverThumb'
 import { invalidateUpscalerStatus, loadUpscalerStatus } from '../../lib/upscalerCache'
 import { compareVersions, upscalerView } from '../../lib/upscalers'
 import { report } from '../../lib/report'
 import { CHECK_PATH } from '../../brand/icons'
+import { confirm } from '../ui/Dialog'
+import { Progress } from '../ui/Progress'
+import { Spinner } from '../ui/Spinner'
 
 /** One installed copy of a game: a card, or one installed store variant of it. */
 type Copy = { id: string; title: string; cover: string | null; running: boolean }
@@ -78,14 +81,14 @@ function needOf(copy: Copy, status: DlssStatus): Need | null {
 }
 
 /**
- * System > Graphics > Upscalers: a cover card for every installed game with older DLSS, FSR or XeSS
+ * PC › Graphics › Upscalers: a cover card for every installed game with older DLSS, FSR or XeSS
  *   than Exo has, each showing the jump per family, and Update all bringing
  *   them up a game at a time with the card showing the work. Anti-cheat games
  *   are listed only where the user may allow changes, and are updated only
  *   once they did: in the game's Properties, or here, where Update all first
  *   names every anti-cheat and its ban risk and offers to update them too, at
  *   the user's risk, or only the others. Riot games never appear. DLSS presets
- * are System > Graphics > Driver and profile's.
+ * are PC › Graphics › Driver and profile's.
  */
 export function UpscalersTab({ active, games }: { active: boolean; games: readonly Game[] }) {
   const copies = useMemo(() => copiesOf(games), [games])
@@ -96,8 +99,9 @@ export function UpscalersTab({ active, games }: { active: boolean; games: readon
   const [checked, setChecked] = useState(0)
   const [runs, setRuns] = useState<Record<string, Run>>({})
   const [updating, setUpdating] = useState(false)
+  // The games Update all took on, so its bar counts them off and its words stay what was pressed.
+  const [batch, setBatch] = useState<string[]>([])
   const [pass, setPass] = useState(0)
-  const [asking, setAsking] = useState(false)
   const scanned = useRef<{ key: string; at: number } | null>(null)
   const live = useRef(true)
   useEffect(() => {
@@ -186,8 +190,8 @@ export function UpscalersTab({ active, games }: { active: boolean; games: readon
 
   async function updateAll(withRisky = false) {
     if (updating) return
-    setAsking(false)
     setUpdating(true)
+    setBatch([...ready, ...(withRisky ? risky : [])].map(need => need.copy.id))
     // One game at a time: each writes inside its own folder, and the first
     // download of a release is shared by every game after it.
     for (const need of ready) {
@@ -206,31 +210,47 @@ export function UpscalersTab({ active, games }: { active: boolean; games: readon
     setPass(value => value + 1)
   }
 
+  /**
+   * Update all with anti-cheat games among them: each game and its anti-cheat by name, and the risk said plainly,
+   * before anything is written. Updating them too allows each one as its game page would; the others can go alone.
+   */
+  async function askRisky() {
+    const one = risky.length === 1
+    const answer = await confirm({
+      title: one ? 'Update a game with anti-cheat?' : `Update ${risky.length} games with anti-cheat?`,
+      body: one
+        ? `${risky[0].copy.title} uses ${risky[0].antiCheat}. Changing its files can get your account banned, and that risk is yours.`
+        : `${risky.map(need => `${need.copy.title} (${need.antiCheat})`).join(', ')}. Changing their files can get your account banned, and that risk is yours.`,
+      action: 'Update all',
+      danger: true,
+      also: ready.length > 0 ? 'Only the others' : undefined,
+    })
+    if (answer === true) void updateAll(true)
+    else if (answer === 'also') void updateAll(false)
+  }
+
   const total = copies.length
   const listed = needs ?? []
   const left = listed.filter(need => !(runs[need.copy.id]?.kind === 'done' && (runs[need.copy.id] as { ok: boolean }).ok)).length
   const done = listed.every(need => runs[need.copy.id]?.kind === 'done' || (need.locked && !need.antiCheat) || running.has(need.copy.id))
+  const landed = batch.filter(id => runs[id]?.kind === 'done').length
 
   return (
     <div className="exo-upscalers exo-gpu-pane">
       <div className="exo-gpu-bar">
         <span className="exo-gpu-bar-note">{needs !== null && left > 0 ? `${left} ${left === 1 ? 'game' : 'games'} to update` : null}</span>
         {needs !== null && (
-          <UpdateButton done={done} updating={updating} asking={asking} count={ready.length + risky.length} all={listed.length}
+          <UpdateButton done={done} updating={updating ? { landed, of: batch.length } : null}
+            count={updating ? batch.length : ready.length + risky.length} all={listed.length}
             onCheck={() => { setRuns({}); setPass(value => value + 1) }}
-            onUpdate={() => (risky.length ? setAsking(true) : void updateAll())} />
+            onUpdate={() => void (risky.length ? askRisky() : updateAll())} />
         )}
       </div>
-      {asking ? (
-        <RiskConfirm games={risky} others={ready.length} onCancel={() => setAsking(false)} onAll={() => void updateAll(true)} onOthers={() => void updateAll(false)} />
-      ) : null}
       <div className="exo-upscalers-body">
         {(
           <>
             {needs === null ? (
-              <div className="exo-upscalers-progress" role="progressbar" aria-valuemin={0} aria-valuemax={total} aria-valuenow={checked}>
-                <span style={{ '--fill': total ? checked / total : 0 } as CSSProperties} />
-              </div>
+              <Progress value={total ? checked / total : null} label={`Checking upscalers · ${checked} of ${total} ${total === 1 ? 'game' : 'games'}`} caption />
             ) : listed.length === 0 ? (
               <AllCurrent />
             ) : (
@@ -255,11 +275,14 @@ export function UpscalersTab({ active, games }: { active: boolean; games: readon
   )
 }
 
-/** The tab's one action: Update all (or how many), Updating…, or Check again once nothing is left. */
-function UpdateButton({ done, updating, asking, count, all, onCheck, onUpdate }: {
+/**
+ * The tab's one action: Update all (or how many), with the bar counting the games off while it runs, or Check again
+ * once nothing is left.
+ */
+function UpdateButton({ done, updating, count, all, onCheck, onUpdate }: {
   done: boolean
-  updating: boolean
-  asking: boolean
+  /** While Update all runs: how many of its games have landed. */
+  updating: { landed: number; of: number } | null
   count: number
   all: number
   onCheck: () => void
@@ -267,39 +290,11 @@ function UpdateButton({ done, updating, asking, count, all, onCheck, onUpdate }:
 }) {
   if (done && !updating) return <button type="button" className="exo-game-tool exo-upscaler-btn" onClick={onCheck}>Check again</button>
   return (
-    <button type="button" className="exo-game-tool exo-upscaler-btn is-primary" disabled={updating || asking || count === 0} onClick={onUpdate}>
-      {updating ? 'Updating…' : count === all ? 'Update all' : `Update ${count}`}
+    <button type="button" className="exo-game-tool exo-upscaler-btn is-primary" disabled={!!updating || count === 0}
+      aria-busy={!!updating} onClick={onUpdate}>
+      {updating ? <Spinner label={`Updating · ${updating.landed} of ${updating.of} ${updating.of === 1 ? 'game' : 'games'}`} /> : null}
+      {count === all ? 'Update all' : `Update ${count}`}
     </button>
-  )
-}
-
-/**
- * Update all with anti-cheat games among them: each game and its anti-cheat by
- * name, and the risk said plainly, before anything is written. Updating them
- * too allows each one as its game page would; the others can go alone.
- */
-function RiskConfirm({ games, others, onCancel, onAll, onOthers }: {
-  games: Need[]
-  others: number
-  onCancel: () => void
-  onAll: () => void
-  onOthers: () => void
-}) {
-  const headingId = useId()
-  const cancel = useRef<HTMLButtonElement>(null)
-  useEffect(() => { cancel.current?.focus() }, [])
-  const named = games.map(need => `${need.copy.title} (${need.antiCheat})`).join(', ')
-  return (
-    <div className="exo-upscaler-consent exo-upscalers-risk" role="group" aria-labelledby={headingId}>
-      <p id={headingId} className="exo-upscaler-consent-title">
-        {games.length === 1 ? 'One game uses anti-cheat' : `${games.length} games use anti-cheat`}: {named}. Changing their files can get your account banned, and that risk is yours.
-      </p>
-      <span className="exo-upscaler-consent-actions">
-        <button ref={cancel} type="button" className="exo-game-tool exo-upscaler-btn" onClick={onCancel}>Cancel</button>
-        {others > 0 && <button type="button" className="exo-game-tool exo-upscaler-btn" onClick={onOthers}>Only the others</button>}
-        <button type="button" className="exo-game-tool exo-upscaler-btn is-armed" onClick={onAll}>Update all, at my risk</button>
-      </span>
-    </div>
   )
 }
 
@@ -319,8 +314,8 @@ function AllCurrent() {
 
 /**
  * One game: its cover, and one line per upscaler family with the jump it
- * gets. Work and Done (DESIGN.md › Motion) play on the cover while it
- * updates and when it lands; the new versions stay green.
+ * gets. The Exo bar runs along the cover's foot while it updates and Done
+ * (DESIGN.md › Motion) plays when it lands; the new versions stay green.
  */
 function GameCard({ need, index, run, running, busy, onUpdate }: { need: Need; index: number; run: Run; running: boolean; busy: boolean; onUpdate: () => void }) {
   const width = useCoverThumbWidth()
@@ -332,9 +327,10 @@ function GameCard({ need, index, run, running, busy, onUpdate }: { need: Need; i
   const state = run.kind === 'working' ? 'is-working' : ok ? 'is-done' : failed ? 'is-failed' : need.locked || running ? 'is-blocked' : ''
   return (
     <li className={`exo-upscalers-card exo-motion-arrive ${state}`} style={{ '--i': index } as CSSProperties}>
-      <div className="exo-upscalers-card-cover">
+      {/* While its files are written the cover shines where it is (DESIGN.md › Waits); Done plays when they land. */}
+      <div className={`exo-upscalers-card-cover${run.kind === 'working' ? ' exo-shine' : ''}`} aria-busy={run.kind === 'working'}>
         {need.copy.cover ? <img src={thumbUrl(need.copy.cover, width)} alt="" loading="lazy" decoding="async" /> : null}
-        <CoverMotion working={run.kind === 'working'} done={ok} />
+        {ok ? <CoverDone /> : null}
         {run.kind === 'idle' && !note && (
           <button type="button" className="exo-upscalers-card-update" disabled={busy} onClick={onUpdate} aria-label={`Update ${need.copy.title}`}>Update</button>
         )}
@@ -359,12 +355,11 @@ function GameCard({ need, index, run, running, busy, onUpdate }: { need: Need; i
   )
 }
 
-/** Work while the game updates, Done once it lands (DESIGN.md › Motion). */
-function CoverMotion({ working, done }: { working: boolean; done: boolean }) {
-  if (!working && !done) return null
+/** Done once the game's update lands (DESIGN.md › Motion). */
+function CoverDone() {
   return (
-    <span className={`exo-upscalers-card-motion ${done ? 'exo-motion-done' : 'exo-motion-work'}`} aria-hidden="true">
-      {done && <svg className="exo-motion-check" viewBox="0 0 24 24"><path d={CHECK_PATH} pathLength="1" /></svg>}
+    <span className="exo-upscalers-card-motion exo-motion-done" aria-hidden="true">
+      <svg className="exo-motion-check" viewBox="0 0 24 24"><path d={CHECK_PATH} pathLength="1" /></svg>
     </span>
   )
 }

@@ -111,15 +111,6 @@ textarea.exo-dc-field {
   z-index: 80;
 }
 
-.exo-dc-confirm > p {
-  text-align: left;
-}
-
-.exo-dc-confirm .exo-dc-modal-row {
-  justify-content: flex-end;
-  gap: 8px;
-}
-
 /* Block's and Ignore's points, as Discord lists them: what it does, and under it what that means. */
 .exo-dc-confirm-list {
   display: grid;
@@ -1116,10 +1107,6 @@ button.exo-dc-member {
 
 .exo-dc-check-mark.is-bad {
   color: var(--color-bad);
-}
-
-.exo-dc-modal.exo-dc-access-dialog {
-  width: min(480px, 92vw);
 }
 
 /* Server insights: a week's number on the row's right edge. */

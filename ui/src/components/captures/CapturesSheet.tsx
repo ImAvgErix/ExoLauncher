@@ -1,13 +1,15 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
 import { GameOverlay } from '../../motion'
-import { Capture, Check, ChevronLeft, Close, FolderOpen, Gallery, History, Record, Scissors, Star as StarGlyph, Trash } from '../../brand/icons'
+import { Capture, Check, ChevronLeft, Close, FolderOpen, Gallery, History, Record, Scissors, Settings, Star as StarGlyph, Trash } from '../../brand/icons'
 import { host, onHostEvent, type Game } from '../../lib/host'
 import { clock, closeCaptures, keysLabel, useCapture, useCapturesSheet, type CaptureExport, type CaptureItem } from '../../lib/capture'
 import { shouldReduceMotion } from '../../lib/motionPreference'
+import { notify } from '../../lib/notify'
 import { report } from '../../lib/report'
 import { CoverArt } from '../CoverArt'
+import { CaptureSettingsView } from './CaptureSettings'
 import { SnipEditor } from './SnipEditor'
-import { pressedArt, transition, visible } from '../../lib/viewTransition'
+import { pane, pressedArt, transition, visible } from '../../lib/viewTransition'
 
 /** A capture plays at half volume, as the player's slider shows, until you move it; kept while Exo runs. */
 let playbackVolume = 0.5
@@ -47,7 +49,7 @@ export function CapturesOverlay({ games, onDiscord }: { games: readonly Game[]; 
       label="Captures"
       scrim={<button type="button" className="exo-game-overlay-scrim" aria-label="Close" tabIndex={-1} onClick={closeCaptures} />}
     >
-      <CapturesSheet key={sheet.seq} gameId={sheet.gameId ?? null} itemId={sheet.itemId ?? null} edit={!!sheet.edit} games={games} onDiscord={onDiscord} />
+      <CapturesSheet key={sheet.seq} gameId={sheet.gameId ?? null} itemId={sheet.itemId ?? null} edit={!!sheet.edit} settings={!!sheet.settings} games={games} onDiscord={onDiscord} />
     </GameOverlay>
   )
 }
@@ -220,7 +222,7 @@ function Detail({ item, edit, onBack, onFavourite, onChanged, onDeleted, onAdded
       if (!result.ok) { setNote({ text: result.message ?? 'That did not work.', bad: true }); return }
       if (result.item) onChanged(result.item)
       if (action === 'delete') onDeleted()
-      if (action === 'copy') setNote({ text: item.kind === 'image' ? 'Copied.' : 'Copied. Paste it into a chat or folder.' })
+      if (action === 'copy') notify({ text: item.kind === 'image' ? 'Copied.' : 'Copied. Paste it into a chat or folder.', tone: 'good' })
       if (action === 'discord') onDiscord()
     } catch (error) { setNote({ text: error instanceof Error ? error.message : 'That did not work.', bad: true }) }
   }
@@ -303,7 +305,7 @@ function Detail({ item, edit, onBack, onFavourite, onChanged, onDeleted, onAdded
 }
 
 /** Nothing saved yet: the three ways to capture, each one press away, with its keys. */
-function CapturesEmpty() {
+function CapturesEmpty({ onSettings }: { onSettings: () => void }) {
   const { state, settings } = useCapture()
   const [note, setNote] = useState<string | null>(null)
   const ways = [
@@ -315,7 +317,7 @@ function CapturesEmpty() {
     setNote(null)
     // Nothing is held to save while instant replay is off.
     if (action === 'saveReplay' && state && !state.buffering) {
-      setNote(settings?.replayMode === 'off' ? 'Instant replay is off. Turn it on in Settings, Capture.'
+      setNote(settings?.replayMode === 'off' ? 'Instant replay is off. Turn it on in Capture settings.'
         : settings?.replayMode === 'games' ? 'Instant replay runs only while a game is open.' : "Instant replay isn't running.")
       return
     }
@@ -341,6 +343,7 @@ function CapturesEmpty() {
       <strong>No captures yet</strong>
       <span>Your replays, recordings and snips land here, sorted by game.</span>
       {note ? <p className="exo-capture-note is-bad" role="alert">{note}</p> : null}
+      {note && settings?.replayMode === 'off' ? <button type="button" className="exo-set-btn" onClick={onSettings}><Settings size={14} />Capture settings</button> : null}
       <div className="exo-captures-empty-ways">
         {ways.map(({ action, label, keys, Icon }) => (
           <button key={action} type="button" className="exo-captures-way" onClick={() => run(action)}>
@@ -411,14 +414,56 @@ function SelectActions({ selection, deleting, onSelect, onDelete }: {
   )
 }
 
-function CapturesSheet({ gameId, itemId, edit, games, onDiscord }: {
+/**
+ * The sheet's title line: Captures with what it holds, or Capture settings; then its actions (Select and the rest,
+ * given as children), Open folder, Capture settings (All captures from them) and Close.
+ */
+function Head({ setting, list, sub, onSettings, onFolder, children }: {
+  setting: boolean
+  /** The list is shown and nothing is being picked: Capture settings is offered. */
+  list: boolean
+  sub: string
+  onSettings: (open: boolean) => void
+  onFolder: () => void
+  children: ReactNode
+}) {
+  const { state } = useCapture()
+  return (
+    <header className="exo-hub-head">
+      <div className="min-w-0">
+        <h2 id="exo-captures-title" className="exo-hub-title">{setting ? 'Capture settings' : 'Captures'}</h2>
+        {setting ? null : <p className="exo-hub-sub">{sub}</p>}
+      </div>
+      <div className="exo-hub-head-actions">
+        {setting ? <button type="button" className="exo-set-btn" onClick={() => onSettings(false)}><ChevronLeft size={14} />All captures</button> : children}
+        <button type="button" className="exo-set-btn" onClick={onFolder}><FolderOpen size={14} />Open folder</button>
+        {/* Without the add-on there is nothing to set. */}
+        {setting || !list || state?.present === false ? null : (
+          <button type="button" className="exo-set-btn" onClick={() => onSettings(true)}><Settings size={14} />Capture settings</button>
+        )}
+        <button type="button" className="exo-game-close" aria-label="Close Captures" onClick={closeCaptures}><Close size={16} /></button>
+      </div>
+    </header>
+  )
+}
+
+function CapturesSheet({ gameId, itemId, edit, settings, games, onDiscord }: {
   gameId: string | null
   itemId: string | null
   edit: boolean
+  /** Open on Capture settings (the Capture menu's). */
+  settings: boolean
   games: readonly Game[]
   onDiscord: () => void
 }) {
   const [items, setItems] = useState<CaptureItem[] | null>(null)
+  /** Capture settings in place of the captures, pushed in over the same body. */
+  const [setting, setSetting] = useState(settings)
+  const body = useRef<HTMLDivElement>(null)
+  const sheetRef = useRef<HTMLElement>(null)
+  // The button pressed goes with the view it was in: focus stays in the sheet.
+  const showSettings = (next: boolean) => void transition(() => { body.current?.scrollTo(0, 0); setSetting(next) }, { kind: 'push', back: !next, morph: pane(body.current) })
+    .then(() => { if (!sheetRef.current?.contains(document.activeElement)) sheetRef.current?.focus({ preventScroll: true }) })
   const [filter, setFilter] = useState<string | null>(gameId)
   /** Favorites: every game's starred captures, one chip beside All. */
   const [favorites, setFavorites] = useState(false)
@@ -504,22 +549,18 @@ function CapturesSheet({ gameId, itemId, edit, games, onDiscord }: {
   }
 
   return (
-    <section className="exo-hub exo-captures" aria-labelledby="exo-captures-title" tabIndex={-1} data-autofocus>
-      <header className="exo-hub-head">
-        <div className="min-w-0">
-          <h2 id="exo-captures-title" className="exo-hub-title">Captures</h2>
-          <p className="exo-hub-sub">{subtitle(items, !!selection && !open, listFailed)}</p>
+    <section ref={sheetRef} className="exo-hub exo-captures" aria-labelledby="exo-captures-title" tabIndex={-1} data-autofocus>
+      <Head setting={setting} list={!open && !selection} sub={subtitle(items, !!selection && !open, listFailed)} onSettings={showSettings} onFolder={openFolder}>
+        {open || !items?.length ? null : (
+          <SelectActions selection={selection} deleting={deleting}
+            onSelect={next => { setSelection(next); setNote(null) }} onDelete={() => void remove([...selection ?? []])} />
+        )}
+      </Head>
+      {setting ? (
+        <div ref={body} className="exo-captures-body">
+          <CaptureSettingsView />
         </div>
-        <div className="exo-hub-head-actions">
-          {open || !items?.length ? null : (
-            <SelectActions selection={selection} deleting={deleting}
-              onSelect={next => { setSelection(next); setNote(null) }} onDelete={() => void remove([...selection ?? []])} />
-          )}
-          <button type="button" className="exo-set-btn" onClick={openFolder}><FolderOpen size={14} />Open folder</button>
-          <button type="button" className="exo-game-close" aria-label="Close Captures" onClick={closeCaptures}><Close size={16} /></button>
-        </div>
-      </header>
-      {open ? (
+      ) : open ? (
         <Detail
           key={open.id}
           item={open}
@@ -540,13 +581,13 @@ function CapturesSheet({ gameId, itemId, edit, games, onDiscord }: {
           onDiscord={onDiscord}
         />
       ) : (
-        <div className="exo-captures-body">
+        <div ref={body} className="exo-captures-body">
           {/* All is always there while filtered, so a game with nothing saved never leaves an empty sheet with no way out. */}
           <Chips groups={byGame} filter={filter} favorites={favorites} items={items} matches={matches} onPick={pickFilter} />
           {note ? <p className="exo-capture-note is-bad exo-captures-note" role="status">{note}</p> : null}
           <ReadFailed failed={listFailed && items === null} onRetry={load} />
           {items !== null && items.length === 0 ? (
-            <CapturesEmpty />
+            <CapturesEmpty onSettings={() => showSettings(true)} />
           ) : items?.length && shown.length === 0 ? <p className="exo-hub-sub">{nothingShown(favorites)}</p> : null}
           {shown.map(group => {
             const game = games.find(g => g.id === group.gameId)

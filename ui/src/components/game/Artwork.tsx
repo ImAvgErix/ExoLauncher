@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { ImageUpload, Loader2, Refresh, Undo } from '../../brand/icons'
+import { ImageUpload, Refresh, Undo } from '../../brand/icons'
 import { host, type ArtworkMutationResponse, type Game } from '../../lib/host'
+import { Spinner } from '../ui/Spinner'
 import { useSelectionGuard } from './useSelectionGuard'
 
 type ArtAction = 'replace' | 'reset' | 'refetch'
@@ -41,28 +42,28 @@ export function useArtwork(selected: Game, coverSource: string | null | undefine
 
 /**
  * Replace the cover, or put Exo's art back (reset a custom cover, or fetch the
- * store's art again). A busy button keeps its label and swaps its icon for a
- * spinner, so the row never changes width.
+ * store's art again). A busy button keeps its label: Refresh art turns its
+ * glyph, the others show the ring in their glyph's place (DESIGN.md › Waits),
+ * so the row never changes width.
  */
 export function ArtworkTools({ artwork, disabled, className = 'exo-game-tool' }: { artwork: Artwork; disabled: boolean; className?: string }) {
   const { action } = artwork
   const busy = action !== null
-  const icon = (name: ArtAction, idle: ReactNode) =>
-    action === name ? <Loader2 size={14} className="animate-spin motion-reduce:animate-none" /> : idle
+  const glyph = (name: ArtAction, label: string, idle: ReactNode) => action === name ? <Spinner label={label} /> : idle
   return (
     <>
       <button type="button" className={className} disabled={disabled || busy} aria-busy={action === 'replace'} onClick={artwork.replace}>
-        {icon('replace', <ImageUpload size={14} />)}
+        {glyph('replace', 'Replacing the cover', <ImageUpload size={14} />)}
         Replace cover
       </button>
       {artwork.custom ? (
         <button type="button" className={className} disabled={disabled || busy} aria-busy={action === 'reset'} onClick={artwork.reset}>
-          {icon('reset', <Undo size={14} />)}
+          {glyph('reset', 'Resetting the cover', <Undo size={14} />)}
           Reset cover
         </button>
       ) : (
         <button type="button" className={className} disabled={disabled || busy} aria-busy={action === 'refetch'} onClick={artwork.refetch}>
-          {icon('refetch', <Refresh size={14} />)}
+          <Refresh size={14} className={action === 'refetch' ? 'exo-spin' : undefined} />
           Refresh art
         </button>
       )}

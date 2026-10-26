@@ -1,5 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import { host, onHostEvent } from '../../lib/host'
+import { useDictation } from '../../lib/dictation'
+import { DictateButton } from '../ui/DictateButton'
 import { displayName, avatarUrl, type DiscordGuildEmoji, type DiscordMessage, type DiscordSticker, type DiscordUser } from '../../lib/discord'
 import { EmojiPicker, emojiText, loadEmojis } from './EmojiPicker'
 import { GifPicker } from './GifPicker'
@@ -414,6 +416,7 @@ export function Composer({ channelId, guildId, users, placeholder, disabled, rep
             if (pasted.length > limit) { event.preventDefault(); addFiles([textFile(pasted)]) }
           }}
         />}
+        {command ? null : <MicSlot box={box} />}
         <ComposerTools guildId={guildId} disabled={disabled} picker={picker} setPicker={setPicker}
           onEmoji={text => insert(asTyped(text, customByName))} onGif={url => void onSend(url, [])} onSticker={sendSticker} />
       </div>
@@ -452,8 +455,8 @@ function shrinkable(file: File) {
 function TooLong({ length, limit, onFile, onClose }: { length: number | null; limit: number; onFile: () => void; onClose: () => void }) {
   if (length === null) return null
   return (
-    <Confirm title="Your message is too long" action="Upload as file" danger={false} onClose={onClose} onConfirm={onFile}>
-      <p>It's {length.toLocaleString()} characters, and a message can be up to {limit.toLocaleString()}. Shorten it, or send it as a file.</p>
+    <Confirm title="Upload it as a file?" action="Upload as file" danger={false} onClose={onClose} onConfirm={onFile}>
+      <p>Your message is {length.toLocaleString()} characters, and a message can be up to {limit.toLocaleString()}. Shorten it, or send it as a file.</p>
     </Confirm>
   )
 }
@@ -570,7 +573,7 @@ function ModifyAttachment({ file, spoiler, onSave, onClose }: { file: File; spoi
   const media = /^(image|video)\//.test(file.type)
   const done = () => onSave({ name, description, spoiler: hidden })
   return (
-    <Confirm title="Modify attachment" action="Save" danger={false} onClose={onClose} onConfirm={done}>
+    <Confirm title="Modify attachment" action="Save" danger={false} form onClose={onClose} onConfirm={done}>
       <FileThumb file={file} />
       <label className="exo-dc-modal-field"><span>Filename</span>
         <input className="exo-dc-modal-input" value={name} maxLength={200} autoFocus onChange={event => setName(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') done() }} />
@@ -634,6 +637,16 @@ function ExpressionTabs({ picker, setPicker }: { picker: Expression; setPicker: 
       ))}
     </div>
   )
+}
+
+/**
+ * The composer's mic slot, before its tools. While dictation is on (Settings › General) it is dictation's mic. With
+ * dictation off the slot belongs to voice messages: a VoiceMessageButton goes here once Exo records them; until then
+ * the composer shows no mic.
+ */
+function MicSlot({ box }: { box: RefObject<HTMLTextAreaElement | null> }) {
+  const dictation = useDictation().state?.on !== false
+  return dictation ? <DictateButton target={box} /> : null
 }
 
 // The one button at the right of the box: emoji, with GIFs and stickers a tab away in the same picker, so the box

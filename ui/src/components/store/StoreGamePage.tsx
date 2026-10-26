@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Bookmark, Check, CHECK_PATH, Close, ExternalLink, Library, Loader2, Play } from '../../brand/icons'
+import { Bookmark, Check, CHECK_PATH, Close, ExternalLink, Library, Play } from '../../brand/icons'
 import { host, type StoreGame, type StoreOffer, type StoreTile } from '../../lib/host'
 import { report } from '../../lib/report'
 import { useLens } from '../../lib/glass'
+import { Spinner } from '../ui/Spinner'
 import { Price, SteamImage } from './StoreCard'
 import { artSources, ggDealsUrl, loadGame, loadOffers, peekGame, peekOffers, reviewText, steamArt, useDone } from './storeData'
 import { TrailerPlayer } from './TrailerPlayer'
@@ -73,7 +74,7 @@ export function StoreGamePage({ seed, onScreen, owned, wished, onWish, onOpenLib
   )
 }
 
-/** The media's place: the viewer once the details land, the work band until then, or why they did not with Retry. */
+/** The media's place: the viewer once the details land, its frames shining until then, or why they did not with Retry. */
 function Media({ game, onScreen }: { game: ReturnType<typeof useStoreGame>; onScreen: boolean }) {
   return (
     <div className="exo-sgp-main">
@@ -131,7 +132,7 @@ function BuyPanel({ game, loading, others, othersFailed, seed, owned, wished, on
       {steam.map(offer => <OfferRow key={offer.store} offer={offer} primary free={!!game?.free} soon={soon} />)}
       {/* The other launchers: one row of its own whatever they answer, so nothing under it moves. */}
       <div className="exo-sgp-others">
-        {others === null ? <span className="exo-sgp-offer is-loading exo-motion-work" aria-hidden="true" /> : null}
+        {others === null ? <span className="exo-sgp-offer is-loading exo-shine" role="status" aria-label="Checking other stores" /> : null}
         {(others ?? []).map(offer => <OfferRow key={offer.store} offer={offer} primary={false} free={false} soon={soon} />)}
         {others?.length === 0 ? <span className="exo-sgp-only">{othersFailed ? 'Other stores unavailable' : 'Only on Steam'}</span> : null}
       </div>
@@ -147,9 +148,9 @@ function BuyPanel({ game, loading, others, othersFailed, seed, owned, wished, on
             <span className={wished ? undefined : 'is-hidden'}>On wishlist</span>
           </span>
         </button>
-        <button type="button" className="exo-game-tool" disabled={opening} aria-busy={opening}
+        <button type="button" className="exo-game-tool" disabled={opening}
           onClick={() => { setOpening(true); open(ggDealsUrl(game?.name ?? seed.name)).finally(() => setOpening(false)) }}>
-          {opening ? <Loader2 size={14} /> : <ExternalLink size={14} />}GG.deals
+          {opening ? <Spinner label="Opening GG.deals" /> : <ExternalLink size={14} />}GG.deals
         </button>
         {owned ? <button type="button" className="exo-game-tool" onClick={onOpenLibrary}><Library size={14} />In your library</button> : null}
       </div>
@@ -174,10 +175,10 @@ function OfferRow({ offer, primary, free, soon }: { offer: StoreOffer; primary: 
   }
   return (
     <>
-      <button type="button" className={`exo-sgp-offer${primary ? ' is-primary' : ' exo-motion-switch'}`} disabled={busy} aria-busy={busy} onClick={go}>
+      <button type="button" className={`exo-sgp-offer${primary ? ' is-primary' : ' exo-motion-switch'}`} disabled={busy} onClick={go}>
         <span className="exo-sgp-offer-name">{primary ? label : offer.name}</span>
         {soon ? null : <Price final={offer.final} initial={offer.initial} discount={offer.discount} currency={offer.currency} priceText={offer.priceText} wasText={offer.wasText} free={free} />}
-        {busy ? <Loader2 size={14} /> : <ExternalLink size={14} />}
+        {busy ? <Spinner label={`Opening ${offer.name}`} /> : <ExternalLink size={14} />}
       </button>
       {error ? <p className="exo-store-error" role="alert">{error}</p> : null}
     </>
@@ -193,9 +194,9 @@ function Pills({ tags }: { tags: string[] | null }) {
   )
 }
 
-/** Lines of light where words will be, until the details land. */
+/** Lines where words will be, shining until the details land. */
 function Placeholder({ lines }: { lines: number }) {
-  return <span className="exo-sgp-placeholder" aria-hidden="true">{Array.from({ length: lines }, (_, i) => <i key={i} className="exo-motion-work" />)}</span>
+  return <span className="exo-sgp-placeholder" aria-hidden="true">{Array.from({ length: lines }, (_, i) => <i key={i} className="exo-shine" />)}</span>
 }
 
 /** The game's description: what the game is. Its card takes the room the column leaves; a long one scrolls inside it. */
@@ -329,13 +330,13 @@ function MediaViewer({ game, onScreen }: { game: StoreGame; onScreen: boolean })
   )
 }
 
-/** The viewer's place while the page loads: black frames under the work band. */
+/** The viewer's place while the page loads: its black frames, shining (DESIGN.md › Waits). */
 function MediaSkeleton() {
   return (
-    <div className="exo-sgp-media is-skeleton" role="status" aria-label="Loading">
-      <div className="exo-sgp-stage-box"><div className="exo-sgp-stage exo-motion-work" /></div>
-      <div className="exo-sgp-strip">
-        {Array.from({ length: 8 }, (_, i) => <span key={i} className="exo-sgp-thumb exo-motion-work" />)}
+    <div className="exo-sgp-media is-skeleton" role="status" aria-label="Loading the game">
+      <div className="exo-sgp-stage-box" aria-hidden="true"><div className="exo-sgp-stage exo-shine" /></div>
+      <div className="exo-sgp-strip" aria-hidden="true">
+        {Array.from({ length: 8 }, (_, i) => <span key={i} className="exo-sgp-thumb exo-shine" />)}
       </div>
     </div>
   )

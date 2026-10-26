@@ -362,8 +362,8 @@ public static partial class CoverArtService
         static byte ToByte(float value) => (byte)Math.Clamp((int)MathF.Round(value), 0, 255);
     }
 
-    /// <summary>First source index and normalised Lanczos-3 weights for each output index.</summary>
-    private static (int[] Start, float[][] Weights) LanczosContributions(int sourceSize, int targetSize)
+    /// <summary>First source index and normalised Lanczos-3 weights for each output index (DeviceImages scales with them too).</summary>
+    internal static (int[] Start, float[][] Weights) LanczosContributions(int sourceSize, int targetSize)
     {
         const double Lobes = 3;
         var scale = targetSize / (double)sourceSize;

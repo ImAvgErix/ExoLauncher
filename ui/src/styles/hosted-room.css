@@ -35,6 +35,12 @@
   margin: 0;
 }
 
+/* A hosted room on its way (DESIGN.md › Waits): what it will show, as skeleton cards from the room's top, shining. */
+.exo-hosted-room-wait {
+  align-content: start;
+  padding: 24px var(--exo-gutter);
+}
+
 /* Exo Mouse, its own program, fills the Devices room in a frame. */
 .exo-devices-frame {
   display: block;

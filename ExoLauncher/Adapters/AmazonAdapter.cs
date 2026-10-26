@@ -34,6 +34,10 @@ public sealed class AmazonAdapter : IStoreAdapter, IOfficialStoreClient, IStoreR
         ExpectedSize: 12_386_046,
         ExpectedSha256: "6531790c59f78cea4a8743bf0582d5afda7fb887f5c143391d7339ad0f42ab88");
 
+    /// <summary>Nile as one of Exo's parts (<see cref="ExoComponents"/>): setup fetches it into Exo's tools.</summary>
+    internal static readonly ExoComponent Component = ExoComponent.Pinned("Nile for Amazon Games", "Amazon Games",
+        NileReleaseAsset, () => Path.Combine(PathHelper.AppDataDir, "tools", "nile.exe"), IsValidAmd64Pe);
+
     private static readonly TimeSpan NileAuthTimeout = TimeSpan.FromMinutes(10);
     private static readonly TimeSpan NileJobTimeout = TimeSpan.FromHours(2);
 

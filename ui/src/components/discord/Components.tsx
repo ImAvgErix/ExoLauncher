@@ -7,6 +7,7 @@ import { Icons } from './icons'
 import { showImage } from './extras'
 import { emojiUrl, Markdown, open, type MarkdownContext } from './markdown'
 import { useDismiss } from '../../lib/dismiss'
+import { Spinner } from '../ui/Spinner'
 
 // Discord's component types.
 const ROW = 1, BUTTON = 2, STRING_SELECT = 3, USER_SELECT = 5, ROLE_SELECT = 6, MENTIONABLE_SELECT = 7, CHANNEL_SELECT = 8,
@@ -112,15 +113,12 @@ function AppButton({ component, busy, locked, press }: { component: AppComponent
   const style = component.style ?? 2
   const disabled = component.disabled === true || style === PREMIUM || (style !== LINK && locked)
   return (
-    <button type="button" className={`exo-dc-cv-button ${STYLE[style] ?? 'is-secondary'}${busy ? ' is-busy' : ''}`} disabled={disabled} aria-busy={busy}
+    <button type="button" className={`exo-dc-cv-button ${STYLE[style] ?? 'is-secondary'}${busy ? ' is-busy' : ''}`} disabled={disabled}
       onClick={() => { if (style === LINK) { if (component.url) open(component.url) } else press(component) }}>
-      {busy ? <span className="exo-dc-typing-dots" aria-label="Waiting for the app"><i /><i /><i /></span> : (
-        <>
-          <ComponentEmoji emoji={component.emoji} />
-          {component.label ? <span>{component.label}</span> : null}
-          {style === LINK ? <Icons.Open size={14} /> : null}
-        </>
-      )}
+      {busy ? <Spinner label="Waiting for the app" /> : null}
+      <ComponentEmoji emoji={component.emoji} />
+      {component.label ? <span>{component.label}</span> : null}
+      {style === LINK ? <Icons.Open size={14} /> : null}
     </button>
   )
 }
@@ -227,10 +225,10 @@ export function AppSelect({ component, guildId, disabled, busy, onCommit, onChan
       <button type="button" className="exo-dc-cv-select-field" aria-haspopup="listbox" aria-expanded={open} disabled={disabled || component.disabled}
         onClick={() => (open ? close(true) : setOpen(true))}>
         <span className={shown ? undefined : 'is-placeholder'}>{shown || component.placeholder || 'Make a selection'}</span>
-        {busy ? <span className="exo-dc-typing-dots" aria-label="Waiting for the app"><i /><i /><i /></span> : <Icons.Crumb size={16} className="exo-dc-cv-select-arrow" />}
+        {busy ? <Spinner label="Waiting for the app" /> : <Icons.Crumb size={16} className="exo-dc-cv-select-arrow" />}
       </button>
       {open ? (
-        <div className="exo-dc-cv-select-list" role="listbox" aria-multiselectable={max > 1} aria-label={component.placeholder ?? 'Choices'}>
+        <div className="exo-dc-cv-select-list exo-glass is-panel" role="listbox" aria-multiselectable={max > 1} aria-label={component.placeholder ?? 'Choices'}>
           {searchable ? <input className="exo-dc-modal-input" value={query} placeholder="Search" aria-label="Search" autoFocus onChange={event => setQuery(event.target.value)} /> : null}
           {choices.map(choice => (
             <button key={choice.value} type="button" role="option" aria-selected={values.includes(choice.value)} onClick={() => choose(choice)}>

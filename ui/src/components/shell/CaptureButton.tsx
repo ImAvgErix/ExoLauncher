@@ -1,12 +1,12 @@
 import { useId, useRef, useState, type ComponentType, type KeyboardEvent } from 'react'
-import { Capture, Gallery, History, type IconProps, Record, Scissors } from '../../brand/icons'
+import { Capture, Gallery, History, type IconProps, Record, Scissors, Settings } from '../../brand/icons'
 import { host } from '../../lib/host'
 import { clock, keysLabel, openCaptures, useCapture } from '../../lib/capture'
 import { report } from '../../lib/report'
 import { usePageClock } from '../../lib/pageActivity'
 import { reportFailure } from './useActionStatus'
 
-type Action = 'saveReplay' | 'record' | 'snip' | 'captures'
+type Action = 'saveReplay' | 'record' | 'snip' | 'captures' | 'settings'
 
 const sinceStart = () => performance.now()
 
@@ -18,9 +18,10 @@ function RecordingClock({ ms, at }: { ms: number; at: number }) {
 
 /**
  * The title bar's Capture button, beside the mini player: a quiet green dot while
- * instant replay holds the last seconds; a short menu of Save replay, Record, Snip
- * and Open captures, each with its keys. While recording it is a red timer pill
- * that stops the recording. Nothing shows without Exo Capture.
+ * instant replay holds the last seconds; a short menu of Save replay, Record and Snip,
+ * each with its keys, then Open captures and Capture settings (the Captures sheet's
+ * own). While recording it is a red timer pill that stops the recording. Nothing
+ * shows without Exo Capture.
  */
 export function CaptureButton() {
   const { state, settings, at } = useCapture()
@@ -40,7 +41,7 @@ export function CaptureButton() {
       for (let i = 0; i < 3; i++) await new Promise(requestAnimationFrame)
       menu.style.transition = ''
     } else menu?.hidePopover()
-    if (action === 'captures') { openCaptures(); return }
+    if (action === 'captures' || action === 'settings') { openCaptures({ settings: action === 'settings' }); return }
     try {
       const result = await host.captureAct(action)
       if (!result.ok) {
@@ -68,6 +69,7 @@ export function CaptureButton() {
     { action: 'record', label: 'Record', keys: settings?.recordKeys, icon: Record },
     { action: 'snip', label: 'Snip', keys: settings?.snipKeys, icon: Scissors },
     { action: 'captures', label: 'Open captures', icon: Gallery },
+    { action: 'settings', label: 'Capture settings', icon: Settings },
   ]
   const entries = () => Array.from(menuRef.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [])
   function onKeyDown(event: KeyboardEvent<HTMLDivElement>) {

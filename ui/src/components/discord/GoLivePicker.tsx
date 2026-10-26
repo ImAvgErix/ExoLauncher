@@ -11,6 +11,8 @@ import { Switch } from '../Switch'
 import { Icons } from './icons'
 import { ModalBack } from './SettingsLayer'
 import { useDismiss } from '../../lib/dismiss'
+import { Spinner } from '../ui/Spinner'
+import { Skeleton } from '../ui/Skeleton'
 
 type Quality = { height: number; fps: number; sound: boolean }
 type Option = { key: number; label: string; note: string }
@@ -131,7 +133,9 @@ export function ShareScreen() {
       </button>
       {on && menu ? (
         <div className="exo-dc-menu exo-dc-golive-menu" role="menu">
-          <span className="exo-dc-golive-menu-head">{live.title ?? 'Your stream'}<small>{live.stats ? formatStats(live.stats) : 'Connecting…'}</small></span>
+          <span className="exo-dc-golive-menu-head">{live.title ?? 'Your stream'}
+            <small>{live.stats ? formatStats(live.stats) : <><Spinner label="Connecting your stream" /> Connecting</>}</small>
+          </span>
           <button type="button" role="menuitem" onClick={() => { setMenu(false); setPreviewShown(!shown) }}>{shown ? 'Hide preview' : 'Show preview'}</button>
           <button type="button" role="menuitem" className="is-danger" onClick={() => { setMenu(false); void stopGoLive() }}>Stop streaming</button>
         </div>
@@ -229,7 +233,7 @@ function SourcePicker({ onPick, onClose }: { onPick: (source: GoLiveSource) => v
           <span className="exo-dc-tab is-add">Stream</span>
         </button>
       ) : null}
-      {sources === null ? <p className="exo-dc-note">Finding your windows…</p>
+      {sources === null ? <Skeleton label="Finding your windows" tiles={6} className="exo-dc-golive-wait" />
         : shown.length === 0 ? <p className="exo-dc-note">{error ?? (tab === 'window' ? (game ? 'No other windows to share.' : 'No windows to share.') : 'No screens found.')}</p>
           : (
             <div className="exo-dc-golive-grid exo-motion-switch" key={tab}>
@@ -290,7 +294,9 @@ function GoLiveSettings({ source, onBack, onClose, onLive }: { source: GoLiveSou
             <Switch checked={quality.sound} labelledBy="exo-dc-golive-sound" onChange={on => setQuality(q => ({ ...q, sound: on }))} />
           </div>
           {error ? <p className="exo-dc-golive-error" role="alert">{error}</p> : null}
-          <button type="button" className="exo-dc-tab is-add exo-dc-golive-go" disabled={starting} onClick={() => void go()}>{starting ? 'Starting…' : 'Go Live'}</button>
+          <button type="button" className="exo-dc-tab is-add exo-dc-golive-go" disabled={starting} onClick={() => void go()}>
+            {starting ? <Spinner label="Starting your stream" /> : null}Go Live
+          </button>
         </div>
       </div>
     </>

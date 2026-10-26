@@ -5,16 +5,16 @@ import { GameLine, type LineWord } from './GameLine'
 
 export type ShaderPrecompileProps = {
   gameId: string
-  /** Opens System > Shaders (Exo Shaders), where the game is compiled. */
+  /** Opens PC › Graphics at Shaders (Exo Shaders), where the game is compiled. */
   onOpenShaders: (gameId: string) => void
 }
 
 const SHADERS_RELEASES = 'https://github.com/ImAvgErix/exo-shaders/releases/latest'
 
 /**
- * The game page's Shaders: one row from the Exo Shaders engine that opens System > Shaders, where
+ * The game page's Shaders: one row from the Exo Shaders engine that opens PC › Graphics at Shaders, where
  * the compile runs with its queue and time. Compiled when it compiled the game for this driver, Not
- * supported when it can't. Without Exo Shaders, the row opens its releases page.
+ * supported when it can't; a shining word while it is read. Without Exo Shaders, the row opens its releases page.
  */
 export function ShaderPrecompile({ gameId, onOpenShaders }: ShaderPrecompileProps) {
   const status = useShaderStatus(gameId)
@@ -31,7 +31,7 @@ export function ShaderPrecompile({ gameId, onOpenShaders }: ShaderPrecompileProp
 }
 
 function wordFor(status: ShaderStatus | null): LineWord | null {
-  if (!status) return { text: 'Checking…' }
+  if (!status) return null
   switch (status.state) {
     case 'warmed': return { text: 'Compiled' }
     case 'stale': return { text: status.reason ?? 'Compile again' }

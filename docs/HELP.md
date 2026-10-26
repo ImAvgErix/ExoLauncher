@@ -3,7 +3,7 @@
 ## Install and update
 
 1. Download **ExoLauncher-Setup.exe** from the [latest release](https://github.com/ImAvgErix/ExoLauncher/releases/latest).
-2. Run it, choose Install, then Launch Exo. First run asks for your game stores, your music service, Discord, your capture keys, Lucid and your PC's graphics settings, then offers to remove the apps Exo replaces (Settings > Clean up has the same list later).
+2. Run it, choose Install, then Launch Exo. First run asks for your game stores, your music service, Discord, your capture keys, Lucid and your PC's graphics settings, then offers to remove the apps Exo replaces (PC > Apps lists them first later). The installer fetches what Exo needs beside itself, the dictation model among it, so everything is ready on first run.
 3. Exo finds your games. It checks for a new version each time it starts; **Settings > About** shows it, and **Install update** downloads and installs it. Your settings, library and sign-ins stay.
 
 Exo needs **Windows 11 x64** and installs for your Windows user only. The installer isn't code-signed yet, so SmartScreen may warn the first time: choose **More info**, then **Run anyway**. Each release lists the installer's SHA-256.
@@ -14,40 +14,43 @@ To uninstall, open **Windows Settings > Apps > Installed apps**, choose **Exo La
 
 Press **Ctrl+K**, or the Exo mark at the top left, to reach any room, game, action, music control, or Discord DM and server. Ctrl+K brings back your last search, selected, so typing replaces it.
 
+**Dictation:** press the mic in a search box or one of Discord's boxes and talk; a line follows your voice, and **Stop** types what you said where your cursor was. It runs on this PC; nothing you say leaves it. Settings > General > Dictation turns the mic off.
+
 ## Look and feel
 
 **Settings > General**:
 - **Appearance:** Match Windows (Light or Dark, as your Windows apps are), Light, Dark or Void (pure black, for OLED screens).
-- **Glass:** Clear, Tinted (frosted) or Solid.
-- **Text size** and **Reduce motion**.
+- **Material:** Liquid Glass, or Solid with nothing showing through.
+- **Text size**, **Reduce motion**, and **Show tools and soundtracks** (servers, SDKs and soundtracks in the Library).
 
 Every screen gets the same layout: on a 1440p or 4K screen Exo draws the 1080p layout larger, so it looks the same, only sharper.
 
 ## Library
 
-- **A game is missing.** Press the round **Refresh** button next to **+**. Exo reads every store again. For Epic, GOG or Amazon, sign in under **Settings > Game stores**. For a game outside any store, press **+ > Add a game** and pick its .exe, or **Find a game in a folder**.
+- **A game is missing.** Press the round **Refresh** button next to **+**. Exo reads every store again. For Epic, GOG or Amazon, sign in under **Settings > Accounts and keys**. For a game outside any store, press **+ > Add a game** and pick its .exe, or **Find a game in a folder**.
 - **Play, install and update.** Click a game to open its page, or right-click it for Play or Install and Open folder. **Continue** at the top keeps the games you're playing one click from Play. Downloads and updates show on the game's card. Downloads can pause while you play and wait for the hours you set in **Settings > Downloads**.
-- **Folders.** **+ > New folder**: name it, pick a color and tick its games. A game can be in as many folders as you like: right-click it and tick or untick folders under **Folders**. Right-click a folder to edit or delete it (its games go back to the grid). An open folder's sort menu orders its games by **Folder order** (the order you added them) or as the Library sorts. A folder is also how you keep favorites.
+- **Folders.** **+ > New folder**: name it, pick a color and tick its games. A game can be in as many folders as you like: right-click it and tick or untick its folders, or pick **New folder** to start one with it. Right-click a folder to edit or delete it (its games go back to the grid). An open folder's sort menu orders its games by **Folder order** (the order you added them) or as the Library sorts. A folder is also how you keep favorites.
 - **A folder's picture.** In **Edit folder**, press **Add picture** (or drop a PNG, JPEG or WebP under 15 MB on the sheet), then drag and zoom it in the cropper and press **Done**. **Remove picture** puts the games' covers back.
 - **Hide a game.** Right-click it and choose **Hide**: it leaves the grid, **Continue** and its folders. The sort menu's **Show > Hidden games** lists the games you hid, each with **Unhide**; Ctrl+K still finds them.
-- **Uninstall.** **Uninstall** on a game's page removes it through its store. When the store asks you to confirm, or only its app can remove the game (Xbox), that window shows. A game you added yourself says **Remove**, and Exo leaves its files where they are.
+- **Uninstall.** **Uninstall** on a game's page removes it through its store, after Exo asks you once. When the store asks you to confirm, or only its app can remove the game (Xbox), that window shows. A game you added yourself says **Remove**, and Exo leaves its files where they are.
 - **Properties.** The sliders button on an installed game's page, or right-click its card: launch options, language, cloud saves, the Steam overlay, betas, updates, checking its files, moving it to another drive, its DLC or optional content (for example a high-resolution texture pack) on or off, and **Artwork** to replace its cover with your own picture. Anything that downloads or deletes shows its size and asks first.
 - **Steam Family.** Games your Steam Family shares show in the Library next to your own and install through Steam.
-- **More than one account.** **Settings > Game stores** lists the Steam accounts Steam remembers and the Riot accounts Exo saved: **Switch** restarts that store's client as the other account, and **Add account** opens its own sign-in. Epic, GOG and Amazon have their own Account menu.
-- **Quiet stores.** **Settings > Game stores > Notifications and sounds** turns off Steam's and Epic's own pop-ups and sounds, for every account on this PC. **Steam overlay** there sets the overlay for every Steam game.
+- **A store's servers are down.** When Steam can't reach its servers (or hangs on Loading User Data), Exo says so once. Press **Play offline** there, or Play on a Steam game, and Exo restarts Steam in its own offline mode after asking; it needs Steam to remember your sign-in. Exo switches Steam back online once its servers answer, and says so. GOG games start without GOG Galaxy anyway, and the Epic Games Launcher goes offline by itself. The EA app and Ubisoft Connect have **Go offline** in their own menus; Battle.net plays offline only the few games that support it, and Riot games need Riot's servers.
+- **More than one account.** **Settings > Accounts and keys** lists the Steam accounts Steam remembers and the Riot accounts Exo saved: **Switch** restarts that store's client as the other account, and **Add account** opens its own sign-in. Epic, GOG and Amazon have their own Account menu.
+- **Quiet stores.** **Settings > Accounts and keys > Notifications and sounds** turns off Steam's and Epic's own pop-ups and sounds, for every account on this PC. **Steam overlay** there sets the overlay for every Steam game.
 
-## System
+## PC
 
-The System room is one page with your graphics card and screen: the driver and Exo's profile, HDR, Display, Upscalers and Shaders.
+The PC room is this PC, in five pages: Overview (its About card and Best settings), Graphics (the driver and Exo's profile, Upscalers and Shaders), Display (the screen and HDR), Performance and Apps (the uninstaller and game runtimes).
 - **Driver and profile** (Graphics) shows your NVIDIA driver and NVIDIA's newest for your card, Game Ready or Studio, looked for at most once an hour. **Update** installs it clean and driver-only (on a GTX 10 series or older card, which Game Ready drivers no longer support, NVIDIA's newest driver for it), with no NVIDIA app, PhysX or HDMI audio; Exo puts your profile back after. It waits while a game runs or you're in a Discord call. On an AMD Radeon or Intel graphics, the same row shows AMD's or Intel's newest driver for your card: **Update** installs AMD Software: Adrenalin Edition with its driver (Fluid Motion Frames needs AMD Software), or Intel's driver alone, without Intel Graphics Software. Exo never restarts your PC; the row says when the new driver needs a restart. Exo's driver profile (lowest latency, with G-SYNC or without, picked for your screen) applies with one press, and **Import** takes a Profile Inspector file. On an AMD Radeon, Exo's profile (Chill, Boost, Super Resolution and Image Sharpening off, FreeSync on with a frame cap, V-Sync left to each game, FSR 4 for FSR 3.1 games, Anti-Lag while you play) applies the same way, with Undo, and a game's page can turn on Fluid Motion Frames for that game (it needs AMD Software running). On an Intel Arc or Iris Xe, Exo's profile (Endurance Gaming and sharpening off, Low latency on, Adaptive Sync on with a frame cap, Intel's prebuilt shaders) applies the same way, with Undo, and a game's page can set XeSS frame generation for that game. If the driver doesn't answer, it lists what to set in AMD's or Intel's own app.
 - **HDR** (Graphics) turns HDR on only while a game with real HDR runs; each game's page can set Auto, Always or Never. **SDR looks right in HDR** draws the desktop with gamma 2.2 while HDR is on, so blacks stay black.
 - **Display** shows **Best for this screen** and uses it with one press. **Each setting by hand** shows the rest: refresh rate, color format and depth (only what the screen itself takes), scaling (with **Override the scaling set by games**), color from brightness to hue, and RTX Video. A change to the picture comes back by itself after 15 seconds unless you keep it.
-- **This PC** shows only what holds your PC back (RAM below its rated speed, Resizable BAR off, a power plan that slows your processor, Game Mode off, GPU scheduling off on a card with frame generation; on a PC with two graphics chips, **Graphics for games** asks Windows to run your games on the fast one), leads with **Use best settings** when something is left to set (Exo's power plan for your processor, the driver profile for your card, HDR for HDR games; each stays in its own section with its own Undo), and keeps your chipset driver up to date: AMD's on a Ryzen, Intel's Chipset Device Software on an Intel processor where it's installed. Exo installs a newer one while you're away (after ten idle minutes, with no game, no Discord call and the PC plugged in), or now with **Update**. It never restarts your PC; the row says when a restart finishes the update. **Settings > Downloads > Keep the AMD chipset driver up to date** (or Intel's) turns it off.
+- **This PC** shows only what holds your PC back (RAM below its rated speed, Resizable BAR off, a power plan that slows your processor, Game Mode off, GPU scheduling off on a card with frame generation; on a PC with two graphics chips, **Graphics for games** asks Windows to run your games on the fast one), leads with **Use best settings** when something is left to set (Exo's power plan for your processor, the driver profile for your card, HDR for HDR games; each stays in its own section with its own Undo), and keeps your chipset driver up to date: AMD's on a Ryzen, Intel's Chipset Device Software on an Intel processor where it's installed. Exo installs a newer one while you're away (once nobody is using the PC: ten minutes without input, or one with it locked, and nothing playing, no call, no other program at work, no game, the PC plugged in), or now with **Update**. It never restarts your PC; the row says when a restart finishes the update. **Settings > Downloads > Keep the AMD chipset driver up to date** (or Intel's) turns it off.
 
 ## Upscalers and Shaders
 
-- **Upscalers** (System; a game's page shows where it stands and opens it) update DLSS, FSR and XeSS files a game already has. Close the game first. **Restore**, in the game's Properties, puts the game's own files back. A game with anti-cheat changes only after you allow it for that game, at your own risk; Riot games are never changed. DLSS presets are part of Exo's driver profile, on an NVIDIA graphics card.
-- **Shaders** (System > Shaders) precompiles games' shaders. **Scan games** finds what to compile and **Compile** works through the queue; press a game to add it or take it out, and drag to change the order. A game's Shaders row opens it here. It compiles again by itself after a graphics driver update, while your PC is idle, and skips a game Windows already compiled for your card.
+- **Upscalers** (PC › Graphics; a game's page shows where it stands and opens it) update DLSS, FSR and XeSS files a game already has. Close the game first. **Restore**, in the game's Properties, puts the game's own files back. A game with anti-cheat changes only after you allow it for that game, at your own risk; Riot games are never changed. DLSS presets are part of Exo's driver profile, on an NVIDIA graphics card.
+- **Shaders** (PC > Graphics > Shaders) precompiles games' shaders. **Refresh** finds what to compile and **Compile** works through the queue; press a game to add it or take it out, and drag to change the order. A game's Shaders row opens it here. Nothing runs until you press one of them, and it stops soon after: after a graphics driver update, **Refresh** shows the games to compile again. It skips a game Windows already compiled for your card.
 
 ## Store
 
@@ -66,17 +69,19 @@ Notifications follow your Discord notification settings and go away when you rea
 
 ## Music
 
-Pick Spotify, Apple Music or YouTube Music in **Settings > Music**, then press **Sign in** in the Music room and sign in on the service's own page. Spotify needs its desktop app, which Exo can install for you, and Spotify Premium. **Songs**, under Home, lists every song you saved. A Spotify link someone sends you in Discord opens here, and pasting a Jam link into **Jam** joins it. The mini player in the top bar controls playback from every room.
+Pick Spotify, Apple Music or YouTube Music in **Settings > Accounts and keys > Music**, then press **Sign in** in the Music room and sign in on the service's own page. Spotify needs its desktop app, which Exo can install for you, and Spotify Premium. **Songs**, under Home, lists every song you saved. A Spotify link someone sends you in Discord opens here, and pasting a Jam link into **Jam** joins it. The mini player in the top bar controls playback from every room.
 
 If the Music room stays empty or signed out, check that the service works in your browser, then sign in again from the Music room.
 
 ## Captures
 
-The Capture button in the top bar, or its keys (**Settings > Capture**), saves an instant replay, starts or stops a recording, or takes a snip. **Captures** lists them by game, with trim, favorites, copies sized for Discord or vertical video, and **Send to Discord**, which copies the file and opens the Discord room for you to paste it. While you aren't playing (and a laptop is plugged in), Exo re-saves your recordings at about a third of the size with the audio untouched, one at a time, biggest first, after checking each new file looks the same as the original; the original goes to the Recycle Bin only then. **Settings > Capture > Make recordings smaller** turns it off, and **Make smaller** on a recording does that one now.
+The Capture button in the top bar, or its keys (set in **Capture settings**, in the Capture menu and in **Captures**), saves an instant replay, starts or stops a recording, or takes a snip. **Captures** lists them by game, with trim, favorites, copies sized for Discord or vertical video, and **Send to Discord**, which copies the file and opens the Discord room for you to paste it. While you aren't playing (and a laptop is plugged in), Exo re-saves your recordings at about a third of the size with the audio untouched, one at a time, biggest first, after checking each new file looks the same as the original; the original goes to the Recycle Bin only then. **Capture settings > Make recordings smaller** turns it off, and **Make smaller** on a recording does that one now.
 
 ## Devices
 
-Plug in a supported mouse or its receiver and open **Devices**. Only the settings your mouse has are shown; every change is written to the mouse and read back. Save a profile, link it to games, and it switches on by itself when one starts. If the mouse isn't found, wake it, check its battery and connection, then open Devices again.
+**Devices** shows your mouse, keyboard, what you listen on and your controller, each with its picture; press one to open its page. On your headphones' page, **Pick** the pair you wear (Windows can't tell which pair is on the jack) and set up Lucid, Game Mode and Night Shift. Keyboards and controllers are marked Coming soon.
+
+For your mouse, plug in a supported mouse or its receiver and open its card. Only the settings your mouse has are shown; every change is written to the mouse and read back. Save a profile, link it to games, and it switches on by itself when one starts. If the mouse isn't found, wake it, check its battery and connection, then open Devices again.
 
 ## Your data
 

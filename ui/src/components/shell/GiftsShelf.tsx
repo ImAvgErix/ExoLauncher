@@ -1,53 +1,57 @@
 import { memo, useEffect, useState } from 'react'
 import { Gift } from '../../brand/icons'
 import { host, onHostEvent, type StoreGift } from '../../lib/host'
+import { notify } from '../../lib/notify'
 import { report } from '../../lib/report'
+import { confirm } from '../ui/Dialog'
+import { Spinner } from '../ui/Spinner'
 
-type Busy = 'accept' | 'decline' | 'confirm'
+type Busy = 'accept' | 'decline'
 
 const keyOf = (gift: StoreGift) => `${gift.store}:${gift.id}`
 
 /**
  * Gifts (DESIGN.md › Library): games someone sent you on Steam or Epic, waiting to be accepted. Shows only while
- * one waits. Accept adds the game to your library (the store is read again, so it appears); Decline asks once,
- * since the sender is refunded.
+ * one waits. Accept adds the game to your library (the store is read again, so it appears); Decline asks first,
+ * since the sender is refunded. How it went is said in the notice stack, and the gift leaves.
  */
 export const GiftsShelf = memo(function GiftsShelf() {
   const gifts = useGifts()
-  // Answered gifts stay a moment with their result line, then leave.
-  const [answered, setAnswered] = useState<Record<string, string>>({})
-  const shown = gifts.filter(gift => answered[keyOf(gift)] !== '')
+  // An answered gift leaves at once, before the store's next read drops it.
+  const [answered, setAnswered] = useState<ReadonlySet<string>>(() => new Set())
+  const shown = gifts.filter(gift => !answered.has(keyOf(gift)))
   if (shown.length === 0) return null
   return (
     <section className="exo-gifts" aria-labelledby="exo-gifts-title">
       <h2 className="exo-section-title" id="exo-gifts-title">Gifts</h2>
       <ul className="exo-gifts-row">
         {shown.map(gift => (
-          <GiftCard
-            key={keyOf(gift)}
-            gift={gift}
-            done={answered[keyOf(gift)] ?? null}
-            onDone={line => {
-              setAnswered(all => ({ ...all, [keyOf(gift)]: line }))
-              window.setTimeout(() => setAnswered(all => ({ ...all, [keyOf(gift)]: '' })), 2400)
-            }}
-          />
+          <GiftCard key={keyOf(gift)} gift={gift} onDone={() => setAnswered(all => new Set(all).add(keyOf(gift)))} />
         ))}
       </ul>
     </section>
   )
 })
 
-function GiftCard({ gift, done, onDone }: { gift: StoreGift; done: string | null; onDone: (line: string) => void }) {
+function GiftCard({ gift, onDone }: { gift: StoreGift; onDone: () => void }) {
   const [busy, setBusy] = useState<Busy | null>(null)
   const [error, setError] = useState<string | null>(null)
   async function answer(accept: boolean) {
+    const sure = accept || await confirm({
+      title: `Decline ${gift.title}?`,
+      body: `${gift.sender ?? 'The sender'} gets a refund, and the gift is gone.`,
+      action: 'Decline',
+      danger: true,
+    })
+    if (sure !== true) return
     setBusy(accept ? 'accept' : 'decline')
     setError(null)
     try {
       const result = await host.giftsAnswer(gift.store, gift.id, accept)
-      if (result.ok) onDone(result.message ?? (accept ? 'Added to your library.' : 'Declined.'))
-      else setError(result.message ?? 'That did not finish. Try again.')
+      if (result.ok) {
+        notify({ title: gift.title, text: result.message ?? (accept ? 'Added to your library.' : 'Declined.'), tone: 'good' })
+        onDone()
+      } else setError(result.message ?? 'That did not finish. Try again.')
     } catch (cause) {
       report(cause, 'GiftsShelf.answer')
       setError('That did not finish. Try again.')
@@ -55,7 +59,6 @@ function GiftCard({ gift, done, onDone }: { gift: StoreGift; done: string | null
       setBusy(null)
     }
   }
-  const line = done ?? error ?? (busy === 'confirm' || busy === 'decline' ? `Declining refunds ${gift.sender ?? 'the sender'}.` : null)
   return (
     <li className="exo-gift">
       <div className="exo-gift-art">
@@ -65,27 +68,18 @@ function GiftCard({ gift, done, onDone }: { gift: StoreGift; done: string | null
         <strong>{gift.title}</strong>
         {gift.sender ? <span>From {gift.sender}</span> : null}
         {gift.message ? <p className="exo-gift-message">{gift.message}</p> : null}
-        {line ? <p className={`exo-gift-line${error && !done ? ' is-bad' : ''}`} role="status">{line}</p> : null}
+        {error ? <p className="exo-gift-line is-bad" role="alert">{error}</p> : null}
       </div>
-      {done ? null : (
-        <div className="exo-gift-actions">
-          {busy === 'confirm' || busy === 'decline' ? (
-            <>
-              <button type="button" className="exo-set-btn" disabled={busy === 'decline'} onClick={() => setBusy(null)}>Keep</button>
-              <button type="button" className="exo-set-btn is-danger" disabled={busy === 'decline'} onClick={() => void answer(false)}>
-                {busy === 'decline' ? 'Declining…' : 'Decline'}
-              </button>
-            </>
-          ) : (
-            <>
-              <button type="button" className="exo-set-btn" disabled={busy !== null} onClick={() => { setError(null); setBusy('confirm') }}>Decline</button>
-              <button type="button" className="exo-set-btn is-primary" disabled={busy !== null} onClick={() => void answer(true)}>
-                {busy === 'accept' ? 'Accepting…' : 'Accept'}
-              </button>
-            </>
-          )}
-        </div>
-      )}
+      <div className="exo-gift-actions">
+        <button type="button" className="exo-set-btn" disabled={busy !== null} onClick={() => void answer(false)}>
+          {busy === 'decline' ? <Spinner label={`Declining ${gift.title}`} /> : null}
+          Decline
+        </button>
+        <button type="button" className="exo-set-btn is-primary" disabled={busy !== null} onClick={() => void answer(true)}>
+          {busy === 'accept' ? <Spinner label={`Accepting ${gift.title}`} /> : null}
+          Accept
+        </button>
+      </div>
     </li>
   )
 }

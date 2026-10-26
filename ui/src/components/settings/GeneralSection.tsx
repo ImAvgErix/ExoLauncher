@@ -1,6 +1,7 @@
 import { memo, useState } from 'react'
 import { host, type LauncherSettings } from '../../lib/host'
 import { Choice } from '../settings/Choice'
+import { Spinner } from '../ui/Spinner'
 import { Row, Section, SwitchRow } from './parts'
 
 /** Null when the save took, else why not. */
@@ -56,15 +57,6 @@ export const GeneralSection = memo(function GeneralSection({ settings, onSave: s
   return (
     <>
     <Section id="general" title="General">
-      <Row label="Text size" labelId="set-text-size" error={textError}>
-        <Choice
-          label="Text size"
-          value={settings?.textSize ?? 'normal'}
-          choices={TEXT_SIZES}
-          disabled={disabled}
-          onChange={value => { setTextError(null); void save({ textSize: value }).then(setTextError) }}
-        />
-      </Row>
       <Row label="Appearance" labelId="set-appearance" detail="Void is pure black, for OLED screens" error={appearanceError}>
         <Choice
           label="Appearance"
@@ -83,12 +75,29 @@ export const GeneralSection = memo(function GeneralSection({ settings, onSave: s
           onChange={value => { setGlassError(null); void save({ glass: value }).then(setGlassError) }}
         />
       </Row>
+      <Row label="Text size" labelId="set-text-size" error={textError}>
+        <Choice
+          label="Text size"
+          value={settings?.textSize ?? 'normal'}
+          choices={TEXT_SIZES}
+          disabled={disabled}
+          onChange={value => { setTextError(null); void save({ textSize: value }).then(setTextError) }}
+        />
+      </Row>
       <SwitchRow
         id="set-reduce-motion"
         label="Reduce motion"
         checked={settings?.reduceMotion === true}
         disabled={disabled}
         onChange={value => save({ reduceMotion: value })}
+      />
+      <SwitchRow
+        id="set-dictation"
+        label="Dictation"
+        detail="A mic in text boxes turns what you say into text, on this PC"
+        checked={settings?.dictation !== false}
+        disabled={disabled}
+        onChange={value => save({ dictation: value })}
       />
       <SwitchRow
         id="set-tools"
@@ -111,7 +120,7 @@ export const GeneralSection = memo(function GeneralSection({ settings, onSave: s
           </button>
         ) : null}
         <button type="button" className="exo-set-btn" disabled={disabled || picking} onClick={() => void browse()}>
-          {picking ? 'Choosing…' : 'Change'}
+          {picking ? <Spinner label="Choosing a folder" /> : null}Change
         </button>
       </Row>
       <DownloadRows settings={settings} disabled={disabled} save={save} />
@@ -134,14 +143,6 @@ function DownloadRows({ settings, disabled, save }: { settings: LauncherSettings
   const current = HOURS.find(h => h.start === (settings?.downloadHoursStart ?? null) && h.end === (settings?.downloadHoursEnd ?? null))?.value ?? 'custom'
   return (
     <>
-      <SwitchRow
-        id="set-pause-playing"
-        label="Pause downloads while playing"
-        detail="Epic, GOG and Amazon. Steam has its own."
-        checked={settings?.pauseDownloadsWhilePlaying !== false}
-        disabled={disabled}
-        onChange={value => save({ pauseDownloadsWhilePlaying: value })}
-      />
       <Row label="Download hours" labelId="set-download-hours" detail="New downloads wait for these hours" error={hoursError}>
         <Choice
           label="Download hours"
@@ -155,6 +156,14 @@ function DownloadRows({ settings, disabled, save }: { settings: LauncherSettings
           }}
         />
       </Row>
+      <SwitchRow
+        id="set-pause-playing"
+        label="Pause downloads while playing"
+        detail="Epic, GOG and Amazon. Steam has its own."
+        checked={settings?.pauseDownloadsWhilePlaying !== false}
+        disabled={disabled}
+        onChange={value => save({ pauseDownloadsWhilePlaying: value })}
+      />
       <SwitchRow
         id="set-auto-update"
         label="Update games automatically"

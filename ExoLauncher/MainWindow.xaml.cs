@@ -682,6 +682,18 @@ public sealed partial class MainWindow : Window
             }
             catch { /* handler below still serves covers */ }
 
+            // The Devices room's product pictures (Services/DeviceImages), each made once and kept on this PC.
+            // Allow, as for covers: the folder holds only the makers' public product pictures.
+            try
+            {
+                Directory.CreateDirectory(Services.DeviceImages.CacheRoot);
+                core.SetVirtualHostNameToFolderMapping(
+                    Services.DeviceImages.VirtualHost,
+                    Services.DeviceImages.CacheRoot,
+                    CoreWebView2HostResourceAccessKind.Allow);
+            }
+            catch (Exception ex) { AppLog.Warn("Device pictures could not be mapped: " + ex.Message); }
+
             // The shader add-on's page, on its own host so it runs as another origin in its frame.
             if (Services.ShadersAddon.Present)
             {

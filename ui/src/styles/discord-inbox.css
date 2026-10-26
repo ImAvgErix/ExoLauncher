@@ -479,6 +479,7 @@ button.exo-dc-foryou:hover {
   border: 0;
   border-radius: 6px;
   background: var(--exo-fill);
+  box-shadow: var(--exo-rim);
   color: var(--color-fg);
   font: inherit;
   font-size: calc(12px * var(--exo-scale, 1));
@@ -500,6 +501,7 @@ button.exo-dc-foryou:hover {
   overflow-y: auto;
   border-radius: 10px;
   background: var(--exo-fill);
+  box-shadow: var(--exo-rim);
   color: var(--color-fg);
   font-size: calc(12px * var(--exo-scale, 1));
 }

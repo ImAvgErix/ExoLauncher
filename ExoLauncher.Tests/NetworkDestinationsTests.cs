@@ -44,6 +44,7 @@ public sealed partial class NetworkDestinationsTests
         ["app.exo-launcher.local"] = "virtual host",
         ["covers.exo-launcher.local"] = "virtual host",
         ["thumbs.exo-launcher.local"] = "virtual host",
+        ["devices.exo-launcher.local"] = "virtual host",
     };
 
     private static IReadOnlyList<string> PrivacyRows()

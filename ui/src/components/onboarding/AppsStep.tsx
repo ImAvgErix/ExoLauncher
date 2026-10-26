@@ -6,6 +6,8 @@ import { savedMusicService, saveMusicService, type MusicService } from '../../li
 import { report } from '../../lib/report'
 import type { Feedback } from './model'
 import { Row, State } from '../settings/parts'
+import { Spinner } from '../ui/Spinner'
+import { Skeleton, SkeletonWord } from '../ui/Skeleton'
 
 type AppState = 'loading' | 'installing' | 'notInstalled' | 'storeEdition' | 'installed' | 'running' | 'closed' | 'error'
 type DesktopApp = { id: string; title: string; state: AppState }
@@ -19,8 +21,8 @@ const SERVICES = [
 ] as const
 
 const STATE_LABEL: Record<AppState, string> = {
-  loading: 'Checking…',
-  installing: 'Installing…',
+  loading: 'Checking',
+  installing: 'Installing',
   notInstalled: 'Not installed',
   storeEdition: 'Microsoft Store edition',
   installed: 'Installed',
@@ -130,7 +132,7 @@ export function AppsStep({ onFeedback }: { onFeedback: (feedback: Feedback) => v
 
       <div className="exo-set-list">
         {apps === null ? (
-          <Row label="Checking apps…" />
+          <Skeleton label="Checking apps" rows={2} avatar />
         ) : relevant.length === 0 && web ? (
           <Row label={web.label} icon={<web.Icon size={22} />}><State on>Plays in Exo</State></Row>
         ) : null}
@@ -141,7 +143,11 @@ export function AppsStep({ onFeedback }: { onFeedback: (feedback: Feedback) => v
           return (
             <Row key={app.id} label={app.title} icon={<Icon size={22} />}
               detail={store ? 'Can’t play inside Exo. Your account and library stay when you switch' : undefined}>
-              <State on={app.state === 'installed' || app.state === 'running' || app.state === 'closed'}>{STATE_LABEL[app.state] ?? app.state}</State>
+              {app.state === 'loading' ? <SkeletonWord label={`Checking ${app.title}`} /> : (
+                <State on={app.state === 'installed' || app.state === 'running' || app.state === 'closed'}>
+                  {app.state === 'installing' ? <><Spinner label={`Installing ${app.title}`} /> </> : null}{STATE_LABEL[app.state] ?? app.state}
+                </State>
+              )}
               {canInstall ? (
                 <button type="button" className="exo-set-btn" onClick={() => void install(app)}>{store ? 'Switch to Spotify’s app' : `Install ${app.title}`}</button>
               ) : null}

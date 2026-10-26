@@ -6,13 +6,16 @@ import { pane, pressedArt, transition, visible, type Morph } from '../../lib/vie
 import type { MusicAdapter } from '../../lib/musicAdapters'
 import type { PlayerCard, PlayerOption, PlayerState, PlayerView, PlayerViewData, PlayerViewOptions } from '../../lib/player'
 import { ChevronLeft, Devices, Equalizer, Explore, Heart, Home, Jam, More, Movie, New, Next, NowPlaying, Pause, Pin, Play, Plus, Previous, Queue, Radio, Repeat, RepeatOne, Search, Shuffle, Songs, ThumbsDown, Users } from '../../brand/icons'
+import { confirm } from '../ui/Dialog'
 import { Menu, type MenuItem } from '../ui/Menu'
+import { DictateButton } from '../ui/DictateButton'
 import { useLens } from '../../lib/glass'
 import { Art, isLikedCard } from './Art'
 import { DiscographyPage } from './artist'
-import { Confirm, copyLink, createFolder, NameField, newPlaylist, shareLink, useFlash } from './manage'
+import { copyLink, createFolder, NameField, newPlaylist, shareLink } from './manage'
 import { BrowsePage, HomePage, ListPage, SearchPage, Waiting } from './pages'
 import { SongsPage } from './SongsPage'
+import { MusicWait, PageBones } from './MusicWait'
 import { CreditsPanel, DevicesPanel, FriendsPanel, JamPanel, NowPlayingPanel, QueuePanel } from './panels'
 import { useMusicShortcuts } from './shortcuts'
 import { SoundPanel } from './SoundPanel'
@@ -38,6 +41,7 @@ export function MusicPlayer({ adapter, active, nowPlaying }: { adapter: MusicAda
   const [panel, setPanel] = useState<Panel>(null)
   // The title bar's mini player opens Now playing, in the very render the room shows, so its cover can fly there.
   const [nowAsked, setNowAsked] = useState(0)
+  const reveal = useReveal()
   if (nowAsked !== nowPlaying) {
     setNowAsked(nowPlaying)
     setPanel('now')
@@ -145,7 +149,8 @@ export function MusicPlayer({ adapter, active, nowPlaying }: { adapter: MusicAda
   const search = query.trim()
   return (
     <PlayerContext.Provider value={value}>
-      <main className="exo-music" aria-label={adapter.name}>
+      {reveal.covered ? <MusicWait name={adapter.name} leaving={reveal.ready} onLeft={reveal.uncover} /> : null}
+      <main className="exo-music" aria-label={adapter.name} inert={reveal.covered}>
         <h1 className="sr-only">{adapter.name}</h1>
         <nav className="exo-music-side" aria-label="Your library">
           {NAV.filter(([view]) => view === 'home' || view === 'songs' || value.has(view)).map(([view, Icon, name]) => (
@@ -163,10 +168,11 @@ export function MusicPlayer({ adapter, active, nowPlaying }: { adapter: MusicAda
             <Search size={15} />
             <input ref={searchField} type="search" value={query} placeholder="Search" aria-label={`Search ${adapter.name}`}
               onChange={event => setQuery(event.target.value)} onKeyDown={event => { if (event.key === 'Escape') setQuery('') }} />
+            <DictateButton target={searchField} />
           </label>
-          <Library current={search ? undefined : page.uri} />
+          <Library current={search ? undefined : page.uri} onSettled={reveal.library} />
         </nav>
-        <Main page={page} query={search} depth={stack.length} artFrom={artFrom} canBack={!search && stack.length > 1}
+        <Main page={page} query={search} depth={stack.length} artFrom={artFrom} canBack={!search && stack.length > 1} onSettled={reveal.page}
           onBack={() => setStack(previous => previous.length > 1 ? previous.slice(0, -1) : previous)} />
         {panel ? (
           <aside className="exo-music-panel exo-motion-switch" key={panel} aria-label={panelName(panel)}>
@@ -197,6 +203,34 @@ export function MusicPlayer({ adapter, active, nowPlaying }: { adapter: MusicAda
   )
 }
 
+/** Longest the room's first showing waits on its library and first page before it shows what it has. */
+const REVEAL_MS = 10_000
+
+/**
+ * The room's first showing lands whole (DESIGN.md › Waits): MusicWait covers it until your library and the first page
+ * have both come (or failed, which shows), then fades once. A service that answers neither within REVEAL_MS shows what it
+ * has. The cover goes for good once gone: a page later waits in place (Main).
+ */
+function useReveal() {
+  const [parts, setParts] = useState({ library: false, page: false })
+  const [covered, setCovered] = useState(true)
+  const ready = parts.library && parts.page
+  useEffect(() => {
+    const timer = window.setTimeout(() => setParts({ library: true, page: true }), REVEAL_MS)
+    return () => window.clearTimeout(timer)
+  }, [])
+  // The fade ends the cover; a fade that never runs (the room hidden mid-fade) ends it a moment later.
+  useEffect(() => {
+    if (!ready || !covered) return
+    const timer = window.setTimeout(() => setCovered(false), 600)
+    return () => window.clearTimeout(timer)
+  }, [ready, covered])
+  const library = useCallback(() => setParts(current => current.library ? current : { ...current, library: true }), [])
+  const page = useCallback(() => setParts(current => current.page ? current : { ...current, page: true }), [])
+  const uncover = useCallback(() => setCovered(false), [])
+  return { covered, ready, library, page, uncover }
+}
+
 /** The room's own pages, down the left: Explore (YouTube Music), New and Radio (Apple Music) where the service has them. */
 const NAV = [['home', Home, 'Home'], ['songs', Songs, 'Songs'], ['explore', Explore, 'Explore'], ['browse', New, 'New'], ['radio', Radio, 'Radio']] as const
 
@@ -211,13 +245,15 @@ function viewFor(page: Page, query: string, filter: string): [PlayerView, Player
 }
 
 /** The middle column. The page on screen stays until the next one has loaded, then the new one fades in. */
-function Main({ page, query, depth, artFrom, canBack, onBack }: {
+function Main({ page, query, depth, artFrom, canBack, onSettled, onBack }: {
   page: Page
   query: string
   /** How deep the page is, so a page further in pushes forward and one back pushes back. */
   depth: number
   artFrom: { current: Element | null }
   canBack: boolean
+  /** The first page is in (Home with its recent grid), or failed: the room may show. */
+  onSettled: () => void
   onBack: () => void
 }) {
   const [settled, setSettled] = useState(query)
@@ -256,24 +292,35 @@ function Main({ page, query, depth, artFrom, canBack, onBack }: {
   // A page that failed to load shows its error, not the last page under it.
   const stale = !!error && shownKey !== `${target.view}:${target.uri ?? ''}:${settled}`
   useTopOnChange(scroller, shownKey)
+  // Home says so itself once its recent grid is in too, so its shelves never move down under it.
+  useEffect(() => { if (error || songs || shown && (shown.query || shown.page.view !== 'home')) onSettled() }, [error, songs, shown, onSettled])
   return (
-    <div className="exo-music-main" ref={scroller} aria-busy={!songs && !fresh}>
+    <div className="exo-music-main" ref={scroller}>
+      {!songs && !error && (!shown || !fresh) ? <PageWait first={!shown} query={settled} name={adapter.name} /> : null}
       {canBack ? <button type="button" className="exo-set-btn exo-music-back" onClick={onBack} aria-label="Back"><ChevronLeft size={18} /></button> : null}
       {error && !songs ? <p className="exo-music-error" role="alert">{error}</p> : null}
-      {/* The first page while the service starts (Spotify can take a while after Exo opens): say so, not a black page. */}
-      {!songs && !shown && !error ? <p className="exo-music-wait" role="status">Loading {adapter.name}…</p> : null}
       {songs ? (
         <div key="songs" className="exo-motion-switch"><SongsPage scroller={scroller} /></div>
       ) : shown && !stale ? (
-        <div key={shownKey} className="exo-motion-switch"><PageBody {...shown} onFilter={setFilter} /></div>
+        <div key={shownKey} className={`exo-motion-switch${fresh ? '' : ' exo-shine'}`}><PageBody {...shown} onFilter={setFilter} onSettled={onSettled} /></div>
       ) : null}
     </div>
   )
 }
 
-function PageBody({ page, query, data, onFilter }: { page: Page; query: string; data: PlayerViewData; onFilter: (filter: string) => void }) {
+/**
+ * A page on its way (DESIGN.md › Waits): the first one lies under the room's cover (useReveal), and if it is still coming
+ * when the cover goes, Home's own shapes shine where it will be; a later one while the last stays and shines (Main),
+ * said to screen readers only.
+ */
+function PageWait({ first, query, name }: { first: boolean; query: string; name: string }) {
+  if (first) return <PageBones label={`Loading ${name}`} />
+  return <span className="sr-only" role="status">{query ? `Searching ${name}` : 'Loading the page'}</span>
+}
+
+function PageBody({ page, query, data, onFilter, onSettled }: { page: Page; query: string; data: PlayerViewData; onFilter: (filter: string) => void; onSettled: () => void }) {
   if (query) return <SearchPage query={query} data={data} onFilter={onFilter} />
-  if (page.view === 'home') return <HomePage data={data} />
+  if (page.view === 'home') return <HomePage data={data} onSettled={onSettled} />
   if (page.view === 'explore' || page.view === 'browse' || page.view === 'radio') return <BrowsePage page={page} data={data} />
   if (page.view === 'discography') return <DiscographyPage page={page} data={data} />
   return <ListPage page={page} data={data} />
@@ -333,21 +380,20 @@ function LibraryHead({ filters, picked, sorts, selected, onPick, onSort, onCreat
  * sort orders, folders that open in place, and (Spotify) each row's own
  * menu. The list stays while a new filter loads.
  */
-function Library({ current }: { current?: string }) {
+function Library({ current, onSettled }: { current?: string; onSettled: () => void }) {
   const player = usePlayer()
   const { adapter, has, open, playCard, revision } = player
   const [filter, setFilter] = useState('')
   const [sort, setSort] = useState('')
   const [folders, setFolders] = useState<PlayerCard[]>([])
   const [retry, setRetry] = useState(0)
-  // A folder being named in place ('new' for a new one), and a delete waiting on its confirm.
+  // A folder being named in place ('new' for a new one).
   const [naming, setNaming] = useState<string | null>(null)
-  const [confirming, setConfirming] = useState<PlayerCard | null>(null)
   const [failed, setFailed] = useState<string | null>(null)
-  const [copied, flash] = useFlash()
   const folder = folders[folders.length - 1]
   // offset only asks again: after a save, follow or add (revision) and on Retry.
   const { data, error } = useView('library', { uri: folder?.uri, query: `${filter}|${sort}`, offset: revision + retry * 1000 })
+  useEffect(() => { if (data || error) onSettled() }, [data, error, onSettled])
   const items = data?.items ?? []
   const filters = useTopFilters(data?.filters, !filter && !folder)
   const into = folder?.uri
@@ -374,23 +420,23 @@ function Library({ current }: { current?: string }) {
     if (id === 'play') playCard(card)
     else if (id === 'pin') void act('pin', { uri: card.uri, on: !card.pinned })
     else if (id === 'rename') setNaming(card.uri)
-    else if (id === 'delete') setConfirming(card)
-    else if (id === 'link' && link) void copyLink(link).then(ok => flash(ok ? 'Link copied' : "Couldn't copy the link", !ok))
+    else if (id === 'delete') void remove(card)
+    else if (id === 'link' && link) void copyLink(link)
     else if (id === 'out') void act('moveToFolder', { uri: card.uri, context: data?.folder?.parent || undefined })
     else if (id.startsWith('move:')) void act('moveToFolder', { uri: card.uri, context: id.slice(5) })
   }
   function newFolder(name: string) {
     void createFolder(adapter, name, into).then(ok => { if (!ok) setFailed(`${adapter.name} could not make a folder. Try again.`) })
   }
-  function remove(card: PlayerCard) {
-    setConfirming(null)
+  async function remove(card: PlayerCard) {
+    if (await confirm(deleteAsk(card, adapter.name)) !== true) return
     void act(card.kind === 'folder' ? 'deleteFolder' : 'like', card.kind === 'folder' ? { uri: card.uri } : { uri: card.uri, on: false })
   }
   return (
     <>
       <LibraryHead filters={filters} {...chosen(data, filter, sort)}
         onPick={id => { setFolders([]); setFilter(id); setSort('') }} onSort={setSort} onCreate={create} />
-      <LibraryNote error={error} loaded={!!data} failed={failed} copied={copied} onRetry={() => setRetry(n => n + 1)} />
+      <LibraryNote error={error} loaded={!!data} failed={failed} onRetry={() => setRetry(n => n + 1)} />
       <ul className="exo-music-library">
         {folder ? <FolderBack title={data?.folder?.title || folder.title} onBack={() => setFolders(previous => previous.slice(0, -1))} /> : null}
         {naming === 'new' ? (
@@ -401,7 +447,7 @@ function Library({ current }: { current?: string }) {
         ) : null}
         {items.map((card, index) => (
           <LibraryRow key={card.uri} card={card} index={index} current={current === card.uri}
-            menu={has('folders') ? libraryMenu(card, items, !!folder, !!shareLink(adapter, card)) : null} renaming={naming === card.uri} confirming={confirming?.uri === card.uri}
+            menu={has('folders') ? libraryMenu(card, items, !!folder, !!shareLink(adapter, card)) : null} renaming={naming === card.uri}
             onOpen={() => {
               if (card.kind === 'folder') { setFolders(previous => [...previous, card]); return }
               const next = pageFor(card)
@@ -409,8 +455,7 @@ function Library({ current }: { current?: string }) {
               else if (card.kind === 'track') playCard(card)
             }}
             onChoose={id => choose(card, id)}
-            onRenamed={name => { setNaming(null); if (name) void act('renameFolder', { uri: card.uri, name }) }}
-            onRemove={() => remove(card)} onCancel={() => setConfirming(null)} />
+            onRenamed={name => { setNaming(null); if (name) void act('renameFolder', { uri: card.uri, name }) }} />
         ))}
       </ul>
     </>
@@ -434,11 +479,10 @@ function FolderBack({ title, onBack }: { title: string; onBack: () => void }) {
 }
 
 /** The library's state line: a read that failed (with Retry), the first read, or what the last action said. */
-function LibraryNote({ error, loaded, failed, copied, onRetry }: {
+function LibraryNote({ error, loaded, failed, onRetry }: {
   error: string | null
   loaded: boolean
   failed: string | null
-  copied: { text: string; failed: boolean } | null
   onRetry: () => void
 }) {
   if (error) {
@@ -448,27 +492,23 @@ function LibraryNote({ error, loaded, failed, copied, onRetry }: {
       </p>
     )
   }
-  if (!loaded) return <Waiting />
-  if (failed) return <p className="exo-music-error" role="alert">{failed}</p>
-  return copied ? <p className={copied.failed ? 'exo-music-error' : 'exo-music-done'} role="status">{copied.text}</p> : null
+  if (!loaded) return <Waiting label="Loading your library" />
+  return failed ? <p className="exo-music-error" role="alert">{failed}</p> : null
 }
 
 /**
  * One row of your library: a page opens, a folder opens in place, a song (History) plays; its More
- * menu (Spotify), a rename field in its place, a delete's confirm under it.
+ * menu (Spotify) and a rename field in its place.
  */
-function LibraryRow({ card, index, current, menu, renaming, confirming, onOpen, onChoose, onRenamed, onRemove, onCancel }: {
+function LibraryRow({ card, index, current, menu, renaming, onOpen, onChoose, onRenamed }: {
   card: PlayerCard
   index: number
   current: boolean
   menu: MenuItem[] | null
   renaming: boolean
-  confirming: boolean
   onOpen: () => void
   onChoose: (id: string) => void
   onRenamed: (name: string | null) => void
-  onRemove: () => void
-  onCancel: () => void
 }) {
   const { has, playCard } = usePlayer()
   const folder = card.kind === 'folder'
@@ -493,7 +533,6 @@ function LibraryRow({ card, index, current, menu, renaming, confirming, onOpen, 
         <Menu label={`More for ${card.title}`} anchor={`--exo-lib-${index}`} offset={4} triggerClassName="exo-set-btn exo-music-library-more"
           trigger={<More size={16} />} items={menu} filter={{ section: 'Move to folder', label: 'Find a folder' }} onAction={onChoose} />
       ) : null}
-      {confirming ? <Confirm text={deleteText(card)} action={folder || card.owned ? 'Delete' : 'Remove'} onConfirm={onRemove} onCancel={onCancel} /> : null}
     </li>
   )
 }
@@ -516,9 +555,12 @@ function libraryMenu(card: PlayerCard, items: PlayerCard[], inFolder: boolean, l
   ]
 }
 
-function deleteText(card: PlayerCard) {
-  if (card.kind === 'folder') return `Delete “${card.title}” and the playlists in it?`
-  return card.owned ? `Delete “${card.title}”?` : `Remove “${card.title}” from your library?`
+/** A library row's Delete or Remove, asked first. */
+function deleteAsk(card: PlayerCard, service: string) {
+  if (card.kind === 'folder') return { title: `Delete “${card.title}”?`, body: 'The playlists in it are deleted too.', action: 'Delete', danger: true }
+  return card.owned
+    ? { title: `Delete “${card.title}”?`, body: `It leaves your library on ${service}.`, action: 'Delete', danger: true }
+    : { title: `Remove “${card.title}” from your library?`, body: `It stays on ${service}, and you can add it again.`, action: 'Remove', danger: true }
 }
 
 function kindLabel(card: PlayerCard, podcasts: boolean) {

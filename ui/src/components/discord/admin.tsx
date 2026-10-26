@@ -1,8 +1,9 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type RefObject } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { host } from '../../lib/host'
-import { focusableSelector, trapTab } from '../../lib/focusTrap'
+import { useLayer } from '../../lib/layer'
 import { report } from '../../lib/report'
-import { ModalBack } from './SettingsLayer'
+import { Spinner } from '../ui/Spinner'
+import { ConfirmDialog } from '../ui/Dialog'
 
 /** Discord wants the person to verify first: the check's id (the ticket stays in Exo's host) and the ways Discord offers. */
 export type MfaAsk = { id: string; methods: string[] }
@@ -60,46 +61,8 @@ export function ReadError({ error, onRetry }: { error: string | null; onRetry: (
   return <p className="exo-dc-note is-bad" role="alert">{error} <button type="button" className="exo-dc-tab is-raised" onClick={onRetry}>Try again</button></p>
 }
 
-// Open dialogs and menus, the newest last: Escape and Tab belong to the top one only.
-const layers: object[] = []
-
-/**
- * One layer over the room (a dialog, Server Settings, a menu): Escape runs onEscape, Tab stays inside it,
- * focus starts in it and goes back where it was when it closes. A layer under another
- * waits, and Escape in an open dropdown closes only the dropdown.
- */
-export function useLayer(ref: RefObject<HTMLElement | null>, onEscape: () => void, on = true) {
-  const escape = useRef(onEscape)
-  useEffect(() => { escape.current = onEscape })
-  useEffect(() => {
-    if (!on) return
-    const me = {}
-    layers.push(me)
-    const back = document.activeElement instanceof HTMLElement ? document.activeElement : null
-    const frame = window.requestAnimationFrame(() => {
-      const box = ref.current
-      if (!box || box.contains(document.activeElement)) return
-      // A field that asks for it, else the dialog itself (Tab goes on from there), else a menu's first row.
-      const first = box.querySelector<HTMLElement>('[autofocus], [data-autofocus]') ?? (box.tabIndex === -1 ? box : box.querySelector<HTMLElement>(focusableSelector))
-      ;(first ?? box).focus({ preventScroll: true })
-    })
-    const key = (event: KeyboardEvent) => {
-      if (layers.at(-1) !== me || !ref.current) return
-      if (event.key === 'Tab') trapTab(ref.current, event)
-      if (event.key !== 'Escape' || event.defaultPrevented || (event.target as Element | null)?.closest?.(':popover-open')) return
-      event.preventDefault()
-      event.stopPropagation()
-      escape.current()
-    }
-    window.addEventListener('keydown', key, true)
-    return () => {
-      window.cancelAnimationFrame(frame)
-      window.removeEventListener('keydown', key, true)
-      layers.splice(layers.indexOf(me), 1)
-      if (back?.isConnected) back.focus({ preventScroll: true })
-    }
-  }, [ref, on])
-}
+/** The page's layers (lib/layer.ts): kept here too, where the Discord room has always found it. */
+export { useLayer }
 
 type Unsaved = { mark: (dirty: boolean) => void; nudge: number; guard: (leave: () => void) => void }
 const UnsavedContext = createContext<Unsaved | null>(null)
@@ -169,36 +132,33 @@ export function SaveBar({ shown, busy, error, onReset, onSave }: { shown: boolea
     <div key={nudge} className={`exo-dc-savebar exo-glass${nudge ? ' is-nudged' : ''}`} role="status">
       <span>{error ?? 'Careful — you have unsaved changes!'}</span>
       <button type="button" className="exo-dc-tab" disabled={busy} onClick={onReset}>Reset</button>
-      <button type="button" className="exo-set-btn is-primary" disabled={busy} onClick={onSave}>Save changes</button>
+      <button type="button" className="exo-set-btn is-primary" disabled={busy} onClick={onSave}>
+        {busy ? <Spinner label="Saving changes" /> : null}Save changes
+      </button>
     </div>
   )
 }
 
-/** A question before something that can't be taken back, Discord's way: the title, why, Cancel and the action. */
-export function Confirm({ title, children, action, danger = true, busy, error, onConfirm, onClose }: {
+/** A question before something that can't be taken back, in Discord's room: Exo's one dialog (ui/Dialog.tsx), drawn in
+ * the room so its words keep Discord's colors. */
+export function Confirm({ title, children, action, danger = true, busy, disabled, error, form, onConfirm, onClose }: {
   title: string
   children?: React.ReactNode
   action: string
   danger?: boolean
+  /** The action is running: its ring shows before its words. */
   busy?: boolean
+  /** The action can't be taken yet (a field still empty); nothing is running. */
+  disabled?: boolean
   error?: string | null
+  /** Its body holds fields (a name, a reason). */
+  form?: boolean
   onConfirm: () => void
   onClose: () => void
 }) {
-  const box = useRef<HTMLDivElement>(null)
-  useLayer(box, onClose)
   return (
-    <ModalBack top onClose={onClose}>
-      <div ref={box} className="exo-dc-modal exo-dc-confirm" role="dialog" aria-modal="true" aria-label={title} tabIndex={-1} onClick={event => event.stopPropagation()}>
-        <strong>{title}</strong>
-        {children}
-        {error ? <p className="is-bad" role="alert">{error}</p> : null}
-        <div className="exo-dc-modal-row">
-          <button type="button" className="exo-dc-tab" onClick={onClose}>Cancel</button>
-          <button type="button" className={`exo-set-btn ${danger ? 'is-danger' : 'is-primary'}`} disabled={busy} onClick={onConfirm}>{action}</button>
-        </div>
-      </div>
-    </ModalBack>
+    <ConfirmDialog title={title} action={action} danger={danger} busy={busy} disabled={disabled} error={error} form={form} portal={false}
+      onConfirm={onConfirm} onClose={onClose}>{children}</ConfirmDialog>
   )
 }
 

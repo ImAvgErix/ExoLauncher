@@ -8,6 +8,7 @@ import { Icons } from './icons'
 import { emojiUrl } from './markdown'
 import { ModalBack } from './SettingsLayer'
 import { useLayer } from './admin'
+import { Skeleton } from '../ui/Skeleton'
 
 /** One chip under a message: a reaction's normal count, or its super reactions on a chip of their own, as Discord shows them. */
 type Chip = { reaction: DiscordReaction; burst: boolean; count: number; mine: boolean }
@@ -188,7 +189,7 @@ export function ReactionsDialog({ message, first, onClose }: { message: DiscordM
               ) : null}
             </div>
           ))}
-          {busy ? <p className="exo-dc-note">Loading</p> : null}
+          {busy ? <Skeleton label="Loading reactions" avatar /> : null}
         </div>
       </div>
     </ModalBack>

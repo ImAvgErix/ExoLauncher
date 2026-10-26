@@ -3,6 +3,7 @@ import { host, shelfAction, type Game, type LibraryFolder } from '../../lib/host
 import { report } from '../../lib/report'
 import { addToFolder, deleteFolder, isFolderTile, leaveFolder, moveFolder } from '../../lib/folders'
 import { ChevronLeft, ChevronRight, Download, Eye, EyeOff, Folder, FolderOpen, FolderPlus, Pencil, Play, Sliders, Trash } from '../../brand/icons'
+import { confirm } from '../ui/Dialog'
 
 /** The menu's fade as it closes (rooms.css › .exo-shelf-sort-menu, the quick time), and a frame to spare. */
 const LEAVE_MS = 140
@@ -16,8 +17,8 @@ type Item = { id: string; label: string; icon: ReactNode; run: () => void; secti
  * A Library card's menu (a right-click on any card, Continue's More): Play or Install, Play as
  * another saved Riot account for an installed Riot game, and Open folder and Properties for an installed game, then
  * Hide (Unhide on a hidden game). A native popover at the point it was asked for, kept inside the window
- * (lib/menuFit.ts); Escape, a click outside or a choice closes it. Then its Folders: every folder with a check on
- * those the game is in (a game may be in several), a choice putting it in or taking it out, and New folder; a
+ * (lib/menuFit.ts); Escape, a click outside or a choice closes it. Then New folder, and every folder with a check on
+ * those the game is in (a game may be in several), a choice putting it in or taking it out, with no heading or line; a
  * folder's card is edited or deleted.
  */
 export function GameMenu({ at, folders: liveFolders, hidden, onFolders, onHide, onNewFolder, onEditFolder, onClose, onPlay, onPlayAs, onOpenFolder, onProperties }: {
@@ -64,22 +65,27 @@ export function GameMenu({ at, folders: liveFolders, hidden, onFolders, onHide, 
     { id: 'edit', label: 'Edit folder', icon: <Pencil size={16} />, run: () => onEditFolder(tile.id) },
     ...(earlier ? [{ id: 'earlier', label: 'Move earlier', icon: <ChevronLeft size={16} />, run: () => onFolders(moveFolder(folders, tile.id, earlier.id, false)) }] : []),
     ...(later ? [{ id: 'later', label: 'Move later', icon: <ChevronRight size={16} />, run: () => onFolders(moveFolder(folders, tile.id, later.id, true)) }] : []),
-    { id: 'delete', label: 'Delete folder', icon: <Trash size={16} />, run: () => onFolders(deleteFolder(folders, tile.id)) },
+    {
+      id: 'delete', label: 'Delete folder', icon: <Trash size={16} />,
+      run: () => void confirm({ title: `Delete “${tile.name}”?`, body: 'Its games stay in your Library.', action: 'Delete', danger: true })
+        .then(sure => { if (sure === true) onFolders(deleteFolder(folders, tile.id)) }),
+    },
   ] : [
     ...(shortcut ? [{ id: 'play', label: shortcut.label, icon: shortcut.action === 'install' ? <Download size={16} /> : <Play size={16} />, run: () => onPlay(game) }] : []),
     ...others.map(account => ({ id: `as:${account.key}`, label: `Play as ${account.name}`, icon: <Play size={16} />, run: () => onPlayAs(game, account) })),
     ...(game.installed ? [{ id: 'folder', label: 'Open folder', icon: <FolderOpen size={16} />, run: () => onOpenFolder(game) }] : []),
     ...(game.installed && !game.isAddPortable ? [{ id: 'properties', label: 'Properties', icon: <Sliders size={16} />, run: () => onProperties(game) }] : []),
     { id: 'hide', label: hidden ? 'Unhide' : 'Hide', icon: hidden ? <Eye size={16} /> : <EyeOff size={16} />, run: () => onHide(game) },
+    // New folder sits with the rest; each folder follows as one more choice, checked when the game is in it.
     ...(hidden ? [] : [
+      { id: 'new-folder', label: 'New folder', icon: <FolderPlus size={16} />, run: () => onNewFolder(game.id) },
       ...folders.map(folder => {
         const on = folder.games.includes(game.id)
         return {
-          id: `in:${folder.id}`, label: folder.name, section: 'Folders', on, icon: <Folder size={16} />,
+          id: `in:${folder.id}`, label: folder.name, on, icon: <Folder size={16} />,
           run: () => onFolders(on ? leaveFolder(folders, game.id, folder.id) : addToFolder(folders, game.id, folder.id)),
         }
       }),
-      { id: 'new-folder', label: 'New folder', section: 'Folders', icon: <FolderPlus size={16} />, run: () => onNewFolder(game.id) },
     ]),
   ]
 

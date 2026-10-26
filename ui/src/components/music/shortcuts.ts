@@ -112,7 +112,7 @@ export function useMusicShortcuts(active: boolean, keys: MusicShortcuts, live: L
     const onKey = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.metaKey) return
       const target = event.target instanceof Element ? event.target : null
-      if (target?.closest('input, textarea, select, [contenteditable="true"], [role="menu"], [popover]:popover-open, dialog')) return
+      if (target?.closest('input, textarea, select, [contenteditable="true"], [role="menu"], [popover]:popover-open, dialog, [aria-modal="true"]')) return
       const key = combo(event)
       // Space on a focused button presses it, as everywhere else.
       if (key === 'Space' && target?.closest('button, a')) return

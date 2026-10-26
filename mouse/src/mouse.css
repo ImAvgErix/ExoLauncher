@@ -106,6 +106,14 @@
 
 * { box-sizing: border-box; }
 
+/* No scrollbar anywhere, as in Exo: everything still scrolls by wheel, touch and keys. Windows' own come back under
+   forced colors. */
+* { scrollbar-width: none; }
+
+@media (forced-colors: active) {
+  * { scrollbar-width: auto; }
+}
+
 html, body, #root {
   height: 100%;
   margin: 0;
@@ -391,10 +399,7 @@ button:focus-visible, input:focus-visible, select:focus-visible {
   min-width: 0;
   min-height: 0;
   overflow-y: auto;
-  scrollbar-width: none;
 }
-
-.m-settings::-webkit-scrollbar { display: none; }
 
 /*
  * The columns: panels flow top to bottom and wrap at a .m-break, which
@@ -523,6 +528,20 @@ button:focus-visible, input:focus-visible, select:focus-visible {
 .m-state {
   color: var(--muted);
   font-variant-numeric: tabular-nums;
+}
+
+.m-state.is-good { color: var(--good); }
+
+/* CPU core (CpuCore.tsx): a row's line wraps under its label, so a long verdict never pushes its control off the panel,
+   and it is read, so it is muted, not faint. While the mouse is measured, the bar stands where Measure was. */
+.m-core-row .m-row-label { flex: 1 1 0; }
+.m-core-row .m-row-control { flex: none; }
+.m-core-row .m-row-value { color: var(--muted); }
+.m-core-row .m-row-value.is-bad { color: var(--bad); }
+
+.m-core-bar {
+  display: block;
+  width: 112px;
 }
 
 /* ------------------------------------------------------------------ controls */
@@ -720,7 +739,6 @@ button:focus-visible, input:focus-visible, select:focus-visible {
   border-radius: 12px;
   background: var(--bg);
   box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6);
-  scrollbar-width: thin;
   transform-origin: top center;
   animation: m-menu-in var(--dur-base) var(--ease) both;
 }
@@ -896,7 +914,9 @@ button:focus-visible, input:focus-visible, select:focus-visible {
   font-size: var(--type-small);
 }
 
-/* The picker: the library's covers over the room, picked like Exo's own shelves. */
+/* The picker: the library's covers over the room, picked like Exo's own shelves. A sheet (24px) of the menus' frost:
+   the scrim darkens in by its color and the sheet settles in by its size, since a scrim fading whole hid the room from
+   the glass until it landed (Exo's exo-scrim-in and exo-sheet-in). */
 .m-picker-scrim {
   position: fixed;
   inset: 0;
@@ -905,7 +925,7 @@ button:focus-visible, input:focus-visible, select:focus-visible {
   place-items: center;
   padding: 32px;
   background: rgba(0, 0, 0, 0.78);
-  animation: m-fade 200ms var(--ease) both;
+  animation: m-scrim-in var(--dur-base) var(--ease) backwards;
 }
 
 .m-picker {
@@ -914,9 +934,10 @@ button:focus-visible, input:focus-visible, select:focus-visible {
   width: min(1040px, 100%);
   height: min(760px, 100%);
   border: 1px solid var(--hair);
-  border-radius: 14px;
+  border-radius: 24px;
   background: var(--bg);
   overflow: hidden;
+  animation: m-dialog-in var(--dur-move) var(--ease) backwards;
 }
 
 .m-picker-head {
@@ -948,7 +969,6 @@ button:focus-visible, input:focus-visible, select:focus-visible {
   gap: 16px 12px;
   padding: 24px;
   overflow-y: auto;
-  scrollbar-width: none;
 }
 
 .m-picker-empty {
@@ -1053,9 +1073,70 @@ button:focus-visible, input:focus-visible, select:focus-visible {
   .m-tile:hover .m-tile-cover { opacity: 1; }
 }
 
+/* ------------------------------------------------------------------ dialog */
+
+/* Exo's one question (Exo's styles/dialog.css; ui.tsx › Confirm): 18px, 400 to 420px wide over the scrim, the title in
+   20px and the words in 13px centered, then equal capsules on one row. The scrim darkens in by its color (deeper on
+   Void, as Exo's) and the dialog settles in from 0.98 by its size, its surface there from the first frame. */
+.m-dialog-back {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgb(0 0 0 / 0.6);
+  animation: m-scrim-in var(--dur-base) var(--ease) backwards;
+}
+
+:root:is([data-exo-theme="dark"], [data-exo-theme="light"]) .m-dialog-back { background: rgb(0 0 0 / 0.3); }
+
+.m-dialog {
+  display: flex;
+  flex-direction: column;
+  width: min(420px, 100%);
+  min-width: min(400px, 100%);
+  max-height: 100%;
+  padding: 28px 28px 24px;
+  overflow-y: auto;
+  border-radius: 18px;
+  animation: m-dialog-in var(--dur-move) var(--ease) backwards;
+}
+
+.m-dialog > h2 {
+  margin: 0 0 10px;
+  font-size: var(--type-title);
+  font-weight: 600;
+  line-height: 1.25;
+  text-align: center;
+  text-wrap: balance;
+}
+
+.m-dialog-body {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--type-body);
+  line-height: 1.5;
+  text-align: center;
+  text-wrap: pretty;
+}
+
+.m-dialog-actions {
+  display: grid;
+  grid-auto-columns: minmax(0, 1fr);
+  grid-auto-flow: column;
+  gap: 8px;
+  margin-top: 24px;
+}
+
+.m-dialog-actions > .m-button {
+  justify-content: center;
+  min-width: 0;
+}
+
 /* ------------------------------------------------------------------ motion
- * Exo's motion language (ui/src/tokens.css): arrive, work, done, switch and
- * the gliding fill. Every move stops under reduce motion: Exo's setting,
+ * Exo's motion language (ui/src/tokens.css): arrive, the progress bar, done,
+ * switch and the gliding fill. Every move stops under reduce motion: Exo's setting,
  * passed in as data-exo-motion (host-look.ts), or Windows' when standalone.
  */
 
@@ -1070,31 +1151,169 @@ button:focus-visible, input:focus-visible, select:focus-visible {
   animation: m-fade 200ms var(--ease) both;
 }
 
-/* Work: a soft diagonal band of light crosses the element while a change is written. */
-.m-work {
+/* Progress: Exo's one bar (ui/src/styles/progress.css, DESIGN.md › Progress), in Exo Mouse's tokens. Anything that
+   takes time shows it, and nothing else does. A glass track (the ink at 14% under a light rim) holds the ink's fill:
+   a sheen runs through the fill and a lit head rides its end; with no number a lit segment glides along the track.
+   Transforms only (the fill slides in from the left, never resizes), linear as progress is. */
+.m-progress {
+  --m-progress-h: 4px;
+  --m-progress-ink: var(--ink);
   position: relative;
-  overflow: hidden;
+  display: block;
+  width: 100%;
+  height: var(--m-progress-h);
+  flex: none;
 }
 
-/* A layer two and a half times as wide slides across (a transform, so nothing under it repaints). */
-.m-work::after {
+.m-progress.is-small { --m-progress-h: 3px; }
+.m-progress.is-large { --m-progress-h: 6px; }
+.m-progress.is-done { --m-progress-ink: var(--good); }
+.m-progress.is-bad { --m-progress-ink: var(--bad); }
+
+/* The track: the glass's own tint under a light rim, so it reads on the picture, on a control and on black alike. */
+.m-progress-track {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ink) 14%, transparent);
+  box-shadow: inset 0 0.5px 0 rgb(255 255 255 / 0.18), inset 0 0 0 0.5px color-mix(in srgb, var(--ink) 8%, transparent);
+}
+
+/* The fill is the track's full width, slid in from the left by the amount done: its rounded end and the head never
+   stretch. From a softer ink at its start to full ink at its end. */
+.m-progress-fill {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--m-progress-ink) 55%, transparent), var(--m-progress-ink));
+  transform: translateX(calc((var(--m-progress) - 1) * 100%));
+  transition: transform 240ms linear, background-color 160ms var(--ease);
+}
+
+/* The sheen: a band of light that runs through the fill, the bar's liquid. */
+.m-progress-fill::after {
   content: '';
   position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent 0%, rgb(255 255 255 / 0.55) 50%, transparent 100%);
+  background-size: 40% 100%;
+  background-repeat: no-repeat;
+  mix-blend-mode: soft-light;
+  animation: m-progress-sheen 1600ms linear infinite;
+}
+
+/* The head: a lit point at the fill's end with a soft bloom past the track, riding the same slide. */
+.m-progress-head {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  transform: translateX(calc((var(--m-progress) - 1) * 100%));
+  transition: transform 240ms linear, opacity 160ms var(--ease);
+}
+
+.m-progress-head::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  right: 0;
+  width: calc(var(--m-progress-h) + 4px);
+  height: calc(var(--m-progress-h) + 4px);
+  border-radius: 50%;
+  background: var(--m-progress-ink);
+  box-shadow: 0 0 8px 1px color-mix(in srgb, var(--m-progress-ink) 70%, transparent);
+  transform: translate(35%, -50%) scale(0.7);
+  opacity: 0.9;
+}
+
+/* Nothing done yet, or done: no head. */
+.m-progress:not(.is-unknown)[aria-valuenow="0"] .m-progress-head,
+.m-progress.is-done .m-progress-head {
+  opacity: 0;
+}
+
+.m-progress.is-done .m-progress-fill::after { animation: none; }
+
+/* No number: a lit segment, a third of the track, glides across it with its head. */
+.m-progress.is-unknown .m-progress-fill {
+  width: 34%;
+  transform: none;
+  background: linear-gradient(90deg, transparent, var(--m-progress-ink));
+  animation: m-progress-glide 1400ms linear infinite;
+}
+
+.m-progress.is-unknown .m-progress-fill::after { animation: none; }
+
+.m-progress.is-unknown .m-progress-head {
   inset: 0 auto 0 0;
+  width: 34%;
+  transform: none;
+  animation: m-progress-glide 1400ms linear infinite;
+}
+
+/* What carries a bar along its foot is that bar's frame (any rule of its own wins). */
+:where(*):has(> .m-progress.is-edge) {
+  position: relative;
+}
+
+/* Along the inside foot of a button or the mouse's picture. */
+.m-progress.is-edge {
+  position: absolute;
+  inset: auto 10px 4px;
+  width: auto;
+  z-index: 2;
+}
+
+/* Waits without a measure (Exo's styles/waits.css, DESIGN.md › Waits), in Exo Mouse's tokens: the ring before a
+   control's words (ui.tsx › Spinner), and the shine on content on its way (skeleton cards of its shape) or being
+   written (the mouse's picture). Each shows once a wait is real (300ms), loops on transforms and holds still under
+   Reduce motion. */
+.m-spinner {
+  display: inline-block;
+  flex: none;
+  vertical-align: -0.125em;
+  animation: m-wait-in 160ms var(--ease) 300ms backwards, m-spin 0.8s linear infinite;
+}
+
+/* A busy button keeps its words and its full color: its ring says it is working. */
+.m-button:disabled:has(.m-spinner) { opacity: 1; }
+.m-button > .m-spinner { margin-right: 6px; }
+
+.m-shine {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.m-shine::after {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  z-index: 4;
   width: 250%;
-  background: linear-gradient(115deg, transparent 30%, rgba(255, 255, 255, 0.16) 50%, transparent 70%);
-  animation: m-work-band 1400ms linear infinite;
+  background: linear-gradient(110deg, transparent 32%, color-mix(in srgb, var(--ink) 7%, transparent) 44%,
+    color-mix(in srgb, var(--ink) 16%, transparent) 50%, color-mix(in srgb, var(--ink) 7%, transparent) 56%, transparent 68%);
+  animation: m-shine 1.6s cubic-bezier(0.45, 0, 0.55, 1) infinite, m-wait-in 200ms var(--ease) 300ms backwards;
   pointer-events: none;
 }
 
-/* The same band, through text that is waiting (looking for, connecting to the mouse). */
-.m-work-text {
-  background: linear-gradient(115deg, var(--muted) 30%, var(--ink) 50%, var(--muted) 70%) no-repeat;
-  background-size: 250% 100%;
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  animation: m-work 1400ms linear infinite;
+/* A skeleton: the clear card it will be, a hairline on the page's lift. */
+.m-skeleton {
+  display: block;
+  min-width: 0;
+  min-height: 0;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--ink) 5%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ink) 6%, transparent);
+}
+
+/* The room on its way (App.tsx › Waiting): the picture's card, then two columns of panels. */
+.m-waiting-panels {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-auto-rows: minmax(0, 1fr);
+  gap: var(--gap);
+  min-height: 0;
 }
 
 /* Done: a green check draws itself. */
@@ -1180,17 +1399,28 @@ button:focus-visible, input:focus-visible, select:focus-visible {
 
 @keyframes m-fade { from { opacity: 0; } }
 
+@keyframes m-wait-in { from { opacity: 0; } }
+@keyframes m-spin { to { rotate: 360deg; } }
+@keyframes m-shine {
+  from { translate: -60% 0; }
+  to { translate: 0 0; }
+}
+
+/* A scrim darkens in by its color; a dialog settles in by its size (Exo's exo-scrim-in and exo-sheet-in). */
+@keyframes m-scrim-in { from { background-color: transparent; } }
+@keyframes m-dialog-in { from { scale: 0.98; } }
+
 /* A menu settles in from 0.96 under its field, never from nothing. */
 @keyframes m-menu-in { from { opacity: 0; scale: 0.96; } }
 
-@keyframes m-work-band {
-  from { translate: -90% 0; }
-  to { translate: 30% 0; }
+@keyframes m-progress-sheen {
+  from { background-position: -60% 0; }
+  to { background-position: 160% 0; }
 }
 
-@keyframes m-work {
-  from { background-position: 150% 0; }
-  to { background-position: -50% 0; }
+@keyframes m-progress-glide {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(300%); }
 }
 
 @keyframes m-check { to { stroke-dashoffset: 0; } }
@@ -1209,42 +1439,68 @@ button:focus-visible, input:focus-visible, select:focus-visible {
   100% { stroke-dashoffset: 0; opacity: 0; }
 }
 
-/* Reduce motion: nothing moves; the done check simply shows while it lasts. */
-:root[data-exo-motion='reduce'] :is(.m-arrive, .m-switch-in, .m-picker-scrim, .m-work-text, .m-check, .m-error, .m-done-check),
-:root[data-exo-motion='reduce'] .m-work::after {
+/* Reduce motion: nothing moves; the done check simply shows while it lasts. A bar's known amount moves to its new
+   place at once; an unknown one holds a still half-lit track. */
+:root[data-exo-motion='reduce'] :is(.m-arrive, .m-switch-in, .m-picker-scrim, .m-picker, .m-dialog, .m-check, .m-error, .m-done-check),
+:root[data-exo-motion='reduce'] .m-progress-fill::after {
   animation: none;
 }
 
-:root[data-exo-motion='reduce'] .m-work-text { color: var(--ink); background: none; }
 :root[data-exo-motion='reduce'] :is(.m-check, .m-done-check) { stroke-dashoffset: 0; }
 :root[data-exo-motion='reduce'] .m-done { animation: none; opacity: 1; background: none; }
 
-:root[data-exo-motion='reduce'] :is(.m-switch, .m-switch-knob, .m-gauge-fill, .m-gauge-step),
+:root[data-exo-motion='reduce'] :is(.m-switch, .m-switch-knob, .m-gauge-fill, .m-gauge-step, .m-progress-fill, .m-progress-head),
 :root[data-exo-motion='reduce'] .m-glide::before {
   transition: none;
 }
 
-/* A menu still fades in (opacity alone); a press only darkens. */
-:root[data-exo-motion='reduce'] .m-menu { animation-name: m-fade; }
+:root[data-exo-motion='reduce'] .m-progress.is-unknown :is(.m-progress-fill, .m-progress-head) { width: 100%; animation: none; opacity: 0.45; }
+:root[data-exo-motion='reduce'] .m-progress.is-unknown .m-progress-head { opacity: 0; }
+
+/* Nothing turns; a shine holds still and a little lighter, so the wait still reads. */
+:root[data-exo-motion='reduce'] .m-spinner { animation: none; }
+:root[data-exo-motion='reduce'] .m-shine::after { width: 100%; background: color-mix(in srgb, var(--ink) 5%, transparent); animation: none; }
+
+/* A menu is there at once (a fading frost is motion too, as Exo's glass under Reduce motion); a press only darkens. */
+:root[data-exo-motion='reduce'] .m-menu { animation: none; }
 :root[data-exo-motion='reduce'] :is(.m-select, .m-button):active:not(:disabled) { scale: none; }
 
 @media (prefers-reduced-motion: reduce) {
-  :root:not([data-exo-motion]) :is(.m-arrive, .m-switch-in, .m-picker-scrim, .m-work-text, .m-check, .m-error, .m-done-check),
-  :root:not([data-exo-motion]) .m-work::after {
+  :root:not([data-exo-motion]) :is(.m-arrive, .m-switch-in, .m-picker-scrim, .m-picker, .m-dialog, .m-check, .m-error, .m-done-check),
+  :root:not([data-exo-motion]) .m-progress-fill::after {
     animation: none;
   }
 
-  :root:not([data-exo-motion]) .m-work-text { color: var(--ink); background: none; }
   :root:not([data-exo-motion]) :is(.m-check, .m-done-check) { stroke-dashoffset: 0; }
   :root:not([data-exo-motion]) .m-done { animation: none; opacity: 1; background: none; }
 
-  :root:not([data-exo-motion]) :is(.m-switch, .m-switch-knob, .m-gauge-fill, .m-gauge-step),
+  :root:not([data-exo-motion]) :is(.m-switch, .m-switch-knob, .m-gauge-fill, .m-gauge-step, .m-progress-fill, .m-progress-head),
   :root:not([data-exo-motion]) .m-glide::before {
     transition: none;
   }
 
-  :root:not([data-exo-motion]) .m-menu { animation-name: m-fade; }
+  :root:not([data-exo-motion]) .m-progress.is-unknown :is(.m-progress-fill, .m-progress-head) { width: 100%; animation: none; opacity: 0.45; }
+  :root:not([data-exo-motion]) .m-progress.is-unknown .m-progress-head { opacity: 0; }
+
+  :root:not([data-exo-motion]) .m-spinner { animation: none; }
+  :root:not([data-exo-motion]) .m-shine::after { width: 100%; background: color-mix(in srgb, var(--ink) 5%, transparent); animation: none; }
+
+  :root:not([data-exo-motion]) .m-menu { animation: none; }
   :root:not([data-exo-motion]) :is(.m-select, .m-button):active:not(:disabled) { scale: none; }
+}
+
+/* Windows' contrast themes: a plain outlined bar in the system's colors. */
+@media (forced-colors: active) {
+  .m-progress-track {
+    background: Canvas;
+    box-shadow: inset 0 0 0 1px CanvasText;
+  }
+
+  .m-progress-fill { background: Highlight; }
+  .m-progress-fill::after,
+  .m-progress-head { display: none; }
+  .m-dialog { border: 1px solid CanvasText; }
+  .m-shine::after { display: none; }
 }
 
 /* ------------------------------------------------------------- system */
@@ -1293,7 +1549,8 @@ button:focus-visible, input:focus-visible, select:focus-visible {
 }
 
 .m-menu,
-.m-picker {
+.m-picker,
+.m-dialog {
   border-color: transparent;
   background: var(--glass-tint);
   backdrop-filter: var(--glass);

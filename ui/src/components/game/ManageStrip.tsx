@@ -1,30 +1,11 @@
-import { useCallback, useEffect, useState } from 'react'
-import { Loader2, Sliders, Trash } from '../../brand/icons'
+import { useEffect, useState } from 'react'
+import { Sliders, Trash } from '../../brand/icons'
 import { host, type DlssStatus, type Game } from '../../lib/host'
+import { confirm } from '../ui/Dialog'
+import { Spinner } from '../ui/Spinner'
 import { ArtworkTools, useArtwork } from './Artwork'
 import { PropertiesSheet } from './PropertiesSheet'
 import { useSelectionGuard } from './useSelectionGuard'
-
-/** How long an armed Uninstall waits for its second press before it stands down. */
-const DISARM_MS = 4000
-
-/** An armed Uninstall stands down on Escape, after DISARM_MS, or when focus leaves it (onBlur at the call site). */
-export function useDisarm(armed: boolean, disarm: () => void) {
-  useEffect(() => {
-    if (!armed) return
-    function onKeyDown(event: KeyboardEvent) {
-      if (event.key !== 'Escape') return
-      event.stopPropagation()
-      disarm()
-    }
-    const timer = window.setTimeout(disarm, DISARM_MS)
-    window.addEventListener('keydown', onKeyDown, true)
-    return () => {
-      window.clearTimeout(timer)
-      window.removeEventListener('keydown', onKeyDown, true)
-    }
-  }, [armed, disarm])
-}
 
 function errorText(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback
@@ -49,7 +30,7 @@ export type GameActionsProps = {
 }
 
 /**
- * Beside Play on an installed game: Uninstall (a second press confirms; Remove for a game added from a folder,
+ * Beside Play on an installed game: Uninstall (it asks first; Remove for a game added from a folder,
  * whose files Exo leaves where they are) and Properties,
  * which holds everything else (folder, files, updates, DLC, artwork).
  */
@@ -68,28 +49,23 @@ export function GameActions({
 }: GameActionsProps) {
   const guard = useSelectionGuard(`${selected.store}:${selected.id}`)
   const [uninstalling, setUninstalling] = useState(false)
-  const [armed, setArmed] = useState(false)
   const artwork = useArtwork(selected, coverSource, onArtwork, onStatus)
 
   useEffect(() => {
     setUninstalling(false)
-    setArmed(false)
   }, [selected.id, selected.store])
 
   const busy = uninstalling || artwork.action !== null
   useEffect(() => onBusyChange(busy), [busy, onBusyChange])
-  const disarm = useCallback(() => setArmed(false), [])
-  useDisarm(armed, disarm)
 
   // A game added from a folder leaves the Library, its files where they are: that is a Remove.
   const addedHere = selected.store === 'local'
   const verb = addedHere ? 'remove' : 'uninstall'
-  function remove() {
-    if (!armed) {
-      setArmed(true)
-      return
-    }
-    setArmed(false)
+  async function remove() {
+    const sure = await confirm(addedHere
+      ? { title: `Remove ${selected.title}?`, body: 'It leaves your Library. Its files stay where they are.', action: 'Remove', danger: true }
+      : { title: `Uninstall ${selected.title}?`, body: 'Its files leave this PC. It stays in your Library, ready to install again.', action: 'Uninstall', danger: true })
+    if (sure !== true) return
     setUninstalling(true)
     onStatus(`${addedHere ? 'Removing' : 'Uninstalling'} ${selected.title}…`)
     void host.uninstall(selected.id)
@@ -108,12 +84,11 @@ export function GameActions({
       <button
         type="button"
         disabled={locked || uninstalling || !!selected.canStop}
-        className={`exo-game-tool exo-game-side${armed ? ' is-armed' : ''}`}
-        onClick={remove}
-        onBlur={disarm}
+        className="exo-game-tool exo-game-side"
+        onClick={() => void remove()}
       >
-        {uninstalling ? <Loader2 size={16} className="animate-spin motion-reduce:animate-none" /> : <Trash size={16} />}
-        {uninstalling ? (addedHere ? 'Removing…' : 'Uninstalling…') : armed ? 'Confirm' : addedHere ? 'Remove' : 'Uninstall'}
+        {uninstalling ? <Spinner size={16} label={`${addedHere ? 'Removing' : 'Uninstalling'} ${selected.title}`} /> : <Trash size={16} />}
+        {addedHere ? 'Remove' : 'Uninstall'}
       </button>
       <button type="button" className="exo-game-tool exo-game-side is-icon" aria-label="Properties" aria-haspopup="dialog" onClick={() => onPropertiesOpen(true)}>
         <Sliders size={16} />

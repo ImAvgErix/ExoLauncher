@@ -7,6 +7,8 @@ import { emojiUrl, formatTimestamp, MarkdownLine, type MarkdownContext } from '.
 import { sized } from './Attachments'
 import { Topic } from './ChatHeader'
 import { isAfter } from './messageCache'
+import { Skeleton } from '../ui/Skeleton'
+import { DictateButton } from '../ui/DictateButton'
 
 type Page = { threads: DiscordThread[]; first: Map<string, DiscordMessage>; tags: DiscordForumTag[]; error: string | null; done: boolean; loading: boolean }
 
@@ -31,6 +33,7 @@ export function ForumView({ channel, guildId, channelName, active, onOpen }: {
   const [query, setQuery] = useState('')
   const [tag, setTag] = useState<string | null>(null)
   const [writing, setWriting] = useState(false)
+  const search = useRef<HTMLInputElement>(null)
   const q = query.trim().toLowerCase()
   const shown = page.threads.filter(t => (!q || t.name.toLowerCase().includes(q)) && (!tag || t.applied_tags?.includes(tag)))
   const open = (thread: { id: string; name: string; locked?: boolean }) =>
@@ -46,7 +49,8 @@ export function ForumView({ channel, guildId, channelName, active, onOpen }: {
         <div className="exo-dc-forum-bar">
           <label className="exo-dc-friend-search exo-dc-grow">
             <Icons.Search size={16} />
-            <input placeholder="Search posts" value={query} onChange={event => setQuery(event.target.value)} aria-label="Search posts" />
+            <input ref={search} placeholder="Search posts" value={query} onChange={event => setQuery(event.target.value)} aria-label="Search posts" />
+            <DictateButton target={search} />
           </label>
           {channel.canSend !== false ? <button type="button" className="exo-set-btn is-primary" onClick={() => setWriting(true)}>New post</button> : null}
         </div>
@@ -61,7 +65,7 @@ export function ForumView({ channel, guildId, channelName, active, onOpen }: {
         ) : null}
         {writing ? <NewPost channelId={channel.id} tags={page.tags} onCancel={() => setWriting(false)} onPosted={thread => { setWriting(false); open(thread) }} /> : null}
         {shown.map(thread => <PostCard key={thread.id} thread={thread} first={page.first.get(thread.id)} tags={page.tags} ctx={ctx} onOpen={() => open({ id: thread.id, name: thread.name, locked: thread.thread_metadata?.locked })} />)}
-        {page.loading ? <p className="exo-dc-note" role="status">Loading posts</p> : null}
+        {page.loading ? <Skeleton label="Loading posts" rows={4} avatar /> : null}
         {page.error ? <p className="exo-dc-note" role="alert">{page.error}</p> : null}
         {!page.loading && !page.error && page.done && shown.length === 0 ? <p className="exo-dc-note">{q || tag ? 'No posts match.' : 'No posts yet.'}</p> : null}
       </div>
@@ -182,6 +186,7 @@ function NewPost({ channelId, tags, onCancel, onPosted }: {
 }) {
   const [name, setName] = useState('')
   const [content, setContent] = useState('')
+  const body = useRef<HTMLTextAreaElement>(null)
   const [picked, setPicked] = useState<string[]>([])
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -197,8 +202,9 @@ function NewPost({ channelId, tags, onCancel, onPosted }: {
     <div className="exo-dc-forum-new" role="group" aria-label="New post">
       <input className="exo-dc-forum-title" placeholder="Post title" value={name} maxLength={100} autoFocus aria-label="Post title"
         onChange={event => setName(event.target.value)} onKeyDown={event => { if (event.key === 'Escape') onCancel() }} />
-      <textarea className="exo-dc-input" placeholder="Write the first message" value={content} maxLength={4000} rows={3} aria-label="First message"
+      <textarea ref={body} className="exo-dc-input" placeholder="Write the first message" value={content} maxLength={4000} rows={3} aria-label="First message"
         onChange={event => setContent(event.target.value)} onKeyDown={event => { if (event.key === 'Escape') onCancel() }} />
+      <DictateButton target={body} place="overlay" />
       {tags.length ? (
         <div className="exo-dc-forum-tags" role="group" aria-label="Tags for the post">
           {tags.map(t => (

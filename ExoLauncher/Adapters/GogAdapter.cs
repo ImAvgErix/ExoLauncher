@@ -191,6 +191,10 @@ public sealed class GogAdapter : IStoreAdapter, IStoreClientPresence, IStoreAcco
         ExpectedSize: 12_304_645,
         ExpectedSha256: "69ea54467371803f681d6c39805992e3a4b8ddccb44ac8a1de7b1e3c80deaeec");
 
+    /// <summary>gogdl as one of Exo's parts (<see cref="ExoComponents"/>): setup fetches it into Exo's tools.</summary>
+    internal static readonly ExoComponent Component = ExoComponent.Pinned("gogdl for GOG", "GOG",
+        GogdlReleaseAsset, () => Path.Combine(PathHelper.AppDataDir, "tools", "gogdl.exe"), IsValidAmd64Pe);
+
     /// <summary>Download gogdl_windows_x86_64.exe into Exo tools if absent / wrong arch.</summary>
     private static Task<string> DownloadGogdlAsync(CancellationToken ct)
     {

@@ -8,7 +8,6 @@
 .exo-game-sources,
 .exo-game-status,
 .exo-shelf-chips,
-.exo-hub-tabs,
 .exo-upscalers-family,
 .exo-sgp-offer,
 .exo-sgp-pill {
@@ -235,20 +234,17 @@
   border-radius: var(--exo-panel-radius);
 }
 
-/* Menus, popovers, toasts, Ctrl+K, the settings sheets and Discord's menus, pickers and dialogs are large
-   Liquid Glass (glass.css). A Discord profile card and the downloads panel hold a page of their own and stay
-   the floating black, with a hairline and a soft drop. */
-.exo-transfer-queue,
+/* Menus, popovers, Ctrl+K, the settings sheets and Discord's menus, pickers and dialogs are large Liquid Glass
+   (glass.css). A Discord profile card holds a page of its own: a pane (its glass a layer under it, glass.css) with a
+   hairline, floating over the room with large glass's deeper shadow. */
 .exo-dc .exo-dc-profile {
   border: 1px solid var(--exo-float-line);
-  background: var(--exo-float);
-  box-shadow: 0 16px 40px rgb(0 0 0 / 0.55);
+  box-shadow: var(--glassy-shadow-raised);
 }
 
-/* Content that floats is a panel (18px): popovers, pickers, profile cards, dialogs and the downloads
-   panel. Menus stay 14px with their 8px rows (below). Discord's drew all of these at 14px, its dialog at 8px. */
+/* Content that floats is a panel (18px): popovers, pickers, profile cards and dialogs. Menus stay 14px with their
+   8px rows (below). Discord's drew all of these at 14px, its dialog at 8px. */
 .exo-key-popover,
-.exo-transfer-queue,
 .exo-dc :is(.exo-dc-popover, .exo-dc-picker, .exo-dc-profile, .exo-dc-modal) {
   border-radius: var(--exo-panel-radius);
 }
@@ -256,11 +252,6 @@
 /* Cards in a popover's list sit 9px in (its 8px padding and 1px hairline): their corners follow the panel's. */
 .exo-dc .exo-dc-popover-list :is(.exo-dc-post, .exo-dc-result) {
   border-radius: calc(var(--exo-panel-radius) - 9px);
-}
-
-/* A menu's current choice: the selected gray. */
-.exo-shelf-sort-menu [role^="menuitem"][aria-checked="true"] {
-  background: var(--exo-selected);
 }
 
 /* ── The Bar (DESIGN.md › Exo's language) ─────────────────────────────────────────────────
@@ -506,11 +497,11 @@
 }
 
 /* Pressed (DESIGN.md › Controls): one fill for every raised or quiet control, the step past hover. */
-:is(.exo-set-btn:not(.is-primary), .exo-game-tool, .exo-shelf-sort-trigger, .exo-pin-nav-btn,
+:is(.exo-set-btn:not(.is-primary), .exo-game-tool, .exo-shelf-sort-trigger,
   .exo-add-game-btn, .exo-game-close, .exo-shelf-chip, .exo-music-sort, .exo-music-mini button,
-  .exo-dc-icon-btn, .exo-dc-tab:not(.is-add, .exo-dc-blurple), .button--secondary, .button--ghost, .exo-capture-btn, .exo-mouse-pill,
+  .exo-dc-icon-btn, .exo-dc-tab:not(.is-add, .exo-dc-blurple), .button--ghost, .exo-capture-btn, .exo-mouse-pill,
   .exo-dc-item, .exo-dc-member, .exo-dc-server-name, .exo-dc-me-who, .exo-dc-input-btn, .exo-dc-new-bar-read,
-  .exo-music-row, .exo-music-recent-open, .exo-settings-nav button, .exo-dc-settings-nav button, .exo-dc-round-btn, .exo-dc-label-btn,
+  .exo-music-row, .exo-music-recent-open, .exo-music-top-open, .exo-settings-nav button, .exo-dc-settings-nav button, .exo-dc-round-btn, .exo-dc-label-btn,
   .exo-dc-active-card):active:not(:disabled) {
   background-color: var(--exo-pressed);
   box-shadow: var(--exo-rim-pressed);
@@ -703,7 +694,7 @@
     right: var(--exo-gap);
     bottom: var(--exo-gap);
     z-index: 15;
-    box-shadow: inset 0 0 0 1px var(--exo-float-line), 0 16px 40px rgb(0 0 0 / 0.6);
+    box-shadow: inset 0 0 0 1px var(--exo-float-line), var(--glassy-shadow-raised);
   }
 
   /* The bar's own class: a button's display (exo-set-btn) came later and kept all three beside the menu. */
@@ -978,14 +969,7 @@
   background: var(--exo-pressed);
 }
 
-.exo-shelf-sort-menu [role^="menuitem"][aria-checked="true"] {
-  background: transparent;
-}
-
-.exo-shelf-sort-menu [role^="menuitem"][aria-checked="true"]:hover {
-  background: var(--hover-fill);
-}
-
+/* The current choice is its check alone, no fill: a row lights only under the pointer, as every menu's do. */
 .exo-shelf-sort-menu :is([role="menuitemradio"], [role="menuitemcheckbox"])[aria-checked="true"]::after {
   content: "";
   flex: none;
@@ -997,57 +981,229 @@
   mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.15' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12l5 5l10 -10'/%3E%3C/svg%3E") center / contain no-repeat;
 }
 
-/* System: one page, a slim header (your card and screen) and every panel under it, scrolling as one. */
-.exo-system {
-  display: flex;
+/* PC (gpu/PcRoom.tsx; DESIGN.md › PC): the page list, then one page at a time beside it, each scrolling on its own;
+   a page once built stays, hidden, while another shows, so it keeps its scroll and its work. */
+.exo-pc {
+  display: grid;
   flex: 1;
+  grid-template-columns: 264px minmax(0, 1fr);
+  min-width: 0;
+  min-height: 0;
+  background: var(--color-bg);
+  color: var(--color-fg);
+}
+
+.exo-pc-stage {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
+  min-width: 0;
+  min-height: 0;
+}
+
+.exo-pc-page {
+  display: flex;
   flex-direction: column;
   gap: 12px;
+  min-width: 0;
   min-height: 0;
-  padding: 12px var(--exo-gutter) 16px;
+  padding: 12px var(--exo-gutter) 24px;
   overflow-y: auto;
   scroll-padding-top: 12px;
 }
 
-.exo-system-head {
+.exo-pc-page[hidden] {
+  display: none;
+}
+
+/* The page scrolls; what is on it keeps its height. */
+.exo-pc-page > * {
+  flex: none;
+}
+
+/* Apps: its two panels fill the page and end at its foot, and the page itself doesn't scroll. Each list (your apps, the
+   runtimes) scrolls in its own panel under its head and fades into the panel's foot (exo-shell.css › Infinity pool), as
+   Music's library and Discord's DMs do, so nothing runs off the page. Stacked in a narrow window, they share its height. */
+.exo-pc-page[data-pc-page="apps"] {
+  /* Level with the page list's foot. */
+  padding-bottom: var(--exo-gap);
+  overflow: hidden;
+}
+
+.exo-pc-page[data-pc-page="apps"] > .exo-pc-row {
+  flex: 1 1 auto;
+  grid-auto-rows: minmax(0, 1fr);
+  min-height: 0;
+}
+
+.exo-pc-page[data-pc-page="apps"] .exo-system-panel {
+  min-height: 0;
+  padding-bottom: 0;
+}
+
+.exo-pc-page[data-pc-page="apps"] .exo-system-panel-body {
   display: flex;
-  flex: none;
-  align-items: center;
-  gap: 12px;
-  height: 56px;
-  /* The 36px icon sits 10px in on every side, its corner the panel's less that. */
-  padding: 0 10px;
-  border-radius: var(--exo-panel-radius);
-  background: var(--exo-float);
-  box-shadow: inset 0 0 0 1px var(--exo-float-line);
+  flex-direction: column;
+  min-height: 0;
+  padding-bottom: 0;
 }
 
-.exo-system-head-icon {
-  display: grid;
-  flex: none;
-  place-items: center;
-  width: 36px;
-  height: 36px;
-  border-radius: calc(var(--exo-panel-radius) - 10px);
-  background: var(--exo-fill);
-  box-shadow: var(--exo-rim);
-  color: var(--color-fg);
-}
-
-.exo-system-head-id {
-  display: grid;
+.exo-pc-page[data-pc-page="apps"] :is(.exo-apps, .exo-runtimes) {
   flex: 1;
-  gap: 2px;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-height: 0;
+}
+
+.exo-pc-page[data-pc-page="apps"] :is(.exo-apps-list, .exo-runtimes-list) {
+  min-height: 0;
+  padding-bottom: 16px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* Panels side by side where two fit (each at least 460px), ending level; one alone takes the row. */
+.exo-pc-row {
+  display: grid;
+  flex: none;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 460px), 1fr));
+  align-items: stretch;
+  gap: 12px;
+}
+
+/* Overview: the About card on the left, as tall as what is beside it: Best settings, then a row per page. */
+.exo-pc-overview {
+  display: grid;
+  flex: none;
+  grid-template-columns: minmax(320px, 5fr) minmax(0, 7fr);
+  align-items: stretch;
+  gap: 12px;
+}
+
+.exo-pc-overview-side {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
   min-width: 0;
 }
 
-.exo-system-head-id strong {
-  color: var(--color-fg);
-  font-size: calc(13px * var(--exo-scale, 1));
-  font-weight: 600;
+@media (max-width: 1200px) {
+  .exo-pc-overview {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
-.exo-system-head-id span {
+/* The About card, Apple's in Exo's glass: the card's glyph on a large tile of the ink (the page list's tile, grown),
+   its name as the title, then what it runs as label and value rows between hairlines, all on the card's center. */
+.exo-pc-hero {
+  align-items: center;
+  justify-content: center;
+  padding: 40px 32px 32px;
+  text-align: center;
+}
+
+.exo-pc-hero-mark {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 88px;
+  height: 88px;
+  border-radius: 24px;
+  background: rgb(var(--exo-ink-rgb) / 0.06);
+  box-shadow: inset 0 0 0 1px rgb(var(--exo-ink-rgb) / 0.08);
+  color: var(--color-fg);
+}
+
+.exo-pc-hero-name {
+  max-width: 100%;
+  margin: 20px 0 0;
+  color: var(--color-fg);
+  font-size: calc(20px * var(--exo-scale, 1));
+  font-weight: 650;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.exo-pc-hero-facts {
+  display: grid;
+  width: min(100%, 400px);
+  margin: 24px 0 0;
+}
+
+.exo-pc-hero-facts > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 38px;
+  border-top: 1px solid var(--exo-float-line);
+  font-size: calc(13px * var(--exo-scale, 1));
+}
+
+.exo-pc-hero-facts dt {
+  flex: none;
+  color: var(--color-muted);
+}
+
+.exo-pc-hero-facts dd {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  color: var(--color-fg);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.exo-pc-hero-wait {
+  width: min(100%, 400px);
+  margin-top: 24px;
+}
+
+/* Overview's rows, one per page: the page list's glyph tile, its name over where it stands, its state at the right
+   and the chevron; the row lifts under the pointer as a list row does. */
+.exo-pc-links {
+  gap: 2px;
+  padding: 8px;
+}
+
+.exo-pc-link {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  min-height: 62px;
+  padding: 8px 12px;
+  border: 0;
+  border-radius: var(--exo-card-radius);
+  background: transparent;
+  color: var(--color-fg);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 120ms var(--ease-out);
+}
+
+.exo-pc-link:hover { background: var(--hover-fill); }
+.exo-pc-link:active { background: var(--exo-pressed); }
+
+.exo-pc-link:focus-visible {
+  outline: 2px solid var(--color-fg);
+  outline-offset: -2px;
+}
+
+.exo-pc-link-text {
+  display: grid;
+  flex: 1;
+  gap: 3px;
+  min-width: 0;
+}
+
+.exo-pc-link-label {
+  font-size: calc(13px * var(--exo-scale, 1));
+  font-weight: 500;
+}
+
+.exo-pc-link-line {
   overflow: hidden;
   color: var(--color-muted);
   font-size: calc(12px * var(--exo-scale, 1));
@@ -1055,31 +1211,9 @@
   text-overflow: ellipsis;
 }
 
-/* Two columns of panels; panels side by side end level (a row's panels stretch to the taller one). */
-.exo-system-page {
-  display: grid;
+.exo-pc-link-go {
   flex: none;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  align-items: stretch;
-  gap: 12px;
-}
-
-.exo-system-page.is-one {
-  grid-template-columns: minmax(0, 1fr);
-}
-
-/* A narrow window (a portrait screen): one column, so a row's words keep the width beside its control. */
-@media (max-width: 900px) {
-  .exo-system-page {
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
-
-.exo-system-stack {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  min-height: 0;
+  color: var(--color-faint);
 }
 
 .exo-system-panel {
@@ -1108,7 +1242,19 @@
   padding: 4px 0 8px;
 }
 
-/* Upscalers inside a System panel: its note and action sit on the panel's title line, at its right edge (as a
+/* A panel with nothing to show yet or at all (a PC without Lucid, its rows still being read) isn't drawn. */
+.exo-system-panel:has(> .exo-system-panel-body:empty) {
+  display: none;
+}
+
+/* Display's menus, with the ring before them while a change is written (DisplayTab.tsx › Busy). */
+.exo-display-busy {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Upscalers inside a PC panel: its note and action sit on the panel's title line, at its right edge (as a
    Devices panel's head), not on a line of their own under it. */
 .exo-system-panel:has(.exo-gpu-bar) {
   position: relative;
@@ -1119,10 +1265,6 @@
   top: 8px;
   right: 24px;
   margin: 0;
-}
-
-.exo-system-panel .exo-upscalers-risk {
-  margin: 0 0 12px;
 }
 
 .exo-system-panel .exo-upscalers-body {
@@ -1176,22 +1318,6 @@
 .exo-shaders-line strong {
   color: var(--color-fg);
   font-weight: 600;
-}
-
-.exo-shaders-progress {
-  flex: none;
-  height: 4px;
-  border-radius: 999px;
-  background: var(--exo-track);
-  overflow: hidden;
-}
-
-.exo-shaders-progress > span {
-  display: block;
-  height: 100%;
-  background: var(--color-fg);
-  transform-origin: left;
-  transition: transform 400ms var(--ease-out);
 }
 
 /* The list scrolls, so it clips at its padding: 12px each side and on top (pulled back out by the margin, so the
@@ -1265,6 +1391,17 @@
   cursor: default;
 }
 
+/* The board before its first read: the posters' shape as skeleton cards, shining (ShadersBoard.tsx). */
+.exo-skeleton-list.exo-shaders-wait {
+  grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
+  gap: 20px 16px;
+}
+
+.exo-skeleton-list.exo-shaders-wait > .exo-skeleton {
+  aspect-ratio: 2 / 3;
+  border-radius: 12px;
+}
+
 .exo-shaders-art {
   position: relative;
   display: grid;
@@ -1289,15 +1426,6 @@
   color: var(--color-muted);
   font-size: calc(12px * var(--exo-scale, 1));
   text-align: center;
-}
-
-/* The compiling game's poster dims from the top as it fills. */
-.exo-shaders-art-fill {
-  position: absolute;
-  inset: 0;
-  background: rgb(0 0 0 / 0.6);
-  transform-origin: top;
-  transition: transform 400ms var(--ease-out);
 }
 
 /* Hover is the Library's (home.css): the art lifts toward you and takes a little light; a press sets it
@@ -1424,7 +1552,7 @@
   width: calc(56px + var(--exo-gap) + 240px - 4px);
   border: 1px solid var(--exo-float-line);
   border-radius: var(--exo-panel-radius);
-  box-shadow: 0 12px 32px rgb(0 0 0 / 0.5);
+  box-shadow: var(--glassy-shadow-raised);
 }
 
 .exo-dc .exo-dc-dock > :is(.exo-dc-me, .exo-dc-voice) {

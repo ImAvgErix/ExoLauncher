@@ -5,6 +5,7 @@ import { admin, Confirm, dropUpload, personName, pickFile, previewOf, ReadError,
 import { uploadFile } from './Chat'
 import { Icons } from './icons'
 import { Avatar } from './presence'
+import { Skeleton } from '../ui/Skeleton'
 
 type Emoji = { id: string; name: string; animated?: boolean; roles?: string[]; user?: DiscordUser | null }
 type Sticker = { id: string; name: string; tags?: string; description?: string | null; format_type: number; user?: DiscordUser | null }
@@ -64,7 +65,7 @@ export function Emoji({ guildId, tier }: { guildId: string; tier: number }) {
       </div>
       {error ? <p className="exo-dc-note is-bad" role="alert">{error}</p> : null}
       <ReadError error={emojis.error} onRetry={emojis.reload} />
-      {!emojis.data && !emojis.error ? <p className="exo-dc-note">Loading</p> : null}
+      {!emojis.data && !emojis.error ? <Skeleton label="Loading emoji" avatar /> : null}
       {emojis.data && list.length === 0 ? <p className="exo-dc-note">No emoji yet.</p> : null}
       <ul className="exo-dc-mod-list">
         {list.map(emoji => (
@@ -119,7 +120,7 @@ export function Stickers({ guildId, tier }: { guildId: string; tier: number }) {
         <span className="exo-dc-mod-meta">{list.length} of {slots} slots</span>
       </div>
       <ReadError error={stickers.error} onRetry={stickers.reload} />
-      {!stickers.data && !stickers.error ? <p className="exo-dc-note">Loading</p> : null}
+      {!stickers.data && !stickers.error ? <Skeleton label="Loading stickers" tiles={8} /> : null}
       {stickers.data && list.length === 0 ? <p className="exo-dc-note">No stickers yet.</p> : null}
       <div className="exo-dc-sticker-grid is-settings">
         {list.map(sticker => (
@@ -135,8 +136,8 @@ export function Stickers({ guildId, tier }: { guildId: string; tier: number }) {
       </div>
       {editing ? <StickerDialog guildId={guildId} sticker={editing === 'new' ? null : editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); stickers.reload() }} /> : null}
       {deleting ? (
-        <Confirm title="Delete sticker" action="Delete" error={error} busy={busy} onConfirm={() => remove(deleting)} onClose={() => { setDeleting(null); setError(null) }}>
-          <p>Are you sure you want to delete {deleting.name}? It can't be brought back.</p>
+        <Confirm title={`Delete ${deleting.name}?`} action="Delete" error={error} busy={busy} onConfirm={() => remove(deleting)} onClose={() => { setDeleting(null); setError(null) }}>
+          <p>It can't be brought back.</p>
         </Confirm>
       ) : null}
     </>
@@ -169,7 +170,7 @@ function StickerDialog({ guildId, sticker, onClose, onSaved }: { guildId: string
   }
   const ready = name.trim().length >= 2 && tags.trim().length > 0 && (sticker !== null || file !== null)
   return (
-    <Confirm title={sticker ? 'Edit sticker' : 'Upload sticker'} action={sticker ? 'Save changes' : 'Upload'} danger={false} busy={busy || !ready} error={error}
+    <Confirm title={sticker ? 'Edit sticker' : 'Upload sticker'} action={sticker ? 'Save changes' : 'Upload'} danger={false} form busy={busy} disabled={!ready} error={error}
       onConfirm={() => void save()} onClose={onClose}>
       <div className="exo-dc-sticker-preview">
         {file ? <img src={file.preview} alt="" draggable={false} /> : sticker ? <img src={stickerUrl(sticker)} alt="" draggable={false} /> : null}

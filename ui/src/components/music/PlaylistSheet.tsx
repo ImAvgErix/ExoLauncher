@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { ImageUpload } from '../../brand/icons'
+import { Spinner } from '../ui/Spinner'
 import { Art } from './Art'
 import { runActionFor, usePlayer, type PlaylistEdit } from './playerContext'
 import { useDismiss } from '../../lib/dismiss'
@@ -104,7 +105,9 @@ export function PlaylistSheet({ edit, onClose }: { edit: PlaylistEdit; onClose: 
         {error ? <p className="exo-music-error" role="alert">{error}</p> : null}
         <div className="exo-music-sheet-actions">
           <button type="button" className="exo-set-btn" onClick={() => dialog.current?.close()}>Cancel</button>
-          <button type="submit" className="exo-set-btn is-primary" disabled={busy || !name.trim()}>{busy ? 'Saving' : creating ? 'Create' : 'Save'}</button>
+          <button type="submit" className="exo-set-btn is-primary" disabled={busy || !name.trim()}>
+            {busy ? <Spinner label={creating ? 'Making the playlist' : 'Saving the playlist'} /> : null}{creating ? 'Create' : 'Save'}
+          </button>
         </div>
       </form>
     </dialog>

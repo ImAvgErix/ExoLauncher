@@ -113,7 +113,7 @@ internal sealed class GameProcessRegistry
                 return false;
         }
 
-        return ProcessHelper.IsPathUnderRoot(executablePath, game.Path!);
+        return ProcessHelper.IsPathUnderRoot(executablePath, game.Path!) && !ProcessHelper.IsInHelperFolder(executablePath, game.Path!);
     }
 
     public GameRunState GetState(GameEntry game, bool discoverExternal = false)

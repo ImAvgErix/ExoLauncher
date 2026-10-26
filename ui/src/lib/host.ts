@@ -106,6 +106,29 @@ export type DlssRunResult = {
 /** Steam's current art for a game (newer games keep it under hashed folders). */
 export type StoreArt = { poster?: string | null; hero?: string | null; capsule?: string | null; header?: string | null }
 /** Lucid's own settings as Exo shows them (Lucid Voice is never among them). Times are "HH:mm" on half-hour steps. */
+/** What you plug in, as Devices shows it (devices.list): a mouse, a keyboard, your audio out and in, a game controller. */
+export type PeripheralKind = 'mouse' | 'keyboard' | 'audio' | 'controller'
+export type Peripheral = {
+  /** Stable across runs: the USB product and its serial or instance, or the audio endpoint's id. */
+  id: string
+  kind: PeripheralKind
+  /** The product's own name ("Wooting 60HE v2", "DualSense Edge Wireless Controller"). */
+  name: string
+  maker: string | null
+  /** What Exo draws it as: a controller's family, a keyboard's size, audio's form. */
+  model: string | null
+  /** wireless: through a 2.4 GHz receiver. */
+  connection: 'usb' | 'wireless' | 'bluetooth' | 'jack' | 'hdmi' | null
+  /** Audio only: the default playback device or the default microphone. */
+  role: 'output' | 'input' | null
+  /** 0..1 when Windows reports it. */
+  battery: number | null
+  /** A controller's body color as it reports it ("Midnight Black"). */
+  color: string | null
+  /** A keyboard's layout as it reports it; -split: a split spacebar. */
+  layout: 'ansi' | 'iso' | 'jis' | 'ansi-split' | 'iso-split' | null
+}
+
 export type LucidSettings = {
   headphone: { id: string; name: string; chosen: boolean }
   favorites: string[]
@@ -447,6 +470,30 @@ export type InterruptDevice = {
 /** restart: Exo changed something since Windows started. result: after the restart, what took. */
 export type Interrupts = { ok: boolean; message?: string | null; restart: boolean; result?: string | null; canUndo: boolean; devices: InterruptDevice[] }
 
+/**
+ * Exo Mouse's CPU core panel (through mouseRelay's exo.mouseCore): one test of the moving mouse. rate: its polling rate (Hz); checked: the gaps
+ * between reports Exo judged; missed: those a slot late or more; longest and p999 in ms; refresh: the late ones come with
+ * the screen's refresh; cpu: the CPU that took its USB controller's interrupts (null when Exo couldn't tell).
+ */
+export type MouseTest = { rate: number; checked: number; missed: number; longest: number; p999: number; refresh: boolean; cpu: number | null }
+/**
+ * stage: none (Exo set nothing), restart (set or put back, waiting on a restart), set (in place since the restart).
+ * detail: where it stands, or what cleared it. cpu: the CPU Exo set. better: the test after beat the one before.
+ * test: this session's last test; verdict fix offers `offer`, fine needs nothing, cannot says why in detail, retry didn't read enough.
+ */
+export type MouseCore = {
+  ok: boolean
+  message?: string | null
+  stage: 'none' | 'restart' | 'set'
+  detail?: string | null
+  cpu?: number | null
+  better?: boolean | null
+  canUndo: boolean
+  before?: MouseTest | null
+  after?: MouseTest | null
+  test?: { verdict: 'fix' | 'fine' | 'cannot' | 'retry'; detail: string; offer?: number | null; result: MouseTest } | null
+}
+
 /** One exact store entry represented by a grouped library card. */
 export interface GameVariant {
   id: string
@@ -527,6 +574,54 @@ export interface InstallProgress {
 }
 
 /** An app Exo does the job of, as this PC has it. */
+/** What an app left, by kind: folders and files (and their size), registry keys and values, shortcuts. */
+export interface LeftoverSummary {
+  folders: number
+  files: number
+  registry: number
+  shortcuts: number
+  bytes: number
+}
+
+/** A program on this PC, as System › Apps lists it (InstalledPrograms.cs). */
+export interface InstalledApp {
+  id: string
+  name: string
+  publisher: string | null
+  version: string | null
+  /** yyyy-MM-dd */
+  installedOn: string | null
+  bytes: number | null
+  store: boolean
+  /** False for Exo itself, anti-cheat and the graphics driver (care says why). */
+  removable: boolean
+  /** False when its uninstaller is gone: only what is left of it can go. */
+  uninstaller: boolean
+  care: 'exo' | 'anticheat' | 'driver' | 'hardware' | 'runtime' | 'store' | 'uses' | null
+  /** The replaced app it is (Discord, Game Bar…), removed with Exo's own clean-up. */
+  replaces: string | null
+}
+
+/** One thing an app left, as the deep clean found it; likely: matched by its name alone. */
+export interface AppLeftover {
+  id: number
+  kind: 'folder' | 'file' | 'shortcut' | 'registry' | 'service' | 'task'
+  path: string
+  bytes: number
+  likely: boolean
+  machine: boolean
+}
+
+/** What the deep clean found after an uninstall: its items stay with Exo under token. */
+export interface AppFind {
+  ok: true
+  token: string
+  name: string
+  items: AppLeftover[]
+  sure: LeftoverSummary
+  likely: LeftoverSummary
+}
+
 export interface ReplacedApp {
   id: string
   name: string
@@ -535,6 +630,10 @@ export interface ReplacedApp {
   leftovers: number
   bytes: number
   needsAdmin: boolean
+  /** What is there now. */
+  found: LeftoverSummary
+  /** What this scan or removal just cleared, the deep clean included. */
+  cleared: LeftoverSummary | null
 }
 
 export interface DependencyItem {
@@ -544,6 +643,55 @@ export interface DependencyItem {
   detail: string
   canOfferInstall: boolean
   officialUrl?: string | null
+}
+
+/** A game runtime (runtimes.list): this PC's version (null: not installed), the newest, and where it stands. */
+export interface RuntimeItem {
+  id: string
+  name: string
+  group: 'vc' | 'directx' | 'dotnet' | 'other'
+  installed: string | null
+  latest: string
+  /** info: what this PC has of something games bring or Windows is (Direct3D 12, DirectStorage, Vulkan); nothing to install. */
+  state: 'current' | 'outdated' | 'missing' | 'info'
+  detail?: string | null
+  /** Its download in bytes where Exo pins it; 0 until it starts (.NET's come from Microsoft's release list). */
+  size?: number
+  /** Microsoft no longer supports it (.NET 6): left out of Install what's missing unless a game asks for it. */
+  endOfSupport?: boolean
+  /** Install what's missing includes it. */
+  bulk: boolean
+}
+
+/** What one runtime's install did: installed, a newer one was already there, installed but Windows needs a restart, or failed. */
+export interface RuntimeResult {
+  id: string
+  name: string
+  outcome: 'installed' | 'newer' | 'restart' | 'failed'
+  message: string
+  code?: number | null
+}
+
+export interface RuntimesInstallResponse {
+  ok: boolean
+  message?: string | null
+  declined?: boolean
+  canceled?: boolean
+  results: RuntimeResult[]
+  items?: RuntimeItem[] | null
+}
+
+/** runtimes.install's measure: download (bytes of this one and of all), verify, install (one by one, Windows' run), check. */
+export interface RuntimesProgress {
+  phase: 'download' | 'verify' | 'install' | 'check'
+  id: string | null
+  name: string | null
+  index: number
+  count: number
+  bytes: number
+  total: number | null
+  doneBytes: number
+  allBytes: number
 }
 
 /**
@@ -594,12 +742,17 @@ export type AccountStore = 'steam' | 'epic' | 'gog' | 'amazon'
 /** Stores whose client keeps several accounts Exo switches between. */
 export type SwitchStore = 'steam' | 'riot'
 
+/** Dictation as the host has it: the setting, whether this PC runs it, whether the speech model is here, its download in bytes. */
+export type DictationState = { on: boolean; available: boolean; ready: boolean; size: number }
+
 export interface LauncherSettings {
   appVersion: string
   /** The last version whose What's New was shown (lib/whatsNew.ts); a new install starts at its own version. */
   whatsNewSeen?: string | null
   /** Motion is off when this or Windows' reduce-animations setting is on. */
   reduceMotion?: boolean
+  /** Settings › General › Dictation: the mic in Exo's text boxes (on unless turned off). */
+  dictation?: boolean
   textColour?: 'white' | 'grey' | string
   textSize?: 'small' | 'normal' | 'large' | string
   /** Liquid Glass (Settings › General › Glass): how much shows through it. */
@@ -754,6 +907,18 @@ export interface LaunchResponse {
   handoffOnly?: boolean
   needsDependencies?: boolean
   missingDependencies?: MissingDependency[]
+  /** The store's servers are down and it plays the game in its own offline mode after a restart Exo asks about first. */
+  offline?: StoreId | null
+}
+
+/** A store's servers are down (state down), said once per outage, or back (state back). canPlayOffline: Play offline applies. */
+export interface StoreOutage {
+  id: string
+  store: StoreId
+  state: 'down' | 'back'
+  title: string
+  text: string
+  canPlayOffline: boolean
 }
 
 export interface InstallResponse {
@@ -983,6 +1148,8 @@ export interface HostEventMap {
   'store.changed': { what: 'home' | 'wishlist' }
   /** A step of a Steam or Riot account change ("Closing Steam…"), for the row that started it. */
   'accounts.progress': { store: SwitchStore; line: string }
+  /** A store's servers went down or came back (once per outage). */
+  'stores.outage': StoreOutage
   /** Steam and Epic were read for gifts again, or one was accepted or declined. */
   'gifts.changed': StoreGifts
   /** A wishlisted game went on sale on Steam (or got cheaper); price is Steam's text for final in the region's currency ("19,99€"). */
@@ -991,6 +1158,8 @@ export interface HostEventMap {
   'hid.input': { device: string; reportId: number; data: string }
   /** A HID device arrived or left. */
   'hid.changed': Record<string, never>
+  /** A device arrived or left, or Windows' default speakers or microphone changed (once things settle): list devices again. */
+  'devices.changed': Record<string, never>
   /** Exo Capture's state changed: buffering, recording, hotkeys, or it stopped. */
   'capture.state': CaptureState
   /** A clip, recording, snip, trim or export was saved; a snip ("snip") opens in the editor, Exo in front. */
@@ -1001,6 +1170,8 @@ export interface HostEventMap {
   'shaders.event': { name: string; data?: unknown }
   /** System > Display: a change nobody kept was put back when its countdown ran out. */
   'gpu.driver': DriverProgress
+  /** A runtimes.install moved on: a download's bytes, a check, or the next installer in Windows' run. */
+  'runtimes.progress': RuntimesProgress
   /** Exo's own Discord client: connection state, QR sign-in steps, list changes, unread marks, messages and typing. */
   'discord.state': { state: DiscordState; message?: string | null }
   'discord.signin': DiscordSignInStep
@@ -1043,6 +1214,16 @@ export interface HostEventMap {
   'discord.userSettings': Partial<AccountSettings>
   /** The live microphone through the call's own chain: the loudest level in and out (dBFS), whether the gate is open, and what ran. */
   'discord.micLevel': MicLevel
+  /** Dictation's setting or speech model changed (lib/dictation.ts). */
+  'dictation.state': DictationState
+  /** While a take listens, about 20 times a second: its loudness, 0 to 1. */
+  'dictation.level': { level: number }
+  /** The speech model coming, in bytes of its download and unpacking together. */
+  'dictation.progress': { done: number; total: number }
+  /** A take ended by itself: no sound from the microphone (message), or a minute heard (full: stop and transcribe it). */
+  'dictation.ended': { message?: string; full?: boolean }
+  /** One of Exo's parts (a store tool, a model) failed to come twice: the feature waiting on it ("Dictation"). */
+  'components.failed': { feature: string }
   /** Voice Tune's microphone gave its first sound: the guide's clock starts. */
   'discord.voiceTune': { state: 'recording' }
   /** A keybind the room carries out (Toggle Streamer Mode). */
@@ -1320,6 +1501,10 @@ export const host = {
   /** `handoff`: the store signs in inside its own app, which is now open. Nothing is connected yet. */
   storesAuth: (store: string) =>
     rawCall<{ ok: boolean; message?: string; requiresUserAction?: boolean; handoff?: boolean }>('stores.auth', { store }),
+  /** The outages on now; asking starts the host watching the stores. */
+  storesOutages: () => rawCall<{ ok: boolean; outages: StoreOutage[] }>('stores.outages'),
+  /** Restarts the store in its own offline mode (after the page's confirm). */
+  storesPlayOffline: (store: StoreId) => rawCall<{ ok: boolean; message?: string | null }>('stores.playOffline', { store }),
   /** Reports the Music room rect; the native host routes it to the hosted
       desktop client (Spotify) or the YouTube Music or Apple Music web surface. */
   musicSetBounds: (bounds: { visible: boolean; service?: MusicService; left?: number; top?: number; width?: number; height?: number; cutouts?: Cutout[] }) =>
@@ -1406,12 +1591,33 @@ export const host = {
   replacedScan: (clean = false) => rawCall<{ ok: boolean; cleared: number; apps: ReplacedApp[] }>('replaced.scan', { clean }, 60_000),
   /** One of them removed with everything it left, as Revo Uninstaller does it. */
   replacedRemove: (id: string) =>
-    rawCall<{ ok: boolean; message?: string | null; removed: number; left: number; apps: ReplacedApp[] }>('replaced.remove', { id }, 15 * 60_000),
+    rawCall<{ ok: boolean; declined?: boolean; message?: string | null; removed: number; left: number; apps: ReplacedApp[] }>('replaced.remove', { id }, 15 * 60_000),
+  /** System › Apps: every program on this PC, and what Exo cleared of the ones it removed. */
+  appsList: () => rawCall<{ ok: boolean; programs: InstalledApp[]; cleared: { name: string; summary: LeftoverSummary }[]; edgeRemoved?: boolean }>('apps.list', {}, 60_000),
+  /** Their icons as data URLs (null: none). */
+  appsIcons: (ids: string[]) => rawCall<{ ok: boolean; icons: Record<string, string | null> }>('apps.icons', { ids }, 60_000),
+  /** One uninstalled with its own uninstaller (asked in Exo's window), then what it left found. */
+  appsUninstall: (id: string) =>
+    rawCall<AppFind | { ok: false; still?: boolean; declined?: boolean; message?: string | null }>('apps.uninstall', { id }, 65 * 60_000),
+  /** What is left of a program whose uninstaller is gone. */
+  appsScan: (id: string) => rawCall<AppFind | { ok: false; message?: string | null }>('apps.scan', { id }, 5 * 60_000),
+  /** The chosen items of a find deleted (asked in Exo's window). */
+  appsClean: (token: string, ids: number[]) =>
+    rawCall<{ ok: boolean; declined?: boolean; cleared?: LeftoverSummary; left?: number; message?: string | null }>('apps.clean', { token, ids }, 15 * 60_000),
+  /** Edge Update may install Edge again (asked in Exo's window): Exo told it not to when Edge was removed. */
+  appsAllowEdge: () => rawCall<{ ok: boolean; declined?: boolean; message?: string | null }>('apps.allowEdge', {}, 5 * 60_000),
   offerDepInstall: (id: string) =>
     rawCall<{ ok: boolean; message?: string; exitCode?: number | null; restartRequired?: boolean; status?: string }>(
       'deps.offerInstall', { id }, 30 * 60_000),
   cancelDepInstall: (id: string) =>
     rawCall<{ ok: boolean; message?: string }>('deps.cancelInstall', { id }),
+  /** Game runtimes: every one that applies to this PC, its version and the newest. */
+  runtimesList: () => rawCall<{ ok: boolean; busy?: boolean; items: RuntimeItem[] }>('runtimes.list', {}, 30_000),
+  /** missing: what isn't here (or the named ids); update: that and every older one; repair: every Visual C++ again. One Windows prompt. */
+  runtimesInstall: (mode: 'missing' | 'update' | 'repair', ids?: string[]) =>
+    rawCall<RuntimesInstallResponse>('runtimes.install', ids?.length ? { mode, ids } : { mode }, 120 * 60_000),
+  /** Stops the downloads; once Windows installs, it says it can't. */
+  runtimesCancel: () => rawCall<{ ok: boolean; message?: string }>('runtimes.cancel'),
   storesCheck: () => rawCall<StoreLocalCheck>('stores.check'),
   storesMatrix: () => rawCall<StoreStatus[]>('stores.matrix'),
   getSettings: () => rawCall<LauncherSettings>('settings.get'),
@@ -1641,6 +1847,8 @@ export const host = {
     rawCall<{
       ok: boolean; message?: string | null; catalog?: DiscordShopCatalog | null; owned?: DiscordShopProduct[] | null; product?: DiscordShopProduct | null
       payment?: DiscordPaymentChoice[]; price?: DiscordShopPrice | null; confirm?: boolean
+      /** The user answered No in Exo's own window: nothing to say. */
+      declined?: boolean
       /** Discord's Stripe key, a Stripe client secret, Discord's billing address token, and a payment the bank must confirm. */
       key?: string | null; clientSecret?: string | null; addressToken?: string | null; paymentId?: string | null
     }>('discord.shop', { action, ...params }, 60_000),
@@ -1662,8 +1870,26 @@ export const host = {
     rawCall<LucidState>('lucid', { action, ...params }, 30_000),
   /** The headphones Lucid has tunings for, read from this PC's Lucid. */
   lucidHeadphones: () => rawCall<{ ok: boolean; headphones: LucidHeadphone[] }>('lucid.headphones'),
+  /** Devices: the mouse, keyboards, audio and controllers on this PC (devices.changed says when one comes or goes). */
+  devicesList: () => rawCall<{ ok: boolean; devices: Peripheral[] }>('devices.list', {}, 15_000),
   /** A newer Lucid its own feed offers (null: none, or offline). Lucid's window installs it. */
   lucidUpdate: () => rawCall<{ version: string | null }>('lucid.update', {}, 30_000),
+  /** Dictation: on, whether this PC runs it, whether its speech model is here (lib/dictation.ts). */
+  dictationState: () => rawCall<DictationState>('dictation.state'),
+  /** The speech model now, when the mic was pressed before Exo had it (dictation.progress as it comes). */
+  dictationPrepare: () => rawCall<{ ok: boolean; message?: string | null }>('dictation.prepare', {}, 3_600_000),
+  /** Starts listening (dictation.level while it does); message: why it can't (mic access off in Windows). */
+  dictationStart: () => rawCall<{ ok: boolean; message?: string | null }>('dictation.start', {}, 15_000),
+  /** Stops and transcribes: the text to insert, spaced for the characters either side of the caret. */
+  dictationStop: (before: string, after: string) => rawCall<{ ok: boolean; text: string; message?: string | null }>('dictation.stop', { before, after }, 120_000),
+  dictationCancel: () => rawCall<{ ok: boolean }>('dictation.cancel'),
+  /**
+   * A device's official product picture (the maker's own), fitted to one transparent 1200x800 frame with the same
+   * margin as every other and kept on this PC. Pass what devices.list or Lucid says of it; url null: Exo's list has
+   * no picture for it, or it couldn't be fetched (draw the device instead). The first ask fetches, so it can take a few seconds.
+   */
+  devicesImage: (device: { kind: string; model?: string | null; name?: string | null; maker?: string | null; color?: string | null; layout?: string | null }) =>
+    rawCall<{ ok: boolean; url: string | null }>('devices.image', device, 45_000),
   /** Voice Tune: record the guided take (each part's seconds), cancel it, whether this mic has a kept tuning (state), keep its tuning for this mic, forget it, or fix Windows (unmute, no ducking). */
   discordVoiceTune: (action: 'record' | 'cancel' | 'state' | 'keep' | 'forget' | 'unmute' | 'noDucking', params: { parts?: number[] } = {}) =>
     rawCall<VoiceTuneResult & { windows?: VoiceTuneWindows; processing?: string | null }>('discord.voiceTune', { action, ...params }, 90_000),
@@ -1739,6 +1965,12 @@ export const host = {
   /** System > This PC > Interrupts: the devices; apply switches every one that can to MSI mode, undo puts all back, revert one. Waits on Windows' permission prompt. */
   systemInterrupts: (action?: 'apply' | 'undo' | 'revert', device?: string) =>
     rawCall<Interrupts>('system.interrupts', action ? { action, ...(device ? { device } : {}) } : {}, 120_000),
+  /**
+   * Exo Mouse's CPU core panel, relayed by mouseRelay (exo.mouseCore): where Exo's change stands; measure runs the 10-second test (the mouse moving in
+   * circles), apply gives the tested USB controller the CPU it offered and undo puts it back (both wait on Windows' permission prompt).
+   */
+  systemMouseCore: (action?: 'measure' | 'apply' | 'undo') =>
+    rawCall<MouseCore>('system.mouseCore', action ? { action } : {}, action ? 120_000 : 15_000),
   /** The saved home page at once (refreshed behind it); refresh waits for a fresh one. */
   storeHome: (refresh = false) => rawCall<StoreHome>('store.home', refresh ? { refresh: true } : {}, 45_000),
   /** Games by release day, ordered by the wishlist and the tags of what is played; ok false when Steam's lists could not be read. */

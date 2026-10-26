@@ -47,7 +47,8 @@ public sealed partial class WebHostBridge
         var home = await Task.Run(() => _services.Store.HomeAsync(refresh, ct), ct).ConfigureAwait(false);
         if (home is null) return new { ok = false, message = "The store could not be reached. Check your connection and try again." };
         var (played, owned) = StoreTasteInputs();
-        home = await _services.Store.ForYouHomeAsync(home, played, owned, ct).ConfigureAwait(false);
+        // The last page made for this person at once, the new one following by store.changed; a Refresh waits for it.
+        home = await _services.Store.ForYouHomeAsync(home, played, owned, wait: refresh, ct).ConfigureAwait(false);
         return new
         {
             ok = true,

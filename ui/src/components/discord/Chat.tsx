@@ -17,6 +17,7 @@ import { Icons } from './icons'
 import type { MarkdownContext } from './markdown'
 import { useAccountSettings, useDiscordPrefs } from '../../lib/discordPrefs'
 import { applyMessage, byId, forgetMessages, FRESH_MS, isAfter, isAsking, keepMessages, keptMessages, mergeNewest, newestMessages, PAGE } from './messageCache'
+import { Skeleton } from '../ui/Skeleton'
 
 const GROUP_MS = 7 * 60 * 1000
 
@@ -368,7 +369,7 @@ function Folded({ reason, count, open, onShow }: { reason: string; count: number
 // Over the messages: loading, what failed with Retry, or Discord's start of the conversation.
 function HistoryTop({ history, start }: { history: ReturnType<typeof useHistory>; start: string }) {
   const { load, edge, older } = history
-  if (load.state === 'loading') return <p className="exo-dc-note" role="status">Loading messages</p>
+  if (load.state === 'loading') return <Skeleton label="Loading messages" rows={6} avatar />
   if (load.state === 'error') return <Retry message={load.message ?? "Discord didn't send this channel."} onRetry={history.toPresent} />
   if (edge?.where === 'older') return <Retry message={edge.message} onRetry={() => void history.loadOlder(true)} />
   return older ? null : <p className="exo-dc-start">This is the start of {start}.</p>

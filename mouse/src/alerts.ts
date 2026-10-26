@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import type { MouseStatus } from '@openmouse/protocol/drivers/mouse-types'
+import { deviceImage } from './device-images'
 import { tell } from './exo-hid'
 
 /** The low-battery line and how often it may repeat (OpenMouse Bridge's defaults: 20 %, once in 6 hours). */
@@ -51,7 +52,10 @@ export function useMouseAlerts(status: MouseStatus | null) {
     if (!status) { tell({ state: null }); return }
     const battery = status.batteryPercent
     const low = battery != null && battery <= LOW_BATTERY && !charging(status)
-    tell({ state: { name: status.name, battery, charging: charging(status), low } })
+    // Its picture and link too, for its card in Devices' overview.
+    const wireless = signalLevel(status) != null || /wireless|2\.4\s*ghz|receiver|dongle/i.test(status.connectionDetail ?? '') ? true
+      : /wired|usb cable|cable/i.test(status.connectionDetail ?? '') ? false : null
+    tell({ state: { name: status.name, battery, charging: charging(status), low, image: deviceImage(status.name), wireless } })
     if (low && Date.now() - lastTold('exo-mouse.alert.battery') > BATTERY_REPEAT_MS) {
       told('exo-mouse.alert.battery')
       tell({ notice: `Your ${status.name} is at ${battery}%. Charge it soon.` })

@@ -82,10 +82,14 @@ export const StoreBag = icon('store', 'shopping-bag')
 export const Chats = icon('chats', 'messages')
 /** The Music room, and music without its art. */
 export const MusicNotes = icon('music', 'music')
-/** The System room. */
+/** The PC room. */
 export const Gpu = icon('gpu', 'gauge')
 /** Your graphics card. */
 export const GraphicsCard = icon('graphics-card', 'gpu')
+/** This PC: the PC room's Overview. */
+export const Cpu = icon('cpu', 'cpu')
+/** The PC room's Performance: what makes this PC faster. */
+export const Rocket = icon('rocket', 'rocket')
 /** Exo's own update. */
 export const AppUpdate = icon('app-update', 'circle-arrow-down')
 /** The Devices room: your mouse. */
@@ -93,7 +97,6 @@ export const Mouse = icon('mouse', 'mouse')
 export const Home = icon('home', 'home')
 /** A gift waiting on a store, in the Library. */
 export const Gift = icon('gift', 'gift')
-export const Loader2 = icon('loader', 'loader-2')
 
 // ── Actions ─────────────────────────────────────────────────────────────────────────────
 export const Plus = icon('plus', 'plus')

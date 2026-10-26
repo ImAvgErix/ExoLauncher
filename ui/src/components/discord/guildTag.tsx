@@ -4,6 +4,7 @@ import { host } from '../../lib/host'
 import { useDismiss } from '../../lib/dismiss'
 import type { DiscordGuildProfile, DiscordLook } from '../../lib/discord'
 import { ProfilePlaces } from './profileParts'
+import { Skeleton } from '../ui/Skeleton'
 
 /** A server tag's badge on Discord's CDN, at the size Discord asks for it (14 px shown from its 16 px file). */
 export const tagBadgeUrl = (guildId: string, badge: string) => `https://cdn.discordapp.com/clan-badges/${guildId}/${badge}.png?size=16`
@@ -61,7 +62,7 @@ function GuildTagCard({ guildId, tag, badge, at, onClose }: { guildId: string; t
       <div className="exo-dc-tag-card-head">
         {icon ? <img src={icon} alt="" width={48} height={48} draggable={false} /> : <span className="exo-dc-tag-card-icon">{(profile?.name ?? tag).slice(0, 1)}</span>}
         <span className="exo-dc-tag-card-who">
-          <strong>{profile?.name ?? (error ? tag : 'Loading')}</strong>
+          <strong>{profile?.name ?? tag}</strong>
           <span className="exo-dc-guild-tag is-static">
             {badge ? <img src={tagBadgeUrl(guildId, badge)} alt="" width={14} height={14} draggable={false} /> : null}
             <span>{tag}</span>
@@ -70,6 +71,7 @@ function GuildTagCard({ guildId, tag, badge, at, onClose }: { guildId: string; t
       </div>
       {profile ? <TagCardAbout profile={profile} /> : null}
       {error ? <p className="exo-dc-note is-bad" role="alert">{error}</p> : null}
+      {profile || error ? null : <Skeleton label="Loading the server" rows={2} />}
       {member ? <button type="button" className="exo-set-btn is-primary" onClick={() => { onClose(); openServer(guildId) }}>Go to server</button> : null}
     </div>
   )

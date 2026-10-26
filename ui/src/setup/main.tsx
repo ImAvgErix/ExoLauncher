@@ -7,15 +7,19 @@ import { StrictMode, useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { Alert, Check, ChevronDown, Close, Minus } from '../brand/icons'
 import { Button } from '../components/ui/Button'
+import { Progress } from '../components/ui/Progress'
 import '../tokens.css'
+import '../exo-shell.css'
 import './setup.css'
 import { Switch } from '../components/Switch'
 
 type State = { mode: 'install' | 'uninstall'; updating: boolean; desktop: boolean; version: string; path: string }
+type Work = { value: number | null; status: string; step?: 'parts' }
 type Screen = 'start' | 'working' | 'done' | 'failed'
 type HostMessage =
   | ({ type: 'state' } & State)
-  | { type: 'progress'; value: number; status: string }
+  // step "parts": Exo's parts (the store tools and models) coming after the app is in, a measured step of its own.
+  | { type: 'progress'; value: number; status: string; step?: 'parts' }
   | { type: 'done' }
   | { type: 'failed'; message: string }
 
@@ -29,14 +33,15 @@ const PREVIEW: State = { mode: 'install', updating: false, desktop: true, versio
 function useHost() {
   const [state, setState] = useState<State | null>(webview ? null : PREVIEW)
   const [screen, setScreen] = useState<Screen>('start')
-  const [progress, setProgress] = useState({ value: 0, status: '' })
+  // No value until the engine reports one: the bar glides until then.
+  const [progress, setProgress] = useState<Work>({ value: null, status: '' })
   const [problem, setProblem] = useState('')
   useEffect(() => {
     if (!webview) return
     webview.addEventListener('message', event => {
       const message = event.data as HostMessage
       if (message.type === 'state') setState(message)
-      else if (message.type === 'progress') setProgress({ value: message.value, status: message.status })
+      else if (message.type === 'progress') setProgress({ value: message.value, status: message.status, step: message.step })
       else if (message.type === 'done') { setProgress(p => ({ ...p, value: 1 })); setScreen('done') }
       else if (message.type === 'failed') { setProblem(message.message); setScreen('failed') }
     })
@@ -61,22 +66,23 @@ function Chrome({ busy }: { busy: boolean }) {
   )
 }
 
-function Mark({ working }: { working?: boolean }) {
-  return <img className={`exo-setup-mark${working ? ' is-working' : ''}`} src="logo.svg" alt="" draggable={false} />
+function Mark() {
+  return <img className="exo-setup-mark" src="logo.svg" alt="" draggable={false} />
 }
 
 function Start({ state, onGo }: { state: State; onGo: (desktop: boolean) => void }) {
   const [options, setOptions] = useState(false)
   const [desktop, setDesktop] = useState(state.desktop)
+  // Exo's question (DESIGN.md › Confirm): Cancel first and focused, so Enter alone never uninstalls; Uninstall in red.
   if (state.mode === 'uninstall') {
     return (
       <section className="exo-setup-screen" key="start">
         <Mark />
-        <h1>Uninstall Exo Launcher</h1>
+        <h1>Uninstall Exo Launcher?</h1>
         <p>Your games, settings and accounts stay on this PC.</p>
-        <div className="exo-setup-actions">
-          <Button variant="primary" className="exo-setup-cta" data-autofocus onPress={() => onGo(false)}>Uninstall</Button>
-          <Button variant="ghost" onPress={() => send('close')}>Cancel</Button>
+        <div className="exo-dialog-actions exo-setup-ask">
+          <button type="button" className="exo-set-btn" data-autofocus onClick={() => send('close')}>Cancel</button>
+          <button type="button" className="exo-set-btn is-danger" onClick={() => onGo(false)}>Uninstall</button>
         </div>
       </section>
     )
@@ -105,15 +111,15 @@ function Start({ state, onGo }: { state: State; onGo: (desktop: boolean) => void
   )
 }
 
-function Working({ state, progress }: { state: State; progress: { value: number; status: string } }) {
-  const title = state.mode === 'uninstall' ? 'Uninstalling' : `${state.updating ? 'Updating to' : 'Installing'} ${state.version}`
+function Working({ state, progress }: { state: State; progress: Work }) {
+  const title = progress.step === 'parts' ? "Getting Exo's parts ready"
+    : state.mode === 'uninstall' ? 'Uninstalling' : `${state.updating ? 'Updating to' : 'Installing'} ${state.version}`
   return (
     <section className="exo-setup-screen" key="working" aria-busy="true">
-      <Mark working />
+      <Mark />
       <h1>{title}</h1>
-      <div className="exo-setup-bar-track" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(progress.value * 100)}>
-        <span className="exo-setup-bar-fill" style={{ transform: `scaleX(${Math.max(0.02, progress.value)})` }} />
-      </div>
+      {/* Each step measures from its own start: a new bar, never the last one sliding back. */}
+      <Progress key={progress.step ?? 'app'} size="large" value={progress.value} label={title} className="exo-setup-progress" />
       <p className="exo-setup-status" aria-live="polite">{progress.status || 'Starting'}</p>
     </section>
   )

@@ -38,7 +38,7 @@ internal static class PackagedSmoke
             checks.Add("packaged-library");
             await core.ExecuteScriptAsync("document.querySelector('[aria-label=\"Open settings\"]').click()");
             await WaitForAsync(core, "!!document.querySelector('main.exo-settings')");
-            await WaitForAsync(core, "Array.from(document.querySelectorAll('.exo-settings button')).some(b=>b.textContent.trim()==='Check for updates') && ['general','apps','stores','keys','account','about'].every(id=>!!document.querySelector('#set-'+id+'-title'))");
+            await WaitForAsync(core, "Array.from(document.querySelectorAll('.exo-settings button')).some(b=>b.textContent.trim()==='Check for updates') && ['general','downloads','accounts','about'].every(id=>!!document.querySelector('#set-'+id+'-title'))");
             checks.Add("packaged-restored-settings");
             await WaitForAsync(core, "!!document.querySelector('[aria-label=\"itch.io API key\"]') && Array.from(document.querySelectorAll('.exo-settings button')).some(b=>b.textContent.trim()==='Support Exo')");
             checks.Add("itch-key-support-settings");

@@ -1,4 +1,3 @@
-using System.Runtime.InteropServices;
 using ExoLauncher.Helpers;
 using ExoLauncher.Models;
 
@@ -8,7 +7,8 @@ namespace ExoLauncher.Services;
 /// Settings > Downloads, applied: downloads wait while a game runs and
 /// outside the download hours (<see cref="LaunchOrchestrator.Hold"/>), and
 /// games from the stores Exo downloads itself (Epic, GOG, Amazon) update by
-/// themselves once the PC has been idle for ten minutes with no game running,
+/// themselves once the PC is really idle (<see cref="PcIdle"/>: nobody at it,
+/// nothing playing, no call, no other program at work, no game, not on battery),
 /// and so does AMD's or Intel's chipset driver (<see cref="ChipsetUpdate"/>).
 /// Steam updates and pauses its own downloads.
 /// </summary>
@@ -16,7 +16,6 @@ internal sealed class DownloadPolicy : IDisposable
 {
     private const string Playing = "playing";
     private const string Hours = "hours";
-    private static readonly TimeSpan IdleBeforeUpdates = TimeSpan.FromMinutes(10);
 
     private readonly AppServices _services;
     private readonly object _gate = new();
@@ -92,7 +91,7 @@ internal sealed class DownloadPolicy : IDisposable
     {
         var launcher = _services.Launcher;
         if (DateTime.UtcNow - _lastUpdateSweep < TimeSpan.FromMinutes(30)) return;
-        if (launcher.AnyGameRunning || launcher.HoldReason is not null || IdleFor() < IdleBeforeUpdates) return;
+        if (launcher.AnyGameRunning || launcher.HoldReason is not null || !Idle()) return;
         // A paused download waits for the user; it must not turn auto-update off for every other game.
         if (launcher.HasQueuedJobs || launcher.IsBusy) return;
         _lastUpdateSweep = DateTime.UtcNow;
@@ -111,31 +110,16 @@ internal sealed class DownloadPolicy : IDisposable
     }
 
     /// <summary>AMD's or Intel's chipset driver, in the same idle window as games (<see cref="ChipsetUpdate"/> adds its own gates).</summary>
-    private static void UpdateChipset()
+    private void UpdateChipset()
     {
-        var idle = IdleFor();
-        if (idle < ChipsetUpdate.IdleBefore || ChipsetUpdate.ThisPc is not { } chipset || chipset.Installed() is null) return;
+        if (!Idle() || ChipsetUpdate.ThisPc is not { } chipset || chipset.Installed() is null) return;
         // The maker's page at most every 12 hours; this tick uses the answer once it's in.
         var latest = chipset.LatestAsync();
-        if (latest.IsCompletedSuccessfully) chipset.Tick(true, idle, latest.Result, ChipsetUpdate.BootedAt());
+        if (latest.IsCompletedSuccessfully) chipset.Tick(true, idle: true, latest.Result, ChipsetUpdate.BootedAt());
     }
 
-    [StructLayout(LayoutKind.Sequential)]
-    private struct LastInputInfo
-    {
-        public uint Size;
-        public uint Time;
-    }
-
-    [DllImport("user32.dll")]
-    private static extern bool GetLastInputInfo(ref LastInputInfo info);
-
-    /// <summary>How long since the last keyboard or mouse input (GetLastInputInfo).</summary>
-    internal static TimeSpan IdleFor()
-    {
-        var info = new LastInputInfo { Size = (uint)Marshal.SizeOf<LastInputInfo>() };
-        return GetLastInputInfo(ref info) ? TimeSpan.FromMilliseconds(unchecked((uint)Environment.TickCount - info.Time)) : TimeSpan.Zero;
-    }
+    /// <summary>The PC is really idle (<see cref="PcIdle"/>), with Exo's own word on a game running.</summary>
+    private bool Idle() => PcIdle.Now(() => _services.Launcher.AnyGameRunning);
 
     public void Dispose()
     {

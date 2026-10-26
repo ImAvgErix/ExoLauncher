@@ -43,6 +43,7 @@ import {
 import { addPortableFolder, addPortableProgram } from '../lib/portable'
 import { onMouseNotice } from '../lib/mouseState'
 import { startMouseRelay } from '../lib/mouseRelay'
+import { notify as notice } from '../lib/notify'
 import { report } from '../lib/report'
 import { applyTextTheme, readCachedTextTheme } from '../lib/exoTheme'
 import { preloadUpscalerStatuses } from '../lib/upscalerCache'
@@ -53,19 +54,22 @@ import { ExoIsland } from './shell/ExoIsland'
 import { useWhatsNew } from './shell/useWhatsNew'
 import { bootGate, BootSplash, EJECTABLE_ROOMS, Room } from './shell/BootGate'
 import { ErrorBoundary } from './shell/ErrorBoundary'
-import type { GpuTab } from './gpu/GpuSheet'
+import type { PcLink } from './gpu/PcRoom'
 import { LibraryPane } from './shell/LibraryPane'
 import { ROOM_ORDER, TitleBar, type View } from './shell/TitleBar'
 import { MUSIC_LINK, savedMusicService, saveMusicService, type MusicService } from '../lib/music'
-import { ToastStack, type DepPrompt } from './shell/ToastStack'
+import { ShellNotices, type DepPrompt } from './shell/ShellNotices'
+import { NoticeStack } from './shell/NoticeStack'
+import { ConfirmHost } from './ui/Dialog'
 import { DiscordNotices } from './shell/DiscordNotices'
+import { playOffline, StoreOutageNotices } from './shell/StoreOutageNotices'
 import { onReportedFailure, useActionStatus, type ActionStatus } from './shell/useActionStatus'
 import { holdsBoot, useAppUpdate } from './shell/useAppUpdate'
 import { useRunStatePoll } from './shell/useRunStatePoll'
 import { useLiveLibraryRefresh } from './shell/useLiveLibraryRefresh'
 import { useShellLayout } from './shell/useShellLayout'
 import { useShelves } from './shell/useShelves'
-import type { SettingsSectionId } from './SettingsPanel'
+import type { SettingsSectionId } from '../lib/settingsSections'
 import { closeCaptures, openCaptures, useCapturesSheet } from '../lib/capture'
 
 // Rooms and heavy panes load as their own chunks the first time they render.
@@ -77,7 +81,7 @@ const DevicesRoom = lazy(() => import('./DevicesRoom').then((m) => ({ default: m
 const StoreRoom = lazy(() => import('./store/StoreRoom').then((m) => ({ default: m.StoreRoom })))
 const CommandMenu = lazy(() => import('./blocks/command-menu-1'))
 const GameSheet = lazy(() => import('./shell/GameSheet').then((m) => ({ default: m.GameSheet })))
-const GpuHub = lazy(() => import('./gpu/GpuSheet').then((m) => ({ default: m.GpuHub })))
+const PcRoom = lazy(() => import('./gpu/PcRoom').then((m) => ({ default: m.PcRoom })))
 const ActivateKeySheet = lazy(() => import('./ActivateKeySheet').then((m) => ({ default: m.ActivateKeySheet })))
 const WhatsNewSheet = lazy(() => import('./shell/WhatsNewSheet').then((m) => ({ default: m.WhatsNewSheet })))
 const CapturesOverlay = lazy(() => import('./captures/CapturesSheet').then((m) => ({ default: m.CapturesOverlay })))
@@ -88,7 +92,7 @@ import { onScreen, pressedArt, transition, visible, type Morph } from '../lib/vi
 
 /**
  * What loads behind the splash besides the Library: Settings, and Devices (Exo Mouse, whose game-linked profiles and
- * battery notice must work with the room never opened). Store, Discord's page, Music and System load the first time
+ * battery notice must work with the room never opened). Store, Discord's page, Music and PC load the first time
  * they're opened (openRoom), so a room never opened costs nothing; Discord's connection itself starts with Exo.
  * It starts once the splash's mark has landed, so the intro never shares its frames with that work, and settles when
  * everything is ready or after the cap.
@@ -112,7 +116,7 @@ function useBootPreload(booting: boolean, settings: LauncherSettings | null, mus
           import('./DevicesRoom'),
           import('./SettingsPanel').then(module => module.preloadSettingsRoom()),
           import('./shell/GameSheet'),
-          import('./gpu/GpuSheet'),
+          import('./gpu/PcRoom'),
           import('./blocks/command-menu-1'),
         ]),
         new Promise<void>(done => window.setTimeout(done, BOOT_PRELOAD_CAP_MS)),
@@ -122,14 +126,14 @@ function useBootPreload(booting: boolean, settings: LauncherSettings | null, mus
   return { preloaded, warming }
 }
 
-/** The rooms built the first time they're opened, each with its code; System's is in the main bundle. */
+/** The rooms built the first time they're opened, each with its code. */
 const ROOM_IDLE_MS = 3 * 60 * 1000
 
 const LAZY_ROOMS: ReadonlyMap<View, (() => Promise<unknown>) | null> = new Map<View, (() => Promise<unknown>) | null>([
   ['store', () => import('./store/StoreRoom')],
   ['friends', () => import('./FriendsRoomRoute')],
   ['music', () => import('./music/NativeMusicRoom')],
-  ['system', () => import('./gpu/GpuSheet')],
+  ['system', () => import('./gpu/PcRoom')],
 ])
 /** The most a room opened the first time waits to be whole; Music starts its service's engine first. */
 const ROOM_OPEN_CAP_MS = 2500
@@ -226,7 +230,7 @@ function activeTransferId(progress: InstallProgress | null): string | null {
   return progress?.isActive ? progress.gameId : null
 }
 
-/** A status that belongs to no card becomes a toast; card messages stay in the sheet. */
+/** A status that belongs to no card becomes a notice; card messages stay in the sheet. */
 function shellNotice(status: ActionStatus): { message: string; tone: ActionStatus['tone']; sticky: boolean } | null {
   if (status.gameId !== null || !status.message) return null
   return { message: status.message, tone: status.tone, sticky: status.sticky }
@@ -419,8 +423,8 @@ export function LauncherApp() {
   const [depPrompt, setDepPrompt] = useState<DepPrompt | null>(null)
   const [activeGameId, setActiveGameId] = useState<string | null>(null)
   const [libraryPane, setLibraryPane] = useState<'shelf' | 'game'>('shelf')
-  /** System: profile, display, HDR, upscalers and shaders over the shelves, on its last tab. */
-  const [gpuJump, setGpuJump] = useState<{ tab: GpuTab } | null>(null)
+  /** Where a link opens the PC room: a game's graphics, or its shaders. */
+  const [gpuJump, setGpuJump] = useState<{ tab: PcLink } | null>(null)
   const [overlayMotion, setOverlayMotion] = useState<'pointer' | 'instant'>('pointer')
   const overlayOpenedAtRef = useRef(0)
   // Tracked handle for the post-launch busy unlock: an orphaned timer firing
@@ -523,7 +527,7 @@ export function LauncherApp() {
     return transition(() => { setView(next); alongside?.() }, { kind: room ? 'room' : next === 'settings' ? 'none' : 'fade', back: room && ROOM_ORDER.indexOf(next) < ROOM_ORDER.indexOf(view), morph })
   }, [closeGamePage, view])
   goToViewRef.current = goToView
-  // A game's Shaders opens the System room.
+  // A game's Shaders opens the PC room.
   const openGpu = useCallback(() => goToView('system'), [goToView])
   const openNowPlaying = useCallback(() => void goToView('music',
     { name: 'exo-music-now', from: visible('.exo-mini-cover'), to: () => visible('.exo-music-now > .exo-music-art') },
@@ -537,8 +541,8 @@ export function LauncherApp() {
   const sendToDiscord = useCallback(() => {
     closeCaptures()
     goToView('friends')
-    setStatus('Copied. Paste it into a chat with Ctrl+V.', null, false)
-  }, [goToView, setStatus])
+    notice({ text: 'Copied. Paste it into a chat with Ctrl+V.', tone: 'good' })
+  }, [goToView])
   useEffect(() => onHostEvent('discord.open', open => { setPendingOpen(open); goToView('friends') }), [goToView])
   // A Discord banner clicked: its conversation (a thread in its channel), in the Discord room.
   const openNotice = useCallback((notice: DiscordNotice) => {
@@ -666,10 +670,13 @@ export function LauncherApp() {
   const rescanLiveLibrary = useCallback(() => loadLibrary(true, true, true, true), [loadLibrary])
   // Library › Refresh: the host reads every game again (sizes, stores, time
   // played, last launched, Riot hours, achievements, covers); then the grid
-  // takes the result.
-  const refreshEverything = useCallback(async () => {
-    await host.libraryRefreshAll()
-    await rescanLiveLibrary()
+  // takes the result. A forced read asked beside it shares its first part, the
+  // stores read again (the host runs one forced scan for both), so it answers
+  // when the stores have been read: the covers shine until then, while the art
+  // that follows lands on its own.
+  const refreshEverything = useCallback(() => {
+    const all = host.libraryRefreshAll()
+    return { stores: rescanLiveLibrary(), done: all.then(() => rescanLiveLibrary()) }
   }, [rescanLiveLibrary])
   useLiveLibraryRefresh(rescanLiveLibrary)
 
@@ -695,7 +702,7 @@ export function LauncherApp() {
       if (mine === settingsSeq.current) void loadSettings()
     })
   }, [loadSettings])
-  /** System > Graphics > HDR saves through this and hears whether it took. */
+  /** PC › Display › HDR saves through this and hears whether it took. */
   const saveSettings = useCallback(async (patch: Partial<LauncherSettings>) => {
     try {
       setSettings(await host.setSettings(patch))
@@ -753,6 +760,8 @@ export function LauncherApp() {
       const price = sale.price ?? (sale.final != null && (sale.currency ?? "USD") === "USD" ? `$${(sale.final / 100).toFixed(2)}` : "a lower price")
       notify(`${sale.name} is on sale on Steam: ${price} (-${sale.discount}%).`)
     })
+    // One of Exo's parts (a store tool, a model) didn't come twice; Exo keeps trying by itself.
+    const offParts = onHostEvent('components.failed', ({ feature }) => notice({ tone: 'bad', text: `${feature} couldn't be set up. Exo tries again later.` }))
     const offQueue = onHostEvent('install.queue', (data) => {
       const queue = data as { queuedGameIds?: string[]; pausedDownloads?: PausedDownload[]; held?: string | null }
       if (Array.isArray(queue?.queuedGameIds)) setQueuedIds(queue.queuedGameIds)
@@ -796,6 +805,7 @@ export function LauncherApp() {
       offProgress()
       offQueue()
       offSale()
+      offParts()
       offMouse()
       offCovers()
     }
@@ -950,7 +960,7 @@ export function LauncherApp() {
       { id: 'nav-store', group: 'Go to', title: 'Store', icon: StoreBag },
       { id: 'nav-friends', group: 'Go to', title: 'Discord', icon: Chats },
       { id: 'nav-music', group: 'Go to', title: 'Music', icon: MusicNotes },
-      { id: 'nav-system', group: 'Go to', title: 'System', icon: Gpu },
+      { id: 'nav-system', group: 'Go to', title: 'PC', icon: Gpu },
       { id: 'nav-devices', group: 'Go to', title: 'Devices', icon: Mouse },
       { id: 'nav-settings', group: 'Go to', title: 'Settings', icon: Settings },
     ]
@@ -1130,11 +1140,20 @@ export function LauncherApp() {
     return true
   }
 
-  /** `scope` is the game for a status the open sheet shows, or null for one the shell toasts. */
+  /** `scope` is the game for a status the open sheet shows, or null for one the notice stack shows. */
   async function runPlay(game: Game, skipDeps: boolean, scope: string | null) {
     setStatus('Preparing launch…', scope)
     const res = await host.launch(game.id, { skipDeps })
     if (promptForDeps(res, 'play', game.id)) return
+    // The store's servers are down: its own offline mode, asked first, then Play again.
+    if (res.offline) {
+      setStatus(res.message, scope, true)
+      const answer = await playOffline(res.offline, `Play ${game.title} offline?`, () => setStatus('Restarting in offline mode…', scope))
+      if (answer?.ok) return runPlay(game, skipDeps, scope)
+      if (answer) setStatus(answer.message || 'Could not switch to offline mode.', scope, true)
+      setBusy(false)
+      return
+    }
     setStatus(res.message || (res.ok ? 'Game started.' : 'Could not start the game.'), scope, !res.ok)
     if (!res.ok) {
       setBusy(false)
@@ -1196,7 +1215,7 @@ export function LauncherApp() {
     playFromLibrary(game)
   }, [setStatus, playFromLibrary])
 
-  /** Started from Continue, Friends are playing or a card's menu, no sheet shows the status (null), so the shell toasts it. */
+  /** Started from Continue, Friends are playing or a card's menu, no sheet shows the status (null), so it goes to the notice stack. */
   function statusScope(game: Game): string | null {
     return overlayOpen && statusBelongsToSelection(game.id, selected) ? game.id : null
   }
@@ -1299,18 +1318,17 @@ export function LauncherApp() {
     const prompt = depPrompt
     dependencyPending.current = true
     try {
-      const restartMessages: string[] = []
-      let manualInstallation = false
-      for (const d of prompt.deps) {
-        if (d.canOfferInstall === false) { manualInstallation = true; continue }
-        const result = await host.offerDepInstall(d.id)
-        if (!result.ok) throw new Error(result.message || 'The runtime could not be installed. Try again.')
-        if (result.status === 'handoff') manualInstallation = true
-        if (result.restartRequired) restartMessages.push(result.message || 'Restart Windows to finish installing the runtime.')
+      // All of them in one install: Windows asks once.
+      const result = await host.runtimesInstall('missing', prompt.deps.map(dep => dep.id))
+      const failed = result.results.find(item => item.outcome === 'failed')
+      if (failed) throw new Error(`${failed.name}: ${failed.message}`)
+      if (!result.ok) throw new Error(result.message || 'The runtimes could not be installed. Try again.')
+      if (result.results.some(item => item.outcome === 'restart')) {
+        setDepPrompt((prev) => (prev === prompt ? { ...prev, awaitingContinue: true } : prev))
+        setStatus('Restart Windows to finish installing, then Check and retry.', prompt.gameId)
+        return
       }
-      setDepPrompt((prev) => (prev === prompt ? { ...prev, awaitingContinue: true } : prev))
-      setStatus(restartMessages.length ? restartMessages.join(' ')
-        : manualInstallation ? 'Finish installing the runtimes, then Check and retry.' : 'Runtimes installed. Check and retry to continue.', prompt.gameId)
+      await onContinueAfterDeps()
     } catch (error) {
       setStatus(error instanceof Error ? error.message : 'The runtime could not be installed. Try again.', prompt.gameId, true)
     } finally { dependencyPending.current = false }
@@ -1427,7 +1445,7 @@ export function LauncherApp() {
   const closeActivateKey = useCallback(() => setActivateKeyOpen(false), [])
   const retryLibrary = useCallback(() => { void loadLibrary(true) }, [loadLibrary])
   const openStoreSettings = useCallback(() => {
-    setSettingsSection({ id: 'stores' })
+    setSettingsSection({ id: 'accounts' })
     goToView('settings')
   }, [goToView])
   // Discord's settings open in the Discord room, from wherever they were asked for.
@@ -1537,8 +1555,8 @@ export function LauncherApp() {
     </Room>
   ), [under, view, openedRooms, warming, devicesActive])
   const systemRoom = useMemo(() => (
-    <Room name="system" mounted={openedRooms.has('system')} warm={warming || opening === 'system'} active={under === 'system'} covered={view === 'settings'} label="System" className="relative z-10 flex min-h-0 flex-1 flex-col">
-      <Suspense fallback={null}><GpuHub active={view === 'system'} jump={gpuJump} games={games} settings={settings} onSave={saveSettings} /></Suspense>
+    <Room name="system" mounted={openedRooms.has('system')} warm={warming || opening === 'system'} active={under === 'system'} covered={view === 'settings'} label="PC" className="relative z-10 flex min-h-0 flex-1 flex-col">
+      <Suspense fallback={null}><PcRoom active={view === 'system'} jump={gpuJump} games={games} settings={settings} onSave={saveSettings} /></Suspense>
     </Room>
   ), [under, openedRooms, warming, opening, view, gpuJump, games, settings, saveSettings])
   const libraryRoom = useMemo(() => sortMode && (
@@ -1623,7 +1641,7 @@ export function LauncherApp() {
       {booting && <BootSplash revealing={bootRevealing} reduceMotion={layout.reduceMotion} onComplete={() => setBooting(false)} />}
       {titleBar}
 
-      <ToastStack
+      <ShellNotices
         transferFailures={Object.entries(transferFailures).filter(([id, message]) => !overlayOpen || !selected || !cardForExactId([selected], id) || status.gameId !== id || status.message !== message)
           .map(([gameId, message]) => ({ gameId, message, title: findLibraryGame(games, gameId)?.title ?? gameId }))}
         onDismissTransferFailure={clearTransferFailure}
@@ -1631,6 +1649,7 @@ export function LauncherApp() {
         onSkipDeps={() => void onContinueAfterDeps(true)}
         onInstallDeps={() => void onOfferMissingDeps()}
         onContinueAfterDeps={() => void onContinueAfterDeps()}
+        onDismissDeps={() => setDepPrompt(null)}
         update={update}
         showUpdate={view !== 'settings'}
         notice={shellNotice(status)}
@@ -1639,6 +1658,9 @@ export function LauncherApp() {
       />
 
       <DiscordNotices onOpen={openNotice} />
+      <StoreOutageNotices />
+      <NoticeStack />
+      <ConfirmHost />
 
       {settingsRoom}
       {friendsRoom}

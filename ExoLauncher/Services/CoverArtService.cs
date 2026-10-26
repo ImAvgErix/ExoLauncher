@@ -503,7 +503,8 @@ public static partial class CoverArtService
 
     private static string? MappedSteamAppId(GameEntry g)
     {
-        if (g.Store is StoreKind.Minecraft or StoreKind.Roblox) return null;
+        // A native port is no Steam game: its title ("Star Fox 64 (Starship)") binds an unrelated one.
+        if (g.Store is StoreKind.Minecraft or StoreKind.Roblox || Adapters.RecompInstallations.For(g) is not null) return null;
         EnsureTitleMapLoaded();
         var titleKeys = TitleLookupKeys(g.Title);
         foreach (var key in titleKeys)
@@ -2147,6 +2148,12 @@ public static partial class CoverArtService
             return ok;
         }
 
+        // A native port (Ship of Harkinian): no store sells it and a Steam title search finds the wrong game. Its original
+        // game's exact name on SteamGridDB, when a key is saved, else its own icon.
+        if (Adapters.RecompInstallations.For(g) is { } recomp)
+            return await DownloadSteamGridDbTitlePortraitAsync(http, g, requested, cancellationToken, recomp.Game).ConfigureAwait(false) ||
+                TryExtractGameIcon(g);
+
         // Mapped Steam CDN art for every other store (covers only). Seed map
         // first, then live title search — that is what fills Xbox / EA / GOG /
         // Ubisoft / Battle.net / Amazon / Rockstar / local tiles.
@@ -3005,12 +3012,12 @@ public static partial class CoverArtService
 /// <summary>
     /// SteamGridDB's portrait for a game found by its exact title, saved where
     /// the game's own art goes. "(lazer)" and other bracketed editions are
-    /// dropped from the search, so osu!(lazer) finds osu!.
+    /// dropped from the search, so osu!(lazer) finds osu!. <paramref name="exact"/> searches that name instead.
     /// </summary>
-    private static async Task<bool> DownloadSteamGridDbTitlePortraitAsync(HttpClient http, GameEntry g, bool requested, CancellationToken cancellationToken)
+    private static async Task<bool> DownloadSteamGridDbTitlePortraitAsync(HttpClient http, GameEntry g, bool requested, CancellationToken cancellationToken, string? exact = null)
     {
         if (!ShouldSeekOnlineArt(g, requested) || string.IsNullOrWhiteSpace(g.Title)) return false;
-        var title = System.Text.RegularExpressions.Regex.Replace(CleanSearchTitle(g.Title), @"\s*\([^)]*\)\s*$", "").Trim();
+        var title = exact ?? System.Text.RegularExpressions.Regex.Replace(CleanSearchTitle(g.Title), @"\s*\([^)]*\)\s*$", "").Trim();
         var url = await SteamGridDbArt.TryPortraitUrlByTitleAsync(http, title, cancellationToken).ConfigureAwait(false);
         if (url is null) return false;
         var dest = Path.Combine(CacheRoot, EpicArtFileName(g));

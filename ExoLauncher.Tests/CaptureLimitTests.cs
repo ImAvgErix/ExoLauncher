@@ -1,7 +1,7 @@
 namespace ExoLauncher.Tests;
 
 /// <summary>
-/// Ways Settings > Capture's storage limit could fail:
+/// Ways Capture settings' storage limit (in the Captures sheet) could fail:
 /// - it removes the user's own videos and pictures in a shared folder (Videos, OneDrive) that Exo Capture never saved;
 /// - those files count toward the size limit, so Exo's own clips go first to make room for them;
 /// - a favourite is removed;

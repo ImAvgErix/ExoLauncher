@@ -6,7 +6,7 @@ import { pixelContrast } from './contrast.mjs'
 import { writeFile } from 'node:fs/promises'
 import { a11yScan, brokenImages, layoutFaults, layoutScan, roomState, settle, themeLeakScan } from './page.mjs'
 
-export const ROOMS = ['Library', 'Store', 'Discord', 'Music', 'System', 'Devices']
+export const ROOMS = ['Library', 'Store', 'Discord', 'Music', 'PC', 'Devices']
 export const THEMES = ['void', 'dark', 'light']
 const THEME_LABEL = { system: 'Match Windows', light: 'Light', dark: 'Dark', void: 'Void' }
 

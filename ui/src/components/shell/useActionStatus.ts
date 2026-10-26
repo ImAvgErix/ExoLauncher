@@ -77,7 +77,7 @@ export function useActionStatus(transferGameId: string | null, selectedIdRef: { 
 
 const FAILURE_EVENT = 'exo-shell-failure'
 
-/** A failure from a control outside the shell's callbacks (the Bar's Capture button), as a red toast. */
+/** A failure from a control outside the shell's callbacks (the Bar's Capture button), as a red notice. */
 export function reportFailure(message: string) {
   window.dispatchEvent(new CustomEvent<string>(FAILURE_EVENT, { detail: message }))
 }

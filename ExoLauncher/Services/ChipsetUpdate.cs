@@ -13,8 +13,8 @@ namespace ExoLauncher.Services;
 /// Keeps this PC's chipset driver up to date by itself (Settings > Downloads > Keep the AMD (or Intel) chipset driver up
 /// to date, on by default), as Exo updates games while you're away: AMD Chipset Software on a Ryzen, Intel Chipset
 /// Device Software on an Intel processor, each only where its maker's package is installed. When the maker's page names
-/// a newer package, the PC has been idle for ten minutes, no game runs, there's no Discord call and the PC isn't on
-/// battery, and Windows won't ask for permission, Exo downloads the maker's installer, checks the maker's signature and
+/// a newer package, the PC is really idle (<see cref="Helpers.PcIdle"/>), no game runs, there's no Discord call and the PC
+/// isn't on battery, and Windows won't ask for permission, Exo downloads the maker's installer, checks the maker's signature and
 /// its version (and the SHA-256 Intel's page lists), and runs it with its own silent switches (<see cref="Arguments"/>).
 /// A chipset install can reset devices for a moment, hence the gates. Update in System > This PC runs the same install
 /// now (Windows may ask then). Afterwards the installed version is read again: a restart Windows needs shows as "Restart
@@ -34,7 +34,6 @@ internal sealed class ChipsetUpdate(string vendor, ChipsetUpdate.IHost host, str
 {
     internal const long MaxBytes = 250L << 20;
     internal const long MinBytes = 20L << 20; // AMD's 8.09.28.1124 is 78 MB, Intel's 10.1.20658.8883 98 MB; anything this small is neither
-    internal static readonly TimeSpan IdleBefore = TimeSpan.FromMinutes(10);
 
     /// <summary>AMD's chipset download page. One package covers every AM4, AM5 and Threadripper board, so one page names the newest for all.</summary>
     internal const string AmdPage = "https://www.amd.com/en/support/downloads/drivers.html/chipsets/am5/x870e.html";
@@ -155,9 +154,10 @@ internal sealed class ChipsetUpdate(string vendor, ChipsetUpdate.IHost host, str
     }
 
     /// <summary>The idle tick: installs <paramref name="latest"/> when every gate is open. True when it started.</summary>
-    internal bool Tick(bool enabled, TimeSpan idle, Package? latest, DateTime bootedAt)
+    /// <param name="idle">the PC is really idle (<see cref="Helpers.PcIdle"/>)</param>
+    internal bool Tick(bool enabled, bool idle, Package? latest, DateTime bootedAt)
     {
-        if (!enabled || idle < IdleBefore || latest is null) return false;
+        if (!enabled || !idle || latest is null) return false;
         var installed = host.Installed();
         if (!PcHealth.ChipsetBehind(installed, latest.Version) || Current(latest.Version, bootedAt) is not null) return false;
         if (host.WindowsAsks() || Blocked(host) is not null) return false;

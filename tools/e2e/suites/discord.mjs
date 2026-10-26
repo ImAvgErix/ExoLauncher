@@ -1,8 +1,10 @@
-// Exo's Discord client, used. Anything that sends or changes something happens only in the test place, Uhh
-// #mod-chat, and is undone (a test message is reacted to and deleted). Nothing joins a call.
+// Exo's Discord client, used. Anything that sends or changes something happens only in the test place, the Exo
+// server, and is undone: a test message in #mod-chat is reacted to and deleted, and a call in hangout is joined muted and
+// deafened, then left.
 import { sleep } from '../cdp.mjs'
 
-const TEST_SERVER = 'Uhh', TEST_CHANNEL = 'mod-chat'
+// The test place, the Exo server: #mod-chat for messages (each deleted after), hangout for a call (muted and deafened).
+const TEST_SERVER = 'Exo', TEST_CHANNEL = 'mod-chat', TEST_VOICE = 'hangout'
 const chat = () => document.querySelector('main.exo-dc section.exo-dc-chat')?.getAttribute('aria-label') ?? null
 
 async function openTestChannel(t) {
@@ -151,6 +153,46 @@ export async function run(t) {
       await sleep(1200)
       const shown = await t.shell.eval(`!!document.querySelector('main.exo-dc .exo-dc-page, main.exo-dc [class*="guide"], main.exo-dc [class*="events"], main.exo-dc [class*="browse"], main.exo-dc [class*="members"]')`)
       if (!shown) failures.push(`${page} showed nothing`)
+    }
+    await openTestChannel(t)
+    return failures
+  })
+
+  // hangout is public: Exo joins it muted and deafened, so nothing is said into the call or heard from it, and leaves.
+  await run.check('discord', 'voice', 'the test voice channel joins muted and deafened, shows Voice connected, and Disconnect leaves it', async (c) => {
+    if (await t.shell.call(chat) !== TEST_CHANNEL && !await openTestChannel(t)) c.skip('not in the test server')
+    const dock = (label) => document.querySelector(`.exo-dc-me button[aria-label="${label}"]`)
+    const was = await t.shell.eval(`({ muted: !!document.querySelector('.exo-dc-me button[aria-label="Unmute"]'), deafened: !!document.querySelector('.exo-dc-me button[aria-label="Undeafen"]') })`)
+    c.evidence.was = was
+    if (!was.deafened) await t.shell.click(dock, 'Deafen')
+    if (!await t.shell.waitFor(() => !!document.querySelector('.exo-dc-me button[aria-label="Undeafen"]'), { timeoutMs: 3000 })) c.skip('could not deafen first, so the call was not joined')
+    if (!await t.shell.eval(`!!document.querySelector('.exo-dc-me button[aria-label="Unmute"]')`)) await t.shell.click(dock, 'Mute')
+    if (!await t.shell.waitFor(() => !!document.querySelector('.exo-dc-me button[aria-label="Unmute"]'), { timeoutMs: 3000 })) c.skip('could not mute first, so the call was not joined')
+    const failures = []
+    if (!await t.shell.click((n) => [...document.querySelectorAll('.exo-dc-voice-channel button.exo-dc-item')].find(b => b.querySelector('.exo-dc-item-name')?.textContent.trim() === n), TEST_VOICE)) {
+      failures.push(`no ${TEST_VOICE} voice channel`)
+    } else {
+      await sleep(900)
+      await t.shell.click(() => document.querySelector('.exo-dc-voice-join'))
+      const connected = await t.shell.waitFor(() => document.querySelector('.exo-dc-voice-status strong.is-on')?.textContent.includes('Voice connected') || null, { timeoutMs: 20000 })
+      await c.shot('voice', t.shell)
+      if (!connected) failures.push(`did not connect to ${TEST_VOICE}: ${await t.shell.eval(`document.querySelector('.exo-dc-voice-status')?.innerText ?? 'no voice panel'`)}`)
+      else {
+        const state = await t.shell.eval(`({ place: document.querySelector('.exo-dc-voice-place')?.textContent ?? '', muted: !!document.querySelector('.exo-dc-me button[aria-label="Unmute"]'), deafened: !!document.querySelector('.exo-dc-me button[aria-label="Undeafen"]') })`)
+        c.evidence.connected = state
+        if (!state.place.includes(TEST_VOICE)) failures.push(`the voice panel names ${state.place}, not ${TEST_VOICE}`)
+        if (!state.muted || !state.deafened) failures.push('joining the call undid mute or deafen')
+      }
+    }
+    // Always out of the call, and mute and deafen as they were.
+    await t.shell.click(() => document.querySelector('.exo-dc-voice button[aria-label="Disconnect"]'))
+    const left = await t.shell.waitFor(() => !document.querySelector('.exo-dc-voice') || null, { timeoutMs: 10000 })
+    if (!left) failures.push('Disconnect did not leave the call')
+    // Undeafen first: while deafened the mic stays muted. Each press is waited out before the next.
+    for (const [key, on, off] of [['deafened', 'Undeafen', 'Deafen'], ['muted', 'Unmute', 'Mute']]) {
+      if (was[key] || !await t.shell.eval(`!!document.querySelector('.exo-dc-me button[aria-label="${on}"]')`)) continue
+      await t.shell.click(dock, on)
+      if (!await t.shell.waitFor((l) => !!document.querySelector(`.exo-dc-me button[aria-label="${l}"]`), { timeoutMs: 3000, args: [off] })) failures.push(`${key} was not put back`)
     }
     await openTestChannel(t)
     return failures

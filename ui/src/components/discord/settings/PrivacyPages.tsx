@@ -3,6 +3,7 @@ import { host } from '../../../lib/host'
 import type { DiscordHome, DiscordRestricted } from '../../../lib/discord'
 import { Avatar } from '../presence'
 import { changeAccountSettings, useAccountSettings, useStreamerHides, type AccountSettings, type DiscordAuthorizedApp, type DiscordConnection } from '../../../lib/discordPrefs'
+import { confirm } from '../../ui/Dialog'
 import { connectionLabel } from '../profileParts'
 import { Confirm } from '../admin'
 import { AccountToggle, Category, ChoiceRow, LinkRow, LoadError, Row, ToggleRow, useLoad } from './parts'
@@ -47,20 +48,20 @@ function spamFilter(settings: AccountSettings, adult: boolean) {
 export function MessagingPage({ guilds }: { guilds: DiscordHome['guilds'] }) {
   const settings = useAccountSettings()
   const adult = useAdult()
-  const [askAll, setAskAll] = useState<null | { kind: 'dms' | 'requests'; restricted: boolean }>(null)
-  const [dmError, setDmError] = useState<string | null>(null)
   const dmsRestricted = settings.defaultGuildsRestrictedV2 ?? settings.defaultGuildsRestricted
   const flags = settings.friendSourceFlags
   const everyone = (flags & 8) !== 0
   const setFlag = (bit: number, on: boolean) => changeAccountSettings({ friendSourceFlags: on ? flags | bit : flags & ~bit & ~8 })
-  const applyDefault = (all: boolean) => {
-    if (!askAll) return
-    const ids = all ? (askAll.restricted ? guilds.map(g => g.id) : []) : undefined
-    setDmError(null)
-    void changeAccountSettings(askAll.kind === 'dms'
-      ? { defaultGuildsRestrictedV2: askAll.restricted, ...(ids ? { restrictedGuildIds: ids } : {}) }
-      : { defaultMessageRequestRestricted: askAll.restricted, ...(ids ? { messageRequestRestrictedGuildIds: ids } : {}) }).then(setDmError)
-    setAskAll(null)
+  // Discord asks whether a new default also goes to the servers you're in now; Cancel changes nothing.
+  const applyDefault = async (kind: 'dms' | 'requests', restricted: boolean) => {
+    const answer = await confirm({
+      title: 'Apply to all your servers?', body: 'Servers you join from now on use it either way.', also: 'New servers only', action: 'Apply to all', danger: false,
+    })
+    if (!answer) return null
+    const ids = answer === true ? (restricted ? guilds.map(g => g.id) : []) : undefined
+    return changeAccountSettings(kind === 'dms'
+      ? { defaultGuildsRestrictedV2: restricted, ...(ids ? { restrictedGuildIds: ids } : {}) }
+      : { defaultMessageRequestRestricted: restricted, ...(ids ? { messageRequestRestrictedGuildIds: ids } : {}) })
   }
   return (
     <>
@@ -80,17 +81,9 @@ export function MessagingPage({ guilds }: { guilds: DiscordHome['guilds'] }) {
       </Category>
       <Category title="Direct message (DM) permissions">
         <ToggleRow label="Direct messages" detail="Allow DMs from other server members" checked={!dmsRestricted}
-          onChange={value => { setAskAll({ kind: 'dms', restricted: !value }) }} />
+          onChange={value => applyDefault('dms', !value)} />
         <ToggleRow label="Message requests" detail="Filter messages from server members you may not know." checked={!dmsRestricted && !settings.defaultMessageRequestRestricted}
-          disabled={dmsRestricted} onChange={value => { setAskAll({ kind: 'requests', restricted: !value }) }} />
-        {askAll ? (
-          <div className="exo-dc-settings-ask exo-glass" role="alertdialog" aria-label={askAll.kind === 'dms' ? 'Server privacy' : 'Message requests'}>
-            <span>Do you want to also apply this change to all your existing servers?</span>
-            <button type="button" className="exo-set-btn" onClick={() => applyDefault(false)}>No</button>
-            <button type="button" className="exo-set-btn is-primary" onClick={() => applyDefault(true)}>Yes</button>
-          </div>
-        ) : null}
-        {dmError ? <p className="exo-dc-settings-note" role="alert">{dmError}</p> : null}
+          disabled={dmsRestricted} onChange={value => applyDefault('requests', !value)} />
       </Category>
       <Category title="Friend request permissions">
         <ToggleRow label="Everyone" checked={everyone} onChange={value => changeAccountSettings({ friendSourceFlags: value ? 14 : 14 & ~8 })} />
@@ -175,11 +168,10 @@ const TURN_OFF: Record<Consent, { title: string; body: string }> = {
 export function DataPrivacyPage() {
   const settings = useAccountSettings()
   const consent = useLoad('consent', () => host.discordAccount('consent'), data => data as { usageStatistics: boolean; personalization: boolean })
-  // Which consent's Turn off question is open, and what Discord said when one didn't save.
-  const [asking, setAsking] = useState<Consent | null>(null)
-  const [consentError, setConsentError] = useState<string | null>(null)
   const setConsent = (kind: Consent, on: boolean) => host.discordAccount('setConsent', on ? { grant: [kind] } : { revoke: [kind] })
     .then(result => { consent.reload(); return result.ok ? null : result.message ?? "Discord didn't save that." }, () => "Discord didn't save that.")
+  // Turning one on saves at once; turning one off asks Discord's question first.
+  const change = async (kind: Consent, on: boolean) => (on || await confirm({ ...TURN_OFF[kind], action: 'Turn off', danger: true })) ? setConsent(kind, on) : null
   return (
     <>
       <h1>Data & privacy</h1>
@@ -188,18 +180,10 @@ export function DataPrivacyPage() {
         <Row label="Use data to make Discord work" detail="Discord needs to store and process some data in order to provide you the basic Discord service, such as your messages, what servers you're in and your Direct Messages." />
         <ToggleRow label="Use data to improve Discord" detail="Allow Discord to use and process my information to understand and improve Discord's services."
           checked={consent.value?.usageStatistics ?? false} disabled={!consent.value}
-          onChange={value => { if (value) return setConsent('usage_statistics', true); setAsking('usage_statistics') }} />
+          onChange={value => change('usage_statistics', value)} />
         <ToggleRow label="Use data to personalize my Discord experience" detail="Allows Discord to use information, such as who you talk to and what games you play, to personalize Discord for you."
           checked={consent.value?.personalization ?? false} disabled={!consent.value}
-          onChange={value => { if (value) return setConsent('personalization', true); setAsking('personalization') }} />
-        {asking ? (
-          <div className="exo-dc-settings-ask exo-glass" role="alertdialog" aria-label={TURN_OFF[asking].title}>
-            <span>{TURN_OFF[asking].body}</span>
-            <button type="button" className="exo-set-btn" onClick={() => setAsking(null)}>No, take me back!</button>
-            <button type="button" className="exo-set-btn is-danger" onClick={() => { setAsking(null); setConsentError(null); void setConsent(asking, false).then(setConsentError) }}>Yes, I&apos;m sure</button>
-          </div>
-        ) : null}
-        {consentError ? <p className="exo-dc-settings-note" role="alert">{consentError}</p> : null}
+          onChange={value => change('personalization', value)} />
         <AccountToggle label="Use my Discord activity to personalize sponsored content" detail="Allows Discord to personalize sponsored content, like Quests, using your Discord activity, such as the games you play."
           settings={settings} field="dropsOptedOut" invert />
         <AccountToggle label="Use third-party data to personalize sponsored content" detail="Allows Discord to personalize sponsored content, like Quests, using data Discord receives from advertisers and third-party data providers."
@@ -289,8 +273,8 @@ export function ConnectedAppsPage() {
           </Row>
         ))}
         {asking ? (
-          <Confirm title="Deauthorize application" action="Deauthorize" onClose={() => setAsking(null)} onConfirm={() => deauthorize(asking.id)}>
-            <p>This action will remove the link between your Discord account and {asking.name ?? 'this app'}</p>
+          <Confirm title={`Deauthorize ${asking.name ?? 'this app'}?`} action="Deauthorize" onClose={() => setAsking(null)} onConfirm={() => deauthorize(asking.id)}>
+            <p>This action will remove the link between your Discord account and {asking.name ?? 'this app'}.</p>
           </Confirm>
         ) : null}
       </Category>

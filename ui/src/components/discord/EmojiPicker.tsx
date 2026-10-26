@@ -6,6 +6,7 @@ import { emojiUrl } from './markdown'
 import { Icons } from './icons'
 import { findUnicodeEmoji, loadUnicodeEmoji, type UnicodeEmojiSet } from './unicodeEmoji'
 import { useDismiss } from '../../lib/dismiss'
+import { Skeleton } from '../ui/Skeleton'
 
 export type PickedEmoji = { text: string; reaction: string }
 
@@ -205,7 +206,7 @@ export function EmojiPicker({ guildId, reacting, tabs, onPick, onClose }: {
           {found ? (
             <div className="exo-dc-picker-grid">{unicodeCells(found).map(tile)}</div>
           ) : unicode?.categories.map(c => section(c.id, c.name, unicodeCells(c.emoji), 'exo-dc-picker-section'))}
-          {!unicode && !q ? <p className="exo-dc-note">Loading emoji</p> : null}
+          {!unicode && !q ? <Skeleton label="Loading emoji" tiles={32} className="exo-dc-picker-wait" /> : null}
           {q && unicode && data && groups.length === 0 && found?.length === 0 ? <p className="exo-dc-note">No emoji called that.</p> : null}
         </div>
       </div>

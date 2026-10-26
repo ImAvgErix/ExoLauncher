@@ -53,6 +53,7 @@ export function BootSplash({ revealing = false, onComplete, reduceMotion = shoul
     fade.onfinish = () => finish.current?.()
     return () => { fade.cancel(); recede.cancel() }
   }, [revealing, reduceMotion])
+  // The mark is the launch screen's one wait (DESIGN.md › Waits): nothing here has a measure to show.
   return <div ref={root} className={`exo-boot${playing ? ' is-playing' : ''}`} role="status" aria-label={checkingUpdate ? 'Checking for updates' : 'Preparing library and game tools'}>
     <img className="exo-boot-icon" src="/logo.svg" width={128} height={128} alt="" draggable={false} decoding="sync" />
   </div>
@@ -94,7 +95,7 @@ export function bootGate(props: BootGateProps): ReactNode {
     return (
       splash(
         <div className="flex flex-1 items-center justify-center px-6">
-          <div className="max-w-md rounded-[14px] border border-line-soft bg-elevated p-6 text-center" role="alert">
+          <div className="exo-glass is-panel max-w-md rounded-[18px] p-6 text-center" role="alert">
             <h1 className="text-[length:calc(20px*var(--exo-scale,1))] font-semibold text-fg">Settings could not be loaded</h1>
             <p className="mt-2 text-[length:calc(12px*var(--exo-scale,1))] leading-relaxed text-muted">{settingsError}</p>
             <Button type="button" size="sm" className="exo-set-btn is-primary mt-5" onPress={props.onRetrySettings}>

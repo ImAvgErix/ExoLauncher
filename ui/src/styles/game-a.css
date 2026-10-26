@@ -1,9 +1,3 @@
-/* Armed Remove: red ink and a red hairline on black, no tinted fill. */
-.exo-game-tool.is-armed {
-  color: var(--color-bad);
-  border-color: color-mix(in srgb, var(--color-bad) 55%, transparent);
-}
-
 /* The store beside the name: its mark and name in a pill, or one pill to switch between the stores you own it on. */
 .exo-game-store {
   display: inline-flex;

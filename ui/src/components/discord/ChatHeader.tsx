@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { host } from '../../lib/host'
+import { notify } from '../../lib/notify'
 import { report } from '../../lib/report'
 import { type DiscordChannel, type DiscordMessage, type DiscordPlace, type DiscordSearchFilters, type DiscordThread } from '../../lib/discord'
 import { Icons } from './icons'
@@ -12,6 +13,7 @@ import { Inbox } from './Inbox'
 import { MessageConfirm } from './MessageConfirm'
 import { Result, useOutside } from './results'
 import { SearchBox, SearchResults } from './SearchBar'
+import { Skeleton } from '../ui/Skeleton'
 
 /** The bar over a conversation, Discord's way: what it is, then calls, pins, the member list and search on the right. */
 export function ChatHeader({ channel, guildId, serverName, ctx, membersShown, onToggleMembers, onCall, inCall, onOpenThread, parent, onBack, onHide }: {
@@ -193,7 +195,7 @@ function Results({ title, found, ctx, empty, box, tools, here, onClose, onRemove
       <p className="exo-dc-popover-title">{title}</p>
       {tools}
       <div className="exo-dc-popover-list">
-        {loading ? <p className="exo-dc-note">Loading</p> : null}
+        {loading ? <Skeleton label="Loading messages" avatar /> : null}
         {error ? <p className="exo-dc-note" role="alert">{error}</p> : null}
         {!loading && !error && messages.length === 0 ? <p className="exo-dc-note">{empty}</p> : null}
         {messages.map(message => <Result key={message.id} message={message} place={places[message.channel_id] ?? null} here={here} ctx={ctx} onJumped={onClose}
@@ -246,7 +248,7 @@ function Threads({ channelId, onOpen, onClose }: { channelId: string; onOpen: (t
         <button type="button" className="exo-dc-tab" aria-pressed={archived} onClick={() => setArchived(true)}>Archived</button>
       </div>
       <div className="exo-dc-popover-list">
-        {threads === null ? <p className="exo-dc-note">Loading</p> : null}
+        {threads === null ? <Skeleton label="Loading threads" /> : null}
         {threads?.length === 0 ? <p className="exo-dc-note">{archived ? 'There are no archived threads.' : 'There are no active threads.'}</p> : null}
         {threads?.map(thread => (
           <button key={thread.id} type="button" className="exo-dc-post"
@@ -269,11 +271,11 @@ function Bell({ channel }: { channel: DiscordChannel }) {
   const [muted, setMuted] = useState(channel.muted === true)
   const [until, setUntil] = useState(channel.mutedUntil ?? null)
   const [level, setLevel] = useState(channel.notify ?? null)
-  const [error, setError] = useState<string | null>(null)
+  // The menu is gone by then: a refusal goes to Exo's notices.
+  const failed = (why?: string | null) => notify({ text: why ?? 'Discord did not change that.', tone: 'bad' })
   const change = (next: Parameters<typeof host.discordChannelNotify>[1], apply: () => void) => {
-    setOpen(false); setError(null)
-    void host.discordChannelNotify(channel.id, next).then(result => { if (result.ok) apply(); else setError(result.message ?? 'Discord did not change that.') })
-      .catch(() => setError('Discord did not change that.'))
+    setOpen(false)
+    void host.discordChannelNotify(channel.id, next).then(result => { if (result.ok) apply(); else failed(result.message) }, () => failed())
   }
   return (
     <span className="exo-dc-menu-anchor">
@@ -304,7 +306,6 @@ function Bell({ channel }: { channel: DiscordChannel }) {
           ))}
         </BellMenu>
       ) : null}
-      {error ? <span className="exo-dc-head-error exo-glass" role="alert">{error}</span> : null}
     </span>
   )
 }

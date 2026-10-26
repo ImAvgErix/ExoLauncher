@@ -1,15 +1,17 @@
-import { memo, useRef, type CSSProperties } from 'react'
+import { memo, useRef } from 'react'
 import { shelfAction, type Game, type InstallProgress } from '../../lib/host'
 import { useLens } from '../../lib/glass'
 import { More, Play } from '../../brand/icons'
-import { formatPlayed, formatRelativeLastPlayed, transferPercent } from '../../lib/utils'
+import { formatPlayed, formatRelativeLastPlayed, installProgressLabel, transferPercent } from '../../lib/utils'
 import { HeroWash } from '../CoverArt'
+import { Progress } from '../ui/Progress'
+import { Spinner } from '../ui/Spinner'
 import type { GameMenuAt } from './GameMenu'
 
 /**
  * Continue (DESIGN.md › Library): the games you are actually playing, as big
  * landscape art with Play one click away, three equal banners. The live state rides on the card:
- * the green glow while it runs, a ring while it downloads or updates.
+ * the green glow while it runs, the Exo bar along its foot while it downloads or updates.
  */
 export const ContinueRow = memo(function ContinueRow({ games, transferFor, startingId, onOpen, onPlay, onMenu }: {
   games: Game[]
@@ -47,7 +49,7 @@ function ContinueCard({ game, transfer, starting, onOpen, onPlay, onMenu }: {
   useLens(plate)
   const shortcut = shelfAction(game)
   return (
-    <article className={`exo-continue-card${game.isRunning ? ' is-playing' : ''}${working ? ' exo-motion-work' : ''}`}>
+    <article className={`exo-continue-card${game.isRunning ? ' is-playing' : ''}`}>
       <button type="button" className="exo-continue-open" data-vt-art aria-label={`Open ${game.title}`} onClick={() => onOpen(game)}
         onContextMenu={(event) => { event.preventDefault(); onMenu({ game, x: event.clientX, y: event.clientY, from: event.currentTarget }) }}>
         <span className="exo-continue-scrim"><HeroWash game={game} className="exo-continue-art" /></span>
@@ -55,13 +57,9 @@ function ContinueCard({ game, transfer, starting, onOpen, onPlay, onMenu }: {
       <div className="exo-continue-info">
         <div ref={plate} className="exo-glass exo-continue-text">
           <strong>{game.title}</strong>
-          <span className={game.isRunning ? 'is-good' : undefined}>{stateLine(game, transfer, percent)}</span>
+          <span className={game.isRunning ? 'is-good' : undefined}>{stateLine(game, transfer)}</span>
         </div>
-        {working ? (
-          <span className="exo-continue-ring" style={{ '--p': `${percent ?? 0}%` } as CSSProperties} role="img" aria-label={percent == null ? 'Working' : `${Math.floor(percent)}%`}>
-            <span>{percent == null ? '' : Math.floor(percent)}</span>
-          </span>
-        ) : (
+        {working ? null : (
           <div className="exo-continue-actions">
             <button ref={more} type="button" className="exo-glass exo-continue-more" aria-label={`More for ${game.title}`} aria-haspopup="menu"
               onClick={(event) => {
@@ -72,23 +70,22 @@ function ContinueCard({ game, transfer, starting, onOpen, onPlay, onMenu }: {
             </button>
             {shortcut ? (
               <button type="button" className="exo-continue-play" disabled={starting} aria-label={`${starting ? 'Starting' : shortcut.label} ${game.title}`} onClick={() => onPlay(game)}>
-                <Play size={14} />
-                {starting ? 'Starting…' : shortcut.label}
+                {starting ? <Spinner label={`Starting ${game.title}`} /> : <Play size={14} />}
+                {shortcut.label}
               </button>
             ) : null}
           </div>
         )}
       </div>
+      {working ? <Progress edge size="small" value={percent == null ? null : percent / 100} label={`${game.installed ? 'Updating' : 'Downloading'} ${game.title}`} /> : null}
     </article>
   )
 }
 
-function stateLine(game: Game, transfer: InstallProgress | null, percent: number | null): string {
+/** What the card is doing in words; how far a download is, the bar along its foot says. */
+function stateLine(game: Game, transfer: InstallProgress | null): string {
   if (game.isRunning) return 'Playing'
-  if (transfer?.isActive) {
-    const verb = game.installed ? 'Updating' : 'Downloading'
-    return percent == null ? verb : `${verb} · ${Math.floor(percent)}%`
-  }
+  if (transfer?.isActive) return installProgressLabel(transfer, game.installed ? 'update' : 'download')
   const parts = [
     game.playtimeMinutes ? formatPlayed(game.playtimeMinutes) : null,
     game.lastPlayedUtc ? formatRelativeLastPlayed(game.lastPlayedUtc) : null,

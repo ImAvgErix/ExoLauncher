@@ -7,6 +7,7 @@ import { showProfile } from './extras'
 import { Nameplate, StyledName } from './collectibles'
 import { GuildTag } from './guildTag'
 import { Icons } from './icons'
+import { Skeleton } from '../ui/Skeleton'
 
 const shownLists = new Map<string, DiscordMemberList>()
 // A member's row (.exo-dc-member); a row not sent yet takes the same, so the list is its full length from the start.
@@ -70,6 +71,7 @@ export function MemberList({ guildId }: { guildId: string }) {
     // The pane draws its glass; the list inside it scrolls, so it can fade into the pane's edges (exo-shell.css › pool).
     <aside className="exo-dc-members" aria-label="Members">
       <div className="exo-dc-members-list" onScroll={onScroll}>
+      {list ? null : <Skeleton label="Loading members" rows={8} avatar />}
       {list && list.items.length === 0 ? <p className="exo-dc-note">Members show here once Discord sends them.</p> : null}
       {list?.items.map((item, i) => item === null
         ? <div key={`p${i}`} className="exo-dc-member is-pending" aria-hidden="true" />

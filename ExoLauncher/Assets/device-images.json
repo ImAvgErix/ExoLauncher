@@ -1,0 +1,228 @@
+{
+  "about": "Official product pictures for the Devices room, by model and variant. Exo ships only these links: it fetches each picture from the maker's own image server (or OpenMouse's render server for mice) when a device first shows, fits it to one frame and keeps it on this PC (Services/DeviceImages.cs). Every picture is the maker's straight-on hero shot (top-down for mice and keyboards, the face for controllers, front for headphones) on white, a flat studio color or transparency. The first entry of a model is its default; variant is a controller's color or a keyboard's layout; cut says what else comes away with a photo's background (shadow: the studio's soft shadow; holes: background seen through a closed cable loop).",
+  "devices": [
+    {
+      "kind": "controller", "maker": "Sony", "model": "DualSense Edge", "ids": ["dualsense-edge"], "variant": "White",
+      "url": "https://gmedia.playstation.com/is/image/SIEPDC/DualsenseEdge-White-01-1x1-01-28feb26$en?$1600px--t$&bfc=off",
+      "view": "front, transparent PNG 1600x1600", "page": "https://www.playstation.com/en-gb/accessories/dualsense-edge-wireless-controller/buy-now/"
+    },
+    {
+      "kind": "controller", "maker": "Sony", "model": "DualSense Edge", "ids": ["dualsense-edge"], "variant": "Midnight Black",
+      "url": "https://gmedia.playstation.com/is/image/SIEPDC/DualsenseEdge-MidnightBlack-01-1x1-01-28feb26$en?$1600px--t$&bfc=off",
+      "view": "front, transparent PNG 1600x1600", "page": "https://www.playstation.com/en-gb/accessories/dualsense-edge-wireless-controller/buy-now/product/midnight-black/"
+    },
+    {
+      "kind": "controller", "maker": "Sony", "model": "DualSense", "ids": ["dualsense"], "variant": "White",
+      "url": "https://gmedia.playstation.com/is/image/SIEPDC/DualsenseController-White01-1x1-01-28feb26$en?$1600px--t$&bfc=off",
+      "view": "front, transparent PNG 1600x1600", "page": "https://www.playstation.com/en-gb/accessories/dualsense-wireless-controller/buy-now/"
+    },
+    {
+      "kind": "controller", "maker": "Sony", "model": "DualSense", "ids": ["dualsense"], "variant": "Midnight Black",
+      "url": "https://gmedia.playstation.com/is/image/SIEPDC/DualsenseController-MidnightBlack01-1x1-01-28feb26$en?$1600px--t$&bfc=off",
+      "view": "front, transparent PNG 1600x1600", "page": "https://www.playstation.com/en-gb/accessories/dualsense-wireless-controller/buy-now/product/midnight-black/"
+    },
+    {
+      "kind": "controller", "maker": "Sony", "model": "DualSense", "ids": ["dualsense"], "variant": "Cosmic Red",
+      "url": "https://gmedia.playstation.com/is/image/SIEPDC/DualsenseController-CosmicRed01-1x1-01-28feb26$en?$1600px--t$&bfc=off",
+      "view": "front, transparent PNG 1600x1600", "page": "https://www.playstation.com/en-gb/accessories/dualsense-wireless-controller/buy-now/product/cosmic-red/"
+    },
+    {
+      "kind": "controller", "maker": "Sony", "model": "DualSense", "ids": ["dualsense"], "variant": "Nova Pink",
+      "url": "https://gmedia.playstation.com/is/image/SIEPDC/DualsenseController-NovaPink01-1x1-01-28feb26$en?$1600px--t$&bfc=off",
+      "view": "front, transparent PNG 1600x1600", "page": "https://www.playstation.com/en-gb/accessories/dualsense-wireless-controller/buy-now/product/nova-pink/"
+    },
+    {
+      "kind": "controller", "maker": "Sony", "model": "DualSense", "ids": ["dualsense"], "variant": "Galactic Purple",
+      "url": "https://gmedia.playstation.com/is/image/SIEPDC/DualsenseController-GalaticPurple01-1x1-01-28feb26$en?$1600px--t$&bfc=off",
+      "view": "front, transparent PNG 1600x1600", "page": "https://www.playstation.com/en-gb/accessories/dualsense-wireless-controller/buy-now/product/galactic-purple/"
+    },
+    {
+      "kind": "controller", "maker": "Sony", "model": "DualSense", "ids": ["dualsense"], "variant": "Starlight Blue",
+      "url": "https://gmedia.playstation.com/is/image/SIEPDC/DualsenseController-StarlightBlue01-1x1-01-28feb26$en?$1600px--t$&bfc=off",
+      "view": "front, transparent PNG 1600x1600", "page": "https://www.playstation.com/en-gb/accessories/dualsense-wireless-controller/buy-now/product/starlight-blue/"
+    },
+    {
+      "kind": "controller", "maker": "Sony", "model": "DualSense", "ids": ["dualsense"], "variant": "Grey Camouflage",
+      "url": "https://gmedia.playstation.com/is/image/SIEPDC/DualsenseController-GrayCamo01-1x1-01-28feb26$en?$1600px--t$&bfc=off",
+      "view": "front, transparent PNG 1600x1600", "page": "https://www.playstation.com/en-gb/accessories/dualsense-wireless-controller/buy-now/product/gray-camouflage/"
+    },
+    {
+      "kind": "controller", "maker": "Sony", "model": "DualSense", "ids": ["dualsense"], "variant": "Volcanic Red",
+      "url": "https://gmedia.playstation.com/is/image/SIEPDC/DualsenseController-VolcanicRed01-1x1-01-28feb26$en?$1600px--t$&bfc=off",
+      "view": "front, transparent PNG 1600x1600", "page": "https://www.playstation.com/en-gb/accessories/dualsense-wireless-controller/buy-now/"
+    },
+    {
+      "kind": "controller", "maker": "Sony", "model": "DualSense", "ids": ["dualsense"], "variant": "Sterling Silver",
+      "url": "https://gmedia.playstation.com/is/image/SIEPDC/DualsenseController-SterlingSilver01-1x1-01-28feb26$en?$1600px--t$&bfc=off",
+      "view": "front, transparent PNG 1600x1600", "page": "https://www.playstation.com/en-gb/accessories/dualsense-wireless-controller/buy-now/"
+    },
+    {
+      "kind": "controller", "maker": "Sony", "model": "DualSense", "ids": ["dualsense"], "variant": "Cobalt Blue",
+      "url": "https://gmedia.playstation.com/is/image/SIEPDC/DualsenseController-CobaltBlue01-1x1-01-28feb26$en?$1600px--t$&bfc=off",
+      "view": "front, transparent PNG 1600x1600", "page": "https://www.playstation.com/en-gb/accessories/dualsense-wireless-controller/buy-now/"
+    },
+    {
+      "kind": "controller", "maker": "Sony", "model": "DualSense", "ids": ["dualsense"], "variant": "Chroma Teal",
+      "url": "https://gmedia.playstation.com/is/image/SIEPDC/DualsenseController-ChromaTeal01-1x1-01-28feb26$en?$1600px--t$&bfc=off",
+      "view": "front, transparent PNG 1600x1600", "page": "https://www.playstation.com/en-gb/accessories/dualsense-wireless-controller/buy-now/product/chroma-teal/"
+    },
+    {
+      "kind": "controller", "maker": "Sony", "model": "DualSense", "ids": ["dualsense"], "variant": "Chroma Indigo",
+      "url": "https://gmedia.playstation.com/is/image/SIEPDC/DualsenseController-ChromaIndigo01-1x1-01-28feb26$en?$1600px--t$&bfc=off",
+      "view": "front, transparent PNG 1600x1600", "page": "https://www.playstation.com/en-gb/accessories/dualsense-wireless-controller/buy-now/product/chroma-indigo/"
+    },
+    {
+      "kind": "controller", "maker": "Sony", "model": "DualSense", "ids": ["dualsense"], "variant": "Chroma Pearl",
+      "url": "https://gmedia.playstation.com/is/image/SIEPDC/DualsenseController-ChromaPearl01-1x1-01-28feb26$en?$1600px--t$&bfc=off",
+      "view": "front, transparent PNG 1600x1600", "page": "https://www.playstation.com/en-gb/accessories/dualsense-wireless-controller/buy-now/product/chroma-pearl/"
+    },
+    {
+      "kind": "controller", "maker": "Sony", "model": "DualShock 4", "ids": ["dualshock4"], "variant": "Jet Black",
+      "url": "https://gmedia.playstation.com/is/image/SIEPDC/ps4-accessories-ds4-jet-black-screen-01-en-28oct20?$native$&bfc=off",
+      "view": "front, white JPEG 1920x1080", "page": "https://www.playstation.com/en-us/accessories/dualshock-4-wireless-controller/"
+    },
+    {
+      "kind": "controller", "maker": "Microsoft", "model": "Xbox Wireless Controller", "ids": ["xbox"], "variant": "Carbon Black",
+      "url": "https://cdn-dynmedia-1.microsoft.com/is/image/microsoftcorp/gldn-Xbox-Cntrl-Black-b00?fmt=png-alpha&wid=2000&hei=2000&bfc=off",
+      "view": "front, transparent PNG 2000x2000", "page": "https://www.microsoft.com/en-us/d/xbox-wireless-controller/8xn59crbsqgz"
+    },
+    {
+      "kind": "controller", "maker": "Microsoft", "model": "Xbox Wireless Controller", "ids": ["xbox"], "variant": "Robot White",
+      "url": "https://cdn-dynmedia-1.microsoft.com/is/image/microsoftcorp/gldn-Xbox-Cntrl-White-b01-1?fmt=png-alpha&wid=2000&hei=2000&bfc=off",
+      "view": "front, transparent PNG 2000x2000", "page": "https://www.microsoft.com/en-us/d/xbox-wireless-controller/8xn59crbsqgz"
+    },
+    {
+      "kind": "controller", "maker": "Nintendo", "model": "Switch Pro Controller", "ids": ["switch-pro"], "aliases": ["Pro Controller"], "variant": null,
+      "url": "https://assets.nintendo.com/image/upload/ncom/en_US/products/accessories/nintendo-switch/controllers/pro-controllers/nintendo-switch-pro-controller/104888-nintendo-switch-pro-controller-black-front-1200x675",
+      "view": "front, white JPEG 1200x675", "page": "https://www.nintendo.com/us/store/products/pro-controller/"
+    },
+
+    {
+      "kind": "keyboard", "maker": "Wooting", "model": "60HE v2", "variant": "ansi",
+      "url": "https://cdn.shopify.com/s/files/1/0013/1383/3071/files/60HEv2-PCR-BK-PBT-Black-ANSI-US_1_046cc6e8-c1bc-4be9-a61b-9d48a63f38e2.png",
+      "view": "top-down, unlit, flat #E0E3EB studio PNG 1680x1890", "page": "https://wooting.io/wooting-60he-v2"
+    },
+    {
+      "kind": "keyboard", "maker": "Wooting", "model": "60HE v2", "variant": "ansi-split",
+      "url": "https://cdn.shopify.com/s/files/1/0013/1383/3071/files/60HEv2-PCR-BK-PBT-Black-ANSISP-US.png",
+      "view": "top-down, unlit, split spacebar, flat #E0E3EB studio PNG 1680x1890", "page": "https://wooting.io/wooting-60he-v2"
+    },
+    {
+      "kind": "keyboard", "maker": "Wooting", "model": "60HE+", "variant": null, "cut": { "shadow": true },
+      "url": "https://cdn.shopify.com/s/files/1/0013/1383/3071/files/W60HE_ANSI_US_PBT_c5da3e11-45aa-43f1-95ee-500f7bb0968b.jpg?v=1703246873",
+      "view": "top-down, unlit, flat #E0E3EB studio JPEG 1680x1890", "page": "https://wooting.io/wooting-60he"
+    },
+    {
+      "kind": "keyboard", "maker": "Wooting", "model": "60HE", "variant": null, "cut": { "shadow": true },
+      "url": "https://cdn.shopify.com/s/files/1/0013/1383/3071/files/W60HE_ANSI_US_PBT_c5da3e11-45aa-43f1-95ee-500f7bb0968b.jpg?v=1703246873",
+      "view": "top-down, unlit, flat #E0E3EB studio JPEG 1680x1890 (the 60HE+ shell)", "page": "https://wooting.io/wooting-60he"
+    },
+    {
+      "kind": "keyboard", "maker": "Wooting", "model": "80HE", "variant": null, "cut": { "shadow": true },
+      "url": "https://cdn.shopify.com/s/files/1/0013/1383/3071/products/W80HE-PCR-Black-ANSI-US-PBT-Black.png?v=1748650594",
+      "view": "top-down, unlit, flat #E0E3EB studio PNG 1680x1890", "page": "https://wooting.io/wooting-80he"
+    },
+    {
+      "kind": "keyboard", "maker": "Wooting", "model": "Two HE", "variant": null, "cut": { "shadow": true },
+      "url": "https://cdn.shopify.com/s/files/1/0013/1383/3071/files/7.US-ANSI-ABS-topview_da99ce28-4e1f-4255-b8be-849258dc6d18.jpg?v=1703242142",
+      "view": "top-down, lit, flat #E0E3EB studio JPEG 1680x1890", "page": "https://wooting.io/wooting-two-he"
+    },
+    {
+      "kind": "keyboard", "maker": "Wooting", "model": "UwU", "variant": null,
+      "url": "https://cdn.shopify.com/s/files/1/0013/1383/3071/files/UWU-base_ec3385ff-7f37-4c23-bb2b-858edb334133.jpg?v=1703246521",
+      "view": "top-down, flat #E0E3EB studio JPEG 1680x1890", "page": "https://wooting.io/uwu"
+    },
+
+    {
+      "kind": "mouse", "maker": "Finalmouse", "model": "Starlight X", "aliases": ["SLX"], "variant": null,
+      "url": "https://img.openmouse.app/finalmouse-slx.png",
+      "view": "top-down, transparent PNG 700x700", "page": "https://github.com/OpenMouse-Project/openmouse"
+    },
+    {
+      "kind": "mouse", "maker": "Finalmouse", "model": "ULX", "aliases": ["Starlight-12", "Starlight Pro"], "variant": null,
+      "url": "https://img.openmouse.app/finalmouse-ulx.png",
+      "view": "top-down, transparent PNG 700x700", "page": "https://github.com/OpenMouse-Project/openmouse"
+    },
+    {
+      "kind": "mouse", "maker": "Logitech", "model": "Pro X Superlight", "variant": null,
+      "url": "https://img.openmouse.app/logitech-pro-x-superlight-2c.png",
+      "view": "top-down, transparent PNG 631x1000", "page": "https://github.com/OpenMouse-Project/openmouse"
+    },
+    {
+      "kind": "mouse", "maker": "Logitech", "model": "Pro X2 Superstrike", "aliases": ["Superstrike"], "variant": null,
+      "url": "https://img.openmouse.app/logitech-pro-x2-superstrike.png",
+      "view": "top-down, transparent PNG 4886x2748", "page": "https://github.com/OpenMouse-Project/openmouse"
+    },
+    {
+      "kind": "mouse", "maker": "Logitech", "model": "G502 X Plus", "variant": null,
+      "url": "https://img.openmouse.app/logitech-g502-x-plus.png",
+      "view": "top-down, transparent PNG 700x700", "page": "https://github.com/OpenMouse-Project/openmouse"
+    },
+    {
+      "kind": "mouse", "maker": "Logitech", "model": "G502 X", "variant": null,
+      "url": "https://img.openmouse.app/logitech-g502-x.png",
+      "view": "top-down, transparent PNG 700x700", "page": "https://github.com/OpenMouse-Project/openmouse"
+    },
+    {
+      "kind": "mouse", "maker": "Logitech", "model": "G703", "variant": null,
+      "url": "https://img.openmouse.app/logitech-g703.png",
+      "view": "top-down, transparent PNG 700x700", "page": "https://github.com/OpenMouse-Project/openmouse"
+    },
+    {
+      "kind": "mouse", "maker": "Pulsar", "model": "X2 V2", "aliases": ["X2V2"], "variant": null,
+      "url": "https://img.openmouse.app/pulsar-x2-v2.png",
+      "view": "top-down, transparent PNG 800x800", "page": "https://github.com/OpenMouse-Project/openmouse"
+    },
+
+    {
+      "kind": "audio", "maker": "ZiiGaat", "model": "Lush", "variant": null,
+      "url": "https://cdn.shopify.com/s/files/1/0023/9255/5595/files/ziigaat-0-lush-thumb.webp?v=1749483090",
+      "view": "pair face-on, no cable or tips, white JPEG 2048x2048 (Bloom Audio's photo: ZiiGaat's and Linsoul's are 800 px)", "page": "https://bloomaudio.com/products/ziigaat-lush"
+    },
+    {
+      "kind": "audio", "maker": "Moondrop", "model": "Chu II", "aliases": ["Chu 2"], "variant": null, "cut": { "holes": true },
+      "url": "https://www.linsoul.com/cdn/shop/files/5_2f49efbf-6c26-47eb-b6ad-795661381cbb.jpg",
+      "view": "pair on its cable, shells face-on, white JPEG 800x800 (Linsoul, Moondrop's distributor; Moondrop's own copy is 500 px)", "page": "https://www.linsoul.com/products/moondrop-chu-ii"
+    },
+    {
+      "kind": "audio", "maker": "Truthear", "model": "Zero:Red", "aliases": ["Zero Red"], "variant": null, "cut": { "holes": true },
+      "url": "https://cdn.prod.website-files.com/63bcdfa5158ffcd72a7a8d8e/66456a905022b823ae80cdbb_RED.jpg",
+      "view": "pair face-on with ear hooks, white JPEG 1000x1000", "page": "https://truthear.com/products/zero-red"
+    },
+    {
+      "kind": "audio", "maker": "7Hz", "model": "Salnotes Zero", "aliases": ["Zero"], "variant": null, "cut": { "shadow": true },
+      "url": "https://www.linsoul.com/cdn/shop/products/1_3_ad09c0d6-b331-4391-8ea0-841ac4d28f43.jpg",
+      "view": "pair face-on, no cable, white JPEG 1000x1000 (Linsoul, 7Hz's distributor; 7Hz has no site of its own)", "page": "https://www.linsoul.com/products/7hz-salnotes-zero"
+    },
+    {
+      "kind": "audio", "maker": "Sennheiser", "model": "HD 600", "variant": null,
+      "url": "https://ca.sennheiser-hearing.com/cdn/shop/products/HD_600_Sennheiser_03.jpg",
+      "view": "front, white JPEG 1312x1312", "page": "https://ca.sennheiser-hearing.com/products/hd-600"
+    },
+    {
+      "kind": "audio", "maker": "Sennheiser", "model": "HD 650", "variant": null,
+      "url": "https://ca.sennheiser-hearing.com/cdn/shop/products/HD_650_Sennheiser_03.jpg",
+      "view": "front, white JPEG 1312x1312", "page": "https://ca.sennheiser-hearing.com/products/hd-650"
+    },
+    {
+      "kind": "audio", "maker": "beyerdynamic", "model": "DT 770 Pro", "aliases": ["DT 770"], "variant": null,
+      "url": "https://api.beyerdynamic.de/media/catalog/product/d/t/dt-770-pro-headphones-beyerdynamic-front_1.png",
+      "view": "front, transparent PNG 1200x1200", "page": "https://north-america.beyerdynamic.com/p/dt-770-pro"
+    },
+    {
+      "kind": "audio", "maker": "HyperX", "model": "Cloud II", "aliases": ["Cloud 2"], "variant": null,
+      "url": "https://hyperx.com/cdn/shop/files/hyperx_cloud_ii_red_5_front.jpg",
+      "view": "front, mic off, white JPEG 1600x1600", "page": "https://hyperx.com/products/hyperx-cloud-ii"
+    },
+    {
+      "kind": "audio", "maker": "SteelSeries", "model": "Arctis Nova Pro", "variant": null,
+      "url": "https://images.ctfassets.net/hmm5mo4qf4mf/7x9DaDHiFtvA9AcUyYSRSZ/61932c0eeb0d41a6e1836cb210c71157/imgbuy_arctis_nova_pro_black_5_v2.png__1920x1080_crop-fit_optimize_subsampling-2-262.png",
+      "view": "front, transparent PNG 900x1080 (the wired model; the wireless one looks the same from the front)", "page": "https://steelseries.com/gaming-headsets/arctis-nova-pro"
+    },
+    {
+      "kind": "audio", "maker": "Logitech", "model": "Pro X 2 Lightspeed", "aliases": ["G Pro X 2", "Pro X 2"], "variant": null,
+      "url": "https://resource.logitechg.com/content/dam/gaming/en/products/pro-x-2-lightspeed/gallery/gallery-4-pro-x-2-lightspeed-gaming-headset-black.png",
+      "view": "front with boom mic, transparent PNG 1384x1038", "page": "https://www.logitechg.com/en-us/shop/p/pro-x-2-wireless-headset.981-001262"
+    }
+  ]
+}

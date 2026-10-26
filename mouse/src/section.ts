@@ -26,7 +26,7 @@ export const GROUPS = ['Sensor', 'Buttons', 'Device', 'Profiles', 'Tests'] as co
 export type Group = (typeof GROUPS)[number]
 
 const BY_TITLE: Record<string, Group> = {
-  Sensitivity: 'Sensor', 'CPI stages': 'Sensor', Sensor: 'Sensor', Performance: 'Sensor',
+  Sensitivity: 'Sensor', 'CPI stages': 'Sensor', Sensor: 'Sensor', Performance: 'Sensor', 'CPU core': 'Sensor',
   'DPI acceleration': 'Sensor', 'DPI indicator': 'Sensor',
   Buttons: 'Buttons', 'Button controls': 'Buttons', 'Buttons and wheel': 'Buttons', 'Button assignments': 'Buttons',
   'Button response': 'Buttons', 'Main switches': 'Buttons', 'TMR-DS': 'Buttons', 'Magnetic switches': 'Buttons', Clicks: 'Buttons',

@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react'
 import { host, type LauncherSettings } from '../../../lib/host'
 import { onPerformanceMode, performanceMode, setPerformanceMode } from '../../../lib/discord'
 import { changeAccountSettings, setDiscordPrefs, useAccountSettings, useDiscordPrefs, type DiscordClientSettings } from '../../../lib/discordPrefs'
-import { AccountToggle, Category, ChoiceRow, LoadError, Preview, Row, SliderRow, ToggleRow, useClientSettings, useRemembered } from './parts'
+import { Confirm } from '../admin'
+import { AccountToggle, Category, ChoiceRow, LoadError, Preview, SliderRow, ToggleRow, useClientSettings, useRemembered } from './parts'
 
 /** Discord settings > Notifications: Windows notifications, what Discord tells you about, its sounds and the badge. */
 export function NotificationsPage() {
@@ -213,18 +214,15 @@ export function DeveloperPage() {
   )
 }
 
-/** Log Out, as Discord asks it. */
-export function LogOutPage({ onDone }: { onDone: () => void }) {
+/** Log Out, asked as Discord asks it, from its row in Settings' sidebar. */
+export function LogOut({ onDone, onClose }: { onDone: () => void; onClose: () => void }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const failed = () => { setBusy(false); setError("Exo couldn't log you out. Try again.") }
   return (
-    <>
-      <h1>Log out</h1>
-      <Row label="Are you sure you want to log out?" detail="Exo forgets your Discord sign-in on this PC." error={error}>
-        <button type="button" className="exo-set-btn is-danger" disabled={busy}
-          onClick={() => { setBusy(true); setError(null); void host.discordSignOut().then(result => { if (result.ok) onDone(); else failed() }, failed) }}>Log out</button>
-      </Row>
-    </>
+    <Confirm title="Log out?" action="Log out" busy={busy} error={error} onClose={onClose}
+      onConfirm={() => { setBusy(true); setError(null); void host.discordSignOut().then(result => { if (result.ok) onDone(); else failed() }, failed) }}>
+      <p>Exo forgets your Discord sign-in on this PC.</p>
+    </Confirm>
   )
 }

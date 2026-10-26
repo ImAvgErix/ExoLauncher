@@ -9,6 +9,7 @@ import { EndgamePulsarPanels } from './brands/endgame-pulsar'
 import { LogitechPanels, logitechOwnsLiftOff } from './brands/logitech'
 import { MagneticToolsPanels } from './brands/magnetic-tools'
 import { Profiles } from './Profiles'
+import { CpuCore } from './CpuCore'
 import { deviceImage } from './device-images'
 import { signalLevel, signalWord, useMouseAlerts } from './alerts'
 import { useSections } from './layout'
@@ -22,7 +23,7 @@ export function App() {
 export function Room({ mouse }: { mouse: ReturnType<typeof useMouse> }) {
   useMouseAlerts(mouse.phase === 'ready' ? mouse.status : null)
   if (mouse.phase === 'looking' || mouse.phase === 'opening') {
-    return <Centered title={mouse.phase === 'opening' ? `Connecting to ${mouse.current?.name ?? 'your mouse'}` : 'Looking for your mouse'} working />
+    return <Waiting label={mouse.phase === 'opening' ? `Connecting to ${mouse.current?.name ?? 'your mouse'}` : 'Looking for your mouse'} />
   }
   if (mouse.phase === 'none') {
     return <Centered title="No supported mouse found" line={mouse.error ?? 'Plug in your mouse or its receiver.'} />
@@ -56,6 +57,7 @@ export function Room({ mouse }: { mouse: ReturnType<typeof useMouse> }) {
         <Sensitivity {...section} />
         <CoreExtrasPanels {...section} />
         <Performance {...section} />
+        <CpuCore />
         <FinalmousePanels {...section} />
         <EndgamePulsarPanels {...section} />
         <AtkMiscPanels {...section} />
@@ -101,10 +103,26 @@ function Settings({ children }: { children: ReactNode }) {
   )
 }
 
-function Centered({ title, line, working = false, children }: { title: string; line?: string; working?: boolean; children?: ReactNode }) {
+/**
+ * The room on its way while Exo looks for the mouse or connects to it (Exo's DESIGN.md › Waits): the mouse's picture
+ * and its panels as skeleton cards in their places, shining; no words, bar or ring in the middle of the room.
+ */
+function Waiting({ label }: { label: string }) {
+  return (
+    <main className="m-room m-waiting m-switch-in" role="status" aria-label={label}>
+      <span className="m-skeleton m-shine" aria-hidden="true" />
+      <span className="m-waiting-panels" aria-hidden="true">
+        {[0, 1, 2, 3].map(i => <span key={i} className="m-skeleton m-shine" />)}
+      </span>
+    </main>
+  )
+}
+
+/** A state that fills the room: its title, a line under it, and what to do. */
+function Centered({ title, line, children }: { title: string; line?: string; children?: ReactNode }) {
   return (
     <main className="m-center m-switch-in" role="status">
-      <p className={`m-center-title${working ? ' m-work-text' : ''}`}>{title}</p>
+      <p className="m-center-title">{title}</p>
       {line ? <p className="m-center-line">{line}</p> : null}
       {children}
     </main>
@@ -207,8 +225,8 @@ function useLanded(busy: boolean, error: string | null): number {
  * when there is one) in the width the settings leave, its name and how it is
  * linked, and a readout of what the mouse reports but no panel shows:
  * battery, signal, a fixed polling rate and firmware. Each fact shows once.
- * A light band crosses the picture while a change is being written and a
- * check draws when it lands; the last change that did not take floats at the
+ * The picture shines where it is while a change is being written and a check
+ * draws when it lands; the last change that did not take floats at the
  * picture's foot, so nothing moves. Its foot thanks snekxs, who made OpenMouse.
  */
 function Device({ status, brand, readAt, busy, error, children }: { status: MouseStatus; brand: string; readAt: number; busy: boolean; error: string | null; children?: ReactNode }) {
@@ -223,7 +241,7 @@ function Device({ status, brand, readAt, busy, error, children }: { status: Mous
   return (
     <aside className="m-hero m-arrive" style={{ '--i': 0 } as CSSProperties}>
       {children ? <div className="m-hero-pick">{children}</div> : null}
-      <div className={`m-hero-art${busy ? ' m-work' : ''}`}>
+      <div className={`m-hero-art${busy ? ' m-shine' : ''}`} aria-busy={busy}>
         {shown ? (
           <>
             <img className="m-hero-wash" src={shown} alt="" draggable={false} aria-hidden="true" />

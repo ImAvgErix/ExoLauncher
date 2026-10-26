@@ -8,6 +8,7 @@ import { Icons } from './icons'
 import { ModalBack } from './SettingsLayer'
 import { useDismiss } from '../../lib/dismiss'
 import { useLayer } from './admin'
+import { Spinner } from '../ui/Spinner'
 
 const LENGTHS = [
   { hours: 1, label: '1 hour' }, { hours: 4, label: '4 hours' }, { hours: 8, label: '8 hours' }, { hours: 24, label: '24 hours' },
@@ -76,7 +77,9 @@ export function PollCreator({ channelId, onClose }: { channelId: string; onClose
             <Switch checked={multiple} label="Allow multiple answers" onChange={setMultiple} />
             Allow multiple answers
           </span>
-          <button type="button" className="exo-set-btn is-primary" disabled={!ready} onClick={post}>{busy ? 'Posting…' : 'Post'}</button>
+          <button type="button" className="exo-set-btn is-primary" disabled={!ready} onClick={post}>
+            {busy ? <Spinner label="Posting the poll" /> : null}Post
+          </button>
         </footer>
         {error ? <p className="exo-dc-note" role="alert">{error}</p> : null}
       </div>

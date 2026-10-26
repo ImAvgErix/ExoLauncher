@@ -3,6 +3,8 @@ import type { DiscordChannel } from '../../lib/discord'
 import { Switch } from '../Switch'
 import { Choice } from '../settings/Choice'
 import { admin, colorOf, Confirm, Field, PickChips, ReadError, useAdmin } from './admin'
+import { Spinner } from '../ui/Spinner'
+import { Skeleton } from '../ui/Skeleton'
 
 type Action = { type: number; metadata?: { custom_message?: string; channel_id?: string; duration_seconds?: number } }
 type Meta = { keyword_filter?: string[]; regex_patterns?: string[]; allow_list?: string[]; presets?: number[]; mention_total_limit?: number; mention_raid_protection_enabled?: boolean }
@@ -73,7 +75,7 @@ export function AutoMod({ guildId, channels }: { guildId: string; channels: Disc
       <h1>AutoMod</h1>
       <p className="exo-dc-note">Keep your server safe with rules that act on their own, around the clock.</p>
       <ReadError error={rules.error} onRetry={rules.reload} />
-      {!rules.data && !rules.error ? <p className="exo-dc-note">Loading</p> : null}
+      {!rules.data && !rules.error ? <Skeleton label="Loading rules" /> : null}
       {ORDER.map(type => {
         const kind = KINDS[type]
         const own = list.filter(r => r.trigger_type === type)
@@ -96,8 +98,8 @@ export function AutoMod({ guildId, channels }: { guildId: string; channels: Disc
         )
       })}
       {deleting ? (
-        <Confirm title="Delete rule" action="Delete rule" busy={busy} onConfirm={() => remove(deleting)} onClose={() => setDeleting(null)}>
-          <p>Are you sure you want to delete {deleting.name}? AutoMod stops acting on it right away.</p>
+        <Confirm title={`Delete ${deleting.name}?`} action="Delete rule" busy={busy} onConfirm={() => remove(deleting)} onClose={() => setDeleting(null)}>
+          <p>AutoMod stops acting on it right away.</p>
         </Confirm>
       ) : null}
     </>
@@ -138,7 +140,9 @@ function RuleEditor({ rule, roles, channels, busy, error, onCancel, onSave }: {
       {error ? <p className="exo-dc-field-error" role="alert">{error}</p> : null}
       <div className="exo-dc-modal-row">
         <button type="button" className="exo-dc-tab" onClick={onCancel}>Cancel</button>
-        <button type="button" className="exo-set-btn is-primary" disabled={!ready || busy} onClick={() => onSave(draft)}>{busy ? 'Saving' : 'Save rule'}</button>
+        <button type="button" className="exo-set-btn is-primary" disabled={!ready || busy} onClick={() => onSave(draft)}>
+          {busy ? <Spinner label="Saving the rule" /> : null}Save rule
+        </button>
       </div>
     </div>
   )

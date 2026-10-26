@@ -64,19 +64,24 @@ public sealed class LocalAdapter : IStoreAdapter
     {
         var games = new List<GameEntry> { CreateAddPortableEntry() };
         var knownPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        // A game added from the folder above its .exe is known by that .exe too.
+        var knownExes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var registered in _installedCatalog.GetInstalledGames(StoreKind.Local))
         {
             ct.ThrowIfCancellationRequested();
             games.Add(registered);
             if (!string.IsNullOrWhiteSpace(registered.Path))
                 knownPaths.Add(NormalizePath(registered.Path));
+            if (!string.IsNullOrWhiteSpace(registered.LaunchTarget))
+                knownExes.Add(registered.LaunchTarget);
             if (OsuInstallations.IsExecutable(registered.LaunchTarget) && registered.Path is not null &&
                 OsuInstallations.RootForPath(registered.Path) is { } osuRoot) knownPaths.Add(NormalizePath(osuRoot));
         }
 
-        foreach (var extra in OfficialInstalledLibraries.ScanWutheringWaves().Concat(OsuInstallations.Scan(ct)))
+        foreach (var extra in OfficialInstalledLibraries.ScanWutheringWaves().Concat(OsuInstallations.Scan(ct)).Concat(RecompInstallations.Scan(ct)))
         {
-            if (!string.IsNullOrWhiteSpace(extra.Path) && !knownPaths.Add(NormalizePath(extra.Path)))
+            if (!string.IsNullOrWhiteSpace(extra.Path) && !knownPaths.Add(NormalizePath(extra.Path)) ||
+                !string.IsNullOrWhiteSpace(extra.LaunchTarget) && !knownExes.Add(extra.LaunchTarget))
                 continue;
             games.Add(extra);
         }
@@ -121,6 +126,15 @@ public sealed class LocalAdapter : IStoreAdapter
 
                     if (OsuInstallations.Read(dir) is { } osu) {
                         games.Add(osu); knownPaths.Add(NormalizePath(dir)); continue;
+                    }
+
+                    // A native port by its own name, not its release folder's ("Zelda64Recompiled-v1.2.2-Windows").
+                    if (RecompInstallations.FindIn(dir) is { Count: > 0 } recomps)
+                    {
+                        foreach (var recomp in recomps.Select(RecompInstallations.Entry).OfType<GameEntry>())
+                            if (knownExes.Add(recomp.LaunchTarget!) && knownPaths.Add(NormalizePath(recomp.Path!)))
+                                games.Add(recomp);
+                        continue;
                     }
 
                     var exe = FindPlayableExe(dir);
@@ -208,17 +222,20 @@ public sealed class LocalAdapter : IStoreAdapter
 
         Report(game.Id, progress, InstallPhase.Preparing, null, "Scanning folder…");
 
-        var exe = picked ?? FindPlayableExe(path);
+        var exe = picked ?? RecompInstallations.FindIn(path).FirstOrDefault() ?? FindPlayableExe(path);
         if (exe is null)
         {
             Report(game.Id, progress, InstallPhase.Failed, null, "No game .exe found.");
             return new InstallResult { Ok = false, Message = "No game .exe was found in that folder or the folders right inside it." };
         }
 
-        var displayTitle = picked is not null ? TitleFor(picked, path) : Path.GetFileName(path.TrimEnd(
+        var recomp = RecompInstallations.Match(exe);
+        var displayTitle = recomp?.Title ?? (picked is not null ? TitleFor(picked, path) : Path.GetFileName(path.TrimEnd(
             Path.DirectorySeparatorChar,
-            Path.AltDirectorySeparatorChar));
-        var copy = _copyPortableIntoLibrary ?? _settings?.Current.CopyPortableIntoLibrary == true;
+            Path.AltDirectorySeparatorChar)));
+        // A native port stays where it is: its folder holds the saves and what it made from the player's own game, which
+        // Exo never copies, and removing it from Library then never deletes them.
+        var copy = recomp is null && (_copyPortableIntoLibrary ?? _settings?.Current.CopyPortableIntoLibrary == true);
         var copied = false;
         string? managedRoot = null;
         if (copy)

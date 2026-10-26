@@ -1,5 +1,5 @@
 // Layout, everywhere a person goes: every room and the states it opens (sheets, menus, Ctrl+K, each Settings section,
-// a Store page, Music's pages and panels, each part of System, Discord's channel with its member list, threads, pins,
+// a Store page, Music's pages and panels, each page of PC, Discord's channel with its member list, threads, pins,
 // inbox, server pages, a Server Guide resource, a forum and each section of its settings), in every Appearance, then at three window sizes and
 // at the largest text size. In each, no two controls may overlap, no control may be cut by what holds it and no words
 // may be cut off (lib/page.mjs › layoutFaults); every fault is reported with its path, its box and a crop of it.
@@ -117,10 +117,13 @@ export async function run(t) {
       ])
     }, { shell: t.shell })
 
-    await run.check('layout', `${theme}-system`, `each part of System in ${theme}`, async (c) => {
-      await k.nav('System')
-      const parts = await t.shell.eval(`[...document.querySelectorAll('[data-system-part]')].map(p => p.dataset.systemPart)`)
-      return walk(t, c, parts.map(p => [`${theme}-system-${p}`, () => t.shell.call((n) => { const at = document.querySelector(`[data-system-part="${n}"]`); at?.scrollIntoView({ block: 'start' }); return !!at }, p)]))
+    await run.check('layout', `${theme}-pc`, `each page of PC in ${theme}`, async (c) => {
+      await k.nav('PC')
+      const pages = await t.shell.eval(`[...document.querySelectorAll('.exo-pc .exo-room-nav-label')].map(l => l.textContent)`)
+      return walk(t, c, pages.map(p => [`${theme}-pc-${p.toLowerCase()}`, async () => {
+        if (!await click((n) => [...document.querySelectorAll('.exo-pc .exo-room-nav-item')].find(b => b.querySelector('.exo-room-nav-label')?.textContent === n), p)) return false
+        return wait((n) => document.querySelector('.exo-pc .exo-room-nav-item[aria-current="page"] .exo-room-nav-label')?.textContent === n, 5000, [p])
+      }]))
     }, { shell: t.shell })
 
     await run.check('layout', `${theme}-discord`, `Discord's channel, side panels, server pages, a forum and its settings in ${theme}`, async (c) => {

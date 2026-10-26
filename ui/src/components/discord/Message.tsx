@@ -1,4 +1,4 @@
-import { memo, useEffect, useRef, useState, type CSSProperties } from 'react'
+import { memo, useEffect, useRef, useState } from 'react'
 import { host } from '../../lib/host'
 import { usePageActive } from '../../lib/pageActivity'
 import { shouldReduceMotion } from '../../lib/motionPreference'
@@ -26,6 +26,8 @@ import { openLink } from '../../lib/music'
 import { Decoration, lookOf, StyledName } from './collectibles'
 import { useDismiss } from '../../lib/dismiss'
 import { GuildTag } from './guildTag'
+import { Progress } from '../ui/Progress'
+import { DictateButton } from '../ui/DictateButton'
 
 /**
  * A GIF link: plays by itself while Exo is active when Play GIFs when Discord is focused is on (not in
@@ -595,9 +597,9 @@ function Forwarded({ message, ctx }: { message: DiscordMessage; ctx: MarkdownCon
   )
 }
 
-// An app's answer still on its way (Discord's deferred response): "is thinking…" with the typing dots.
+// An app's answer still on its way (Discord's deferred response): "is thinking" with the typing dots, as Discord shows it.
 function Thinking({ name }: { name: string }) {
-  return <p className="exo-dc-thinking" role="status"><span className="exo-dc-typing-dots" aria-hidden="true"><i /><i /><i /></span>{name} is thinking…</p>
+  return <p className="exo-dc-thinking" role="status"><span className="exo-dc-typing-dots" aria-hidden="true"><i /><i /><i /></span>{name} is thinking</p>
 }
 
 // Under an ephemeral answer: only you see it, and Dismiss takes it away (it was never saved to the channel).
@@ -661,12 +663,13 @@ function Failed({ message, actions }: { message: DiscordMessage; actions: Messag
 }
 
 function Uploading({ upload }: { upload: NonNullable<DiscordMessage['uploading']> }) {
+  const total = upload.files.reduce((sum, file) => sum + file.size, 0)
   return (
-    <div className="exo-dc-uploading" role="status" aria-label={`Uploading, ${Math.round(upload.progress * 100)} percent`}>
+    <div className="exo-dc-uploading">
       {upload.files.map((file, i) => (
         <span key={`${file.name}-${i}`} className="exo-dc-file-chip">{file.name}<span className="exo-dc-file-size">{size(file.size)}</span></span>
       ))}
-      <span className="exo-dc-upload-bar" aria-hidden="true"><i style={{ '--fill': upload.progress } as CSSProperties} /></span>
+      <Progress value={upload.progress} label={`Uploading · ${size(total * upload.progress)} of ${size(total)}`} caption className="exo-dc-progress-line" />
     </div>
   )
 }
@@ -708,6 +711,7 @@ function InlineEdit({ message, onDone }: { message: DiscordMessage; onDone: () =
           if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); onDone() }
           else if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void save() }
         }} />
+      <DictateButton target={box} place="overlay" />
       <p className="exo-dc-inline-edit-foot" role={error ? 'alert' : undefined}>
         {error ?? <>escape to <button type="button" onClick={onDone}>cancel</button> • enter to <button type="button" onClick={() => void save()}>save</button></>}
       </p>
@@ -848,13 +852,13 @@ async function messageAction(message: DiscordMessage, mine: boolean, action: Ask
 // Discord's confirmations for Remove Embeds and Remove All Reactions.
 function AskConfirm({ ask, onClose, onConfirm }: { ask: Ask; onClose: () => void; onConfirm: () => void }) {
   return ask === 'removeEmbeds' ? (
-    <Confirm title="Are you sure?" action="Remove all embeds" onClose={onClose} onConfirm={onConfirm}>
+    <Confirm title="Remove all embeds?" action="Remove embeds" onClose={onClose} onConfirm={onConfirm}>
       <p>This will remove all embeds on this message for everyone.</p>
       <p className="exo-dc-note">Hold Shift when removing embeds to skip this.</p>
     </Confirm>
   ) : (
-    <Confirm title="Remove all reactions" action="Remove all reactions" onClose={onClose} onConfirm={onConfirm}>
-      <p>Are you sure you want to remove all reactions on this message?</p>
+    <Confirm title="Remove all reactions?" action="Remove reactions" onClose={onClose} onConfirm={onConfirm}>
+      <p>This will remove all reactions on this message for everyone.</p>
     </Confirm>
   )
 }

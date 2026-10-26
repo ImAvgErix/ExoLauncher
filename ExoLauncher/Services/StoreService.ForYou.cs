@@ -74,30 +74,59 @@ internal sealed partial class StoreService
     private static readonly TimeSpan ForYouBudget = TimeSpan.FromSeconds(4);
     private (string Key, DateTimeOffset At, Home Page)? _forYou;
     private Task<Home>? _forYouWork;
+    /// <summary>A page other than the one being made was answered meanwhile: the made one follows by "home".</summary>
     private bool _forYouLate;
+    /// <summary>What the newest ask was for; a page made for an older one asks the room to ask again.</summary>
+    private string? _forYouWanted;
+    private int _forYouRead;
+
+    /// <summary>The page made last, as it was saved: the first open after Exo starts shows it at once too.</summary>
+    private sealed record ForYouSaved(string Key, DateTimeOffset At, Home Page);
+
+    private static string ForYouFile => Path.Combine(Dir, "foryou-v1.json");
 
     /// <summary>
-    /// The home page for this person, at most <see cref="ForYouBudget"/> after the ask: kept half an hour for the same home
-    /// page, library and wishlist; one made already is answered at once. Slower than that (Steam slow or out of reach), the
-    /// plain page answers and the made one follows by "home" when it lands. It never fails the Store: anything going wrong
-    /// gives the plain page.
+    /// The home page for this person, stale while it revalidates: the page made for the same home page, library and
+    /// wishlist within half an hour is answered as it is; any older page made (in this run or the last, from disk) is
+    /// answered at once while the new one is made, which follows by "home" when it differs. Only with none made yet, or
+    /// on a Refresh (<paramref name="wait"/>), does the ask wait for it, at most <see cref="ForYouBudget"/>; slower than
+    /// that, the last page (or the plain page) answers and the made one follows by "home". Making it took up to a second
+    /// on every open past half an hour, with the Store's skeleton up meanwhile. It never fails the Store: anything going
+    /// wrong gives the plain page.
     /// </summary>
-    internal async Task<Home> ForYouHomeAsync(Home home, IReadOnlyList<Played> played, OwnedGames owned, CancellationToken ct)
+    internal async Task<Home> ForYouHomeAsync(Home home, IReadOnlyList<Played> played, OwnedGames owned, bool wait, CancellationToken ct)
     {
         var wish = Wishlist() ?? [];
         var key = $"{home.At:O}|{home.Country}|{string.Join(',', played.Select(p => $"{p.Id}:{(int)p.Hours}"))}|{owned.AppIds.Count}+{owned.Titles.Count}|{string.Join(',', wish.Select(w => w.AppId))}";
+        if (Interlocked.Exchange(ref _forYouRead, 1) == 0 && Read<ForYouSaved>(ForYouFile) is { Key: not null, Page: not null } saved && saved.Page.Country == Country)
+            lock (_gate) _forYou ??= (saved.Key, saved.At, saved.Page);
         Task<Home> work;
+        Home? shown;
         lock (_gate)
         {
+            _forYouWanted = key;
             if (_forYou is { } kept && kept.Key == key && DateTimeOffset.UtcNow - kept.At < PoolFresh) return kept.Page;
+            shown = wait ? null : _forYou?.Page;
+            if (shown is not null) _forYouLate = true;
             work = _forYouWork ??= Task.Run(async () =>
             {
                 try
                 {
                     var page = await ForYouAsync(home, played, owned, CancellationToken.None).ConfigureAwait(false);
-                    bool late;
-                    lock (_gate) { _forYou = (key, DateTimeOffset.UtcNow, page); late = _forYouLate; _forYouLate = false; }
-                    if (late) Raise("home");
+                    var made = DateTimeOffset.UtcNow;
+                    bool raise;
+                    lock (_gate)
+                    {
+                        // The same page made again keeps the time it was first made, so the room keeps the one it shows
+                        // (it tells pages apart by that time); a new one carries the time it was made.
+                        var same = _forYou is { } before && SamePage(before.Page, page);
+                        page = same ? _forYou!.Value.Page : page with { At = made };
+                        _forYou = (key, made, page);
+                        raise = (_forYouLate && !same) || _forYouWanted != key;
+                        _forYouLate = false;
+                    }
+                    Write(ForYouFile, new ForYouSaved(key, made, page));
+                    if (raise) Raise("home");
                     return page;
                 }
                 catch (Exception ex) when (ex is not OutOfMemoryException)
@@ -111,12 +140,20 @@ internal sealed partial class StoreService
                 }
             });
         }
+        if (shown is not null) return shown;
         var done = await Task.WhenAny(work, Task.Delay(ForYouBudget, ct)).ConfigureAwait(false);
         if (done == work) return await work.ConfigureAwait(false);
         ct.ThrowIfCancellationRequested();
-        lock (_gate) _forYouLate = true;
-        return Plain(home, owned);
+        lock (_gate)
+        {
+            _forYouLate = true;
+            return _forYou?.Page ?? Plain(home, owned);
+        }
     }
+
+    /// <summary>Two made pages that show the same games the same way (when each was made aside).</summary>
+    private static bool SamePage(Home a, Home b) =>
+        string.Equals(JsonSerializer.Serialize(a with { At = default }, Json), JsonSerializer.Serialize(b with { At = default }, Json), StringComparison.Ordinal);
 
     /// <summary>The home page without what the library owns, nothing else changed.</summary>
     private static Home Plain(Home home, OwnedGames owned) => home with

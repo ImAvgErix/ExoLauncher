@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { host } from '../../lib/host'
 import type { DiscordFriend } from '../../lib/discord'
 import { useStreamerHides } from '../../lib/discordPrefs'
+import { notify } from '../../lib/notify'
 import { Choice } from '../settings/Choice'
 import { Switch } from '../Switch'
 import { Confirm, useLayer } from './admin'
@@ -30,18 +31,17 @@ export function InviteDialog({ name, channelId, channelName, onClose }: { name: 
   const [url, setUrl] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [editing, setEditing] = useState(false)
-  const [copied, setCopied] = useState(false)
   // Escape closes it and focus starts in it, as in Discord's other dialogs (while Edit invite link is open, that goes first).
   const box = useRef<HTMLDivElement>(null)
   useLayer(box, onClose, !editing)
   const make = (next: Link) => host.discordInvite(channelId, next).then(result => {
     if (!result.url) return result.message ?? 'Discord did not make an invite.'
-    setUrl(result.url); setLink(next); setCopied(false)
+    setUrl(result.url); setLink(next)
     return null
   }, () => 'Discord did not make an invite.')
   useEffect(() => { void make(FIRST).then(setError) }, [channelId]) // eslint-disable-line react-hooks/exhaustive-deps -- one link per opening
   if (editing) return <EditLink link={link} onClose={() => setEditing(false)} onMake={next => make(next).then(why => { if (!why) setEditing(false); return why })} />
-  const copy = () => { if (url) void navigator.clipboard.writeText(url).then(() => setCopied(true)).catch(() => { }) }
+  const copy = () => { if (url) void navigator.clipboard.writeText(url).then(() => notify({ id: 'dc-copied', text: 'Invite link copied', tone: 'good' })).catch(() => { }) }
   return (
     <ModalBack onClose={onClose}>
       <div ref={box} className="exo-dc-modal exo-dc-invite-dialog" role="dialog" aria-modal="true" aria-label={`Invite friends to ${name}`} tabIndex={-1} onClick={event => event.stopPropagation()}>
@@ -50,8 +50,8 @@ export function InviteDialog({ name, channelId, channelName, onClose }: { name: 
         <InviteFriends url={url} />
         <label className="exo-dc-modal-field"><span>Or, send a server invite link to a friend</span>
           <span className="exo-dc-invite-link">
-            <input className="exo-dc-modal-input" readOnly value={url ? (hide ? 'Hidden by Streamer Mode' : url) : 'Making a link…'} aria-label="Invite link" />
-            <button type="button" className="exo-set-btn is-primary" disabled={!url} onClick={copy}>{copied ? 'Copied' : 'Copy'}</button>
+            <input className="exo-dc-modal-input" readOnly value={url ? (hide ? 'Hidden by Streamer Mode' : url) : 'Making a link'} aria-label="Invite link" />
+            <button type="button" className="exo-set-btn is-primary" disabled={!url} onClick={copy}>Copy</button>
           </span>
         </label>
         {error ? <p className="is-bad" role="alert">{error}</p> : null}
@@ -107,7 +107,7 @@ function EditLink({ link, onMake, onClose }: { link: Link; onMake: (next: Link) 
     void onMake({ maxAge: Number(maxAge), maxUses: Number(maxUses), temporary }).then(why => { setBusy(false); setError(why) })
   }
   return (
-    <Confirm title="Server invite link settings" action="Generate a new link" danger={false} busy={busy} error={error} onConfirm={make} onClose={onClose}>
+    <Confirm title="Server invite link settings" action="Generate a new link" danger={false} form busy={busy} error={error} onConfirm={make} onClose={onClose}>
       <div className="exo-dc-form-rows">
         <label><span>Expire after</span><Choice label="Expire after" value={maxAge} choices={EXPIRES} onChange={setMaxAge} /></label>
         <label><span>Max number of uses</span><Choice label="Max number of uses" value={maxUses} choices={USES} onChange={setMaxUses} /></label>

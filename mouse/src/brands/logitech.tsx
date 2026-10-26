@@ -18,7 +18,7 @@ import {
 } from '@openmouse/protocol/logitech'
 import { can } from '../mouse'
 import type { Section } from '../section'
-import { Dropdown, NumberField, Panel, Row, Segmented, Slider, Switch } from '../ui'
+import { Confirm, Dropdown, NumberField, Panel, Row, Segmented, Slider, Switch } from '../ui'
 import './logitech.css'
 
 /**
@@ -447,17 +447,6 @@ function EasySwitch({ status, apply, busy }: Section) {
   const count = status.hostCount ?? 0
   const current = status.currentHost ?? 0
   const paired = status.hostSlotsPaired
-  if (pending !== null) {
-    return (
-      <Row label={`Switch to computer ${pending + 1}?`}>
-        <span className="lg-pair">
-          <button type="button" className="m-link" onClick={() => setPending(null)}>Cancel</button>
-          <button type="button" className="m-button" disabled={busy}
-            onClick={() => { const slot = pending; setPending(null); void apply('requestHostSwitch', slot) }}>Switch</button>
-        </span>
-      </Row>
-    )
-  }
   return (
     <Row label="Easy-Switch" value={`Computer ${current + 1} of ${count}`}>
       <Segmented
@@ -471,6 +460,11 @@ function EasySwitch({ status, apply, busy }: Section) {
         onChange={setPending}
         disabled={busy}
       />
+      {pending !== null ? (
+        <Confirm title={`Switch to computer ${pending + 1}?`} action="Switch"
+          body={`Your mouse moves to computer ${pending + 1} and stops working here until you switch it back with its Easy-Switch button.`}
+          onConfirm={() => { setPending(null); void apply('requestHostSwitch', pending) }} onClose={() => setPending(null)} />
+      ) : null}
     </Row>
   )
 }

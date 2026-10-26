@@ -110,7 +110,7 @@ internal sealed class StoreGifts
 
     private static async Task<(bool, string?)> AnswerSteamAsync(Page page, string id, bool accept, CancellationToken ct)
     {
-        if (!await OpenSteamAsync(page, ct).ConfigureAwait(true)) return (false, "Sign in to Steam's website again in Settings > Game stores.");
+        if (!await OpenSteamAsync(page, ct).ConfigureAwait(true)) return (false, "Sign in to Steam's website again in Settings > Accounts and keys.");
         string body;
         if (accept)
             body = $"new URLSearchParams({{ sessionid: g_sessionID, bPrivately: '0' }})";
@@ -129,7 +129,7 @@ internal sealed class StoreGifts
 
     private async Task<(bool, string?)> AnswerEpicAsync(Page page, string id, bool accept, CancellationToken ct)
     {
-        if (await EpicPlaytime.ResolveSessionAsync(ct).ConfigureAwait(true) is not { } account) return (false, "Sign in to Epic in Settings > Game stores.");
+        if (await EpicPlaytime.ResolveSessionAsync(ct).ConfigureAwait(true) is not { } account) return (false, "Sign in to Epic in Settings > Accounts and keys.");
         var put = JsonSerializer.Serialize(new { newStatus = accept ? "accepted" : "declined" });
         var answer = await EpicCallAsync(page, account, Fetch(
             $"{JsonSerializer.Serialize(EpicGifting + "/")} + {JsonSerializer.Serialize(id)} + '/status'",

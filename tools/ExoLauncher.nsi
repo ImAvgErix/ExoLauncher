@@ -75,6 +75,7 @@ UninstallIcon "${ICON}"
 
 Var S          ; the Windows scale in percent, snapped to one the pictures exist for
 Var Caption    ; the window's own name, drawn in Exo's title band
+Var Title      ; the screen's big line: Exo's name, or the question it asks
 Var Subtitle
 Var FontTitle
 Var FontBody
@@ -293,7 +294,7 @@ Function ${UN}ExoChrome
   SendMessage $1 ${STM_SETIMAGE} ${IMAGE_BITMAP} $BmpMark
   !insertmacro Static $1 ${TEXT_STYLE}|${SS_CENTER} 0 170 460 38
   !insertmacro Look $1 $FontTitle ${INK}
-  !insertmacro SetText $1 "${PRODUCT_NAME}"
+  !insertmacro SetText $1 "$Title"
   !insertmacro Static $Subtitle ${TEXT_STYLE}|${SS_CENTER} 0 210 460 22
   !insertmacro Look $Subtitle $FontBody ${MUTED}
   !insertmacro SetText $Subtitle "$5"
@@ -455,6 +456,7 @@ FunctionEnd
 
 Function .onGUIInit
   StrCpy $Caption "${PRODUCT_NAME} Setup"
+  StrCpy $Title "${PRODUCT_NAME}"
   Call ExoGuiInit
 FunctionEnd
 
@@ -858,9 +860,14 @@ Section "Uninstall"
   !insertmacro Status "Closing Exo Launcher"
   Call un.CloseApp
   ${If} $0 != "0"
-    MessageBox MB_OK|MB_ICONSTOP "Exo Launcher is still running. Close it and retry uninstalling." /SD IDOK
+    MessageBox MB_OK|MB_ICONSTOP "${PRODUCT_NAME} is still running. Close it, then uninstall again." /SD IDOK
     Abort
   ${EndIf}
+  ; What Exo changed for you goes back (startup apps, Graphics for games) and Windows' records of Exo go
+  ; (a taskbar pin, recent apps): Exo does it itself, as its own deep clean does for any app.
+  IfFileExists "$INSTDIR\ExoLauncher.exe" 0 +3
+  nsExec::ExecToLog '"$INSTDIR\ExoLauncher.exe" --uninstall-cleanup'
+  Pop $0
   ; Exo's power plan goes with Exo: the plan it replaced comes back first.
   File /oname=$PLUGINSDIR\exo-un-power.ps1 "${__FILEDIR__}\installer\Remove-ExoPowerPlan.ps1"
   nsExec::ExecToLog 'powershell.exe -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File "$PLUGINSDIR\exo-un-power.ps1" -DataDirectory "${ROOT}"'
@@ -883,6 +890,7 @@ FunctionEnd
 
 Function un.onGUIInit
   StrCpy $Caption "Uninstall ${PRODUCT_NAME}"
+  StrCpy $Title "${PRODUCT_NAME}"
   Call un.ExoGuiInit
 FunctionEnd
 
@@ -890,9 +898,11 @@ Function un.onGUIEnd
   Call un.ExoGuiEnd
 FunctionEnd
 
+; Exo's question (DESIGN.md › Confirm): the title asks it, the line under it says what stays.
 Function un.ConfirmShow
   Call un.ExoHideFrame
-  StrCpy $5 "Your games and settings stay"
+  StrCpy $Title "Uninstall ${PRODUCT_NAME}?"
+  StrCpy $5 "Your games, settings and accounts stay on this PC."
   StrCpy $6 "Uninstall"
   StrCpy $7 "Cancel"
   Call un.ExoPage
@@ -906,6 +916,7 @@ FunctionEnd
 
 Function un.ConfirmLeave
   ${NSD_KillTimer} un.ExoHover
+  StrCpy $Title "${PRODUCT_NAME}"
 FunctionEnd
 
 Function un.InstShow

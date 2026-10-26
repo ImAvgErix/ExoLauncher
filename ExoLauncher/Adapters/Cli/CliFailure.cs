@@ -83,7 +83,7 @@ internal static class CliFailure
         if (Matches(text, AccessDenied))
             return $"Exo could not write to the game folder. Choose another folder, then {action} again.";
         if (Matches(text, SignedOut))
-            return $"Sign in to {store} again under Settings, Game stores, then try again.";
+            return $"Sign in to {store} again under Settings, Accounts and keys, then try again.";
         if (Matches(text, NotOwned))
             return $"The signed-in {store} account does not have {title}.";
         if (Matches(text, Network))

@@ -3,7 +3,7 @@ import type { MouseStatus } from '@openmouse/protocol/drivers/mouse-types'
 import { can, type Step, type useMouse } from './mouse'
 import { call, onHostEvent, tell } from './exo-hid'
 import { GamePicker, LinkedCovers, type Game } from './GamePicker'
-import { Panel } from './ui'
+import { Confirm, Panel, Spinner } from './ui'
 import { indicatorColor } from './Finalmouse'
 
 type Client = ReturnType<typeof useMouse>['client']
@@ -303,9 +303,9 @@ export function Profiles({ device, status, client, applyAll, busy }: {
     if (clean && !isDesktopName(clean)) save(list.map(p => p.id === id && !p.isDefault ? { ...p, name: clean } : p))
     setRenaming(null)
   }
+  /** Delete asks first (Desktop is never deleted). */
+  const asked = list.find(p => p.id === deleting && !p.isDefault)
   const remove = (id: string) => {
-    if (list.find(p => p.id === id)?.isDefault) return
-    if (deleting !== id) { setDeleting(id); window.setTimeout(() => setDeleting(d => d === id ? null : d), 3000); return }
     save(list.filter(p => p.id !== id))
     setDeleting(null)
   }
@@ -335,7 +335,9 @@ export function Profiles({ device, status, client, applyAll, busy }: {
           <span className="m-row-control m-actions">
             {/* The profile on the mouse says Active beside its name; it has nothing to apply. */}
             {active(p) ? null : (
-              <button type="button" className={`m-button is-compact${applying === p.id ? ' m-work' : ''}`} disabled={busy} onClick={() => void apply(p)}>Apply</button>
+              <button type="button" className="m-button is-compact" disabled={busy} aria-busy={applying === p.id} onClick={() => void apply(p)}>
+                {applying === p.id ? <Spinner label={`Applying ${p.name}`} /> : null}Apply
+              </button>
             )}
             {p.isDefault ? (
               active(p) ? null : <button type="button" className="m-button is-compact" onClick={() => update(p.id)}>Update</button>
@@ -343,7 +345,7 @@ export function Profiles({ device, status, client, applyAll, busy }: {
               <>
                 <button type="button" className="m-button is-compact" aria-haspopup="dialog" onClick={() => setLinking(p.id)}>Games</button>
                 <button type="button" className="m-button is-compact" onClick={() => { setRenaming(p.id); setDraft(p.name) }}>Rename</button>
-                <button type="button" className="m-button is-compact is-danger" onClick={() => remove(p.id)}>{deleting === p.id ? 'Sure?' : 'Delete'}</button>
+                <button type="button" className="m-button is-compact is-danger" aria-haspopup="dialog" onClick={() => setDeleting(p.id)}>Delete</button>
               </>
             )}
           </span>
@@ -356,6 +358,11 @@ export function Profiles({ device, status, client, applyAll, busy }: {
             onToggle={game => toggleGame(picking, game)} onClose={() => setLinking(null)} />
         ) : null
       })()}
+      {asked ? (
+        <Confirm title="Delete this profile?" action="Delete" danger
+          body={`${asked.name} and its linked games go. Your mouse keeps the settings it has now.`}
+          onConfirm={() => remove(asked.id)} onClose={() => setDeleting(null)} />
+      ) : null}
       <div className="m-row m-profile-new">
         <input className="m-text" aria-label="New profile name" placeholder="Name" maxLength={40} value={name}
           onChange={e => setName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') add() }} />

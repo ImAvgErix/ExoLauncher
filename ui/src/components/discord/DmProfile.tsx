@@ -10,6 +10,7 @@ import {
   profileOf, RoleList, showFullProfile, useMutualFriends, useProfile, type FullProfileTarget, type Loaded, type ProfileTab,
 } from './profileParts'
 import { ModalBack } from './SettingsLayer'
+import { Skeleton } from '../ui/Skeleton'
 
 /**
  * Discord's profile panel beside a DM: banner, the person, badges, what they're doing, About Me, Member Since,
@@ -137,7 +138,7 @@ function FullProfile({ target, meId, onClose, onMessage }: {
             </div>
             <ProfileEffectOf data={data} guildId={guildId} />
           </>
-        ) : <p className="exo-dc-note exo-dc-pf-wait" role={failed ? 'alert' : 'status'}>{failed ? "Discord didn't send this profile. Try again." : 'Loading'}</p>}
+        ) : failed ? <p className="exo-dc-note exo-dc-pf-wait" role="alert">Discord didn't send this profile. Try again.</p> : <Skeleton label="Loading the profile" />}
       </div>
     </ModalBack>
   )

@@ -811,6 +811,7 @@ public sealed class SettingsService
         MinimizeWhilePlaying = source.MinimizeWhilePlaying,
         AntiCheatSafeMode = source.AntiCheatSafeMode,
         ReduceMotion = source.ReduceMotion,
+        Dictation = source.Dictation,
         FramelessMode = source.FramelessMode,
         FramelessPinTop = source.FramelessPinTop,
         FramelessPinSide = source.FramelessPinSide,

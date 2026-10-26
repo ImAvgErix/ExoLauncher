@@ -44,6 +44,9 @@ internal static class PinnedToolCache
         return verified;
     }
 
+    /// <summary>The file's stamp as text (what changes whenever its bytes can have), or null when it can't be read.</summary>
+    internal static string? StampOf(string path) => TryReadStamp(path, null, out var stamp) ? stamp.ToString() : null;
+
     private static bool TryReadStamp(string? path, SafeFileHandle? held, out Stamp stamp)
     {
         stamp = default;

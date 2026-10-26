@@ -3,11 +3,14 @@ import { Close } from '../../brand/icons'
 import { avatarUrl, snowflakeTime, type DiscordChannel, type DiscordModeration, type DiscordUser } from '../../lib/discord'
 import { Choice } from '../settings/Choice'
 import { Switch } from '../Switch'
-import { admin, Confirm, dropUpload, personName, pickFile, ReadError, untilLabel, useAdmin, useLayer } from './admin'
+import { notify } from '../../lib/notify'
+import { admin, Confirm, dropUpload, personName, pickFile, ReadError, untilLabel, useAdmin } from './admin'
 import { uploadFile } from './Chat'
 import { Icons } from './icons'
 import { Avatar } from './presence'
-import { ModalBack } from './SettingsLayer'
+import { Dialog } from '../ui/Dialog'
+import { Spinner } from '../ui/Spinner'
+import { Skeleton } from '../ui/Skeleton'
 
 type Invite = { code: string; uses: number; max_uses: number; expires_at?: string | null; inviter?: DiscordUser | null; channel?: { id: string; name: string } | null }
 
@@ -45,7 +48,7 @@ export function Invites({ guildId, channels, incidents, onChanged }: { guildId: 
       </div>
       {paused ? <p className="exo-dc-note">Invites are paused until {new Date(incidents?.invites_disabled_until ?? '').toLocaleString()}.</p> : null}
       <ReadError error={invites.error} onRetry={invites.reload} />
-      {!invites.data && !invites.error ? <p className="exo-dc-note">Loading</p> : null}
+      {!invites.data && !invites.error ? <Skeleton label="Loading invites" /> : null}
       {invites.data?.length ? (
         <div className="exo-dc-table is-invites" role="table" aria-label="Invites">
           <div className="exo-dc-table-row is-head" role="row">
@@ -91,7 +94,7 @@ function CreateInvite({ guildId, channels, onClose, onCreated }: { guildId: stri
     if (result.ok) onCreated(); else setError(result.message ?? 'Discord did not make that invite.')
   }
   return (
-    <Confirm title="Invite link settings" action="Generate a new link" danger={false} busy={busy || !channelId} error={error} onConfirm={() => void create()} onClose={onClose}>
+    <Confirm title="Invite link settings" action="Generate a new link" danger={false} form busy={busy} disabled={!channelId} error={error} onConfirm={() => void create()} onClose={onClose}>
       <div className="exo-dc-form-rows">
         <label><span>Channel</span><Choice label="Channel" value={channelId} choices={open.map(c => ({ value: c.id, label: c.kind === 'text' ? `#${c.name}` : c.name }))} onChange={setChannelId} /></label>
         <label><span>Expire after</span><Choice label="Expire after" value={maxAge} choices={EXPIRES} onChange={setMaxAge} /></label>
@@ -119,7 +122,7 @@ function SecurityActions({ guildId, incidents, onClose, onSaved }: { guildId: st
     if (result.ok) onSaved(); else setError(result.message ?? 'Discord did not save that.')
   }
   return (
-    <Confirm title="Security actions" action="Save" danger={false} busy={busy} error={error} onConfirm={() => void save()} onClose={onClose}>
+    <Confirm title="Security actions" action="Save" danger={false} form busy={busy} error={error} onConfirm={() => void save()} onClose={onClose}>
       <div className="exo-dc-form-rows">
         <label><span>Duration</span><Choice label="Select a time" value={hours} choices={HOURS} onChange={setHours} /></label>
         <span className="exo-dc-form-switch">
@@ -184,22 +187,24 @@ function WebhookEditor({ guildId, hook, channels, onRemove, onChanged }: { guild
   const [channelId, setChannelId] = useState(hook.channel_id ?? '')
   const [picture, setPicture] = useState<File | null | undefined>(undefined)
   const [busy, setBusy] = useState(false)
-  const [line, setLine] = useState<{ text: string; bad: boolean } | null>(null)
+  const [error, setError] = useState<string | null>(null)
   const dirty = name.trim() !== hook.name || channelId !== (hook.channel_id ?? '') || picture !== undefined
   async function save() {
-    setBusy(true); setLine(null)
+    setBusy(true); setError(null)
     let uploadId: string | undefined
     if (picture) {
       const uploaded = await uploadFile(picture)
-      if (typeof uploaded !== 'string') { setBusy(false); setLine({ text: uploaded.message, bad: true }); return }
+      if (typeof uploaded !== 'string') { setBusy(false); setError(uploaded.message); return }
       uploadId = uploaded
     }
     const result = await admin('editWebhook', { guildId, webhookId: hook.id, name: name.trim(), channelId, ...(uploadId ? { uploadId } : {}), removeAvatar: picture === null })
     setBusy(false)
-    if (!result.ok) { dropUpload(uploadId); setLine({ text: result.message ?? 'Discord did not save that webhook.', bad: true }); return }
+    if (!result.ok) { dropUpload(uploadId); setError(result.message ?? 'Discord did not save that webhook.'); return }
     setPicture(undefined); onChanged()
   }
-  const copy = () => void admin('copyWebhook', { guildId, webhookId: hook.id }).then(result => setLine(result.ok ? { text: 'Copied!', bad: false } : { text: result.message ?? 'Discord didn\u2019t send the link.', bad: true }))
+  const copy = () => void admin('copyWebhook', { guildId, webhookId: hook.id }).then(result => {
+    if (result.ok) notify({ id: 'dc-copied', text: 'Webhook URL copied', tone: 'good' }); else setError(result.message ?? 'Discord didn\u2019t send the link.')
+  })
   return (
     <div className="exo-dc-hook-editor">
       <label><span>Name</span><input className="exo-dc-modal-input" value={name} maxLength={80} aria-label="Webhook name" onChange={event => setName(event.target.value)} /></label>
@@ -211,7 +216,7 @@ function WebhookEditor({ guildId, hook, channels, onRemove, onChanged }: { guild
         <button type="button" className="exo-dc-tab is-raised is-danger" onClick={() => onRemove({ kind: 'webhook', id: hook.id, name: hook.name })}>Delete webhook</button>
         {dirty ? <button type="button" className="exo-set-btn is-primary" disabled={busy || !name.trim()} onClick={() => void save()}>Save changes</button> : null}
       </span>
-      {line ? <p className={`exo-dc-note${line.bad ? ' is-bad' : ''}`} role="status">{line.text}</p> : null}
+      {error ? <p className="exo-dc-note is-bad" role="alert">{error}</p> : null}
     </div>
   )
 }
@@ -277,7 +282,7 @@ export function Integrations({ guildId, moderation, channels }: { guildId: strin
       <h1>Integrations</h1>
       <p className="exo-dc-note">Customize your server with integrations. Manage webhooks, followed channels and apps.</p>
       <ReadError error={linked.error} onRetry={linked.reload} />
-      {!linked.data && !linked.error ? <p className="exo-dc-note">Loading</p> : null}
+      {!linked.data && !linked.error ? <Skeleton label="Loading integrations" /> : null}
       {moderation.manageWebhooks && linked.data ? (
         <>
           <Webhooks guildId={guildId} hooks={(linked.data.webhooks ?? []).filter(h => h.type !== 2)} channels={channels} onRemove={ask} onChanged={linked.reload} />
@@ -286,9 +291,9 @@ export function Integrations({ guildId, moderation, channels }: { guildId: strin
       ) : null}
       {moderation.manageGuild && linked.data ? <Apps items={[...apps, ...others]} onRemove={ask} /> : null}
       {removing ? (
-        <Confirm title={removing.kind === 'webhook' ? 'Delete webhook' : `Remove ${removing.name}`} action={removing.kind === 'webhook' ? 'Delete' : 'Remove'} error={error} busy={busy}
+        <Confirm title={`${removing.kind === 'webhook' ? 'Delete' : 'Remove'} ${removing.name}?`} action={removing.kind === 'webhook' ? 'Delete' : 'Remove'} error={error} busy={busy}
           onConfirm={remove} onClose={() => { setRemoving(null); setError(null) }}>
-          <p>{removing.kind === 'webhook' ? `Are you sure you want to delete ${removing.name}? This action cannot be undone.` : `${removing.name} will be removed from this server, with its role and commands.`}</p>
+          <p>{removing.kind === 'webhook' ? 'This action cannot be undone.' : `${removing.name} will be removed from this server, with its role and commands.`}</p>
         </Confirm>
       ) : null}
     </>
@@ -380,12 +385,14 @@ export function AuditLog({ guildId }: { guildId: string }) {
           onChange={setAction} />
       </div>
       <ReadError error={audit.error} onRetry={audit.reload} />
-      {!audit.data && !audit.error ? <p className="exo-dc-note">Loading</p> : null}
+      {!audit.data && !audit.error ? <Skeleton label="Loading the audit log" rows={6} avatar /> : null}
       {audit.data && entries.length === 0 ? <p className="exo-dc-note">Nothing here yet.</p> : null}
       <ul className="exo-dc-mod-list exo-dc-audit">
         {entries.map(entry => <AuditRow key={entry.id} entry={entry} users={users} />)}
       </ul>
-      {audit.data && entries.length >= 50 && !more.done ? <button type="button" className="exo-dc-tab is-raised" disabled={loading} onClick={loadMore}>{loading ? 'Loading' : 'Load more'}</button> : null}
+      {audit.data && entries.length >= 50 && !more.done ? <button type="button" className="exo-dc-tab is-raised" disabled={loading} onClick={loadMore}>
+        {loading ? <Spinner label="Loading more entries" /> : null}Load more
+      </button> : null}
       {moreError ? <p className="exo-dc-note is-bad" role="alert">{moreError}</p> : null}
     </>
   )
@@ -451,7 +458,7 @@ export function Bans({ guildId }: { guildId: string }) {
         <input placeholder="Search by user ID or username" value={query} onChange={event => setQuery(event.target.value)} aria-label="Search bans" />
       </label>
       <ReadError error={bans.error} onRetry={bans.reload} />
-      {!bans.data && !bans.error ? <p className="exo-dc-note">Loading</p> : null}
+      {!bans.data && !bans.error ? <Skeleton label="Loading bans" avatar /> : null}
       {bans.data?.length === 0 ? <p className="exo-dc-note">No bans. Whew.</p> : null}
       <ul className="exo-dc-mod-list">
         {list.map(ban => (
@@ -469,20 +476,14 @@ export function Bans({ guildId }: { guildId: string }) {
 }
 
 function BanDetail({ ban, error, busy, onRevoke, onClose }: { ban: Ban; error: string | null; busy: boolean; onRevoke: () => void; onClose: () => void }) {
-  const box = useRef<HTMLDivElement>(null)
-  useLayer(box, onClose)
   return (
-    <ModalBack top onClose={onClose}>
-      <div ref={box} className="exo-dc-modal exo-dc-confirm" role="dialog" aria-modal="true" aria-label={personName(ban.user)} tabIndex={-1} onClick={event => event.stopPropagation()}>
-        <strong>{personName(ban.user)}</strong>
-        <p className="exo-dc-side-label">Ban reason</p>
-        <p>{ban.reason || 'No reason given.'}</p>
-        {error ? <p className="is-bad" role="alert">{error}</p> : null}
-        <div className="exo-dc-modal-row">
-          <button type="button" className="exo-dc-tab is-danger" disabled={busy} onClick={onRevoke}>Revoke ban</button>
-          <button type="button" className="exo-set-btn is-primary" onClick={onClose}>Done</button>
-        </div>
-      </div>
-    </ModalBack>
+    <Dialog title={personName(ban.user)} form portal={false} onClose={onClose} actions={<>
+      <button type="button" className="exo-set-btn is-danger" disabled={busy} onClick={onRevoke}>Revoke ban</button>
+      <button type="button" className="exo-set-btn is-primary" data-autofocus onClick={onClose}>Done</button>
+    </>}>
+      <p className="exo-dc-side-label">Ban reason</p>
+      <p>{ban.reason || 'No reason given.'}</p>
+      {error ? <p className="exo-dialog-error" role="alert">{error}</p> : null}
+    </Dialog>
   )
 }

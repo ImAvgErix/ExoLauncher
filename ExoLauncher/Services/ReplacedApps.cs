@@ -9,7 +9,11 @@ namespace ExoLauncher.Services;
 /// matches its Apps &amp; features entries by name, <paramref name="Markers"/> are files that mean it is still there without
 /// either (a copy whose entry is gone). <paramref name="Paths"/>, <paramref name="Keys"/> and <paramref name="Values"/>
 /// (<c>key|name</c>) are what it leaves behind; <paramref name="Set"/> (<c>key|name=dword</c>) is written once it is gone.
-/// Paths start with a place (<c>{LocalAppData}</c>); keys with HKCU or HKLM.
+/// <paramref name="Names"/> are its own folder and key names where programs keep theirs, and <paramref name="AppIds"/> the
+/// ids Windows knows it by (notifications, recent apps): the deep clean's leads (<see cref="LeftoverScan"/>).
+/// <paramref name="Undo"/> are keys its <paramref name="Set"/> wrote that go again if it is installed again.
+/// Paths start with a place (<c>{LocalAppData}</c>); keys with HKCU or HKLM. A Set value is a DWORD when it is a number,
+/// else text ({System} is Windows' System32).
 /// </summary>
 internal sealed record ReplacedApp(
     string Id,
@@ -21,11 +25,16 @@ internal sealed record ReplacedApp(
     string[] Paths,
     string[] Keys,
     string[] Values,
-    string[] Set);
+    string[] Set,
+    string[]? Names = null,
+    string[]? AppIds = null,
+    string[]? Undo = null);
 
-internal sealed record ReplacedAppState(string Id, string Name, string Detail, bool Installed, int Leftovers, long Bytes, bool NeedsAdmin);
+/// <summary><paramref name="Found"/>: what is there now. <paramref name="Cleared"/>: what this scan or removal just cleared.</summary>
+internal sealed record ReplacedAppState(string Id, string Name, string Detail, bool Installed, int Leftovers, long Bytes, bool NeedsAdmin,
+    LeftoverSummary Found, LeftoverSummary? Cleared);
 
-internal sealed record ReplacedAppRemoval(bool Ok, string? Message, int Removed, int Left);
+internal sealed record ReplacedAppRemoval(bool Ok, string? Message, int Removed, int Left, LeftoverSummary? Cleared = null);
 
 /// <summary>The Microsoft Store side, apart so tests run without touching this PC's apps.</summary>
 internal interface IAppPackages
@@ -71,15 +80,17 @@ internal sealed class WindowsAppPackages : IAppPackages
 
 /// <summary>
 /// Deep removal of the apps Exo replaces, as Revo Uninstaller does it: the app's own uninstaller (or its Store package),
-/// then every folder, file, registry key and value it leaves. Only what is listed here, never a search of the disk, so
-/// nothing that belongs to something else goes with it. Spotify (Music's engine), the Xbox app (Xbox games) and the
-/// NVIDIA driver stay: Exo needs them. A leftover of an app that is gone is junk; <see cref="CleanLeftovers"/> clears the
-/// ones in this user's folders on its own, and a removal asks Windows once for what lies in Program Files or HKLM.
+/// then every folder, file, registry key and value it leaves, and once it is gone, the deep clean (<see cref="LeftoverScan"/>,
+/// what Revo's advanced scan and BCU find). Only what is tied to the app, never a search of the disk by a word, so nothing
+/// that belongs to something else goes with it. Spotify (Music's engine), the Xbox app (Xbox games) and the NVIDIA driver
+/// stay: Exo needs them. A leftover of an app that is gone is junk; <see cref="CleanLeftovers"/> clears the ones in this
+/// user's folders on its own, and a removal asks Windows once for what lies in Program Files or HKLM, and to take a Store
+/// app out of Windows' image for every user, so a feature update can't bring it back (Win11Debloat and WinUtil do the same).
 /// </summary>
-internal sealed class ReplacedApps
+internal sealed partial class ReplacedApps
 {
     private const string Uninstall = @"Software\Microsoft\Windows\CurrentVersion\Uninstall";
-    private const string Programs = @"{AppData}\Microsoft\Windows\Start Menu\Programs";
+    private const string Programs = LeftoverScan.Programs;
 
     internal static readonly ReplacedApp[] Known =
     [
@@ -92,7 +103,9 @@ internal sealed class ReplacedApps
             [@"HKCU\Software\Discord", @"HKCU\Software\Classes\discord", @"HKCU\" + Uninstall + @"\Discord",
              @"HKCU\" + Uninstall + @"\DiscordPTB", @"HKCU\" + Uninstall + @"\DiscordCanary"],
             [@"HKCU\Software\Microsoft\Windows\CurrentVersion\Run|Discord", @"HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run|Discord"],
-            []),
+            [],
+            ["Discord", "DiscordPTB", "DiscordCanary"],
+            ["com.squirrel.Discord.Discord", "com.squirrel.DiscordPTB.DiscordPTB", "com.squirrel.DiscordCanary.DiscordCanary"]),
         new("snipping", "Snipping Tool", "Exo snips with Print Screen and edits in Captures",
             ["Microsoft.ScreenSketch"], [], [], [], [], [],
             // Print Screen no longer opens Windows' snip, so Exo's takes it.
@@ -100,10 +113,16 @@ internal sealed class ReplacedApps
         new("photos", "Photos", "Exo shows and trims your captures",
             ["Microsoft.Windows.Photos", "Microsoft.PhotosLegacy"], [], [], [], [], [], []),
         new("gamebar", "Xbox Game Bar", "Exo records clips and replays",
-            ["Microsoft.XboxGamingOverlay"], [], [], [], [], [],
-            // Game Bar's recording and its button off, so Windows never asks for the removed app (ms-gamingoverlay).
+            ["Microsoft.XboxGamingOverlay", "Microsoft.XboxGameOverlay"], [], [], [], [], [],
+            // Game Bar's recording and its button off, so Windows never asks for the removed app (ms-gamingoverlay); its
+            // ms-gamebar links open nothing instead of asking which app should (Win11Debloat's fix), undone if it comes back.
             [@"HKCU\Software\Microsoft\Windows\CurrentVersion\GameDVR|AppCaptureEnabled=0", @"HKCU\System\GameConfigStore|GameDVR_Enabled=0",
-             @"HKCU\Software\Microsoft\GameBar|UseNexusForGameBarEnabled=0"]),
+             @"HKCU\Software\Microsoft\GameBar|UseNexusForGameBarEnabled=0",
+             @"HKCU\Software\Classes\ms-gamebar|=URL:ms-gamebar", @"HKCU\Software\Classes\ms-gamebar|URL Protocol=", @"HKCU\Software\Classes\ms-gamebar|NoOpenWith=",
+             @"HKCU\Software\Classes\ms-gamebar\shell\open\command|={System}\systray.exe",
+             @"HKCU\Software\Classes\ms-gamebarservices|=URL:ms-gamebarservices", @"HKCU\Software\Classes\ms-gamebarservices|URL Protocol=",
+             @"HKCU\Software\Classes\ms-gamebarservices|NoOpenWith=", @"HKCU\Software\Classes\ms-gamebarservices\shell\open\command|={System}\systray.exe"],
+            Undo: [@"HKCU\Software\Classes\ms-gamebar", @"HKCU\Software\Classes\ms-gamebarservices"]),
         new("clipchamp", "Clipchamp", "Exo trims and shares your clips",
             ["Clipchamp.Clipchamp"], [], [], [], [], [], []),
         new("nvidia", "NVIDIA App", "Exo updates the driver and sets its profile; the driver stays",
@@ -117,13 +136,14 @@ internal sealed class ReplacedApps
             [], []),
     ];
 
-    private readonly IReadOnlyDictionary<string, string> _places;
-    private readonly string _hkcuBase;
-    private readonly string _hklmBase;
+    private readonly LeftoverScan _scan;
     private readonly IAppPackages _packages;
     private readonly Func<string, CancellationToken, Task<string?>> _runUninstaller;
     private readonly Func<IReadOnlyList<string>, CancellationToken, Task<bool>> _removeAsAdmin;
+    private readonly string _hkcuBase;
+    private readonly string _hklmBase;
     private readonly bool _isTest;
+    private IReadOnlyList<string>? _keep;
 
     /// <param name="places">Folder per place name. <paramref name="hkcuBase"/> and <paramref name="hklmBase"/> are prefixes
     /// under HKCU for tests (empty: the real hives).</param>
@@ -131,7 +151,7 @@ internal sealed class ReplacedApps
         Func<string, CancellationToken, Task<string?>> runUninstaller, Func<IReadOnlyList<string>, CancellationToken, Task<bool>> removeAsAdmin,
         string hkcuBase = "", string hklmBase = "")
     {
-        _places = places;
+        _scan = new LeftoverScan(places, hkcuBase, hklmBase);
         _packages = packages;
         _runUninstaller = runUninstaller;
         _removeAsAdmin = removeAsAdmin;
@@ -140,32 +160,35 @@ internal sealed class ReplacedApps
         _isTest = hkcuBase.Length > 0;
     }
 
-    internal static ReplacedApps ForThisPc() => new(new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-    {
-        ["LocalAppData"] = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        ["AppData"] = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-        ["Desktop"] = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory),
-        ["CommonDesktop"] = Environment.GetFolderPath(Environment.SpecialFolder.CommonDesktopDirectory),
-        ["CommonPrograms"] = Environment.GetFolderPath(Environment.SpecialFolder.CommonPrograms),
-        ["ProgramFiles"] = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
-        ["ProgramData"] = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
-    }, new WindowsAppPackages(), RunUninstallerAsync, RemoveAsAdminAsync);
+    internal static ReplacedApps ForThisPc() => new(LeftoverScan.ThisPc(), new WindowsAppPackages(),
+        (command, ct) => UninstallRun.RunAsync(command, TimeSpan.FromMinutes(10), ct), RemoveAsAdminAsync);
 
-    internal IReadOnlyList<ReplacedAppState> Scan() => Known.Select(app =>
+    /// <param name="cleared">What a clean just cleared, per app id, said with each.</param>
+    internal IReadOnlyList<ReplacedAppState> Scan(IReadOnlyDictionary<string, LeftoverSummary>? cleared = null) => Known.Select(app =>
     {
-        var left = Leftovers(app);
-        var bytes = left.Where(item => !item.IsKey).Sum(item => Size(item.Path));
-        return new ReplacedAppState(app.Id, app.Name, app.Detail, Installed(app), left.Count, bytes, left.Any(item => item.Machine));
+        var installed = Installed(app);
+        if (installed) Reinstalled(app);
+        var left = Leftovers(app, installed);
+        var found = LeftoverScan.Summarize(left, LeftoverScan.Sizes(left));
+        return new ReplacedAppState(app.Id, app.Name, app.Detail, installed, left.Count, found.Bytes, left.Any(item => item.Machine), found,
+            cleared?.GetValueOrDefault(app.Id));
     }).ToList();
 
-    /// <summary>Clears what apps that are gone left in this user's folders and keys; the count it cleared.</summary>
-    internal int CleanLeftovers()
+    /// <summary>Clears what apps that are gone left in this user's folders and keys; what it cleared, per app.</summary>
+    internal Dictionary<string, LeftoverSummary> CleanLeftovers()
     {
-        var cleared = 0;
+        var cleared = new Dictionary<string, LeftoverSummary>();
         foreach (var app in Known.Where(app => !Installed(app)))
-        foreach (var item in Leftovers(app).Where(item => !item.Machine))
-            if (Delete(item)) cleared++;
-        if (cleared > 0) AppLog.Info($"Replaced apps: cleared {cleared} leftovers of apps that are gone.");
+        {
+            var mine = Leftovers(app, installed: false).Where(item => !item.Machine && !item.Likely).ToList();
+            if (mine.Count == 0) continue;
+            var sizes = LeftoverScan.Sizes(mine);
+            _scan.Backup(app.Name, mine);
+            var gone = mine.Where(_scan.Delete).ToList();
+            if (gone.Count > 0) cleared[app.Id] = LeftoverScan.Summarize(gone, sizes);
+        }
+        _scan.Forget();
+        if (cleared.Count > 0) AppLog.Info($"Replaced apps: cleared {cleared.Values.Sum(summary => summary.Count)} leftovers of apps that are gone.");
         return cleared;
     }
 
@@ -184,25 +207,59 @@ internal sealed class ReplacedApps
         }
         Close(app);
         if (Installed(app))
-            return new(false, problem ?? $"{app.Name} is still installed.", 0, Leftovers(app).Count);
+            return new(false, problem ?? $"{app.Name} is still installed.", 0, Leftovers(app, installed: true).Count);
 
-        var removed = 0;
+        // Gone: the deep clean, what it left and what Windows keeps about it.
+        _scan.Forget();
+        var list = Leftovers(app, installed: false, deep: true).Where(item => !item.Likely).ToList();
+        var sizes = LeftoverScan.Sizes(list);
+        _scan.Backup(app.Name, list);
+        var removed = new List<Leftover>();
         var machine = new List<Leftover>();
-        foreach (var item in Leftovers(app))
+        foreach (var item in list)
         {
             if (item.Machine) machine.Add(item);
-            else if (Delete(item)) removed++;
+            else if (_scan.Delete(item)) removed.Add(item);
         }
-        if (machine.Count > 0 && await _removeAsAdmin(machine.Select(AdminCommand).ToList(), ct).ConfigureAwait(false))
-            removed += machine.Count(item => !Exists(item));
+        var commands = machine.Select(_scan.AdminCommand).OfType<string>().ToList();
+        // Out of Windows' image too, for every user, so a feature update or a new account doesn't bring it back.
+        commands.AddRange(app.Packages.Select(package =>
+            $"powershell.exe -NoProfile -NonInteractive -Command \"Get-AppxProvisionedPackage -Online | Where-Object DisplayName -eq '{package}' | Remove-AppxProvisionedPackage -Online -AllUsers | Out-Null\""));
+        var allowed = commands.Count > 0 && await _removeAsAdmin(commands, ct).ConfigureAwait(false);
+        if (allowed) removed.AddRange(machine.Where(item => !_scan.Exists(item)));
         foreach (var set in app.Set) Write(set);
-        var left = Leftovers(app).Count;
-        AppLog.Info($"Replaced apps: {app.Name} removed with {removed} leftovers; {left} left.");
-        return new(left == 0, left == 0 ? null : $"{left} of {app.Name}'s leftovers need Windows' permission.", removed, left);
+        _scan.Forget();
+        var remaining = Leftovers(app, installed: false).Where(item => !item.Likely).ToList();
+        var left = remaining.Count;
+        var why = _scan.Why(remaining);
+        var cleared = LeftoverScan.Summarize(removed, sizes);
+        AppLog.Info($"Replaced apps: {app.Name} removed with {removed.Count} leftovers ({cleared.Folders} folders, {cleared.Files} files, " +
+            $"{cleared.Registry} registry entries, {cleared.Shortcuts} shortcuts); {left} left{(why is null ? "" : $" ({why})")}" +
+            $"{(app.Packages.Length > 0 ? allowed ? "; taken out of Windows' image" : "; still in Windows' image" : "")}.");
+        return new(left == 0, left == 0 ? null : why is null ? $"{left} of {app.Name}'s leftovers need Windows' permission." : $"{left} of {app.Name}'s leftovers stayed: {why}.",
+            removed.Count, left, cleared);
     }
 
+    // Squirrel (Discord) can't delete its own Update.exe: uninstalled, it leaves it with a .dead file beside it, to go at
+    // the next start. A marker beside one is no install (3.15.4 read it as one, and stopped before the clean).
     private bool Installed(ReplacedApp app) =>
-        app.Packages.Any(name => _packages.Find(name).Count > 0) || UninstallCommands(app).Count > 0 || app.Markers.Any(marker => File.Exists(Expand(marker)));
+        app.Packages.Any(name => _packages.Find(name).Count > 0) || UninstallCommands(app).Count > 0 ||
+        app.Markers.Select(_scan.Expand).Any(marker => File.Exists(marker) && !File.Exists(Path.Combine(Path.GetDirectoryName(marker)!, ".dead")));
+
+    /// <summary>An app removed and installed again: what its removal wrote that would stop it working goes (Game Bar's links).</summary>
+    private void Reinstalled(ReplacedApp app)
+    {
+        foreach (var key in app.Undo ?? [])
+        {
+            try
+            {
+                using var command = _scan.Open(key + @"\shell\open\command", writable: false);
+                if (command?.GetValue(null) is string text && text.EndsWith("systray.exe", StringComparison.OrdinalIgnoreCase))
+                    _scan.Delete(new Leftover(key, true, null, false));
+            }
+            catch (Exception ex) when (ex is System.Security.SecurityException or IOException or UnauthorizedAccessException) { }
+        }
+    }
 
     /// <summary>The app's own uninstallers from its Apps &amp; features entries, the quiet one where it has one.</summary>
     private List<string> UninstallCommands(ReplacedApp app)
@@ -214,7 +271,7 @@ internal sealed class ReplacedApps
         {
             try
             {
-                using var key = hive.OpenSubKey(Join(prefix, path));
+                using var key = hive.OpenSubKey(prefix.Length == 0 ? path : prefix + '\\' + path);
                 if (key is null) continue;
                 foreach (var name in key.GetSubKeyNames())
                 {
@@ -236,70 +293,50 @@ internal sealed class ReplacedApps
         display.Equals(name, StringComparison.OrdinalIgnoreCase) ||
         display.StartsWith(name + " ", StringComparison.OrdinalIgnoreCase) && char.IsDigit(display[name.Length + 1]);
 
-    private sealed record Leftover(string Path, bool IsKey, string? Value, bool Machine);
+    /// <summary>A shortcut's target (<see cref="LeftoverScan.ShortcutTarget"/>).</summary>
+    internal static string? ShortcutTarget(string link) => LeftoverScan.ShortcutTarget(link);
 
-    private List<Leftover> Leftovers(ReplacedApp app)
+    /// <summary>Who the app is, for the deep clean: its listed folders, names, executables, ids and entries.</summary>
+    private Trail TrailFor(ReplacedApp app) => new(app.Name)
+    {
+        Homes = [.. app.Paths.Where(path => !path.EndsWith(".lnk", StringComparison.OrdinalIgnoreCase))],
+        Names = app.Names ?? [],
+        NamesSure = true,
+        Exes = [.. (app.Names ?? []).Select(name => name + ".exe")],
+        Ids = [.. (app.AppIds ?? []).Concat(app.Packages.Select(package => package + '_'))],
+        DisplayNames = app.Uninstall,
+        // What is still installed stays, and so does anything holding it (BCU's rule): the NVIDIA tree holds the driver's.
+        Keep = _isTest ? [] : _keep ??= [.. InstalledPrograms.List().Where(program => !program.Store && program.Replaces != app.Id && program.Location is not null).Select(program => program.Location!),
+            .. Adapters.RecompInstallations.DataFolders()],
+    };
+
+    /// <param name="installed">Whether the app is still there: only a gone app's traces are its leftovers.</param>
+    /// <param name="deep">Also what is slow to read (COM, services, tasks): after a removal.</param>
+    private List<Leftover> Leftovers(ReplacedApp app, bool installed, bool deep = false)
     {
         var list = new List<Leftover>();
         foreach (var path in app.Paths)
         {
-            var full = Expand(path);
-            var item = new Leftover(full, false, null, !path.StartsWith("{LocalAppData}", StringComparison.Ordinal) &&
-                                                       !path.StartsWith("{AppData}", StringComparison.Ordinal) && !path.StartsWith("{Desktop}", StringComparison.Ordinal));
-            if (Exists(item)) list.Add(item);
+            var item = new Leftover(_scan.Expand(path), false, null, MachinePlace(path));
+            if (_scan.Exists(item)) list.Add(item);
         }
         foreach (var key in app.Keys)
         {
             var item = new Leftover(key, true, null, key.StartsWith("HKLM", StringComparison.Ordinal));
-            if (Exists(item)) list.Add(item);
+            if (_scan.Exists(item)) list.Add(item);
         }
         foreach (var value in app.Values)
         {
             var bar = value.IndexOf('|');
             var item = new Leftover(value[..bar], true, value[(bar + 1)..], value.StartsWith("HKLM", StringComparison.Ordinal));
-            if (Exists(item)) list.Add(item);
+            if (_scan.Exists(item)) list.Add(item);
         }
-        return list;
+        if (!installed) list.AddRange(_scan.Find(TrailFor(app), deep));
+        return LeftoverScan.Outermost(list);
     }
 
-    private bool Exists(Leftover item)
-    {
-        if (!item.IsKey) return Directory.Exists(item.Path) || File.Exists(item.Path);
-        try
-        {
-            using var key = Open(item.Path, writable: false);
-            return key is not null && (item.Value is null || key.GetValue(item.Value) is not null);
-        }
-        catch (Exception ex) when (ex is System.Security.SecurityException or IOException or UnauthorizedAccessException) { return false; }
-    }
-
-    private bool Delete(Leftover item)
-    {
-        try
-        {
-            if (!item.IsKey)
-            {
-                // A link (junction) goes on its own; Directory.Delete never follows one into its target.
-                if (Directory.Exists(item.Path)) Directory.Delete(item.Path, recursive: true);
-                else File.Delete(item.Path);
-                return true;
-            }
-            var (hive, sub) = Hive(item.Path);
-            if (item.Value is null)
-            {
-                hive.DeleteSubKeyTree(sub, throwOnMissingSubKey: false);
-                return true;
-            }
-            using var key = hive.OpenSubKey(sub, writable: true);
-            key?.DeleteValue(item.Value, throwOnMissingValue: false);
-            return true;
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)
-        {
-            AppLog.Debug($"Replaced apps: a leftover stayed ({ex.GetType().Name}).");
-            return false;
-        }
-    }
+    private static bool MachinePlace(string path) =>
+        new[] { "{ProgramData}", "{ProgramFiles}", "{ProgramFilesX86}", "{CommonDesktop}", "{CommonPrograms}", "HKLM" }.Any(place => path.StartsWith(place, StringComparison.Ordinal));
 
     private void Write(string set)
     {
@@ -307,9 +344,13 @@ internal sealed class ReplacedApps
         var equals = set.IndexOf('=', bar);
         try
         {
-            var (hive, sub) = Hive(set[..bar]);
+            var (hive, sub) = _scan.Hive(set[..bar]);
             using var key = hive.CreateSubKey(sub, writable: true);
-            key.SetValue(set[(bar + 1)..equals], int.Parse(set[(equals + 1)..], System.Globalization.CultureInfo.InvariantCulture), RegistryValueKind.DWord);
+            var text = set[(equals + 1)..];
+            if (int.TryParse(text, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var number))
+                key.SetValue(set[(bar + 1)..equals], number, RegistryValueKind.DWord);
+            else
+                key.SetValue(set[(bar + 1)..equals], text.Replace("{System}", Environment.SystemDirectory, StringComparison.Ordinal), RegistryValueKind.String);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)
         {
@@ -317,19 +358,10 @@ internal sealed class ReplacedApps
         }
     }
 
-    /// <summary>One cmd step for a leftover only an administrator may remove. Paths come from <see cref="Known"/>, never from outside.</summary>
-    private string AdminCommand(Leftover item)
-    {
-        if (item.Path.Contains('"') || item.Path.Contains('%')) throw new InvalidOperationException("Unexpected leftover path.");
-        if (!item.IsKey) return Directory.Exists(item.Path) ? $"rd /s /q \"{item.Path}\"" : $"del /f /q \"{item.Path}\"";
-        var key = _isTest ? @"HKCU\" + Join(_hklmBase, item.Path[5..]) : item.Path;
-        return item.Value is null ? $"reg delete \"{key}\" /f" : $"reg delete \"{key}\" /v \"{item.Value}\" /f";
-    }
-
     /// <summary>Closes the app where it runs from its own folders, so its files can go.</summary>
     private void Close(ReplacedApp app)
     {
-        var folders = app.Paths.Select(Expand).Where(Directory.Exists).Select(folder => folder.TrimEnd('\\') + '\\').ToList();
+        var folders = app.Paths.Select(_scan.Expand).Where(Directory.Exists).Select(folder => folder.TrimEnd('\\') + '\\').ToList();
         if (folders.Count == 0) return;
         foreach (var process in Process.GetProcesses())
         {
@@ -346,70 +378,34 @@ internal sealed class ReplacedApps
         }
     }
 
-    private string Expand(string path)
+    /// <summary>
+    /// Runs the steps only an administrator may in one cmd Windows asks permission for once (several when they don't fit
+    /// one command line, which cmd caps at 8191 characters).
+    /// </summary>
+    internal static async Task<bool> RemoveAsAdminAsync(IReadOnlyList<string> commands, CancellationToken ct)
     {
-        var end = path.IndexOf('}');
-        return path.StartsWith('{') && end > 0 && _places.TryGetValue(path[1..end], out var root) ? root + path[(end + 1)..] : path;
-    }
-
-    private RegistryKey? Open(string path, bool writable)
-    {
-        var (hive, sub) = Hive(path);
-        return hive.OpenSubKey(sub, writable);
-    }
-
-    private (RegistryKey Hive, string Sub) Hive(string path) => path[..4] switch
-    {
-        "HKCU" => (Registry.CurrentUser, Join(_hkcuBase, path[5..])),
-        "HKLM" when _isTest => (Registry.CurrentUser, Join(_hklmBase, path[5..])),
-        "HKLM" => (Registry.LocalMachine, path[5..]),
-        _ => throw new InvalidOperationException("Unexpected hive."),
-    };
-
-    private static string Join(string prefix, string path) => prefix.Length == 0 ? path : prefix + '\\' + path;
-
-    private static long Size(string path)
-    {
-        try
+        var batches = new List<List<string>> { new() };
+        foreach (var command in commands)
         {
-            if (File.Exists(path)) return new FileInfo(path).Length;
-            return new DirectoryInfo(path).EnumerateFiles("*", new EnumerationOptions { RecurseSubdirectories = true, IgnoreInaccessible = true, AttributesToSkip = FileAttributes.ReparsePoint })
-                .Sum(file => file.Length);
+            if (batches[^1].Count > 0 && batches[^1].Sum(step => step.Length + 3) + command.Length > 7800) batches.Add([]);
+            batches[^1].Add(command);
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return 0; }
-    }
-
-    /// <summary>Runs an app's own uninstaller and waits for it; the reason it failed, or null.</summary>
-    private static async Task<string?> RunUninstallerAsync(string command, CancellationToken ct)
-    {
-        using var process = Adapters.OfficialInstalledLibraries.StartUninstallString(command, out var declined);
-        if (declined) return "Windows' permission was declined.";
-        if (process is null) return "The app's uninstaller didn't start.";
-        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        timeout.CancelAfter(TimeSpan.FromMinutes(10));
-        try { await process.WaitForExitAsync(timeout.Token).ConfigureAwait(false); }
-        catch (OperationCanceledException) when (!ct.IsCancellationRequested) { return "The app's uninstaller didn't finish."; }
-        // Squirrel (Discord) and NVIDIA's uninstallers hand off to a second process and return at once: give them a moment.
-        await Task.Delay(TimeSpan.FromSeconds(3), ct).ConfigureAwait(false);
-        return null;
-    }
-
-    /// <summary>Removes machine-wide leftovers in one step Windows asks permission for.</summary>
-    private static async Task<bool> RemoveAsAdminAsync(IReadOnlyList<string> commands, CancellationToken ct)
-    {
-        try
+        foreach (var batch in batches)
         {
-            using var process = Process.Start(new ProcessStartInfo("cmd.exe", "/d /c " + string.Join(" & ", commands))
+            try
             {
-                UseShellExecute = true,
-                Verb = "runas",
-                WindowStyle = ProcessWindowStyle.Hidden,
-                WorkingDirectory = Environment.SystemDirectory,
-            });
-            if (process is null) return false;
-            await process.WaitForExitAsync(ct).ConfigureAwait(false);
-            return true;
+                using var process = Process.Start(new ProcessStartInfo("cmd.exe", "/d /c " + string.Join(" & ", batch))
+                {
+                    UseShellExecute = true,
+                    Verb = "runas",
+                    WindowStyle = ProcessWindowStyle.Hidden,
+                    WorkingDirectory = Environment.SystemDirectory,
+                });
+                if (process is null) return false;
+                await process.WaitForExitAsync(ct).ConfigureAwait(false);
+            }
+            catch (System.ComponentModel.Win32Exception ex) when (ex.NativeErrorCode == 1223) { return false; }
         }
-        catch (System.ComponentModel.Win32Exception ex) when (ex.NativeErrorCode == 1223) { return false; }
+        return true;
     }
 }

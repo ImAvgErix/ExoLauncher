@@ -25,11 +25,6 @@
   display: none !important;
 }
 
-/* No visible scrollbar anywhere in Exo (DESIGN.md): everything still scrolls by wheel, touch and keys. */
-* {
-  scrollbar-width: none;
-}
-
 /* ——— Titlebar ——— */
 .exo-titlebar {
   position: relative;
@@ -338,14 +333,15 @@ html[data-exo-motion="reduce"] *::after {
    a warning's red still flashes. Nothing slides, grows, springs or loops. Rooms and pages crossfade in
    transitions.css. */
 html[data-exo-motion="reduce"] :is(.exo-set-room, .exo-set-room > .exo-settings, .exo-dc-settings-backdrop, .exo-dc-settings,
-  .exo-game-overlay-stage, .exo-props-back, .exo-props, .exo-music-sheet[open], .exo-dc-modal-back, .exo-dc-notice-slot:not(.is-leaving),
+  .exo-game-overlay-stage, .exo-props-back, .exo-props, .exo-music-sheet[open], .exo-dc-modal-back, .exo-notice-slot:not(.is-leaving), .exo-dialog-back, .exo-dialog,
+  .exo-whats-new-back, .exo-whats-new, .exo-folder-back, .exo-folder-panel, .exo-folder-sheet-back, .exo-folder-sheet,
   .exo-dc .exo-dc-profile) {
   animation: exo-fade-in var(--dur-base) var(--ease-out) backwards !important;
 }
 
 /* Glass (menus, popovers, Ctrl+K, toasts, the Bar's capsules, Discord's menus and dialogs) is there at once: Apple's
    Reduce motion avoids animating into and out of a blur, and a fading glass is one. */
-html[data-exo-motion="reduce"] :is(.exo-glass, .exo-shelf-sort-menu, .exo-key-popover, .exo-toast,
+html[data-exo-motion="reduce"] :is(.exo-glass, .exo-shelf-sort-menu, .exo-key-popover,
   .exo-dc :is(.exo-dc-menu, .exo-dc-popover, .exo-dc-picker, .exo-dc-modal, .exo-dc-suggest, .exo-dc-soundboard-pop)) {
   transition-duration: 0s !important;
   animation: none !important;
@@ -383,7 +379,7 @@ html[data-exo-motion="reduce"] .exo-dc-savebar.is-nudged {
 
 /* Each ends at its pane's foot, so it clips to the pane's lower corners too: at the list's end the fade is gone, and a
    row's art (a nameplate) would otherwise paint square across the pane's rounded corner and its rim. */
-:is(.exo-dc-side-list, .exo-dc-members-list, .exo-music-library) {
+:is(.exo-dc-side-list, .exo-dc-members-list, .exo-music-library, .exo-command-list, .exo-apps-list, .exo-runtimes-list) {
   border-end-start-radius: inherit;
   border-end-end-radius: inherit;
   mask-image: linear-gradient(to bottom, transparent, #000 var(--exo-pool-top), #000 calc(100% - var(--exo-pool-bottom)), transparent);

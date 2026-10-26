@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { host, type LauncherSettings } from '../../lib/host'
+import { Spinner } from '../ui/Spinner'
 import { Row, State } from './parts'
 
 type Note = { text: string; error: boolean } | null
@@ -59,7 +60,7 @@ function XboxRow({ saved, onSettings }: { saved: boolean; onSettings: (next: Lau
             onChange={event => setDraft(event.target.value)}
           />
           <button type="submit" className="exo-set-btn" disabled={busy || !draft.trim()}>
-            {busy ? 'Saving…' : 'Save'}
+            {busy ? <Spinner label="Saving" /> : null}Save
           </button>
           {editing ? (
             <button type="button" className="exo-set-btn" disabled={busy} onClick={() => { setEditing(false); setDraft('') }}>Cancel</button>

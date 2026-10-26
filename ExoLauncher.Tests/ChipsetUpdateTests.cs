@@ -23,7 +23,6 @@ public sealed class ChipsetUpdateTests : IDisposable
     private const string IntelNew = "10.1.20658.8883";
     private const string IntelUrl = "https://downloadmirror.intel.com/925343/SetupChipset.exe";
     private static readonly ChipsetUpdate.Package IntelPackage = new(IntelNew, IntelUrl, "f20b9f97e9a81e613d4d529aad5d3948f5e449998cd118c6def4037ca6536446");
-    private static readonly TimeSpan Away = TimeSpan.FromMinutes(11);
     private static readonly DateTime Booted = DateTime.UtcNow.AddDays(-1);
     private readonly string _folder = Directory.CreateTempSubdirectory("exo-chipset-").FullName;
 
@@ -73,9 +72,9 @@ public sealed class ChipsetUpdateTests : IDisposable
 
     private ChipsetUpdate Updater(FakeHost host, string vendor = "amd") => new(vendor, host, _folder, settleSeconds: 0);
 
-    private static async Task<bool> TickAsync(ChipsetUpdate update, bool enabled = true, TimeSpan? idle = null, string latest = New)
+    private static async Task<bool> TickAsync(ChipsetUpdate update, bool enabled = true, bool idle = true, string latest = New)
     {
-        var started = update.Tick(enabled, idle ?? Away, ChipsetUpdate.AmdPackage(latest), Booted);
+        var started = update.Tick(enabled, idle, ChipsetUpdate.AmdPackage(latest), Booted);
         await update.Running;
         return started;
     }
@@ -105,7 +104,7 @@ public sealed class ChipsetUpdateTests : IDisposable
             Version = gate == "uptodate" ? New : Old,
         };
         var update = Updater(host);
-        Assert.False(await TickAsync(update, enabled: gate != "off", idle: gate == "busy" ? TimeSpan.FromMinutes(9) : Away));
+        Assert.False(await TickAsync(update, enabled: gate != "off", idle: gate != "busy"));
         Assert.Empty(host.Calls);
     }
 
@@ -339,7 +338,7 @@ public sealed class ChipsetUpdateTests : IDisposable
     {
         var host = new FakeHost { Version = IntelOld, InstallsTo = IntelNew };
         var update = Updater(host, "intel");
-        Assert.True(update.Tick(true, Away, IntelPackage, Booted));
+        Assert.True(update.Tick(true, idle: true, IntelPackage, Booted));
         await update.Running;
         Assert.Equal([$"download {IntelUrl}", $"verify SetupChipset.exe {IntelNew}", "install"], host.Calls);
         Assert.Null(update.Current(IntelNew, Booted));

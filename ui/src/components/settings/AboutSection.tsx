@@ -1,8 +1,9 @@
-import { memo, useRef, useState, type CSSProperties } from 'react'
-import { host, type DependencyItem } from '../../lib/host'
+import { memo, useRef, useState } from 'react'
+import { host } from '../../lib/host'
 import { invalidateUpscalerStatus } from '../../lib/upscalerCache'
-import { formatTransferPercent } from '../../lib/utils'
 import { WHATS_NEW } from '../../lib/whatsNew'
+import { Progress } from '../ui/Progress'
+import { Spinner } from '../ui/Spinner'
 import { Row, Section, State } from './parts'
 
 /** What's new opens the sheet of this version's notes (LauncherApp); the rest open in the browser. */
@@ -56,55 +57,21 @@ function UpdateRow({ version, updateBusy, updateError, updatePercent, updateStat
       detail={note && !note.error ? note.text : version ? `Version ${version}` : undefined}
       error={note?.error ? note.text : updateBusy ? null : updateError}
     >
-      {updateAvailable || updateBusy ? (
-        <button type="button" className="exo-set-btn is-primary exo-set-progress" disabled={updateBusy} onClick={install}
-          style={{ '--progress': (updatePercent ?? 0) / 100 } as CSSProperties}>
-          <span>{updateBusy ? `${updateStatus}${updatePercent == null ? '' : ` ${formatTransferPercent(updatePercent)}%`}` : 'Install update'}</span>
-        </button>
+      {/* The update going in is a transfer: its words and its bar in the row, where the button was (never a bar in a button). */}
+      {updateBusy ? (
+        <>
+          <State>{updateStatus}</State>
+          <Progress size="small" value={updatePercent == null ? null : updatePercent / 100} label={updateStatus} />
+        </>
+      ) : updateAvailable ? (
+        <button type="button" className="exo-set-btn is-primary" onClick={install}>Install update</button>
       ) : (
         <button type="button" className="exo-set-btn" disabled={checking} onClick={() => void check()}>
-          {checking ? 'Checking…' : 'Check for updates'}
+          {checking ? <Spinner label="Checking for updates" /> : null}
+          Check for updates
         </button>
       )}
     </Row>
-  )
-}
-
-function RuntimeRows({ deps, depsNote, depsError, depBusy, onRecheck, onGetDependency }: {
-  deps: DependencyItem[] | null
-  depsNote: string | null
-  depsError: string | null
-  depBusy: string | null
-  onRecheck: () => void
-  onGetDependency: (item: DependencyItem) => Promise<void>
-}) {
-  const missing = (deps ?? []).filter(item => item.status.toLowerCase() !== 'present')
-  const allPresent = deps !== null && deps.length > 0 && missing.length === 0
-  return (
-    <>
-      <Row label="Game runtimes" detail={depsNote ?? 'DirectX, Visual C++ and WebView2'} error={depsError}>
-        <State on={allPresent}>
-          {deps === null ? 'Checking…' : allPresent ? 'All installed' : deps.length === 0 ? 'Not checked' : `${missing.length} missing`}
-        </State>
-        {deps !== null && !allPresent ? (
-          <button type="button" className="exo-set-btn" disabled={depBusy !== null} onClick={onRecheck}>Check again</button>
-        ) : null}
-      </Row>
-      {missing.map(item => {
-        const busy = depBusy === item.id
-        const installable = item.status.toLowerCase() === 'missing' && item.canOfferInstall
-        return (
-          <Row key={item.id} label={item.name}>
-            <State>{busy ? 'Installing…' : item.status.toLowerCase() === 'missing' ? 'Missing' : "Couldn't check"}</State>
-            {installable ? (
-              <button type="button" className="exo-set-btn" disabled={depBusy !== null && !busy} onClick={() => void onGetDependency(item)}>
-                {busy ? 'Cancel' : 'Install'}
-              </button>
-            ) : null}
-          </Row>
-        )
-      })}
-    </>
   )
 }
 
@@ -137,7 +104,8 @@ function RebuildCachesRow() {
       error={note?.error ? note.text : null}
     >
       <button type="button" className="exo-set-btn" disabled={busy} onClick={() => void rebuild()}>
-        {busy ? 'Clearing…' : 'Clear'}
+        {busy ? <Spinner label="Clearing caches" /> : null}
+        Clear
       </button>
     </Row>
   )
@@ -145,17 +113,11 @@ function RebuildCachesRow() {
 
 export const AboutSection = memo(function AboutSection(props: {
   version: string | null
-  deps: DependencyItem[] | null
-  depsNote: string | null
-  depsError: string | null
-  depBusy: string | null
   updateBusy: boolean
   updateError: string | null
   updatePercent: number | null
   updateStatus: string
   updateAvailable: boolean
-  onRecheck: () => void
-  onGetDependency: (item: DependencyItem) => Promise<void>
   onCheckUpdate: CheckUpdate
   onInstallUpdate: () => Promise<void> | void
 }) {
@@ -170,14 +132,6 @@ export const AboutSection = memo(function AboutSection(props: {
         updateAvailable={props.updateAvailable}
         onCheckUpdate={props.onCheckUpdate}
         onInstallUpdate={props.onInstallUpdate}
-      />
-      <RuntimeRows
-        deps={props.deps}
-        depsNote={props.depsNote}
-        depsError={props.depsError}
-        depBusy={props.depBusy}
-        onRecheck={props.onRecheck}
-        onGetDependency={props.onGetDependency}
       />
       <RebuildCachesRow />
       <div className="exo-set-item">

@@ -11,6 +11,8 @@ import { effectSkuOf, lookOf, Nameplate, primeEffect, StyledName } from './colle
 import { ProfileCard, profileName, profileOf, useProfile, type Loaded } from './profileParts'
 import { AddCard, useConfirmPayment } from './payFrame'
 import { ModalBack } from './SettingsLayer'
+import { Spinner } from '../ui/Spinner'
+import { Skeleton } from '../ui/Skeleton'
 
 /**
  * Discord's Shop in the Discord room: its catalog by category, one kind of collectible, or what you own, each
@@ -147,7 +149,7 @@ export function ShopPage({ me }: { me: Me | null }) {
       </header>
       <div className="exo-dc-shop-body">
         {error ? <p className="exo-dc-note" role="alert">{error} <button type="button" className="exo-dc-link" onClick={reload}>Try again</button></p> : null}
-        {!shop && !error ? <p className="exo-dc-note" role="status">Loading the shop</p> : null}
+        {!shop && !error ? <Skeleton label="Loading the shop" tiles={8} className="exo-dc-shop-wait" /> : null}
         {shop && tab === 'featured' ? shop.categories.map(category => {
           const products = category.products.filter(match)
           return products.length ? (
@@ -451,6 +453,7 @@ function Checkout({ product, onBack, onBought }: { product: DiscordShopProduct; 
       if (result.ok) { onBought(); return }
       // Your bank wants to confirm it: its check shows over the window, then Discord completes the purchase.
       if (result.confirm && result.paymentId) { setBusy(true); bank.confirm(result.paymentId); return }
+      if (result.declined) return
       setError(result.message ?? "Discord didn't complete the purchase. Nothing was charged.")
     }, () => { setBusy(false); setError("Exo couldn't reach Discord. Check Your Collection before trying again.") })
   }
@@ -458,7 +461,7 @@ function Checkout({ product, onBack, onBought }: { product: DiscordShopProduct; 
     setAdding(false); setError(null); setChoices(list)
     setSource(firstCard(list))
   }
-  if (choices === null) return <p className="exo-dc-pay-note" role="status">Loading your payment methods</p>
+  if (choices === null) return <Skeleton label="Loading your payment methods" />
   if (!usable.length || adding) {
     return (
       <div className="exo-dc-shop-checkout">
@@ -476,11 +479,13 @@ function Checkout({ product, onBack, onBought }: { product: DiscordShopProduct; 
           onAction={id => { setError(null); setSource(id) }} />
         <button type="button" className="exo-set-btn" disabled={busy} onClick={() => setAdding(true)}>Add a card</button>
       </div>
-      {price?.currency ? <Bill price={price} currency={price.currency} /> : <p className="exo-dc-pay-note" role="status">Getting discord's price</p>}
+      {price?.currency ? <Bill price={price} currency={price.currency} /> : <Skeleton label="Getting Discord’s price" rows={1} />}
       {error ? <p className="exo-dc-pay-note is-bad" role="alert">{error}</p> : null}
       <div className="exo-dc-shop-actions">
         <button type="button" className="exo-set-btn" disabled={busy} onClick={onBack}>Back</button>
-        <button type="button" className="exo-set-btn is-primary" disabled={busy || !total || !bank.ready} onClick={buy}>{busy ? 'Buying' : total ? `Buy for ${total}` : 'Buy'}</button>
+        <button type="button" className="exo-set-btn is-primary" disabled={busy || !total || !bank.ready} onClick={buy}>
+          {busy ? <Spinner label="Buying" /> : null}{total ? `Buy for ${total}` : 'Buy'}
+        </button>
       </div>
       {bank.frame}
     </div>

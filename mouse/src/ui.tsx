@@ -69,6 +69,109 @@ export function Switch({ label, checked, onChange, disabled = false }: { label: 
 }
 
 /**
+ * Exo's bar (Exo's components/ui/Progress.tsx: the same props and markup; mouse.css › Progress), only for work with a
+ * measure (a timed test): a glass track holding the ink's fill with a sheen and a lit head at its end; with no number,
+ * a lit segment glides along the track. A wait without a measure is the ring (Spinner) or the shine (mouse.css › Waits).
+ */
+export function Progress({ value, label, size, edge, tone, className }: {
+  /** How far along, 0 to 1; null or undefined while that isn't known. */
+  value?: number | null
+  /** What is happening, for screen readers. */
+  label: string
+  /** small: on a card or art; large: a window's one bar. */
+  size?: 'small' | 'large'
+  /** Along the inside foot of what holds it (a button, the mouse's picture). */
+  edge?: boolean
+  /** done: it finished (green); bad: it stopped short (red). */
+  tone?: 'done' | 'bad'
+  className?: string
+}) {
+  const known = typeof value === 'number' && Number.isFinite(value)
+  const fraction = known ? Math.min(1, Math.max(0, value)) : 0
+  const classes = ['m-progress', !known && 'is-unknown', size && `is-${size}`, edge && 'is-edge', tone && `is-${tone}`, className]
+  return (
+    <span
+      role="progressbar"
+      aria-label={label}
+      aria-valuemin={known ? 0 : undefined}
+      aria-valuemax={known ? 100 : undefined}
+      aria-valuenow={known ? Math.round(fraction * 100) : undefined}
+      className={classes.filter(Boolean).join(' ')}
+      style={{ '--m-progress': fraction } as CSSProperties}
+    >
+      <span className="m-progress-track"><span className="m-progress-fill" /></span>
+      <span className="m-progress-head" aria-hidden="true" />
+    </span>
+  )
+}
+
+/**
+ * Exo's ring (Exo's components/ui/Spinner.tsx; mouse.css › Waits): a short wait inside a control of words, before
+ * them, in their color; a status with its label for screen readers.
+ */
+export function Spinner({ size = 14, label }: { size?: number; label?: string }) {
+  return (
+    <svg className="m-spinner" width={size} height={size} viewBox="0 0 16 16" fill="none"
+      role={label ? 'status' : undefined} aria-label={label} aria-hidden={label ? undefined : true}>
+      <circle cx="8" cy="8" r="6.25" stroke="currentColor" strokeOpacity="0.22" strokeWidth="1.5" />
+      <path d="M8 1.75a6.25 6.25 0 0 1 6.25 6.25" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+/**
+ * Exo's one question (Exo's components/ui/Dialog.tsx › ConfirmDialog; mouse.css › Dialog), asked only before what
+ * can't be taken back: the title asks it, a line or two say what goes and what stays, then equal capsules, Cancel
+ * first and focused so Enter alone never confirms, and the action named for what it does, red when it deletes.
+ * Escape or the scrim cancels, Tab stays inside, and focus goes back where it was when it closes.
+ */
+export function Confirm({ title, body, action, danger = false, onConfirm, onClose }: {
+  title: string
+  body?: ReactNode
+  action: string
+  danger?: boolean
+  onConfirm: () => void
+  onClose: () => void
+}) {
+  const box = useRef<HTMLDivElement>(null)
+  const cancel = useRef<HTMLButtonElement>(null)
+  const id = useId()
+  const close = useRef(onClose)
+  close.current = onClose
+  useEffect(() => {
+    const back = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    cancel.current?.focus()
+    const key = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close.current() }
+      if (e.key !== 'Tab' || !box.current) return
+      e.preventDefault()
+      const buttons = [...box.current.querySelectorAll<HTMLElement>('button:not(:disabled)')]
+      const at = buttons.indexOf(document.activeElement as HTMLElement)
+      buttons[(at + (e.shiftKey ? -1 : 1) + buttons.length) % buttons.length]?.focus()
+    }
+    window.addEventListener('keydown', key, true)
+    return () => {
+      window.removeEventListener('keydown', key, true)
+      if (back?.isConnected) back.focus()
+    }
+  }, [])
+  // On the page itself: a panel's arrive animation leaves a transform that would hold a fixed overlay inside the panel.
+  return createPortal(
+    <div className="m-dialog-back" onMouseDown={e => { if (e.target === e.currentTarget) onClose() }}>
+      <div ref={box} className="m-dialog" role="dialog" aria-modal="true" aria-labelledby={id} aria-describedby={body ? `${id}-body` : undefined}>
+        <h2 id={id}>{title}</h2>
+        {body ? <p id={`${id}-body`} className="m-dialog-body">{body}</p> : null}
+        <div className="m-dialog-actions">
+          <button ref={cancel} type="button" className="m-button" onClick={onClose}>Cancel</button>
+          <button type="button" className={`m-button ${danger ? 'is-danger' : 'is-primary'}`} onClick={onConfirm}>{action}</button>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  )
+}
+
+/**
  * A color well that writes once, when the picker closes, so dragging through
  * colors does not send the mouse a command for each one.
  */

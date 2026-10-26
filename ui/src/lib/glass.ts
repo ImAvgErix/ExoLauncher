@@ -14,6 +14,11 @@ import { useLayoutEffect, type RefObject } from 'react'
  * Chromium measures an SVG backdrop filter against the element's ink overflow, so glass with a lens never
  * casts an outer shadow or an outer focus ring: an inset darkened edge separates it instead. Maps are
  * cached by size and rebuilt once a resize settles.
+ *
+ * The map has at least two pixels to each of the screen's (more on a scaled display), laid over the glass's exact
+ * box: a map at the box's own pixels, stretched over a scaled display or a fractional box, bent the rim in steps,
+ * and the art at a capsule's ends read as pixelated. The bent rim is smoothed by half a pixel for the same reason
+ * (the displacement samples the nearest pixel).
  */
 
 const SVG_NS = 'http://www.w3.org/2000/svg'
@@ -98,6 +103,9 @@ function buildMap(w: number, h: number, radius: number, bezel: number): Promise<
   }))
 }
 
+/** Map pixels to each CSS pixel: twice the screen's at least, so the bend never steps; three at most. */
+const mapScale = () => Math.min(3, Math.max(2, Math.ceil(window.devicePixelRatio || 1)))
+
 function lensFilter(id: string, href: string, w: number, h: number) {
   const filter = document.createElementNS(SVG_NS, 'filter')
   filter.id = id
@@ -107,13 +115,15 @@ function lensFilter(id: string, href: string, w: number, h: number) {
   filter.setAttribute('width', '200%')
   filter.setAttribute('height', '200%')
   filter.setAttribute('color-interpolation-filters', 'sRGB')
-  // The bend grows with the glass, as a thicker pane bends more: up to about a third of its height at the edge.
-  const strength = Math.round(Math.min(h, w) * 0.75)
+  // The bend grows with small glass and then holds, so the Bar's capsules, the player and a close button bend alike
+  // (Apple's more uniform refraction in 27): about a third of a capsule's height at its edge.
+  const strength = Math.min(28, Math.round(Math.min(h, w) * 0.75))
   filter.innerHTML =
-    `<feGaussianBlur in="SourceGraphic" stdDeviation="6" result="soft"/>` +
+    `<feGaussianBlur in="SourceGraphic" stdDeviation="8" result="soft"/>` +
     `<feGaussianBlur in="SourceGraphic" stdDeviation="2" result="sharp"/>` +
     `<feImage href="${href}" x="0" y="0" width="${w}" height="${h}" preserveAspectRatio="none" result="map"/>` +
-    `<feDisplacementMap in="sharp" in2="map" scale="${strength}" xChannelSelector="R" yChannelSelector="G" result="bent"/>` +
+    `<feDisplacementMap in="sharp" in2="map" scale="${strength}" xChannelSelector="R" yChannelSelector="G" result="pulled"/>` +
+    `<feGaussianBlur in="pulled" stdDeviation="0.5" result="bent"/>` +
     `<feColorMatrix in="map" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0 0" result="rim"/>` +
     `<feComposite in="bent" in2="rim" operator="in" result="edge"/>` +
     `<feComposite in="edge" in2="soft" operator="over"/>`
@@ -147,12 +157,16 @@ export function useLens(ref: RefObject<HTMLElement | null>, mounted = true) {
     let timer = 0
     let live = true
     const apply = () => {
-      const w = Math.round(el.offsetWidth), h = Math.round(el.offsetHeight)
-      if (w < 8 || h < 8) return
-      const radius = Math.min(parseFloat(getComputedStyle(el).borderTopLeftRadius) || h / 2, h / 2, w / 2)
+      // The box as laid out, fractions kept (offsetWidth rounds), untransformed (a pressed capsule's scale is not its size).
+      const style = getComputedStyle(el)
+      // An inline box has no computed size ('auto'): its laid-out size, whole pixels, stands in.
+      const w = parseFloat(style.width) || el.offsetWidth, h = parseFloat(style.height) || el.offsetHeight
+      if (!(w >= 8 && h >= 8)) return
+      const radius = Math.min(parseFloat(style.borderTopLeftRadius) || h / 2, h / 2, w / 2)
       const bezel = Math.max(6, Math.min(18, Math.min(w, h) * 0.32))
-      const key = `${w}x${h}x${Math.round(radius)}`
-      if (!maps.has(key)) rememberMap(key, buildMap(w, h, radius, bezel))
+      const k = mapScale()
+      const key = `${Math.round(w * k)}x${Math.round(h * k)}x${Math.round(radius * k)}`
+      if (!maps.has(key)) rememberMap(key, buildMap(Math.round(w * k), Math.round(h * k), radius * k, bezel * k))
       void maps.get(key)!.then(href => {
         if (!live || !href) return
         const next = lensFilter(id, href, w, h)
@@ -168,9 +182,19 @@ export function useLens(ref: RefObject<HTMLElement | null>, mounted = true) {
       timer = window.setTimeout(apply, 120)
     })
     sizes.observe(el)
+    // The window moved to a screen of another scale: the map is drawn again at that screen's pixels.
+    let scale = window.matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`)
+    const rescaled = () => {
+      scale.removeEventListener('change', rescaled)
+      scale = window.matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`)
+      scale.addEventListener('change', rescaled)
+      apply()
+    }
+    scale.addEventListener('change', rescaled)
     return () => {
       live = false
       window.clearTimeout(timer)
+      scale.removeEventListener('change', rescaled)
       sizes.disconnect()
       filter?.remove()
       el.style.removeProperty('--exo-lens')

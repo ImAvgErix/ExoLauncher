@@ -19,6 +19,24 @@ export function Section({ id, title, action, children }: {
   )
 }
 
+/** A named group of rows inside a section (Accounts and keys › Game stores): its name, an optional action, then rows. */
+export function Group({ id, title, action, children }: {
+  id: string
+  title: string
+  action?: ReactNode
+  children: ReactNode
+}) {
+  return (
+    <div className="exo-set-group" id={`set-${id}`} role="group" aria-labelledby={`set-${id}-title`}>
+      <header className="exo-set-group-head">
+        <h3 id={`set-${id}-title`}>{title}</h3>
+        {action}
+      </header>
+      <div className="exo-set-list">{children}</div>
+    </div>
+  )
+}
+
 /**
  * Label on the left, state and control on a shared right edge. `detail` is one
  * short line that says what the row is for; `error` sits under the control that caused it.

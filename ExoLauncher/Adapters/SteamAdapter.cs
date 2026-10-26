@@ -1316,6 +1316,9 @@ public sealed class SteamAdapter : IStoreAdapter, IInstalledSteamManifestSource,
 
             if (gamePid is null && !SteamStateFlags.IsAppRunning(ReadAppManifestSnapshot(appId).StateFlags))
             {
+                // Steam never finished signing in because its servers are down: Play offers its offline mode, Steam stays hidden.
+                if (Path.GetDirectoryName(steamExe) is { } steamRoot && SteamOutage.ForPlay(steamRoot, launchStalled: true) is { } outage)
+                    return SteamOutage.PlayAnswer(outage.Cause, outage.Offer);
                 RevealSteam();
                 return new LaunchResult
                 {

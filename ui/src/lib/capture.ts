@@ -112,12 +112,13 @@ export function clock(ms: number): string {
 }
 
 // The Captures sheet opens over any room; the title bar, a game page and a new
-// snip (straight into its editor) all open it here.
-type SheetRequest = { open: boolean; gameId?: string | null; itemId?: string | null; edit?: boolean; seq: number }
+// snip (straight into its editor) all open it here, and the Capture menu straight
+// into its settings.
+type SheetRequest = { open: boolean; gameId?: string | null; itemId?: string | null; edit?: boolean; settings?: boolean; seq: number }
 let sheet: SheetRequest = { open: false, seq: 0 }
 const sheetListeners = new Set<() => void>()
 
-export function openCaptures(options: { gameId?: string | null; itemId?: string | null; edit?: boolean } = {}) {
+export function openCaptures(options: { gameId?: string | null; itemId?: string | null; edit?: boolean; settings?: boolean } = {}) {
   sheet = { open: true, ...options, seq: sheet.seq + 1 }
   for (const listener of sheetListeners) listener()
 }

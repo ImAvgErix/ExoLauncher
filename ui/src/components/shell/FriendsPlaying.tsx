@@ -2,6 +2,7 @@ import { memo, useEffect, useMemo, useState } from 'react'
 import type { DiscordFriend } from '../../lib/discord'
 import { host, onHostEvent, shelfAction, type Game } from '../../lib/host'
 import { titleIdentity } from '../../lib/utils'
+import { Spinner } from '../ui/Spinner'
 
 /** A game friends are in: one you have (its card), or one you don't (only its name, from their presence). */
 type Group = { key: string; title: string; game: Game | null; friends: DiscordFriend[] }
@@ -46,7 +47,8 @@ export const FriendsPlaying = memo(function FriendsPlaying({ games, startingId, 
               {game && shortcut ? (
                 <button type="button" className="exo-friend-pill-go" disabled={game.id === startingId}
                   aria-label={`${game.id === startingId ? 'Starting' : shortcut.label} ${title}`} onClick={() => onPlay(game)}>
-                  {game.id === startingId ? 'Starting…' : shortcut.label}
+                  {game.id === startingId ? <Spinner label={`Starting ${title}`} /> : null}
+                  {shortcut.label}
                 </button>
               ) : null}
               {!game ? (

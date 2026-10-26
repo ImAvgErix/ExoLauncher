@@ -1,5 +1,6 @@
 import { useRef, type ReactNode } from 'react'
 import { Button } from '../ui/Button'
+import { Spinner } from '../ui/Spinner'
 import { useGlide } from '../../lib/glide'
 import { useLens } from '../../lib/glass'
 import { ExoMark } from '../../brand/ExoMark'
@@ -23,7 +24,7 @@ const NAV_TABS: ReadonlyArray<{
     { id: 'store', label: 'Store', Icon: StoreBag },
     { id: 'friends', label: 'Discord', Icon: Chats },
     { id: 'music', label: 'Music', Icon: MusicNotes },
-    { id: 'system', label: 'System', Icon: Gpu },
+    { id: 'system', label: 'PC', Icon: Gpu },
     { id: 'devices', label: 'Devices', Icon: Mouse },
   ]
 
@@ -32,7 +33,7 @@ export const ROOM_ORDER: readonly View[] = NAV_TABS.map(tab => tab.id)
 
 export type TitleBarProps = {
   view: View
-  /** A room being built for its first showing: its tab pulses until it opens. */
+  /** A room being built for its first showing: its tab shows the ring in its glyph's place until it opens. */
   opening?: View | null
   onView: (view: View) => void
   /** The mini player: the Music room on Now playing. */
@@ -61,13 +62,13 @@ function NavTab({ label, Icon, active, opening = false, badge, onOpen, onWarm }:
   return (
     <button
       type="button"
-      className={`exo-nav-btn${active ? ' is-on' : ''}${opening ? ' is-opening' : ''}`}
+      className={`exo-nav-btn${active ? ' is-on' : ''}`}
       aria-current={active ? 'page' : undefined}
       aria-busy={opening || undefined}
       onClick={onOpen}
       onPointerEnter={onWarm}
     >
-      <Icon size={16} current={active} />
+      {opening ? <Spinner size={16} label={`Opening ${label}`} /> : <Icon size={16} current={active} />}
       <span className="exo-nav-label">{label}</span>
       {badge}
     </button>

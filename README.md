@@ -2,7 +2,7 @@
 <h1 align="center">Exo Launcher 3.15</h1>
 <p align="center"><strong>Your games, your music, your friends and your mouse. One app.</strong></p>
 <p align="center">Exo brings every game store, Discord, Spotify, Apple Music, YouTube Music, your captures and your mouse software into one fast, quiet window for Windows 11.</p>
-<p align="center"><a href="https://github.com/ImAvgErix/ExoLauncher/releases/latest/download/ExoLauncher-Setup.exe"><strong>Download for Windows 11</strong></a> · <a href="https://github.com/ImAvgErix/ExoLauncher/releases/tag/v3.15.4">What's new in 3.15</a> · <a href="CHANGELOG.md">Changelog</a> · <a href="PRIVACY.md">Privacy</a></p>
+<p align="center"><a href="https://github.com/ImAvgErix/ExoLauncher/releases/latest/download/ExoLauncher-Setup.exe"><strong>Download for Windows 11</strong></a> · <a href="https://github.com/ImAvgErix/ExoLauncher/releases/tag/v3.15.5">What's new in 3.15</a> · <a href="CHANGELOG.md">Changelog</a> · <a href="PRIVACY.md">Privacy</a></p>
 
 ![The Exo Library: every game from every store in one grid](docs/media/library.jpg)
 
@@ -45,35 +45,35 @@ Every game you own, from every store, in one grid, plus the games your Steam Fam
 
 ![A game page: play, time played, last launched, size, Properties, upscalers and shaders](docs/media/game.jpg)
 
-A game's page shows where it's from, time played, last launched, its size and achievements, with Play, Uninstall (Remove for a game you added yourself) and Properties. A row each for its upscalers and shaders opens their System page, and HDR sets whether the game plays in HDR.
+A game's page shows where it's from, time played, last launched, its size and achievements, with Play, Uninstall (Remove for a game you added yourself) and Properties. A row each for its upscalers and shaders opens their PC page, and HDR sets whether the game plays in HDR.
 
 **Properties** has what Steam's and Epic's own Properties have: launch options, language, cloud saves, the Steam overlay, betas, automatic updates, checking its files, moving the game to another drive, and its DLC and optional content, such as a high-resolution texture pack, switched on or off with the space it takes or frees shown first. Its Artwork replaces the cover with your own picture.
 
-**More than one account?** Switch between your Steam accounts, or your Riot accounts for League and VALORANT, in Settings > Game stores.
+**More than one account?** Switch between your Steam accounts, or your Riot accounts for League and VALORANT, in Settings > Accounts and keys.
 
-### System
+### PC
 
-![System > Display: refresh rate, output color, scaling and its override, color and RTX Video](docs/media/gpu.jpg)
+![PC > Display: refresh rate, output color, scaling and its override, color and RTX Video](docs/media/gpu.jpg)
 
-The System room is your graphics card and screen, in three pages: Graphics, Display and Shaders.
+The PC room is this PC, in five pages: Overview (its About card and Best settings), Graphics (the driver and profile, Upscalers and Shaders), Display, Performance and Apps (the uninstaller and game runtimes).
 - **Driver and profile:** NVIDIA's newest driver for your card, looked for at most once an hour and installed clean, driver only, with no NVIDIA app, telemetry, PhysX or HDMI audio (on a Radeon or Intel graphics, AMD's or Intel's newest); and Exo's NVIDIA driver profile for the lowest latency, with or without G-SYNC.
 - **HDR:** on only while a game with real HDR runs, and SDR drawn at gamma 2.2 while it is, so blacks stay black.
 - **Display:** the refresh rates and colors your screen really takes, scaling and **Override the scaling set by games**, color from brightness to hue, and RTX Video Super Resolution and HDR. A picture change undoes itself after 15 seconds unless you keep it.
 
 ### Upscalers
 
-![System > Graphics > Upscalers](docs/media/upscalers.jpg)
+![PC > Graphics > Upscalers](docs/media/upscalers.jpg)
 
-System > Graphics > Upscalers lists every installed game that can get newer DLSS, FSR or XeSS and updates them all at once.
+PC > Graphics > Upscalers lists every installed game that can get newer DLSS, FSR or XeSS and updates them all at once.
 - **New releases:** when Exo opens it checks NVIDIA's, AMD's and Intel's own releases, so a new DLSS, FSR 4 or XeSS reaches your games without waiting for an Exo update.
 - **Files:** every file is the vendor's own, checked for its signature, exact version and checksum before it goes in, and Restore puts the game's originals back byte for byte. A running game waits until you close it.
 - **Anti-cheat:** a game with anti-cheat changes only after you allow it for that game, at your own risk. Riot games are never changed.
 
 ### Shaders
 
-![System > Shaders: Exo Shaders shows which games are compiled](docs/media/shaders.jpg)
+![PC > Graphics > Shaders: Exo Shaders shows which games are compiled](docs/media/shaders.jpg)
 
-Exo Shaders precompiles each game's shaders for the graphics driver you have now, so a game doesn't stutter the first time it meets a new effect. It shows which games are compiled and keeps a queue, and skips a game Windows already compiled for your card. When your driver updates, it compiles them again while your PC is idle, holding its memory use down so the rest of your PC stays quick. It runs only while it has work to do.
+Exo Shaders precompiles each game's shaders for the graphics driver you have now, so a game doesn't stutter the first time it meets a new effect. It shows which games are compiled and keeps a queue, and skips a game Windows already compiled for your card. When your driver updates, Refresh shows the games to compile again. It runs only when you press Compile or Refresh, holds its memory use down while it works so the rest of your PC stays quick, and stops soon after.
 
 ### Store
 
@@ -112,7 +112,11 @@ The Capture button in the top bar, or its keys, saves an instant replay of the l
 
 ![The Devices room: Exo Mouse](docs/media/devices.jpg)
 
-Exo Mouse talks to your mouse directly, with no vendor app, driver or account:
+Devices shows what you plug in, each as itself: your mouse, keyboard, what you listen on and your controller, each with the maker's own picture of that model. Press one to open its page.
+- **Headphones:** Windows can't tell which pair is on the jack, so you pick yours from the hundreds Lucid knows. Its page holds Lucid (it switches your headphones' EQ when your device or game changes, starts with Exo and stays out of sight), Game Mode and Night Shift, all on one screen. Lucid is made by [tekkusai](https://github.com/tekkusai/Lucid).
+- **Keyboards and controllers** show what they are, marked Coming soon, until Exo sets them up.
+
+Your mouse's page is Exo Mouse, which talks to your mouse directly, with no vendor app, driver or account:
 - **Status:** your mouse's battery, signal and firmware, with its battery and profile in the top bar.
 - **Settings:** DPI, polling rate, lift-off, buttons, lighting and more, showing only what your mouse has.
 - **Profiles:** each one switches on by itself when a linked game starts.
@@ -123,7 +127,7 @@ Exo Mouse talks to your mouse directly, with no vendor app, driver or account:
 
 ![Settings: a floating panel over the room you were in](docs/media/settings.jpg)
 
-Appearance (Match Windows, Light, Dark or Void), Glass, text size and reduce motion; download hours and the install folder; your music service; capture keys and instant replay; your game stores, their accounts and their notifications; Clean up for the apps Exo replaces; optional keys and updates. One page that floats over the room you were in. If you use Lucid, Exo switches your headphones' EQ when your device or game changes, starts it with you and keeps it out of sight.
+Appearance (Match Windows, Light, Dark or Void), Glass, text size and reduce motion; download hours and the install folder; your music service; capture keys and instant replay; your game stores, their accounts and their notifications; dictation (a mic in Exo's text boxes that types what you say, on this PC); optional keys and updates. One page that floats over the room you were in.
 
 ## Privacy and safety
 

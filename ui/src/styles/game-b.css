@@ -206,7 +206,6 @@
   /* The title on the section list's first line (12px inset + its 24px); 32px from the list. */
   padding: 24px 16px 12px 20px;
   overflow-y: auto;
-  scrollbar-width: none;
 }
 
 .exo-props-head {
@@ -260,7 +259,7 @@
   background: var(--exo-pressed);
 }
 
-/* Each row carries its own confirm or note line, so the hairline sits on the row's wrapper. */
+/* Each row carries its own note line, so the hairline sits on the row's wrapper. */
 .exo-props-section .exo-props-row + .exo-props-row {
   border-top: 1px solid var(--exo-float-line);
 }
@@ -299,23 +298,6 @@
   height: 32px;
 }
 
-.exo-props-confirm {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
-  padding: 0 0 12px;
-}
-
-/* The words wrap beside the buttons, so the buttons stay on one line. */
-.exo-props-confirm > span {
-  flex: 1 1 0;
-  min-width: 240px;
-  color: var(--color-muted);
-  font-size: calc(13px * var(--exo-scale, 1));
-}
-
 .exo-props-note {
   margin: 0 0 12px;
   color: var(--color-muted);
@@ -325,8 +307,4 @@
 
 .exo-props .exo-props-row > .exo-set-error {
   margin: 0 0 12px;
-}
-
-.exo-props .exo-set-btn.is-danger {
-  color: var(--color-bad);
 }

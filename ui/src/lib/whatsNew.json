@@ -1,5 +1,45 @@
 [
   {
+    "version": "3.15.5",
+    "items": [
+      {
+        "icon": "Devices",
+        "title": "Devices, each as itself",
+        "detail": "Your mouse, keyboard, headphones and controller as cards with their real pictures; press one to open its page."
+      },
+      {
+        "icon": "Volume",
+        "title": "A page for your headphones",
+        "detail": "Pick the pair you wear and set up Lucid, Game Mode and Night Shift on one screen."
+      },
+      {
+        "icon": "Mic",
+        "title": "Dictation",
+        "detail": "Press the mic in a search box or Discord and talk; your words are typed on this PC, nothing leaves it."
+      },
+      {
+        "icon": "GraphicsCard",
+        "title": "PC, with game runtimes",
+        "detail": "System is now PC, and its Apps page installs or repairs every runtime games need in one press."
+      },
+      {
+        "icon": "Trash",
+        "title": "Exo's own uninstaller",
+        "detail": "PC › Apps uninstalls any app with a deep clean of what it leaves behind, shown before anything goes."
+      },
+      {
+        "icon": "MusicNotes",
+        "title": "Music opens in one piece",
+        "detail": "No more squares and jumps when Music first opens: it fades in whole."
+      },
+      {
+        "icon": "Appearance",
+        "title": "Sharper Liquid Glass",
+        "detail": "Cleaner glass edges, no scrollbars, and lists that fade into their panel instead of being cut off."
+      }
+    ]
+  },
+  {
     "version": "3.15.4",
     "items": [
       {

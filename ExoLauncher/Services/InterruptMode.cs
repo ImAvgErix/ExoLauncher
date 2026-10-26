@@ -26,9 +26,15 @@ internal sealed partial class InterruptMode(InterruptMode.IDevices devices, Inte
 
     internal enum Plan { Change, Done, Keep, Skip, Restart }
 
-    /// <summary>A present PCI device as Windows reports it. <paramref name="MsiValue"/>: MSISupported in its registry key, <paramref name="Priority"/>: DevicePriority; null when absent.</summary>
+    /// <summary>
+    /// A present PCI device as Windows reports it. <paramref name="MsiValue"/>: MSISupported in its registry key, <paramref name="Priority"/>: DevicePriority;
+    /// <paramref name="Policy"/> and <paramref name="Override"/>: DevicePolicy and AssignmentSetOverride beside it (<see cref="MouseCore"/>); null when absent.
+    /// <paramref name="OddAffinity"/>: one of those two is there in a form Exo doesn't write. <paramref name="Affinity"/>: the processors its interrupts were
+    /// given (the allocated IRQs' target set). <paramref name="Local"/>: part of the PC itself (false on a dock or in an external enclosure).
+    /// </summary>
     internal sealed record Device(string Id, string Name, string? Service, uint Problem, byte? BaseClass, byte? SubClass, byte? ProgIf,
-        uint? Support, uint? MessageMax, uint? DriverRank, Mode Mode, int? MsiValue, int? Priority = null);
+        uint? Support, uint? MessageMax, uint? DriverRank, Mode Mode, int? MsiValue, int? Priority = null,
+        int? Policy = null, byte[]? Override = null, bool OddAffinity = false, ulong? Affinity = null, bool? Local = null);
 
     internal interface IDevices
     {
@@ -150,7 +156,9 @@ internal sealed partial class InterruptMode(InterruptMode.IDevices devices, Inte
     }
 
     /// <summary>The devices between Windows' drive and the processor (the disk itself, its controller, every bridge above it).</summary>
-    internal HashSet<string> BootChain()
+    internal HashSet<string> BootChain() => BootChain(devices);
+
+    internal static HashSet<string> BootChain(IDevices devices)
     {
         var chain = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var disk in devices.BootDisks())

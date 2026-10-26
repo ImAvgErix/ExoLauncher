@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import type { WhatsNewRelease } from '../../lib/whatsNew'
 import { useDismiss } from '../../lib/dismiss'
-import { formatTransferPercent } from '../../lib/utils'
+import { Spinner } from '../ui/Spinner'
 import type { AppUpdate } from './useAppUpdate'
 
 /**
@@ -45,7 +45,6 @@ function Sheet({ releases, upcoming, update, onClose }: { releases: WhatsNewRele
   }, [])
 
   const sections = upcoming ? [upcoming, ...releases] : releases
-  const percent = update.percent == null ? '' : ` ${formatTransferPercent(update.percent)}%`
   const starts = sections.map((_, index) => sections.slice(0, index).reduce((count, release) => count + release.items.length, 0))
   return createPortal(
     <div className="exo-whats-new-back">
@@ -75,7 +74,9 @@ function Sheet({ releases, upcoming, update, onClose }: { releases: WhatsNewRele
           <button ref={continueButton} type="button" className={`exo-set-btn${upcoming ? '' : ' is-primary'}`} onClick={onClose}>Continue</button>
           {upcoming && (
             <button type="button" className="exo-set-btn is-primary" disabled={update.busy} onClick={() => void update.install()}>
-              {update.busy ? `${update.status}${percent}` : 'Install update'}
+              {/* How far it is, the update's notice says with its bar; the button only that it is under way. */}
+              {update.busy ? <Spinner label={update.status} /> : null}
+              {update.busy ? update.status : 'Install update'}
             </button>
           )}
         </div>

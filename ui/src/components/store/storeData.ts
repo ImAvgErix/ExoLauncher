@@ -137,11 +137,15 @@ export function warmGame(appId: string, art?: StoreArt | null): Promise<unknown>
   ])
 }
 
-// Cards warm as they come on screen, three games at a time, each once.
+// Cards warm once they have stayed on screen a moment (most of the card, half a second: a shelf scrolled past or a
+// room still being built warms nothing), three games at a time, each once. All at once, the thirty cards of the home
+// page's first screen kept the host busy for seconds, and a room opened the first time waits for its host to go quiet.
 // Capped like the page cache it feeds: past it a card may warm again, which the cache still shares.
 const WARMED_MAX_ENTRIES = 1024
+const DWELL_MS = 500
 const warmed = new Set<string>()
 const waiting: (() => Promise<unknown>)[] = []
+const dwelling = new Map<HTMLElement, number>()
 let warming = 0
 function pump() {
   while (warming < 3 && waiting.length) {
@@ -150,32 +154,40 @@ function pump() {
     void next().finally(() => { warming--; pump() })
   }
 }
+function settle(card: HTMLElement) {
+  window.clearTimeout(dwelling.get(card))
+  dwelling.delete(card)
+}
 const seen = typeof IntersectionObserver === 'undefined' ? null : new IntersectionObserver(entries => {
   for (const entry of entries) {
-    if (!entry.isIntersecting) continue
     const card = entry.target as HTMLElement
-    seen?.unobserve(card)
-    const appId = card.dataset.warm
-    if (!appId || warmed.has(appId)) continue
-    if (warmed.size >= WARMED_MAX_ENTRIES) {
-      const oldest = warmed.keys().next().value
-      if (oldest !== undefined) warmed.delete(oldest)
-    }
-    warmed.add(appId)
-    const art = cardArt.get(card)
-    waiting.push(() => warmGame(appId, art))
+    if (!entry.isIntersecting) { settle(card); continue }
+    if (dwelling.has(card)) continue
+    dwelling.set(card, window.setTimeout(() => {
+      settle(card)
+      seen?.unobserve(card)
+      const appId = card.dataset.warm
+      if (!appId || warmed.has(appId) || !card.isConnected) return
+      if (warmed.size >= WARMED_MAX_ENTRIES) {
+        const oldest = warmed.keys().next().value
+        if (oldest !== undefined) warmed.delete(oldest)
+      }
+      warmed.add(appId)
+      const art = cardArt.get(card)
+      waiting.push(() => warmGame(appId, art))
+      pump()
+    }, DWELL_MS))
   }
-  pump()
-}, { rootMargin: '200px' })
+}, { threshold: 0.6 })
 const cardArt = new WeakMap<HTMLElement, StoreArt | null | undefined>()
 
-/** Watches a card: once it is on screen (or near), its game page is warmed in the background. */
+/** Watches a card: once it has stayed on screen a moment, its game page is warmed in the background. */
 export function watchCard(card: HTMLElement, appId: string, art?: StoreArt | null) {
   if (!seen || warmed.has(appId)) return () => {}
   card.dataset.warm = appId
   cardArt.set(card, art)
   seen.observe(card)
-  return () => seen.unobserve(card)
+  return () => { settle(card); seen.unobserve(card) }
 }
 
 // The wishlist, read once for everyone who shows it: the Store room and the Store tab's sale count.

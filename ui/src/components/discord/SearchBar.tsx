@@ -5,6 +5,7 @@ import { avatarUrl, idAt, type DiscordChannel, type DiscordMessage, type Discord
 import { Icons } from './icons'
 import type { MarkdownContext } from './markdown'
 import { Result, useOutside } from './results'
+import { Skeleton } from '../ui/Skeleton'
 
 /** Discord's search filters, as typed in its search bar (during: is also on:). */
 type FilterKey = 'from' | 'mentions' | 'has' | 'before' | 'during' | 'after' | 'in' | 'pinned' | 'authorType'
@@ -281,7 +282,8 @@ export function SearchResults({ channel, filters, ctx, onClose }: { channel: Dis
           ))}
         </span>
       </div>
-      <div className="exo-dc-popover-list" ref={list} aria-busy={found.loading}>
+      <div className="exo-dc-popover-list" ref={list}>
+        {found.loading ? <Skeleton label="Searching messages" avatar /> : null}
         {found.error ? <p className="exo-dc-note" role="alert">{found.error}</p> : null}
         {!found.loading && !found.error && found.messages.length === 0 ? <p className="exo-dc-note">No results.</p> : null}
         {found.messages.map(message => <Result key={message.id} message={message} place={found.places[message.channel_id] ?? null} here={channel.id} ctx={ctx} onJumped={onClose} />)}

@@ -7,6 +7,7 @@ import { Icons } from './icons'
 import { ReactionEmoji } from './Reactions'
 import { Dialog } from './settingsAccess'
 import { EmojiField, ServerGuide, guideState, type Guide } from './settingsGuide'
+import { Skeleton } from '../ui/Skeleton'
 
 /**
  * Discord's Onboarding (a Community server's, for Manage Server and Manage Roles): on or off, Advanced Server Setup,
@@ -77,7 +78,7 @@ export function Onboarding({ guild, channels }: { guild: { id: string; rules_cha
   const place = useMemo<OnboardingPlace | null>(() => read.data
     ? { guildId: guild.id, rows, seen: new Set(read.data.seen), chats: new Set(read.data.chats), rules: guild.rules_channel_id ?? null } : null,
   [read.data, guild.id, guild.rules_channel_id, rows])
-  if (!read.data || !place) return <><h1>Onboarding</h1>{read.error ? <ReadError error={read.error} onRetry={read.reload} /> : <p className="exo-dc-note">Loading</p>}</>
+  if (!read.data || !place) return <><h1>Onboarding</h1>{read.error ? <ReadError error={read.error} onRetry={read.reload} /> : <Skeleton label="Loading onboarding" />}</>
   const data = read.data
   const back = () => setView('overview')
   const saved = () => { read.reload(); setView('overview') }
@@ -406,7 +407,7 @@ function AnswerDialog({ index, question, answer, place, roles, prompts, onSave, 
       <PickChips label="2. Assign channels and/or roles" detail="@everyone must have View permission for channels used in answers." ids={draft.channel_ids ?? []} options={channels}
         onChange={channel_ids => set({ channel_ids })} />
       <PickChips label="Roles" detail="Members will receive all channels granted by these roles." ids={draft.role_ids ?? []} options={picks} onChange={role_ids => set({ role_ids })} />
-      {errors.roles ? <p className="is-bad" role="alert">{errors.roles}</p> : null}
+      {errors.roles ? <p className="exo-dialog-error" role="alert">{errors.roles}</p> : null}
       <Field label="3. Pick an emoji" detail="Optional, but why not add some fun?"><EmojiField emoji={draft.emoji ?? null} onChange={emoji => set({ emoji })} /></Field>
     </Dialog>
   )

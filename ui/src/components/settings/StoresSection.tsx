@@ -11,7 +11,9 @@ import {
   storeClientDownloadUrl,
   storeState,
 } from '../../lib/stores'
-import { Row, Section, State, SwitchRow } from './parts'
+import { Spinner } from '../ui/Spinner'
+import { Skeleton } from '../ui/Skeleton'
+import { Group, Row, State, SwitchRow } from './parts'
 
 export type StoreAction = 'connect' | 'open'
 /** A store row's last result: a plain line, or an error under the row. */
@@ -49,17 +51,17 @@ function InstalledStore({ store, busy, note, accounts, onConnect, onOpen, onAcco
         <State on={state.on}>{state.label}</State>
         {connect ? (
           <button type="button" className="exo-set-btn" disabled={!!busy} onClick={() => void onConnect(store)}>
-            {busy === 'connect' ? 'Signing in…' : 'Sign in'}
+            {busy === 'connect' ? <Spinner label="Signing in" /> : null}Sign in
           </button>
         ) : null}
         {handoff ? (
           <button type="button" className="exo-set-btn" disabled={!!busy} onClick={() => void onConnect(store)}>
-            {busy === 'connect' ? 'Opening…' : `Open ${store.displayName}`}
+            {busy === 'connect' ? <Spinner label={`Opening ${store.displayName}`} /> : null}{`Open ${store.displayName}`}
           </button>
         ) : null}
         {open ? (
           <button type="button" className="exo-set-btn" disabled={!!busy} onClick={() => void onOpen(store)}>
-            {busy === 'open' ? 'Opening…' : 'Open'}
+            {busy === 'open' ? <Spinner label={`Opening ${store.displayName}`} /> : null}Open
           </button>
         ) : null}
         <StoreSignIn store={store.store} onLine={setAccountNote} onError={setAccountError} />
@@ -138,7 +140,7 @@ export function SteamSignIn({ onLine, onError }: { onLine: (line: string | null)
   if (signedIn === null) return null
   return (
     <button type="button" className="exo-set-btn" disabled={busy} onClick={() => void run(!signedIn)}>
-      {busy ? (signedIn ? 'Signing out…' : 'Signing in…') : signedIn ? 'Sign out' : 'Sign in'}
+      {busy ? <Spinner label={signedIn ? 'Signing out' : 'Signing in'} /> : null}{signedIn ? 'Sign out' : 'Sign in'}
     </button>
   )
 }
@@ -177,7 +179,7 @@ function QuietStores({ settings }: { settings: LauncherSettings }) {
     >
       {done && !busy
         ? <State>Off</State>
-        : <button type="button" className="exo-set-btn" disabled={busy} onClick={() => void turnOff()}>{busy ? 'Turning off…' : 'Turn off'}</button>}
+        : <button type="button" className="exo-set-btn" disabled={busy} onClick={() => void turnOff()}>{busy ? <Spinner label="Turning off" /> : null}Turn off</button>}
     </Row>
   )
 }
@@ -214,17 +216,17 @@ export const StoresSection = memo(function StoresSection({
   const hasAccounts = installed.some(store => store.store === 'steam' || store.store === 'epic')
   const [getError, setGetError] = useState<string | null>(null)
   return (
-    <Section
+    <Group
       id="stores"
       title="Game stores"
       action={
         <button type="button" className="exo-set-btn" disabled={storeCheckBusy} onClick={() => void onCheckStores()}>
-          {storeCheckBusy ? 'Checking…' : 'Check again'}
+          {storeCheckBusy ? <Spinner label="Looking for stores" /> : null}Check again
         </button>
       }
     >
       {installed.length === 0 ? (
-        <Row label={storeCheckBusy ? 'Looking for stores…' : 'No store apps found on this PC'} error={storeCheckCopy} />
+        storeCheckBusy ? <Skeleton label="Looking for stores" avatar /> : <Row label="No store apps found on this PC" error={storeCheckCopy} />
       ) : (
         installed.map(store => (
           <InstalledStore
@@ -265,6 +267,6 @@ export const StoresSection = memo(function StoresSection({
           {getError ? <p className="exo-set-error" role="alert">{getError}</p> : null}
         </div>
       ) : null}
-    </Section>
+    </Group>
   )
 })

@@ -1,6 +1,6 @@
 // Every room in every Appearance: chosen through Settings as a person would, then each room looked at whole (layout,
-// words readable as they show on screen, no block in the other theme's color, pictures, named controls, no console
-// errors), with the screen checked against the page once per Appearance.
+// words readable as they show on screen, no block in the other theme's color, its page the Appearance's page color,
+// pictures, named controls, no console errors), with the screen checked against the page once per Appearance.
 import { sleep } from '../cdp.mjs'
 import { ROOMS, THEMES } from '../lib/kit.mjs'
 import { screenMatchesPage } from './shell.mjs'
@@ -11,8 +11,30 @@ const READY = {
   Store: () => !!document.querySelector('.exo-store-hero, .exo-store-row, .exo-store-empty'),
   Discord: () => !!document.querySelector('main.exo-dc, main.exo-dc-signin'),
   Music: () => !!document.querySelector('.exo-music-side, .exo-music-panel, [class*="exo-music"] h1, [class*="exo-music"] h2'),
-  System: () => !!document.querySelector('.exo-system-head'),
+  PC: () => !!document.querySelector('.exo-pc-page:not([hidden]) .exo-system-panel'),
   Devices: () => !!document.querySelector('iframe[src*="mouse.exo-launcher.local"], .exo-devices'),
+}
+
+/**
+ * What paints over the room's page edge to edge (DESIGN.md › principle 4: every room's background is the Appearance's
+ * page color): a fill other than the page's, or glass. System's room once drew one big glass pane under its panels.
+ */
+const COVERS = () => {
+  const room = [...document.querySelectorAll('.exo-room')].find(r => !r.classList.contains('is-backstage') && !r.classList.contains('exo-set-room') && r.checkVisibility())
+  if (!room) return []
+  const box = room.getBoundingClientRect(), page = getComputedStyle(document.body).backgroundColor
+  const found = []
+  for (const el of [room, ...room.querySelectorAll('*')]) {
+    const r = el.getBoundingClientRect()
+    if (r.left > box.left + 1 || r.top > box.top + 1 || r.right < box.right - 1 || r.bottom < box.bottom - 1) continue
+    for (const pseudo of [null, '::before', '::after']) {
+      const s = getComputedStyle(el, pseudo)
+      if ((pseudo && s.content === 'none') || s.display === 'none' || s.visibility === 'hidden' || s.opacity === '0') continue
+      if ((s.backgroundColor !== 'rgba(0, 0, 0, 0)' && s.backgroundColor !== page) || s.backdropFilter !== 'none')
+        found.push(`${el.tagName.toLowerCase()}.${[...el.classList].slice(0, 2).join('.')}${pseudo ?? ''} (${s.backgroundColor}${s.backdropFilter === 'none' ? '' : ', glass'})`)
+    }
+  }
+  return found.slice(0, 3)
 }
 
 export async function run(t) {
@@ -43,6 +65,8 @@ export async function run(t) {
         await sleep(800)
         await k.settle()
         const failures = await k.look(c, room)
+        const covers = await t.shell.call(COVERS)
+        if (covers.length) failures.push(`the page is not the ${theme} page: ${covers.join(', ')}`)
         await c.shot(room.toLowerCase(), t.shell)
         if (room === 'Library') failures.push(...await screenMatchesPage(t, c, `${theme}-library`))
         const errors = k.consoleSince(mark).filter(e => e.level !== 'warning' && !/Failed to load resource/.test(e.text))

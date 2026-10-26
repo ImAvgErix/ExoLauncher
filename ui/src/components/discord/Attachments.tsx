@@ -8,6 +8,7 @@ import { VoiceMessage } from './VoiceMessage'
 import { showImage, type ViewerItem } from './extras'
 import { Icons } from './icons'
 import { open, spoilersShown } from './markdown'
+import { Skeleton } from '../ui/Skeleton'
 
 const IMAGE = /\.(png|jpe?g|gif|webp|avif)$/i
 const VIDEO = /\.(mp4|webm|mov)$/i
@@ -200,7 +201,8 @@ function TextPreview({ file }: { file: DiscordAttachment }) {
   const body = text ? (expanded ? lines : lines.slice(0, COLLAPSED_LINES)).join('\n') : ''
   return (
     <FileCard file={file}>
-      <pre className="exo-dc-file-preview" aria-busy={!text}>{body}{expanded && text && text.left > 0 ? `\n… ${size(text.left)} more` : ''}</pre>
+      {text ? <pre className="exo-dc-file-preview">{body}{expanded && text.left > 0 ? `\n… ${size(text.left)} more` : ''}</pre>
+        : <Skeleton label={`Reading ${file.filename}`} />}
       {long ? (
         <button type="button" className="exo-dc-file-expand" aria-expanded={expanded} onClick={() => setExpanded(e => !e)}>
           {expanded ? <Icons.Collapse size={16} /> : <Icons.Expand size={16} />}

@@ -5,6 +5,7 @@ import { trimStop } from '../../lib/utils'
 import { usePageClock } from '../../lib/pageActivity'
 import { Choice } from '../settings/Choice'
 import { Row, State } from '../settings/parts'
+import { Spinner } from '../ui/Spinner'
 
 const ANTI_LAG = [
   { value: 'games', label: 'While you play' },
@@ -22,7 +23,7 @@ const LOW_LATENCY = [
 export type LatencyChoice = { antiLag?: RadeonAntiLag; lowLatency?: IntelLowLatency }
 
 /**
- * System > Graphics > Driver and profile on a Radeon or an Intel GPU: Exo's profile through the GPU's own driver, with
+ * PC › Graphics › Driver and profile on a Radeon or an Intel GPU: Exo's profile through the GPU's own driver, with
  * the latency choice beside its Use (a Radeon's Anti-Lag, while a game Exo launched runs by default: always on, it also
  * runs in Windows' own apps and costs CPU; an Intel GPU's Low latency mode, On by default), Undo while Exo's backup is
  * there, and on a Radeon the GPU's sensors under it.
@@ -31,7 +32,8 @@ export function DriverProfile({ active, profile, head, busy, error, onAct }: {
   active: boolean
   profile: GpuProfile
   head: string
-  busy: boolean
+  /** What is being written, while it is. */
+  busy: 'apply' | 'undo' | null
   error: string | null
   onAct: (action: 'apply' | 'undo', latency: LatencyChoice) => void
 }) {
@@ -45,20 +47,48 @@ export function DriverProfile({ active, profile, head, busy, error, onAct }: {
     onAct(action, intel ? { lowLatency: latency as IntelLowLatency } : { antiLag: latency as RadeonAntiLag })
   }
   const status = changed ? null : appliedState(profile)
-  const undo = profile.canUndo && <button type="button" className="exo-set-btn" onClick={() => act('undo')}>Undo</button>
-  const primary = profile.status === 'ready' || changed
-    ? <button type="button" className="exo-set-btn is-primary" onClick={() => act('apply')}>Use Exo&rsquo;s profile</button>
-    : profile.status === 'changed' ? <button type="button" className="exo-set-btn is-primary" onClick={() => act('apply')}>Re-apply</button> : null
   return (
     <>
       <Row label={profile.gpu || 'Graphics card'} detail={<>{status}{head}{profile.summary ? `. ${profile.summary}` : ''}</>}
         error={error ?? (profile.ok ? null : trimStop(profile.message) || 'The driver did not answer')}>
-        <Choice label={intel ? 'Low latency' : 'Anti-Lag'} value={latency} choices={intel ? LOW_LATENCY : ANTI_LAG} disabled={busy} onChange={setChoice} />
-        {busy ? <State>Working…</State> : <>{primary}{undo}</>}
+        <Choice label={intel ? 'Low latency' : 'Anti-Lag'} value={latency} choices={intel ? LOW_LATENCY : ANTI_LAG} disabled={!!busy} onChange={setChoice} />
+        <ProfileButtons apply={applyWords(profile, changed, busy === 'apply')} undo={!!profile.canUndo} busy={busy} onAct={act} />
       </Row>
       {active && !intel && <SensorsRow />}
     </>
   )
+}
+
+/**
+ * Exo's profile's Use (or Re-apply), named by `apply`, and Undo while Exo's backup is there. The one pressed keeps its
+ * words and carries the bar while the driver is written.
+ */
+export function ProfileButtons({ apply, undo, busy, onAct }: {
+  apply: string | null
+  undo: boolean
+  busy: 'apply' | 'undo' | null
+  onAct: (action: 'apply' | 'undo') => void
+}) {
+  return (
+    <>
+      {apply
+        ? <button type="button" className="exo-set-btn is-primary" disabled={!!busy} aria-busy={busy === 'apply'} onClick={() => onAct('apply')}>
+          {busy === 'apply' ? <Spinner label="Writing Exo’s profile to the driver" /> : null}{apply}
+        </button>
+        : null}
+      {undo
+        ? <button type="button" className="exo-set-btn" disabled={!!busy} aria-busy={busy === 'undo'} onClick={() => onAct('undo')}>
+          {busy === 'undo' ? <Spinner label="Putting your driver settings back" /> : null}Undo
+        </button>
+        : null}
+    </>
+  )
+}
+
+/** What Use says (Re-apply for what changed since), or null with nothing to apply; kept while it writes, as pressing it put the latency choice back. */
+function applyWords(profile: GpuProfile, changed: boolean, writing: boolean) {
+  if (profile.status !== 'ready' && profile.status !== 'changed' && !changed && !writing) return null
+  return profile.status === 'changed' && !changed ? 'Re-apply' : 'Use Exo’s profile'
 }
 
 /** Where Exo's profile stands, ahead of the row's line: Applied, or what changed since. */

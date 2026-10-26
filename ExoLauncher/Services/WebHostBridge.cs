@@ -62,6 +62,9 @@ public sealed partial class WebHostBridge
         _services.Library.LibraryUpdated += FollowSteamTransfers;
         _services.Library.LibraryUpdated += SteamOverlaySoon;
         InstalledSizeCache.MeasurementUpdated += OnLibraryUpdated;
+        ExoComponents.Progress += OnComponentProgress;
+        ExoComponents.Fetched += OnComponentFetched;
+        ExoComponents.FailedTwice += OnComponentFailed;
         _runStatePoll = new System.Threading.Timer(_ => PollRunStates(), null, TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(5));
     }
 
@@ -147,6 +150,10 @@ public sealed partial class WebHostBridge
         _services.Library.LibraryUpdated -= FollowSteamTransfers;
         _services.Library.LibraryUpdated -= SteamOverlaySoon;
         InstalledSizeCache.MeasurementUpdated -= OnLibraryUpdated;
+        ExoComponents.Progress -= OnComponentProgress;
+        ExoComponents.Fetched -= OnComponentFetched;
+        ExoComponents.FailedTwice -= OnComponentFailed;
+        Dictation.Cancel();
         if (Volatile.Read(ref _driverEvents) is { } driverEvents)
         {
             NvidiaDriverService.Changed -= driverEvents;
@@ -430,6 +437,8 @@ public sealed partial class WebHostBridge
                 "game.dequeue" => _services.Launcher.Dequeue(ReadString(paramsEl, hasParams, "id") ?? ""),
                 "game.progress" => GameProgress(paramsEl, hasParams),
                 "stores.auth" => await StoresAuthAsync(paramsEl, hasParams).ConfigureAwait(true),
+                "stores.outages" => StoresOutages(),
+                "stores.playOffline" => await StoresPlayOfflineAsync(paramsEl, hasParams).ConfigureAwait(true),
                 "playtime.riotRefresh" => await RiotHoursRefreshAsync(paramsEl, hasParams).ConfigureAwait(true),
                 "playtime.refresh" => await PlaytimeRefreshAsync(paramsEl, hasParams).ConfigureAwait(true),
                 "web.preferences.get" => WebClientPreferences.Reload(),
@@ -535,8 +544,17 @@ public sealed partial class WebHostBridge
                     ? await Task.Run(() => imageWindow.CaptureSaveImageAsync(ReadString(paramsEl, hasParams, "id"), ReadString(paramsEl, hasParams, "png"))).ConfigureAwait(true) : new { ok = false },
                 "friends.badge" => App.MainAppWindow?.FriendsBadge() ?? new { count = 0 },
                 "deps.list" => await Task.Run(DepsList).ConfigureAwait(true),
+                "runtimes.list" => await RuntimesListAsync(requestToken).ConfigureAwait(true),
+                "runtimes.install" => await RuntimesInstallAsync(paramsEl, hasParams, requestToken).ConfigureAwait(true),
+                "runtimes.cancel" => _services.Dependencies.Cancel(),
                 "replaced.scan" => await Task.Run(() => ReplacedScan(ReadBool(paramsEl, hasParams, "clean") == true)).ConfigureAwait(true),
                 "replaced.remove" => await ReplacedRemoveAsync(ReadString(paramsEl, hasParams, "id") ?? "", requestToken).ConfigureAwait(true),
+                "apps.list" => await Task.Run(AppsList).ConfigureAwait(true),
+                "apps.icons" => await AppsIconsAsync(paramsEl, hasParams).ConfigureAwait(true),
+                "apps.uninstall" => await AppsUninstallAsync(ReadString(paramsEl, hasParams, "id") ?? "", requestToken).ConfigureAwait(true),
+                "apps.scan" => await AppsScanAsync(ReadString(paramsEl, hasParams, "id") ?? "", requestToken).ConfigureAwait(true),
+                "apps.clean" => await AppsCleanAsync(paramsEl, hasParams, requestToken).ConfigureAwait(true),
+                "apps.allowEdge" => await AppsAllowEdgeAsync(requestToken).ConfigureAwait(true),
                 "desktopClients.install" => App.MainAppWindow is { } desktopInstallWindow
                     ? await desktopInstallWindow.InstallDesktopClientAsync(ReadString(paramsEl, hasParams, "id")).ConfigureAwait(true)
                     : new { ok = false, message = "The app window is unavailable." },
@@ -653,6 +671,12 @@ public sealed partial class WebHostBridge
                 "lucid" => await Task.Run(() => LucidAsync(paramsEl, hasParams)).ConfigureAwait(true),
                 "lucid.headphones" => await Task.Run(LucidHeadphones).ConfigureAwait(true),
                 "lucid.update" => await Task.Run(LucidUpdateAsync).ConfigureAwait(true),
+                "devices.image" => await Task.Run(() => DevicesImageAsync(paramsEl, hasParams, requestToken)).ConfigureAwait(true),
+                "dictation.state" => await Task.Run(DictationState).ConfigureAwait(true),
+                "dictation.prepare" => await DictationPrepareAsync(requestToken).ConfigureAwait(true),
+                "dictation.start" => await Task.Run(DictationStart).ConfigureAwait(true),
+                "dictation.stop" => await DictationStopAsync(paramsEl, hasParams).ConfigureAwait(true),
+                "dictation.cancel" => DictationCancel(),
                 "discord.sound" => DiscordSound(paramsEl, hasParams),
                 "gpu.driver" => await GpuDeadlineAsync(Task.Run(() => GpuDriverAsync(paramsEl, hasParams, requestToken), requestToken), TimeSpan.FromSeconds(55), requestToken).ConfigureAwait(true),
                 "gpu.profile" => await GpuDeadlineAsync(GpuProfileAsync(paramsEl, hasParams, requestToken), TimeSpan.FromSeconds(25), requestToken).ConfigureAwait(true),
@@ -661,6 +685,7 @@ public sealed partial class WebHostBridge
                 "gpu.import" => await GpuImportAsync(paramsEl, hasParams, requestToken).ConfigureAwait(true),
                 "system.health" => await GpuDeadlineAsync(SystemHealthAsync(paramsEl, hasParams, requestToken), TimeSpan.FromSeconds(30), requestToken).ConfigureAwait(true),
                 "system.interrupts" => await SystemInterruptsAsync(paramsEl, hasParams, requestToken).ConfigureAwait(true),
+                "system.mouseCore" => await SystemMouseCoreAsync(paramsEl, hasParams, requestToken).ConfigureAwait(true),
                 "store.home" => await StoreHomeAsync(paramsEl, hasParams, requestToken).ConfigureAwait(true),
                 "store.calendar" => await StoreCalendarAsync(requestToken).ConfigureAwait(true),
                 "store.search" => await StoreSearchAsync(paramsEl, hasParams, requestToken).ConfigureAwait(true),
@@ -670,6 +695,7 @@ public sealed partial class WebHostBridge
                 "store.open" => await StoreOpenAsync(paramsEl, hasParams, requestToken).ConfigureAwait(true),
                 // Listing opens every device to read its reports: off the UI thread, like the calls below.
                 "hid.list" => await Task.Run(() => HidList(paramsEl, hasParams)).ConfigureAwait(true),
+                "devices.list" => await Task.Run(DevicesList).ConfigureAwait(true),
                 "mouse.profiles.get" => MouseProfilesGet(),
                 "mouse.profiles.set" => MouseProfilesSet(paramsEl, hasParams),
                 "hid.open" or "hid.close" or "hid.sendReport" or "hid.sendFeatureReport" or "hid.receiveFeatureReport" or "hid.receiveInputReport"
@@ -840,6 +866,9 @@ public sealed partial class WebHostBridge
                 return new { ok = false, message = "Game not found. Refresh the library." };
         }
 
+        // Steam can't sign in because its servers are down: Play offers its offline mode instead of waiting on it.
+        if (SteamPlayOfflineFirst(game) is { } offlineFirst) return offlineFirst;
+
         // A Steam game with a EULA not yet accepted would stop at Steam's dialog: accepted first (Steam closes for a moment).
         if (game.Store == StoreKind.Steam && ExoLauncher.Adapters.Cli.SteamProtocol.IsValidAppId(game.LaunchTarget) && SteamEulaPending(game.LaunchTarget!))
             await ApplySteamOverlayAsync(null, userAsked: true, _bridgeLifetime.Token).ConfigureAwait(true);
@@ -854,6 +883,7 @@ public sealed partial class WebHostBridge
 
         var skipDeps = ReadBool(p, hasParams, "skipDeps") == true;
         var result = await _services.Launcher.LaunchAsync(game, skipDeps).ConfigureAwait(true);
+        NoteSteamPlayAnswer(result);
 
         PostEvent("launch.status", new
         {
@@ -1243,11 +1273,16 @@ public sealed partial class WebHostBridge
         if (game is null)
             return new { ok = false, message = "Game not found." };
 
+        // Who the game is, read while it is still there: what Windows keeps about it goes once it is gone.
+        var trail = await Task.Run(() => GameTrail(game)).ConfigureAwait(true);
         var result = await _services.Launcher.UninstallAsync(game).ConfigureAwait(true);
         if (result.Ok && !result.Queued && !result.HandoffOnly)
+        {
             _services.Library.Invalidate();
+            if (trail is not null) _ = Task.Run(() => ClearGameTraces(game.Title, trail));
+        }
         if (result.Ok && result.HandoffOnly)
-            _ = FollowStoreRemovalAsync(game);
+            _ = FollowStoreRemovalAsync(game, trail);
         return new
         {
             ok = result.Ok,
@@ -1264,7 +1299,7 @@ public sealed partial class WebHostBridge
     /// is gone (20 minutes at most), then that store is re-read so the card changes by itself: GOG, Ubisoft and
     /// Battle.net keep installs in the registry, where no library watcher sees one go.
     /// </summary>
-    private async Task FollowStoreRemovalAsync(GameEntry game)
+    private async Task FollowStoreRemovalAsync(GameEntry game, Trail? trail)
     {
         Func<bool> stillInstalled = game.Store == StoreKind.Gog && GogAdapter.ExtractGogId(game) is { Length: > 0 } gogId
             ? () => GogAdapter.GogRegistryStillInstalled(gogId)
@@ -1277,6 +1312,7 @@ public sealed partial class WebHostBridge
                 await Task.Delay(TimeSpan.FromSeconds(5), ct).ConfigureAwait(false);
                 if (await Task.Run(stillInstalled, ct).ConfigureAwait(false)) continue;
                 AppLog.Info($"Store removal finished: gameId={game.Id}.");
+                if (trail is not null) ClearGameTraces(game.Title, trail);
                 await _services.Library.RefreshStoreAsync(game.Store, ct).ConfigureAwait(false);
                 return;
             }
@@ -1716,6 +1752,7 @@ public sealed partial class WebHostBridge
             appVersion = _services.AppVersion,
             whatsNewSeen = s.WhatsNewSeen,
             reduceMotion = s.ReduceMotion,
+            dictation = s.Dictation,
             framelessPinTop = s.FramelessPinTop,
             framelessPinSide = s.FramelessPinSide,
             textColour = s.TextColour,
@@ -1872,6 +1909,7 @@ public sealed partial class WebHostBridge
         }
         ApplyDownloadSettings(p);
         ApplySteamOverlaySettings(p);
+        ApplyDictationSetting(p);
         if (p.TryGetProperty("libraryFolders", out var folders) && folders.ValueKind == JsonValueKind.Array)
         {
             static string? Text(JsonElement folder, string key) =>
@@ -2613,6 +2651,7 @@ public sealed partial class WebHostBridge
         handoffOnly = result.HandoffOnly,
         needsDependencies = result.NeedsDependencies,
         missingDependencies = MapMissingDeps(result.MissingDependencies),
+        offline = result.OfflineStore,
     };
 
     private static object MapMissingDeps(IReadOnlyList<DependencyInfo> deps) =>

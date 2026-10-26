@@ -5,6 +5,7 @@ import { Avatar } from './presence'
 import { Icons } from './icons'
 import { ModalBack } from './SettingsLayer'
 import { useLayer } from './admin'
+import { Skeleton } from '../ui/Skeleton'
 
 type Target = { id: string; name: string; place: string | null; avatar: string | null; dm: boolean }
 
@@ -57,7 +58,7 @@ export function ForwardDialog({ message, onClose }: { message: DiscordMessage; o
         <h2>Forward to</h2>
         <input className="exo-dc-modal-input" placeholder="Search" value={query} autoFocus aria-label="Search conversations" onChange={event => setQuery(event.target.value)} />
         <div className="exo-dc-forward-list" role="listbox" aria-multiselectable="true" aria-label="Conversations">
-          {targets === null ? <p className="exo-dc-note">Loading</p> : null}
+          {targets === null ? <Skeleton label="Loading conversations" rows={5} avatar /> : null}
           {targets?.length === 0 ? <p className="exo-dc-note">Nowhere to forward to.</p> : null}
           {shown.map(t => {
             const on = picked.includes(t.id)

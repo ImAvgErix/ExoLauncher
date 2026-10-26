@@ -64,6 +64,19 @@ const EXO: Record<string, (p: Record<string, unknown>) => Promise<unknown>> = {
   'exo.motion': () => Promise.resolve({ ok: true, data: motion() }),
   // Exo's Appearance (light, dark or void), so the module is drawn in it.
   'exo.theme': () => Promise.resolve({ ok: true, data: theme() }),
+  // The module's CPU core panel: where the mouse's core stands, or one of the host's three actions. Only the action
+  // crosses; the host keeps the device, the CPU it offers and the backup, and asks Windows itself before it changes anything.
+  'exo.mouseCore': async p => host.systemMouseCore(coreAction(p.action)),
+}
+
+const CORE_ACTIONS = ['measure', 'apply', 'undo'] as const
+
+/** No action reads the state; anything but the host's three actions is refused before it reaches the host. */
+function coreAction(action: unknown): (typeof CORE_ACTIONS)[number] | undefined {
+  if (action === undefined) return undefined
+  const known = CORE_ACTIONS.find(a => a === action)
+  if (!known) throw new Error('Exo Mouse asked for an unknown CPU core action.')
+  return known
 }
 
 /** Exo's motion setting as the shell writes it on the root (useShellLayout). */
@@ -72,7 +85,7 @@ const theme = () => document.documentElement.dataset.exoTheme ?? 'void'
 
 type Request = {
   exo?: string; id?: number; method?: string; params?: Record<string, unknown>
-  notice?: unknown; state?: { name?: unknown; battery?: unknown; charging?: unknown; low?: unknown } | null; profile?: unknown
+  notice?: unknown; state?: { name?: unknown; battery?: unknown; charging?: unknown; low?: unknown; image?: unknown; wireless?: unknown } | null; profile?: unknown
 }
 
 /** A notice is one short line; anything longer or not text is dropped. */
@@ -96,7 +109,10 @@ function fromModule(m: Request) {
   if (m.state === null) { publishMouseState(null); return }
   if (!m.state || typeof m.state.name !== 'string') return
   const battery = typeof m.state.battery === 'number' && m.state.battery >= 0 && m.state.battery <= 100 ? Math.round(m.state.battery) : null
-  publishMouseState({ name: m.state.name.slice(0, 60), battery, charging: m.state.charging === true, low: m.state.low === true })
+  // A picture only from OpenMouse's render server, by a plain file name: the frame can't point Exo anywhere else.
+  const image = typeof m.state.image === 'string' && /^https:\/\/img\.openmouse\.app\/[a-z0-9-]+\.(png|webp)$/.test(m.state.image) ? m.state.image : null
+  const wireless = typeof m.state.wireless === 'boolean' ? m.state.wireless : null
+  publishMouseState({ name: m.state.name.slice(0, 60), battery, charging: m.state.charging === true, low: m.state.low === true, image, wireless })
 }
 
 let relaying = false

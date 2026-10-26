@@ -171,6 +171,33 @@ internal static class StartupApps
         return off;
     }
 
+    /// <summary>
+    /// Exo's uninstall: every app Exo turned off (<paramref name="handed"/>) and that is still off starts with Windows
+    /// again, as Task Manager turns it back on. Returns the ids turned back on.
+    /// </summary>
+    internal static IReadOnlyList<string> GiveBack(IReadOnlySet<string> handed)
+    {
+        using var run = Registry.CurrentUser.OpenSubKey(RunPath);
+        using var approved = Registry.CurrentUser.OpenSubKey(ApprovedPath, writable: true);
+        using var packages = Registry.CurrentUser.OpenSubKey(PackagedTasksPath);
+        var on = new List<string>();
+        if (approved is not null)
+            foreach (var state in Read(run, approved))
+                if (!state.Enabled && handed.Contains(state.Id) && Set(run, approved, state.Id, enabled: true, DateTime.UtcNow)) on.Add(state.Id);
+        foreach (var app in Known.Where(app => app.PackageFamily is not null && handed.Contains(app.Id)))
+        {
+            using var family = packages?.OpenSubKey(app.PackageFamily!, writable: true);
+            foreach (var name in family?.GetSubKeyNames() ?? [])
+            {
+                using var task = family!.OpenSubKey(name, writable: true);
+                if (task?.GetValue("State") is not TaskDisabledByUser) continue;
+                task.SetValue("State", TaskEnabled, RegistryValueKind.DWord);
+                if (!on.Contains(app.Id)) on.Add(app.Id);
+            }
+        }
+        return on;
+    }
+
     /// <summary>At Exo's start: every known app that still starts with Windows stops, once. Returns the ids turned off.</summary>
     internal static IReadOnlyList<string> HandOff(IReadOnlySet<string> handed)
     {

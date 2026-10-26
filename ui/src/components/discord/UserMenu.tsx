@@ -12,6 +12,7 @@ import { appIcon, appsPlace, runCommand } from '../../lib/discordApps'
 import { useContextCommands } from './AppCommands'
 import { CallPersonItems } from './voice'
 import { useDismiss } from '../../lib/dismiss'
+import { Skeleton } from '../ui/Skeleton'
 
 type Person = {
   ok: boolean; known: boolean; me: boolean; owner: boolean; outranks: boolean; timedOut: boolean; mfa?: boolean
@@ -294,14 +295,14 @@ function RelationConfirm({ kind, userId, name, onSwitch, onClose }: {
   }
   if (kind === 'unfriend') {
     return (
-      <Confirm title={`Remove '${name}'`} action="Remove friend" busy={busy} error={error} onConfirm={confirm} onClose={onClose}>
-        <p>Are you sure you want to remove <strong>{name}</strong> from your friends?</p>
+      <Confirm title={`Remove '${name}'?`} action="Remove friend" busy={busy} error={error} onConfirm={confirm} onClose={onClose}>
+        <p>They'll be removed from your friends.</p>
       </Confirm>
     )
   }
   const block = kind === 'block'
   return (
-    <Confirm title={block ? `Block ${name}?` : `Ignore ${name}?`} action={block ? 'Block' : 'Ignore'} danger={block} busy={busy} error={error} onConfirm={confirm} onClose={onClose}>
+    <Confirm title={block ? `Block ${name}?` : `Ignore ${name}?`} action={block ? 'Block' : 'Ignore'} danger={block} busy={busy} error={error} form onConfirm={confirm} onClose={onClose}>
       <p>{block ? 'Stop direct contact and limit what they view' : 'Get space without letting them know'}</p>
       {block ? (
         <ul className="exo-dc-confirm-list">
@@ -378,7 +379,7 @@ function ServerItems({ person, name, run, setPerson, onDialog }: {
               <span className="exo-dc-role-dot" style={{ background: role.color ?? 'var(--dc-muted)' }} aria-hidden="true" /><span className="exo-dc-ctx-name">{role.name}</span>
               {person.roles.includes(role.id) ? <Icons.Check size={14} className="exo-dc-ctx-check" /> : null}
             </button>
-          )) : <p className="exo-dc-note">Loading</p>}
+          )) : <Skeleton label="Loading roles" rows={2} />}
         </Submenu>
       ) : null}
       {moveTo.length ? (
@@ -485,7 +486,7 @@ function PersonDialog({ kind, guildId, userId, name, nick, serverName, onClose }
   }
   if (kind === 'nick') {
     return (
-      <Confirm title="Change nickname" action="Save" danger={false} busy={busy} error={error} onConfirm={submit} onClose={onClose}>
+      <Confirm title="Change nickname" action="Save" danger={false} form busy={busy} error={error} onConfirm={submit} onClose={onClose}>
         <p>Nicknames are visible to everyone on this server. Do not change them unless you are enforcing a naming system or clearing a bad nickname.</p>
         <label className="exo-dc-side-label" htmlFor="exo-dc-nick">Nickname</label>
         <input id="exo-dc-nick" className="exo-dc-modal-input" value={text} maxLength={32} placeholder={name} autoFocus onChange={event => setText(event.target.value)}
@@ -496,15 +497,15 @@ function PersonDialog({ kind, guildId, userId, name, nick, serverName, onClose }
   }
   if (kind === 'kick') {
     return (
-      <Confirm title={`Kick ${name} from server`} action="Kick" busy={busy} error={error} onConfirm={submit} onClose={onClose}>
-        <p>Are you sure you want to kick {name} from {serverName ?? 'the server'}? They will be able to re-join again with a new invite.</p>
+      <Confirm title={`Kick ${name} from ${serverName ?? 'the server'}?`} action="Kick" busy={busy} error={error} form onConfirm={submit} onClose={onClose}>
+        <p>They will be able to re-join again with a new invite.</p>
         <label className="exo-dc-side-label" htmlFor="exo-dc-kick-reason">Reason for kick</label>
         <textarea id="exo-dc-kick-reason" className="exo-dc-modal-input" rows={3} maxLength={512} value={text} onChange={event => setText(event.target.value)} />
       </Confirm>
     )
   }
   return (
-    <Confirm title={`Ban ${name}?`} action="Ban" busy={busy || (reason === 'other' && !text.trim())} error={error} onConfirm={submit} onClose={onClose}>
+    <Confirm title={`Ban ${name}?`} action="Ban" busy={busy} disabled={reason === 'other' && !text.trim()} error={error} form onConfirm={submit} onClose={onClose}>
       <p className="exo-dc-side-label">Reason for ban</p>
       <div className="exo-dc-options" role="radiogroup" aria-label="Reason for ban">
         {[...BAN_REASONS, 'other'].map(r => (
@@ -546,7 +547,7 @@ function TransferOwnership({ guildId, userId, name, mfa, onClose }: { guildId: s
     else if (result.message !== 'Multi-factor authentication cancelled') setError(result.message ?? 'Server ownership transfer failed')
   }
   return (
-    <Confirm title="Transfer ownership" action={!mfa && !sent ? 'Send code' : 'Transfer ownership'} busy={busy || !agreed || (sent && !code.trim())} error={error}
+    <Confirm title="Transfer ownership?" action={!mfa && !sent ? 'Send code' : 'Transfer ownership'} busy={busy} disabled={!agreed || (sent && !code.trim())} error={error} form
       onConfirm={() => void submit()} onClose={onClose}>
       <span className="exo-dc-form-switch">
         <span>I acknowledge that by transferring ownership of this server to <strong>{name}</strong>, it officially belongs to them.</span>

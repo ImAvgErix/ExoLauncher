@@ -18,10 +18,7 @@ internal sealed partial class ScsKillerStatus : IDisposable
     /// <param name="EngineId">The engine's own id for the game (it can differ from Exo's), for game.compile.</param>
     internal sealed record Status(string State, string? Reason, DateTimeOffset? WarmedAt, string? Driver, string? EngineId = null);
 
-    /// <param name="Recorder">the recorder is in its folder: a session's recording waits to be imported when it exits</param>
-    /// <param name="Kept">an AMD cache kept aside (games.json's Kept): it goes back into the driver's cache as the game starts</param>
-    private sealed record Listed(string Id, string Name, string InstallDir, string Status, string Reason, DateTimeOffset? WarmedAt, string? Driver,
-        string Exe = "", bool Recorder = false, bool Kept = false);
+    private sealed record Listed(string Id, string Name, string InstallDir, string Status, string Reason, DateTimeOffset? WarmedAt, string? Driver);
 
     private readonly object _gate = new();
     private FileSystemWatcher? _watcher;
@@ -97,39 +94,6 @@ internal sealed partial class ScsKillerStatus : IDisposable
                ?? list.FirstOrDefault(g => NameKey(g.Name) == NameKey(game.Title) && SameInstall(g.InstallDir, game.Path));
     }
 
-    /// <summary>An AMD cache kept aside: the engine puts it back into the driver's cache when it sees the game start.</summary>
-    internal bool KeptAside(GameEntry game) => Match(game)?.Kept == true;
-
-    /// <summary>
-    /// The engine has work once this game exits: import the recording its recorder made, keep what it compiled aside
-    /// (AMD), or move a compile's pipelines into the game's cache, which waits for the game to exit or the engine to start.
-    /// </summary>
-    internal bool WorkAfterExit(GameEntry game) =>
-        Match(game) is { Status: not "Unsupported" } m && (m.Recorder || m.Kept || m.Reason.StartsWith(PipelinesWaitReason, StringComparison.Ordinal));
-
-    /// <summary>The engine's reason while a compile's pipelines wait for the game (ScsKiller.D3DSCachePendingReason).</summary>
-    private const string PipelinesWaitReason = "the compiled pipelines go into the game's cache";
-
-    /// <summary>
-    /// Each listed game's exe as it is on disk (size and write time), as one short hash; null without a list. A store's
-    /// update changes it (and an uninstall), so the engine checks its games again (anti-cheat, new shaders) without
-    /// running to watch for it.
-    /// </summary>
-    internal string? ExeStamp()
-    {
-        var list = ReadList();
-        if (list.Count == 0) return null;
-        var text = new System.Text.StringBuilder();
-        foreach (var g in list.OrderBy(g => g.Id, StringComparer.Ordinal))
-        {
-            text.Append(g.Id).Append('|');
-            try { if (g.Exe.Length > 0 && new FileInfo(g.Exe) is { Exists: true } f) text.Append(f.Length).Append(':').Append(f.LastWriteTimeUtc.Ticks); }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException) { }
-            text.Append('\n');
-        }
-        return Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(text.ToString())))[..16];
-    }
-
     private IReadOnlyList<Listed> ReadList()
     {
         var path = Path.Combine(DataDir, "games.json");
@@ -147,9 +111,7 @@ internal sealed partial class ScsKillerStatus : IDisposable
                     if (!state.TryGetProperty("Game", out var game) || Text(game, "Id") is not { } id) continue;
                     games.Add(new Listed(id, Text(game, "Name") ?? id, Text(game, "InstallDir") ?? "",
                         Text(state, "Status") ?? "Unsupported", Text(state, "StatusReason") ?? "",
-                        Date(Text(state, "WarmedAt")), Text(state, "WarmedDriverVersion"), Text(game, "ExePath") ?? "",
-                        state.TryGetProperty("RecorderInstalled", out var recorder) && recorder.ValueKind == JsonValueKind.True,
-                        state.TryGetProperty("Kept", out var kept) && kept.ValueKind == JsonValueKind.Object));
+                        Date(Text(state, "WarmedAt")), Text(state, "WarmedDriverVersion")));
                 }
             lock (_gate) _list = (written, games);
             return games;
