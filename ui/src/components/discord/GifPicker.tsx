@@ -100,11 +100,12 @@ export function GifPicker({ tabs, onPick, onClose }: { tabs?: ReactNode; onPick:
   const starred = new Set((favorites ?? []).map(gif => gif.url))
   const toggle = (gif: Shown) => {
     const on = starred.has(gif.url)
-    // Shown at once; Discord's answer (the saved list) replaces it.
+    // Shown at once; Discord's answer (the saved list) replaces it, and a refusal puts the list back as it was.
+    const before = favorites
     setFavorites(list => on ? (list ?? []).filter(item => item.url !== gif.url) : [{ url: gif.url, src: gif.src, format: gif.video ? 2 : 1, width: gif.width, height: gif.height }, ...(list ?? [])])
     host.discordGifFavorites(on ? 'remove' : 'add', { url: gif.url, src: gif.src, width: gif.width, height: gif.height })
-      .then(result => { if (result.ok && result.gifs) setFavorites(result.gifs) })
-      .catch((error: unknown) => report(error, 'GifPicker.star'))
+      .then(result => { if (result.ok && result.gifs) setFavorites(result.gifs); else if (!result.ok) setFavorites(before) })
+      .catch((error: unknown) => { report(error, 'GifPicker.star'); setFavorites(before) })
   }
   const onFavorites = tab === 'favorites' && !searching
   const shown = onFavorites ? (favorites ?? []).map(fromFavorite) : gifs.map(fromSearch)

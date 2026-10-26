@@ -207,7 +207,6 @@ public sealed class LocalAdapter : IStoreAdapter
         }
 
         Report(game.Id, progress, InstallPhase.Preparing, null, "Scanning folder…");
-        await Task.Delay(40, ct).ConfigureAwait(false);
 
         var exe = picked ?? FindPlayableExe(path);
         if (exe is null)
@@ -225,7 +224,14 @@ public sealed class LocalAdapter : IStoreAdapter
         if (copy)
         {
             var libraryRoot = Path.GetFullPath(_managedLibraryRoot ?? PathHelper.GamesRoot);
-            Directory.CreateDirectory(libraryRoot);
+            try { Directory.CreateDirectory(libraryRoot); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // Reported as ended, or the job would stay "Preparing" and block this game's other actions.
+                AppLog.Warn("Add a game: the library folder could not be opened: " + ex.GetType().Name);
+                Report(game.Id, progress, InstallPhase.Failed, null, "Could not open the library folder.");
+                return new InstallResult { Ok = false, Message = "Exo could not open its library folder. Check that its drive is connected and has room." };
+            }
             var dest = Path.Combine(libraryRoot, ManagedPortableFolderName(path, displayTitle));
             if (!string.Equals(Path.GetFullPath(path), Path.GetFullPath(dest), StringComparison.OrdinalIgnoreCase))
             {

@@ -179,6 +179,9 @@ internal static class ResumableDownload
         }
     }
 
+    /// <summary>Partial downloads past a week, or beyond the two kept for resuming, when no download is under way (called at start).</summary>
+    internal static void CleanupAbandoned(string directory) => Cleanup(directory, current: "");
+
     private static void Cleanup(string directory, string current)
     {
         try

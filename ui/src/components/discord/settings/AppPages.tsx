@@ -221,7 +221,7 @@ export function LogOutPage({ onDone }: { onDone: () => void }) {
   return (
     <>
       <h1>Log out</h1>
-      <Row label="Are you sure you want to logout?" detail="Exo forgets your Discord sign-in on this PC." error={error}>
+      <Row label="Are you sure you want to log out?" detail="Exo forgets your Discord sign-in on this PC." error={error}>
         <button type="button" className="exo-set-btn is-danger" disabled={busy}
           onClick={() => { setBusy(true); setError(null); void host.discordSignOut().then(result => { if (result.ok) onDone(); else failed() }, failed) }}>Log out</button>
       </Row>

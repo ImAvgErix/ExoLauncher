@@ -114,7 +114,6 @@ export const LinkIcon = icon('link', 'link')
 export const Pin = icon('pin', 'pin')
 export const Star = icon('star', 'star')
 export const Heart = icon('heart', 'heart')
-export const ThumbsUp = icon('thumbs-up', 'thumb-up')
 export const ThumbsDown = icon('thumbs-down', 'thumb-down')
 /** A Store game on your wishlist. */
 export const Bookmark = icon('bookmark', 'bookmark')

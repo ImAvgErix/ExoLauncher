@@ -160,7 +160,8 @@ function PersonMenu({ at, onClose }: { at: PersonAt; onClose: () => void }) {
   const box = useRef<HTMLDivElement>(null)
   useDismiss(box, onClose)
   useEffect(() => {
-    const key = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose() }
+    // Handled here, so the app's own Escape (which closes the room or sheet under the Bar) leaves it alone.
+    const key = (event: KeyboardEvent) => { if (event.key === 'Escape') { event.preventDefault(); onClose() } }
     document.addEventListener('keydown', key)
     return () => document.removeEventListener('keydown', key)
   }, [onClose])

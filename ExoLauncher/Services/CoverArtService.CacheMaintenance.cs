@@ -95,8 +95,14 @@ public static partial class CoverArtService
             var byName = files.ToDictionary(file => file.Name, StringComparer.OrdinalIgnoreCase);
             var remainingBytes = files.Sum(file => file.Length);
             var remainingFiles = files.Count;
-            var crossedByteHighWater = remainingBytes > policy.HighWaterBytes;
-            var crossedFileHighWater = remainingFiles > policy.HighWaterFiles;
+            // The water marks bound what can be evicted: the active library's art and the never-evict files are not Exo's to drop, so
+            // they are not counted against the budget. Counted, a library whose art alone passed the mark had every other
+            // file (each thumbnail) deleted on every pass, and the write that made it again started the next pass.
+            var keptFiles = files.Where(file => protectedNames.Contains(file.Name) || IsNeverEvictCacheName(file.Name)).ToList();
+            var keptCount = keptFiles.Count;
+            var keptBytes = keptFiles.Sum(file => file.Length);
+            var crossedByteHighWater = remainingBytes - keptBytes > policy.HighWaterBytes;
+            var crossedFileHighWater = remainingFiles - keptCount > policy.HighWaterFiles;
             var deletedBytes = 0L;
             var deletedFiles = 0;
 
@@ -157,8 +163,8 @@ public static partial class CoverArtService
             {
                 foreach (var file in evictionCandidates)
                 {
-                    if ((!reduceBytes || remainingBytes <= policy.LowWaterBytes) &&
-                        (!reduceFiles || remainingFiles <= policy.LowWaterFiles))
+                    if ((!reduceBytes || remainingBytes - keptBytes <= policy.LowWaterBytes) &&
+                        (!reduceFiles || remainingFiles - keptCount <= policy.LowWaterFiles))
                         break;
                     _ = Delete(file);
                 }

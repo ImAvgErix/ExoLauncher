@@ -658,6 +658,8 @@ Section "Exo Launcher" SecApp
   ; Refuse to take ownership of an unrelated non-empty folder. An existing
   ; ExoLauncher.exe marks a managed install; an empty directory is safe.
   IfFileExists "$INSTDIR\ExoLauncher.exe" target_ok
+  ; "dir\*.*" matches an empty folder too (its "." entry), and the bootstrap script makes one, so take an empty folder away first: RMDir removes nothing else.
+  RMDir "$INSTDIR"
   IfFileExists "$INSTDIR\*.*" unmanaged_target target_empty
   unmanaged_target:
     StrCpy $R6 "The Exo Launcher app folder contains files from another application. Setup left that folder unchanged."

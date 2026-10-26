@@ -144,8 +144,10 @@ export function UpscalersTab({ active, games }: { active: boolean; games: readon
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pass])
 
-  const ready = (needs ?? []).filter(need => !need.locked && !running.has(need.copy.id) && runs[need.copy.id]?.kind !== 'done')
-  const risky = (needs ?? []).filter(need => need.locked && need.antiCheat && !running.has(need.copy.id) && runs[need.copy.id]?.kind !== 'done')
+  // Not one already updating from its own card: Update all would write that game's folder twice at once.
+  const idle = (need: Need) => !running.has(need.copy.id) && runs[need.copy.id]?.kind !== 'done' && runs[need.copy.id]?.kind !== 'working'
+  const ready = (needs ?? []).filter(need => !need.locked && idle(need))
+  const risky = (needs ?? []).filter(need => need.locked && need.antiCheat && idle(need))
 
   async function updateOne(need: Need): Promise<boolean> {
     setRuns(value => ({ ...value, [need.copy.id]: { kind: 'working' } }))

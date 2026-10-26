@@ -47,4 +47,24 @@ export async function run(t) {
     await t.shell.call(part, 'graphics')
     return failures
   })
+
+  await run.check('system', 'shaders-engine', "Shaders' engine runs with the board and leaves after it", async (c) => {
+    // The board on screen started the engine; scrolled away (above), it exits by itself a minute later unless it
+    // has work, such as a compile someone started. shaders.addon never starts it.
+    const status = await t.host('shaders.addon')
+    if (!status?.present) { c.skip('Exo Shaders is not installed'); return [] }
+    c.evidence.withBoard = status.state
+    const t0 = Date.now()
+    let state = status.state
+    while (state === 'running' && Date.now() - t0 < 100_000) { await sleep(5000); state = (await t.host('shaders.addon'))?.state }
+    c.metric('exitSeconds', Math.round((Date.now() - t0) / 1000))
+    c.evidence.after = state
+    if (state !== 'running') return []
+    const snap = (await t.host('shaders.call', { method: 'snapshot', params: {} }))?.result
+    // A queue item waiting for idle is real work held back: the engine stays for it (its
+    // exiting event even reports idleWork), so "nothing to do" only means no waiting count too.
+    const working = !!(snap?.queue?.current || snap?.queue?.running || snap?.app?.scanning || snap?.app?.waitingCount)
+    c.evidence.working = working
+    return working ? [] : ['the engine still runs 100 s after the board left the screen, with nothing to do']
+  })
 }

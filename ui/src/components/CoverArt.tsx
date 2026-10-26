@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type RefObject } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type RefObject } from 'react'
 import type { Game } from '../lib/host'
 import { cn } from '../lib/utils'
 import { steamAppId } from '../lib/library'
 import { observeNearViewport } from '../lib/nearViewport'
-import { coverThumbWidth, isThumbUrl, thumbUrl, useCoverThumbWidth } from '../lib/coverThumb'
+import { coverThumbWidth, dimThumbUrl, isDimThumbUrl, isThumbUrl, thumbUrl, useCoverThumbWidth } from '../lib/coverThumb'
 import {
   coverBitmapFit,
   isHeroShaped,
@@ -319,7 +319,7 @@ function steamGridDbPortraitUrl(url: string): string | null {
  * first scale, a busy host) falls back to the same art at full size, never to
  * a smaller poster further down the ladder.
  */
-function portraitArtCandidates(game: Pick<CoverGame, 'coverUrl' | 'artRevision'>, appId: string | null, thumb: number | null = null): ArtCandidate[] {
+function portraitArtCandidates(game: Pick<CoverGame, 'coverUrl' | 'artRevision'>, appId: string | null, thumb: number | null = null, dim = false): ArtCandidate[] {
   const list: ArtCandidate[] = []
   const raw = game.coverUrl ? withArtRevision(game.coverUrl, game.artRevision) : null
   if (raw && isSafeCoverUrl(raw) && !isRejectedCoverUrl(raw, false)) {
@@ -338,7 +338,9 @@ function portraitArtCandidates(game: Pick<CoverGame, 'coverUrl' | 'artRevision'>
   if (thumb == null) return list
   return list.flatMap((candidate) => {
     const small = thumbUrl(candidate.url, thumb)
-    return small === candidate.url ? [candidate] : [{ ...candidate, url: small }, candidate]
+    if (small === candidate.url) return [candidate]
+    return dim ? [{ ...candidate, url: dimThumbUrl(candidate.url, thumb) }, { ...candidate, url: small }, candidate]
+               : [{ ...candidate, url: small }, candidate]
   })
 }
 
@@ -495,12 +497,12 @@ function rememberedCandidateUrl(key: string, candidates: ArtCandidate[]): string
 
 /** Keyed on what the art depends on, not the card object a library refresh replaces.
  * The sheet's large cover keeps the full file; everything else draws at card size. */
-function usePortraitCandidates(game: CoverGame, large: boolean): ArtCandidate[] {
+function usePortraitCandidates(game: CoverGame, large: boolean, dim = false): ArtCandidate[] {
   const gridThumb = useCoverThumbWidth()
   const thumb = large ? null : gridThumb
   const { coverUrl, artRevision } = game
   const appId = steamAppId(game)
-  return useMemo(() => portraitArtCandidates({ coverUrl, artRevision }, appId, thumb), [coverUrl, artRevision, appId, thumb])
+  return useMemo(() => portraitArtCandidates({ coverUrl, artRevision }, appId, thumb, dim), [coverUrl, artRevision, appId, thumb, dim])
 }
 
 /** Grid cards and the sheet's full-size cover remember their bitmaps separately. */
@@ -662,15 +664,18 @@ export function CoverArt({
   className,
   large,
   preload = false,
+  dim = false,
 }: {
   game: CoverGame
   className?: string
   large?: boolean
   /** Eagerly fetch a small set of likely-next art while its page is hidden. */
   preload?: boolean
+  /** Not installed: the host-dimmed thumbnail leads, and hover shows the plain one over it. */
+  dim?: boolean
 }) {
   const key = posterCacheKey(game, large)
-  const candidates = usePortraitCandidates(game, !!large)
+  const candidates = usePortraitCandidates(game, !!large, dim)
   const eager = !!(large || preload)
   const { idx, failed, attempt, advance, retry } = useCoverLadder(key, candidates)
 
@@ -738,30 +743,116 @@ export function CoverArt({
     if (isDecoded(el)) void acceptLatest.current(el)
   }, [])
 
+
+
   return (
     <div ref={coverRef} className={cn('exo-cover', icon && 'is-icon exo-icon', className)}>
       <div className={cn('exo-cover-mono', (loaded || underlay) && 'is-under', large && 'is-large')} aria-hidden>
         <span>{game.title}</span>
       </div>
       <GridBitmap url={underlay} />
+      <CoverFaces
+        coverKey={key}
+        src={src}
+        dim={dim}
+        loaded={loaded}
+        icon={icon}
+        eager={eager}
+        fit={currentCoverFit(bitmapFit, displayUrl, icon)}
+        rootRef={coverRef}
+        attachImage={attachImage}
+        onLoad={acceptCover}
+        onError={rejectCurrent}
+      />
+    </div>
+  )
+}
+
+/**
+ * The plain thumbnail over a dim card's, mounted on the card's first hover/focus
+ * and kept mounted after, fading in with the same 160ms the filter used. Only
+ * loads when the dim thumbnail won: a failed one already drew the plain art under
+ * the old CSS filter, whose own hover rule still undims it.
+ */
+function CoverFaces({ coverKey, src, dim, loaded, icon, eager, fit, rootRef, attachImage, onLoad, onError }: {
+  coverKey: string
+  src: string | null
+  dim: boolean
+  loaded: boolean
+  icon: boolean
+  eager: boolean
+  fit: CSSProperties['objectFit']
+  rootRef: RefObject<HTMLDivElement | null>
+  attachImage: (el: HTMLImageElement | null) => void
+  onLoad: (el: HTMLImageElement) => void
+  onError: () => void
+}) {
+  const { undimArmed, undim } = useUndim(dim, rootRef)
+  return (
+    <>
       {src && (
         <img
-          key={`${key}:${src}`}
+          key={`${coverKey}:${src}`}
           src={src}
           alt=""
-          className={cn('exo-cover-front', icon && 'exo-icon')}
-          style={{ opacity: loaded ? 1 : 0, objectFit: currentCoverFit(bitmapFit, displayUrl, icon) }}
+          className={cn('exo-cover-front', icon && 'exo-icon', dim && !isDimThumbUrl(src) && 'is-dim-fallback')}
+          style={{ opacity: loaded ? 1 : 0, objectFit: fit }}
           draggable={false}
           loading={eager ? 'eager' : 'lazy'}
           fetchPriority={eager ? 'high' : 'low'}
           decoding="async"
           ref={attachImage}
-          onLoad={(e) => void acceptCover(e.currentTarget)}
-          onError={rejectCurrent}
+          onLoad={(e) => onLoad(e.currentTarget)}
+          onError={onError}
         />
       )}
-    </div>
+      <UndimCover src={src} undimArmed={undimArmed} undim={undim} fit={fit} />
+    </>
   )
+}
+
+function UndimCover({ src, undimArmed, undim, fit }: {
+  src: string | null
+  undimArmed: boolean
+  undim: boolean
+  fit: CSSProperties['objectFit']
+}) {
+  if (!undimArmed || !src || !isDimThumbUrl(src)) return null
+  return (
+    <img
+      src={src.replace('&dim=1', '')}
+      alt=""
+      className={cn('exo-cover-front exo-cover-undim', undim && 'is-on')}
+      style={{ objectFit: fit }}
+      draggable={false}
+      decoding="async"
+      aria-hidden="true"
+    />
+  )
+}
+
+/** Hover/focus state of the card the cover sits in, armed once and remembered. */
+function useUndim(dim: boolean, coverRef: RefObject<HTMLDivElement | null>) {
+  const [armed, setArmed] = useState(false)
+  const [on, setOn] = useState(false)
+  useEffect(() => {
+    if (!dim) return
+    const hit = coverRef.current?.closest('.exo-tile-hit')
+    if (!hit) return
+    const enter = () => { setArmed(true); setOn(true) }
+    const leave = () => setOn(false)
+    hit.addEventListener('pointerenter', enter)
+    hit.addEventListener('pointerleave', leave)
+    hit.addEventListener('focusin', enter)
+    hit.addEventListener('focusout', leave)
+    return () => {
+      hit.removeEventListener('pointerenter', enter)
+      hit.removeEventListener('pointerleave', leave)
+      hit.removeEventListener('focusin', enter)
+      hit.removeEventListener('focusout', leave)
+    }
+  }, [dim, coverRef])
+  return { undimArmed: armed, undim: on }
 }
 
 /**

@@ -144,6 +144,8 @@ export const SettingsPanel = memo(function SettingsPanel({
     const root = scrollRef.current
     if (!root || !active) return
     let frame = 0
+    // The sections are static while the sheet is up: each element is found once, then only its rect is read per frame.
+    const sections = SECTIONS.map(section => ({ id: section.id, element: root.querySelector(`#set-${section.id}`) }))
     const pick = () => {
       frame = 0
       if (pickedRef.current) return
@@ -152,9 +154,8 @@ export const SettingsPanel = memo(function SettingsPanel({
       const progress = room > 0 ? Math.min(1, root.scrollTop / room) : 0
       const line = box.top + 48 + (box.height - 120) * progress
       let id: (typeof SECTIONS)[number]['id'] | undefined = SECTIONS[0]?.id
-      for (const section of SECTIONS) {
-        const element = root.querySelector(`#set-${section.id}`)
-        if (element && element.getBoundingClientRect().top <= line) id = section.id
+      for (const section of sections) {
+        if (section.element && section.element.getBoundingClientRect().top <= line) id = section.id
       }
       if (id) setCurrent(id)
     }
@@ -341,7 +342,7 @@ export const SettingsPanel = memo(function SettingsPanel({
           ))}
         </ul>
       </nav>
-      <div className="exo-settings-scroll" ref={scrollRef}>
+      <div className="exo-settings-scroll" ref={scrollRef} data-room-scroll>
         <div className="exo-settings-layout">
           <div className="exo-settings-column">
             <GeneralSection settings={settings} onSave={saveWithReason} onLibraryChanged={refreshLibrary} />

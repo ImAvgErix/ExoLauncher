@@ -13,7 +13,12 @@ namespace ExoLauncher.Services;
 internal sealed partial class StoreService
 {
     /// <summary>One game from a query, with what the home page sorts and labels by.</summary>
-    private sealed record Ranked(Tile Tile, DateTimeOffset? Released, int Reviews);
+    private sealed record Ranked(Tile Tile, DateTimeOffset? Released, int Reviews)
+    {
+        /// <summary>The release is a real day; the calendar takes only those.</summary>
+        public bool Exact { get; init; }
+        public IReadOnlyList<int> Tags { get; init; } = [];
+    }
 
     /// <summary>Steam's sort for "top sellers" (units sold, recent weeks weigh most).</summary>
     private const int SortTopSellers = 13;
@@ -59,7 +64,8 @@ internal sealed partial class StoreService
     {
         if (Str(e, "appid") is not { } id || Blank(Str(e, "name")) is not { } name || NotAGame().IsMatch(name)) return null;
         var item = ReadItem(e);
-        return (new Ranked(WithItem(new Tile(id, name), item), item.Released, item.ReviewCount), item);
+        if (item.Adult) return null;
+        return (new Ranked(WithItem(new Tile(id, name), item), item.Released, item.ReviewCount) { Exact = item.Exact, Tags = item.Tags }, item);
     }
 
     /// <summary>
@@ -69,7 +75,7 @@ internal sealed partial class StoreService
     /// sales), Most anticipated (by pre-orders), the evergreen Top sellers,
     /// sales, and the rest of Steam's most wishlisted.
     /// </summary>
-    private static Home BuildHome(IReadOnlyList<Ranked> sellers, IReadOnlyList<Ranked> upcoming, IReadOnlyList<Tile> wished, IReadOnlyList<Ranked> specials, IReadOnlyList<FreeGame> free)
+    private static Home BuildHome(IReadOnlyList<Ranked> sellers, IReadOnlyList<Ranked> upcoming, IReadOnlyList<Tile> wished, IReadOnlyList<Ranked> specials)
     {
         var now = DateTimeOffset.UtcNow;
         bool OutWithin(Ranked r, int days) => r.Released is { } d && d <= now && now - d <= TimeSpan.FromDays(days);
@@ -96,7 +102,7 @@ internal sealed partial class StoreService
             new Shelf("top", "Top sellers", Fresh(sellers.Select(r => r.Tile).Where(t => !freshIds.Contains(t.AppId)), 30)),
             new Shelf("specials", "On sale", specials.Select(r => r.Tile).Where(t => t.Discount > 0 && !heroIds.Contains(t.AppId)).Take(30).ToList()),
             new Shelf("wishlisted", "Most wishlisted", Fresh(wished, 40)),
-        ], free);
+        ]);
     }
 
     /// <summary>"Oct 23", "Feb 2027", "Q1 2027", "2027" or "Coming soon", as precise as the developer made the date.</summary>

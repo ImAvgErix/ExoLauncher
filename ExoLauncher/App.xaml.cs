@@ -44,7 +44,9 @@ public partial class App : Application
     {
         _window = new MainWindow();
         MainAppWindow = _window;
-        _window.Activate();
+        // EXO_NO_ACTIVATE=1 (a restart done while someone plays a game): the window opens without taking the focus.
+        if (Environment.GetEnvironmentVariable("EXO_NO_ACTIVATE") == "1") _window.AppWindow.Show(activateWindow: false);
+        else _window.Activate();
         Program.NotifyWindowReady();
         if (Helpers.PackagedSmoke.Enabled) return;
         // Clean leftover Steam CEF surfaces from older hide/restore (blank taskbar spam).

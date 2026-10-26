@@ -33,8 +33,8 @@ public sealed partial class MainWindow
     /// saved sign-in, and the chosen music service's engine starts now, hidden (the Spotify app, or the
     /// Apple Music or YouTube Music page), so Music, the song in the bar and its controls are ready
     /// the moment they're wanted instead of a minute after the room first opens. An idle music app is
-    /// frozen as before, so waiting costs memory, not processor time. Exo Shaders and Exo Capture start
-    /// here too (PrewarmShaders, PrewarmCapture), not when their pages open.
+    /// frozen as before, so waiting costs memory, not processor time. Exo Capture starts here too
+    /// (PrewarmCapture); Exo Shaders' engine only starts when something needs it (PrewarmShaders).
     internal async Task<object> PrepareConnectedRoomsAsync(string? musicService)
     {
         if (PackagedSmoke.Enabled || _closingWindow) return new { ok = true };

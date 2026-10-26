@@ -124,7 +124,7 @@ public sealed partial class WebHostBridge
             case "paymentSecret" when ReadString(p, hasParams, "paymentId") is { } paymentId:
                 var pi = await rest.PaymentIntentSecretAsync(paymentId, ct).ConfigureAwait(false);
                 var piSecret = pi.Body is { ValueKind: JsonValueKind.Object } pb && pb.TryGetProperty("stripe_payment_intent_client_secret", out var ps) ? ps.GetString() : null;
-                return piSecret is null ? new { ok = false, message = pi.Error ?? "Discord didn't send the payment to confirm.", key = (string?)null, clientSecret = (string?)null }
+                return piSecret is null ? new { ok = false, message = (string?)(pi.Error ?? "Discord didn't send the payment to confirm."), key = (string?)null, clientSecret = (string?)null }
                     : new { ok = true, message = (string?)null, key = (string?)await DiscordRest.StripeKeyAsync(ct).ConfigureAwait(false), clientSecret = (string?)piSecret };
             case "payment":
                 var sources = await rest.PaymentSourcesAsync(ct).ConfigureAwait(false);
@@ -185,14 +185,20 @@ public sealed partial class WebHostBridge
     private static async Task<object> DiscordBuyAsync(DiscordRest rest, string skuId, string sourceId, long amount, string currency, CancellationToken ct)
     {
         var sources = await rest.PaymentSourcesAsync(ct).ConfigureAwait(false);
-        if (sources.Body is not { } list || !DiscordRest.PaymentChoices(list).Any(c => c.Id == sourceId && c.Usable))
+        if (sources.Body is not { } list || DiscordRest.PaymentChoices(list).FirstOrDefault(c => c.Id == sourceId && c.Usable) is not { } card)
             return new { ok = false, confirm = false, message = sources.Error ?? "Pick a card saved on your Discord account.", paymentId = (string?)null };
+        // Exo's own window asks, not the page: money leaves only after a click the page can't make.
+        var product = await rest.CollectiblesProductAsync(skuId, ct).ConfigureAwait(false);
+        var item = product.Body is { ValueKind: JsonValueKind.Object } pb && Text(pb, "name") is { Length: > 0 } name ? name : "this item";
+        var charge = $"Buy {(item.Length > 80 ? item[..80] : item)} on Discord for {DiscordRest.PriceText(amount, currency)}, charged to {card.Label}?";
+        if (App.MainAppWindow is not { } window || !await window.ConfirmNativeAsync("Buy on Discord", charge, "Buy").ConfigureAwait(false))
+            return new { ok = false, confirm = false, message = (string?)"Nothing was charged.", paymentId = (string?)null };
         var bought = await rest.PurchaseAsync(skuId, sourceId, amount, currency, ct).ConfigureAwait(false);
         Helpers.AppLog.Info($"Discord client: Shop purchase {(bought.Error is null ? "completed" : "not completed")}.");
         if (bought.Error is null) return new { ok = true, confirm = false, message = (string?)null, paymentId = (string?)null };
         return DiscordRest.NeedsConfirmation(bought.Body)
             ? new { ok = false, confirm = true, message = (string?)"Your bank needs to confirm this payment.", paymentId = DiscordRest.PaymentId(bought.Body) }
-            : new { ok = false, confirm = false, message = bought.Error, paymentId = (string?)null };
+            : new { ok = false, confirm = false, message = (string?)bought.Error, paymentId = (string?)null };
     }
 
     private static object Done(DiscordRest.Reply reply) => new { ok = reply.Error is null, message = reply.Error };
@@ -412,7 +418,7 @@ public sealed partial class WebHostBridge
     {
         if (profile is not null) s.DiscordInputProfile = profile;
         if (ReadBool(p, hasParams, "noiseSuppression") is { } ns) s.DiscordNoiseSuppression = ns;
-        if (ReadString(p, hasParams, "noiseSuppressionKind") is { } kind && kind is "ai" or "standard") s.DiscordNoiseSuppressionKind = kind;
+        if (ReadString(p, hasParams, "noiseSuppressionKind") is { } kind && kind is "exo" or "krisp" or "ai" or "standard") s.DiscordNoiseSuppressionKind = kind == "krisp" ? "exo" : kind;
         if (ReadBool(p, hasParams, "othersNoiseSuppression") is { } forOthers) s.DiscordOthersNoiseSuppression = forOthers;
         if (ReadBool(p, hasParams, "onlyMyVoice") is { } onlyMine) s.DiscordOnlyMyVoice = onlyMine;
         if (ReadBool(p, hasParams, "evenVoices") is { } even) s.DiscordEvenVoices = even;
@@ -469,7 +475,7 @@ public sealed partial class WebHostBridge
         }
     }
 
-    /// <summary>Only My Voice: { action: "learn" } learns the user's voice from the last Voice Check take, "forget" deletes it.</summary>
+    /// <summary>Only My Voice: { action: "learn" } learns the user's voice from the live meter's last seconds, "forget" deletes it.</summary>
     private static async Task<object> DiscordMyVoiceAsync(JsonElement p, bool hasParams, CancellationToken ct)
     {
         var action = hasParams && p.TryGetProperty("action", out var a) ? a.GetString() : null;
@@ -479,7 +485,7 @@ public sealed partial class WebHostBridge
             return new { ok = true, learned = false, message = (string?)null };
         }
         if (action != "learn") return new { ok = false, learned = Voiceprint.Learned, message = (string?)"Unknown action." };
-        if (VoiceCheck.LastTake is not { } take) return new { ok = false, learned = Voiceprint.Learned, message = (string?)"Record a Voice Check first." };
+        if (MicTest.Take() is not { } take) return new { ok = false, learned = Voiceprint.Learned, message = (string?)"Talk on the meter for a few seconds first." };
         var problem = await MyVoice.LearnAsync(take.Cleaned, take.Voiced, ct).ConfigureAwait(true);
         return new { ok = problem is null, learned = Voiceprint.Learned, message = problem };
     }
@@ -490,5 +496,13 @@ public sealed partial class WebHostBridge
         if (ReadBool(p, hasParams, "on") == true) MicTest.Start();
         else MicTest.Stop();
         return new { ok = true };
+    }
+
+    /// <summary>Hear Your Voice: { on } plays the voice back as the call sends it; answers whether the speakers are headphones.</summary>
+    private static object DiscordMicMonitor(JsonElement p, bool hasParams)
+    {
+        MicTest.Monitor(ReadBool(p, hasParams, "on") == true);
+        var (on, onHead) = MicTest.Monitoring;
+        return new { ok = true, on, onHead };
     }
 }

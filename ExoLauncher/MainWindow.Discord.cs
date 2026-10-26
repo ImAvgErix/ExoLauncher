@@ -78,10 +78,13 @@ public sealed partial class MainWindow
 
     private void WireDiscordClient()
     {
-        Services.DiscordClient.DiscordSession.BadgeChanged += count => DispatcherQueue.TryEnqueue(() => PublishFriendsBadge(count));
-        Services.DiscordClient.DiscordSession.FlashRequested += () => DispatcherQueue.TryEnqueue(FlashTaskbar);
-        Services.DiscordClient.DiscordNotifier.AppOpened += () => DispatcherQueue.TryEnqueue(RestoreAndActivate);
-        Services.DiscordClient.DiscordNotifier.Opened += (guildId, channelId, parentId, name) => DispatcherQueue.TryEnqueue(() =>
+        // These are static events that outlive the window, and Window.DispatcherQueue is null once it has closed: the
+        // queue itself is kept, and it refuses work after shutdown instead of throwing.
+        var queue = DispatcherQueue;
+        Services.DiscordClient.DiscordSession.BadgeChanged += count => queue.TryEnqueue(() => PublishFriendsBadge(count));
+        Services.DiscordClient.DiscordSession.FlashRequested += () => queue.TryEnqueue(FlashTaskbar);
+        Services.DiscordClient.DiscordNotifier.AppOpened += () => queue.TryEnqueue(RestoreAndActivate);
+        Services.DiscordClient.DiscordNotifier.Opened += (guildId, channelId, parentId, name) => queue.TryEnqueue(() =>
         {
             RestoreAndActivate();
             _bridge?.PostDiscordOpen(guildId, channelId, parentId, name);

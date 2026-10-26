@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { CompanyLogo } from '../../brand/CompanyLogo'
 import { host, onHostEvent } from '../../lib/host'
 import { report } from '../../lib/report'
+import { useMenuArrowKeys } from '../../lib/menuKeys'
 import type { DiscordState } from '../../lib/discord'
 import { DiscordClient } from './DiscordClient'
 import { DiscordQrSignIn } from './DiscordSignIn'
@@ -11,6 +12,8 @@ import { DiscordQrSignIn } from './DiscordSignIn'
  * shows a QR code for Discord's phone app; connected, the client itself.
  */
 export function NativeDiscordRoom({ active }: { active: boolean }) {
+  // Every menu in the client takes Up, Down, Home and End.
+  useMenuArrowKeys('.exo-dc')
   const [state, setState] = useState<DiscordState | null>(null)
   const [message, setMessage] = useState<string | null>(null)
   // Once connected, a reconnect keeps the client on screen (where you are, drafts, scroll); Discord's own does the same.

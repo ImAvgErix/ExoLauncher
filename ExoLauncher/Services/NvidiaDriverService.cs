@@ -474,27 +474,36 @@ internal static partial class NvidiaDriverService
     {
         Report("downloading", 0, "Downloading from NVIDIA");
         var partial = path + ".part";
-        using (var response = await Http.GetAsync(latest.Url, HttpCompletionOption.ResponseHeadersRead).ConfigureAwait(false))
+        try
         {
-            response.EnsureSuccessStatusCode();
-            if (response.RequestMessage?.RequestUri?.Host is not ("us.download.nvidia.com" or "international.download.nvidia.com")) throw new InvalidDataException("The download didn't come from NVIDIA.");
-            var total = response.Content.Headers.ContentLength ?? latest.Size;
-            await using var source = await response.Content.ReadAsStreamAsync().ConfigureAwait(false);
-            await using var target = new FileStream(partial, FileMode.Create, FileAccess.Write, FileShare.None, 1 << 20, useAsync: true);
-            var buffer = new byte[1 << 20];
-            long done = 0;
-            var lastPercent = -1;
-            int read;
-            while ((read = await source.ReadAsync(buffer).ConfigureAwait(false)) > 0)
+            using (var response = await Http.GetAsync(latest.Url, HttpCompletionOption.ResponseHeadersRead).ConfigureAwait(false))
             {
-                await target.WriteAsync(buffer.AsMemory(0, read)).ConfigureAwait(false);
-                done += read;
-                var percent = total > 0 ? (int)(done * 100 / total) : 0;
-                if (percent != lastPercent) { lastPercent = percent; Report("downloading", percent, "Downloading from NVIDIA"); }
+                response.EnsureSuccessStatusCode();
+                if (response.RequestMessage?.RequestUri?.Host is not ("us.download.nvidia.com" or "international.download.nvidia.com")) throw new InvalidDataException("The download didn't come from NVIDIA.");
+                var total = response.Content.Headers.ContentLength ?? latest.Size;
+                await using var source = await response.Content.ReadAsStreamAsync().ConfigureAwait(false);
+                await using var target = new FileStream(partial, FileMode.Create, FileAccess.Write, FileShare.None, 1 << 20, useAsync: true);
+                var buffer = new byte[1 << 20];
+                long done = 0;
+                var lastPercent = -1;
+                int read;
+                while ((read = await StallGuard.ReadAsync(source, buffer).ConfigureAwait(false)) > 0)
+                {
+                    await target.WriteAsync(buffer.AsMemory(0, read)).ConfigureAwait(false);
+                    done += read;
+                    var percent = total > 0 ? (int)(done * 100 / total) : 0;
+                    if (percent != lastPercent) { lastPercent = percent; Report("downloading", percent, "Downloading from NVIDIA"); }
+                }
+                if (response.Content.Headers.ContentLength is { } length && done != length) throw new InvalidDataException("The download was cut short.");
             }
-            if (response.Content.Headers.ContentLength is { } length && done != length) throw new InvalidDataException("The download was cut short.");
+            File.Move(partial, path, true);
         }
-        File.Move(partial, path, true);
+        catch
+        {
+            // A half file is not kept: nothing would check it, and it holds the disk.
+            try { File.Delete(partial); } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+            throw;
+        }
     }
 
     /// <summary>Keeps this version's and the one before's installers (the way back), removes older ones.</summary>

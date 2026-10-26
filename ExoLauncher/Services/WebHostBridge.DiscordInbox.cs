@@ -218,6 +218,7 @@ public sealed partial class WebHostBridge
         var (bytes, type, error) = await session.Rest.ImageAsync(url, ct).ConfigureAwait(true);
         if (bytes is null) return new { ok = false, message = error };
         if (action == "copy") return await DiscordImages.CopyAsync(bytes).ConfigureAwait(true) ? new { ok = true } : new { ok = false, message = "Unable to copy image" };
+        if (!DiscordImages.IsImageType(type)) return new { ok = false, message = "That isn't a picture." };
         var name = await Task.Run(() => DiscordImages.Save(bytes, url, type), ct).ConfigureAwait(true);
         return name is null ? new { ok = false, message = "Unable to save image" } : new { ok = true, name };
     }

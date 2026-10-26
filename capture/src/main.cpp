@@ -8,6 +8,7 @@
 #include "common.h"
 #include "audio.h"
 #include "mux.h"
+#include "shrink.h"
 #include "ui.h"
 #include "video.h"
 
@@ -332,6 +333,13 @@ public:
     void Shutdown()
     {
         if (m_quit.exchange(true)) return;
+        // A shrink in progress stops and deletes its partial file before the process ends.
+        m_shrinkCancel = true;
+        for (int i = 0; i < 30; ++i)
+        {
+            { std::lock_guard lock(m_shrinkLock); if (!m_shrinking) break; }
+            Sleep(100);
+        }
         if (m_ticker.joinable()) m_ticker.join();
         StopStream(0, {}, false);
         m_jobs.Invoke([this] {
@@ -365,6 +373,8 @@ public:
         if (method == L"snip") { StartSnip(); return json::JsonValue::CreateBooleanValue(true); }
         if (method == L"trim") return Trim(p);
         if (method == L"export") return Export(p);
+        if (method == L"shrink") return ShrinkFile(p);
+        if (method == L"shrink.cancel") return CancelShrink(p);
         if (method == L"copy") return CopyFile(p);
         if (method == L"probe") return Probe(Checked(p, L"path"));
         if (method == L"stream.thumbs") return Thumbs(p);
@@ -611,6 +621,9 @@ private:
             std::thread([folder = next.folder, thumbs = next.thumbs] { RecoverRecordings(folder, thumbs); }).detach();
         }
         m_buffer.SetLength(static_cast<int64_t>(next.replaySeconds) * 10'000'000);
+        // The replay's files: in Exo's capture data (the thumbnails' parent folder), else on the captures folder's drive.
+        auto slash = next.thumbs.find_last_of(L"\\/");
+        m_buffer.SetFolders({ slash == std::wstring::npos ? L"" : next.thumbs.substr(0, slash), next.folder });
         if (restart && m_video && !m_recorder) StopSession();
         m_configured = true;
         Tick();
@@ -869,8 +882,8 @@ private:
             m_ui.Toast(L"Instant replay is off", m_settings.replayMode == L"games" ? L"It runs while a game is open" : L"", TargetMonitor(), false);
             return;
         }
-        auto packets = m_buffer.Snapshot(static_cast<int64_t>(m_settings.replaySeconds) * 10'000'000);
-        if (packets.empty()) { m_ui.Toast(L"Nothing to save yet", L"", TargetMonitor(), false); return; }
+        auto clip = m_buffer.Snapshot(static_cast<int64_t>(m_settings.replaySeconds) * 10'000'000);
+        if (!clip.Size()) { m_ui.Toast(L"Nothing to save yet", L"", TargetMonitor(), false); return; }
         std::vector<uint8_t> pixels;
         UINT w = 0, h = 0;
         m_video->LastFrame(pixels, w, h);
@@ -879,8 +892,9 @@ private:
         auto game = GameId();
         auto folder = m_settings.folder, thumbs = m_settings.thumbs;
         auto monitor = TargetMonitor();
-        // The file is written off the session thread, from copies; the buffer keeps filling.
-        std::thread([this, packets = std::move(packets), pixels = std::move(pixels), w, h, format, name, game, folder, thumbs, monitor] {
+        // The file is written off the session thread, from the clip's own list (its files stay until it is done); the
+        // buffer keeps filling.
+        std::thread([this, clip = std::move(clip), pixels = std::move(pixels), w, h, format, name, game, folder, thumbs, monitor]() mutable {
             winrt::init_apartment(winrt::apartment_type::multi_threaded);
             try
             {
@@ -888,7 +902,7 @@ private:
                 int64_t duration = 0;
                 {
                     Mp4Writer writer(path, format);
-                    for (auto& p : packets) writer.Write(p);
+                    for (size_t i = 0; i < clip.Size(); ++i) writer.Write(clip.Get(i));
                     duration = writer.Finish();
                 }
                 WriteThumb(thumbs, path, pixels, w, h);
@@ -1055,6 +1069,65 @@ private:
         o.Insert(L"path", json::JsonValue::CreateStringValue(output));
         o.Insert(L"durationMs", json::JsonValue::CreateNumberValue(duration / 10'000.0));
         return o;
+    }
+
+    /// Re-encodes a finished recording smaller beside the original, which stays as it is (the caller decides what
+    /// replaces what). One at a time; the result says why a file was left alone.
+    json::IJsonValue ShrinkFile(const json::JsonObject& p)
+    {
+        auto input = Checked(p, L"input");
+        ShrinkOptions options;
+        options.input = input;
+        options.codec = GetString(p, L"codec", L"auto");
+        options.quality = static_cast<int>(std::clamp(GetNumber(p, L"targetQuality", ShrinkDefaultQuality), 0.0, 100.0));
+        if (auto output = GetString(p, L"output"); !output.empty())
+        {
+            if (!IsUnder(output, SettingsNow().folder)) throw std::runtime_error("That file is not in the captures folder.");
+            options.output = FullPath(output);
+        }
+        {
+            std::lock_guard lock(m_shrinkLock);
+            if (m_shrinking)
+            {
+                ShrinkResult busy;
+                busy.input = input;
+                busy.skipped = "busy";
+                busy.detail = "another file is being shrunk";
+                return ShrinkJson(busy);
+            }
+            m_shrinking = true;
+            m_shrinkInput = Lower(input);
+            m_shrinkCancel = false;
+        }
+        options.cancel = &m_shrinkCancel;
+        options.progress = [input](double percent) {
+            auto o = Obj();
+            o.Insert(L"input", json::JsonValue::CreateStringValue(input));
+            o.Insert(L"percent", json::JsonValue::CreateNumberValue(std::round(percent * 10) / 10));
+            Emit(L"shrink", o);
+        };
+        ShrinkResult result;
+        try { result = ::Shrink(options); }
+        catch (...)
+        {
+            std::lock_guard lock(m_shrinkLock);
+            m_shrinking = false;
+            throw;
+        }
+        {
+            std::lock_guard lock(m_shrinkLock);
+            m_shrinking = false;
+        }
+        return ShrinkJson(result);
+    }
+
+    json::IJsonValue CancelShrink(const json::JsonObject& p)
+    {
+        auto input = GetString(p, L"input");
+        std::lock_guard lock(m_shrinkLock);
+        bool running = m_shrinking && (input.empty() || Lower(FullPath(input)) == m_shrinkInput);
+        if (running) m_shrinkCancel = true;
+        return json::JsonValue::CreateBooleanValue(running);
     }
 
     json::IJsonValue CopyFile(const json::JsonObject& p)
@@ -1239,6 +1312,11 @@ private:
 
     std::mutex m_recorderLock;
     std::unique_ptr<Recorder> m_recorder;
+
+    std::mutex m_shrinkLock;
+    bool m_shrinking = false;
+    std::atomic<bool> m_shrinkCancel{ false };
+    std::wstring m_shrinkInput;
 
     std::mutex m_streamLock;
     std::unique_ptr<Streamer> m_stream;

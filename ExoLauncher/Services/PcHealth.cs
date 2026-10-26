@@ -29,6 +29,9 @@ internal static partial class PcHealth
     /// <summary>The main graphics card: whether it shares the system's memory (an integrated GPU) and whether Direct3D 12 reports GPU upload heaps (null: this Windows or driver can't say).</summary>
     internal sealed record GpuBar(string Name, bool Uma, bool? UploadHeap);
 
+    /// <summary>A PC with two graphics chips: the one Windows picks to save power, and the one it picks for performance.</summary>
+    internal sealed record HybridGpu(string PowerSaving, string HighPerformance);
+
     internal sealed record Reading(
         IReadOnlyList<Dimm> Dimms,
         GpuBar? Gpu,
@@ -38,7 +41,10 @@ internal static partial class PcHealth
         string? ChipsetLatest,
         bool GameModeOff,
         ChipsetUpdate.Status? ChipsetUpdate = null,
-        bool ChipsetAuto = false);
+        bool ChipsetAuto = false,
+        bool HagsOff = false,
+        HybridGpu? Hybrid = null,
+        bool FastGpuForGames = false);
 
     private const byte DimmFormFactor = 0x09; // SMBIOS: a desktop DIMM (SODIMMs are laptops and mini PCs, which seldom offer EXPO/XMP)
 
@@ -72,6 +78,17 @@ internal static partial class PcHealth
             items.Add(new("gamemode", "Game Mode", x3d
                 ? "Off. With Game Mode on, Windows keeps games on your processor's V-Cache cores."
                 : "Off. With Game Mode on, Windows puts the game you're playing first."));
+        // Frame generation is built for it: DLSS's needs it on (RTX 40 and 50), and AMD recommends it for FSR's (RX 7000 and newer).
+        // Only a card that gains from it and a switch that was turned off by hand or policy speak; a card or Windows that leaves it unset does not.
+        if (r.HagsOff && r.Gpu is { Uma: false } gpu && FrameGenCard().Match(gpu.Name) is { Success: true } card)
+            items.Add(new("gpusched", "GPU scheduling", card.Value.StartsWith("RTX", StringComparison.OrdinalIgnoreCase)
+                ? "Off. DLSS frame generation needs hardware-accelerated GPU scheduling. Turn it on in Windows' Graphics settings, then restart."
+                : "Off. AMD recommends hardware-accelerated GPU scheduling for frame generation. Turn it on in Windows' Graphics settings, then restart."));
+        // Two graphics chips: Windows chooses per game and can choose the built-in one. The switch is Exo's own (GpuPreference), with Undo.
+        if (r.Hybrid is { } two)
+            items.Add(r.FastGpuForGames
+                ? new("gpupref", "Graphics for games", $"Your games run on the {two.HighPerformance}, not the {two.PowerSaving}.", Applied: true, CanUndo: true)
+                : new("gpupref", "Graphics for games", $"This PC has two graphics chips, the {two.PowerSaving} and the {two.HighPerformance}. Windows can run a game on the {two.PowerSaving}, which is slower. Exo can ask it to use the {two.HighPerformance} for your games."));
         return items;
     }
 
@@ -205,6 +222,12 @@ internal static partial class PcHealth
     /// <summary>Game Mode is off only when its Settings switch wrote 0; Windows 11 has it on until then.</summary>
     internal static bool GameModeOff(object? value) => value is int i && i == 0;
 
+    /// <summary>
+    /// Hardware-accelerated GPU scheduling is off only when HwSchMode says 1 (Settings or policy wrote it); 2 is on, and a
+    /// missing value leaves it to Windows and the driver, which turn it on for cards that support it.
+    /// </summary>
+    internal static bool HagsOff(object? value) => value is int i && i == 1;
+
     private delegate void Visit(int type, ReadOnlySpan<byte> structure, List<string> strings);
 
     /// <summary>
@@ -271,6 +294,7 @@ internal static partial class PcHealth
 
     private static readonly Lazy<byte[]> Smbios = new(SmbiosTable, LazyThreadSafetyMode.ExecutionAndPublication);
     private static readonly Lazy<IReadOnlyList<Dimm>> Memory = new(() => ParseDimms(Smbios.Value), LazyThreadSafetyMode.ExecutionAndPublication);
+    private static readonly Lazy<HybridGpu?> Hybrid = new(ReadHybrid, LazyThreadSafetyMode.ExecutionAndPublication);
     private static readonly Lazy<GpuBar?> Gpu = new(() => WithSmartAccessMemory(ReadGpu()), LazyThreadSafetyMode.ExecutionAndPublication);
 
     /// <summary>
@@ -286,7 +310,7 @@ internal static partial class PcHealth
     internal static PowerProfiles.Profile ThisPcProfile() =>
         PowerProfiles.For(ClassOf(CpuName(), CpuHybrid()), Laptop(NativePower.HasBattery(), ChassisType(Smbios.Value)));
 
-    internal static async Task<Reading> ReadAsync(PowerPlan power, bool chipsetAuto, CancellationToken ct)
+    internal static async Task<Reading> ReadAsync(PowerPlan power, bool chipsetAuto, bool fastGpuForGames, CancellationToken ct)
     {
         var cpu = CpuName();
         var chipset = Services.ChipsetUpdate.For(cpu);
@@ -304,9 +328,16 @@ internal static partial class PcHealth
             gameMode = key?.GetValue("AutoGameModeEnabled");
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException) { /* left as on */ }
+        object? scheduling = null;
+        try
+        {
+            using var key = Registry.LocalMachine.OpenSubKey(@"SYSTEM\CurrentControlSet\Control\GraphicsDrivers");
+            scheduling = key?.GetValue("HwSchMode");
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException) { /* left unknown: no row */ }
         var update = installed is null ? null : chipset!.Current(latest, Services.ChipsetUpdate.BootedAt());
         var reading = new Reading(Memory.Value, Gpu.Value, cpu, power.Read(), installed, latest, GameModeOff(gameMode),
-            update, chipsetAuto && installed is not null && !chipset!.WindowsAsks());
+            update, chipsetAuto && installed is not null && !chipset!.WindowsAsks(), HagsOff(scheduling), Hybrid.Value, fastGpuForGames);
         if (Interlocked.Exchange(ref _logged, 1) == 0) AppLog.Info("PC health: " + Describe(reading));
         return reading;
     }
@@ -319,7 +350,7 @@ internal static partial class PcHealth
         var bar = r.Gpu is null ? "GPU not read" : $"{r.Gpu.Name}: {(r.Gpu.Uma ? "shared memory" : r.Gpu.UploadHeap switch { true => "Resizable BAR on", false => "Resizable BAR off", null => "Resizable BAR unknown" })}";
         var plan = r.Power is null ? "plan not read"
             : $"plan {r.Power.Active} overlay {r.Power.Overlay}{(r.Power.Exo ? " (Exo's)" : "")} class {PowerProfiles.Keys[ClassOf(r.Cpu, null)]} max {r.Power.Cpu?.MaxState?.ToString() ?? "-"}% boost {r.Power.Cpu?.BoostMode?.ToString() ?? "-"} min cores {r.Power.Cpu?.MinCores?.ToString() ?? "-"}%";
-        return $"{ram}; {bar}; {plan}; chipset {r.ChipsetInstalled ?? "-"} (newest {r.ChipsetLatest ?? "-"}{(r.ChipsetUpdate is { } u ? $", update {u.Phase} {u.Version}" : "")}); Game Mode {(r.GameModeOff ? "off" : "on")}.";
+        return $"{ram}; {bar}; {plan}; chipset {r.ChipsetInstalled ?? "-"} (newest {r.ChipsetLatest ?? "-"}{(r.ChipsetUpdate is { } u ? $", update {u.Phase} {u.Version}" : "")}); Game Mode {(r.GameModeOff ? "off" : "on")}; GPU scheduling {(r.HagsOff ? "off" : "on or left to Windows")}; {(r.Hybrid is { } two ? $"two graphics chips ({two.PowerSaving} and {two.HighPerformance}), games on {(r.FastGpuForGames ? "the fast one by Exo" : "Windows' pick")}" : "one graphics chip")}.";
     }
 
     /// <summary>The processor's name as Windows has it ("AMD Ryzen 7 7840HS w/ Radeon 780M Graphics"), or null.</summary>
@@ -361,6 +392,10 @@ internal static partial class PcHealth
 
     [GeneratedRegex(@"\bRTX\s*[3-9]0[5-9]0|\bRX\s*[6-9]\d{3}|\bArc\b", RegexOptions.IgnoreCase)]
     private static partial Regex ReBarCard();
+
+    // The cards frame generation runs on: GeForce RTX 40 and 50 (4050 to 5090; not the workstation "RTX 4000 Ada") and Radeon RX 7000 and newer.
+    [GeneratedRegex(@"\bRTX\s*[45]0[5-9]0\b|\bRX\s*[79]\d{3}\b", RegexOptions.IgnoreCase)]
+    private static partial Regex FrameGenCard();
 
     [GeneratedRegex(@"\b(?:AMD|Radeon)\b", RegexOptions.IgnoreCase)]
     private static partial Regex RadeonName();

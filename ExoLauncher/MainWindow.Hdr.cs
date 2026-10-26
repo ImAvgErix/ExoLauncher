@@ -7,7 +7,9 @@ namespace ExoLauncher;
 /// System > Graphics > HDR > HDR for HDR games: while a game that outputs real HDR runs (PCGamingWiki
 /// says so, or the game's page says Always), however it was started, HDR is on for the main
 /// screen; when it closes (or Exo does) HDR goes back off and the screen's calibration is put
-/// back. Games without HDR stay SDR. Only HDR Exo itself switched on is ever switched off.
+/// back. A game Exo starts that is already known to want HDR gets it just before its store starts it
+/// (<see cref="OnHdrLaunching"/>), since some games look for HDR only at their first start.
+/// Games without HDR stay SDR. Only HDR Exo itself switched on is ever switched off.
 /// While any screen is in HDR (Exo's doing or the user's), SDR on it is drawn with gamma 2.2
 /// (<see cref="SdrInHdr"/>); when HDR goes off the profile the screen had before comes back.
 /// The screen Exo switched on is kept in settings: HDR still goes back off after a crash or an update.
@@ -20,6 +22,10 @@ public sealed partial class MainWindow
     private ushort[]? _hdrRamp;
     private int _hdrSyncing, _hdrAsked, _sdrGammaTries = 6;
     private bool _hdrAdopted;
+    // Games Exo is starting that want HDR, by when they were handed to their store: until the process shows up (or this
+    // long passes) they count as running, so HDR is already on when it starts. Some games look for HDR only at first start.
+    private const long HdrLaunchGraceMs = 120_000;
+    private readonly Dictionary<string, long> _hdrLaunching = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _sdrGammaWhyLogged = [];
     private string? _lastScreenMode;
     private SubclassProc? _displayChangeProc;
@@ -31,9 +37,12 @@ public sealed partial class MainWindow
     {
         _hdrWatch = new System.Threading.Timer(_ => SyncHdr(), null, HdrRecheck, Timeout.InfiniteTimeSpan);
         App.Services.Launcher.GameRunStateChanged += OnHdrRunState;
+        App.Services.Launcher.GameLaunching += OnHdrLaunching;
+        var taskbarCreated = RegisterWindowMessage("TaskbarCreated");
         _displayChangeProc = (hwnd, message, wParam, lParam, id, data) =>
         {
             if (message == WmDisplayChange) SyncHdrSoon();
+            else if (message == taskbarCreated && taskbarCreated != 0) NvidiaTrayIcon.Soon();
             else if (message == WmNcDestroy) RemoveWindowSubclass(hwnd, _displayChangeProc!, id);
             return DefSubclassProc(hwnd, message, wParam, lParam);
         };
@@ -42,6 +51,29 @@ public sealed partial class MainWindow
     }
 
     private void OnHdrRunState(string gameId, GameRunState state) => SyncHdrSoon();
+
+    // Just before the store starts a game that wants HDR (on the launch's own thread, so this finishes first): HDR goes
+    // on now, not once the process is up, since a game that checks for HDR only at start would otherwise never offer it.
+    // Unknown "auto" games are still caught once they run; only what the wiki already said counts here.
+    private void OnHdrLaunching(Models.GameEntry game)
+    {
+        var settings = App.Services.Settings;
+        if (!settings.Shared.HdrForGames || !WantsHdr(settings.HdrGameMode(game.Id), HdrGames.Supports(game.Id))) return;
+        lock (_hdrLaunching) _hdrLaunching[game.Id] = Environment.TickCount64;
+        SyncHdr();
+    }
+
+    /// <summary>The games Exo started that are not running yet and still inside the grace; one that shows up, or outstays it, is dropped.</summary>
+    internal static List<string> PendingHdrLaunches(Dictionary<string, long> launching, IEnumerable<string> running, long now, long graceMs)
+    {
+        lock (launching)
+        {
+            var seen = running.ToHashSet(StringComparer.OrdinalIgnoreCase);
+            foreach (var (id, at) in launching.ToList())
+                if (seen.Contains(id) || now - at > graceMs) launching.Remove(id);
+            return [.. launching.Keys];
+        }
+    }
 
     /// <summary>Runs the HDR check on the pool now: a game started or closed, a setting or the screen changed.</summary>
     internal void SyncHdrSoon()
@@ -75,7 +107,8 @@ public sealed partial class MainWindow
             var gammaPending = !SyncSdrGamma() && Interlocked.Decrement(ref _sdrGammaTries) >= 0;
             if (!App.Services.Settings.Shared.HdrForGames) { RestoreHdr(); return _hdrSwitchedOn is not null || gammaPending; }
             var running = RunningLibraryGames().Keys;
-            var want = running.Any(id =>
+            var pending = PendingHdrLaunches(_hdrLaunching, running, Environment.TickCount64, HdrLaunchGraceMs);
+            var want = running.Concat(pending).Any(id =>
             {
                 var mode = App.Services.Settings.HdrGameMode(id);
                 if (mode == "auto" && HdrGames.Cached(id) is null) LookUpHdr(id);
@@ -94,7 +127,7 @@ public sealed partial class MainWindow
                 }
             }
             else if (!want) RestoreHdr();
-            return running.Count > 0 || _hdrSwitchedOn is not null || gammaPending;
+            return running.Count > 0 || pending.Count > 0 || _hdrSwitchedOn is not null || gammaPending;
         }
         catch (Exception ex) { AppLog.Debug("HDR for games: " + ex.GetType().Name); return _hdrSwitchedOn is not null; }
     }
@@ -210,6 +243,7 @@ public sealed partial class MainWindow
     private void StopHdrForGames()
     {
         try { App.Services.Launcher.GameRunStateChanged -= OnHdrRunState; } catch { }
+        try { App.Services.Launcher.GameLaunching -= OnHdrLaunching; } catch { }
         // A look still running on the pool could switch HDR on again after the restore below.
         try
         {
@@ -229,6 +263,9 @@ public sealed partial class MainWindow
 
     [System.Runtime.InteropServices.DllImport("comctl32.dll")]
     private static extern bool RemoveWindowSubclass(nint hwnd, SubclassProc callback, nuint subclassId);
+
+    [System.Runtime.InteropServices.DllImport("user32.dll", EntryPoint = "RegisterWindowMessageW", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+    private static extern uint RegisterWindowMessage(string name);
 
     [System.Runtime.InteropServices.DllImport("comctl32.dll")]
     private static extern nint DefSubclassProc(nint hwnd, uint message, nuint wParam, nint lParam);

@@ -3,8 +3,22 @@ using Xunit;
 
 namespace ExoLauncher.Tests;
 
+/// <summary>
+/// Ways the SDR-in-HDR profile could go wrong without anyone seeing it: the same screen gives a different profile
+/// file each second (its name is a hash of its content), so Apply reinstalls and re-associates it on every look;
+/// the curve falls somewhere or lifts above SDR white; Windows' color system refuses the profile.
+/// </summary>
 public sealed class SdrInHdrTests
 {
+    [Fact]
+    public void TheSameScreenMakesTheSameProfileAtAnyTime()
+    {
+        var first = SdrInHdr.Generate(240, 0.05, 800);
+        Thread.Sleep(1100); // across a clock second: a timestamp in the header would show here
+        Assert.Equal(first, SdrInHdr.Generate(240, 0.05, 800));
+        Assert.NotEqual(first, SdrInHdr.Generate(200, 0.05, 800));
+    }
+
     [Theory]
     [InlineData(0.0)]
     [InlineData(80.0)]

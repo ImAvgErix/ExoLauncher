@@ -36,7 +36,7 @@ internal static class EpicQuietSettings
     /// <summary>Epic's start is Exo's now: quiet it now if Epic is closed, else the next time Exo starts it.</summary>
     internal static void HandToExo()
     {
-        try { if (!File.Exists(BeforePath)) File.WriteAllText(BeforePath, "{}"); }
+        try { if (!File.Exists(BeforePath)) WriteAtomic(BeforePath, "{}"); }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return; }
         ApplyIfHanded();
     }
@@ -50,7 +50,7 @@ internal static class EpicQuietSettings
             if (Quiet(File.ReadAllText(path)) is not { } quiet) return;
             var before = JsonSerializer.Deserialize<Dictionary<string, bool>>(File.ReadAllText(BeforePath)) ?? [];
             foreach (var (key, on) in quiet.Before) before.TryAdd(key, on);
-            File.WriteAllText(BeforePath, JsonSerializer.Serialize(before));
+            WriteAtomic(BeforePath, JsonSerializer.Serialize(before));
             WriteAtomic(path, quiet.Json);
             AppLog.Info("Epic: its notifications and What's New page are off while Exo starts it.");
         }

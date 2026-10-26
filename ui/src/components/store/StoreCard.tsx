@@ -1,6 +1,7 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
-import { ThumbsUp } from '../../brand/icons'
-import type { StoreArt, StoreTile } from '../../lib/host'
+import { memo, useCallback, useEffect, useId, useMemo, useRef, useState, type CSSProperties } from 'react'
+import { Bookmark } from '../../brand/icons'
+import type { Game, StoreArt, StoreTile } from '../../lib/host'
+import { CoverArt } from '../CoverArt'
 import { artSources, cents, reviewText, warmGame, watchCard } from './storeData'
 
 /**
@@ -36,8 +37,8 @@ export function SteamImage({ sources, className, eager = false, onMissing, onLoa
   return pick.wide ? <><img className="exo-store-img is-backdrop" src={pick.src} alt="" aria-hidden="true" decoding="async" />{img}</> : img
 }
 
-/** Sale chip, price and (unless compact) the old price, in Steam's own regional text when it gave one; nothing when there is no price. */
-export function Price({ final, initial, discount, currency, priceText, wasText, free = false, compact = false }: {
+/** Sale chip, price and the old price, in Steam's own regional text when it gave one; nothing when there is no price. */
+export function Price({ final, initial, discount, currency, priceText, wasText, free = false }: {
   final?: number | null
   initial?: number | null
   discount: number
@@ -45,7 +46,6 @@ export function Price({ final, initial, discount, currency, priceText, wasText, 
   priceText?: string | null
   wasText?: string | null
   free?: boolean
-  compact?: boolean
 }) {
   if (free) return <span className="exo-store-price"><span className="exo-store-now">Free</span></span>
   if (final == null || (final === 0 && !initial)) return null
@@ -53,7 +53,7 @@ export function Price({ final, initial, discount, currency, priceText, wasText, 
     <span className="exo-store-price">
       {discount > 0 ? <span className="exo-store-save">-{discount}%</span> : null}
       <span className="exo-store-now">{priceText ?? cents(final, currency)}</span>
-      {!compact && discount > 0 && initial ? <s className="exo-store-was">{wasText ?? cents(initial, currency)}</s> : null}
+      {discount > 0 && initial ? <s className="exo-store-was">{wasText ?? cents(initial, currency)}</s> : null}
     </span>
   )
 }
@@ -79,41 +79,93 @@ export function useWarm(appId: string, art?: StoreArt | null) {
 
 /**
  * One game on a shelf: its library poster (its name on black when Steam has
- * no art), name, and one quiet line: price, or the release date, with the
- * review score. arrive is its place when the view arrives (DESIGN.md › Motion).
+ * no art) and name, with a coming game's release date or a sale's discount
+ * under it (price and score are on its page). A pick made for this person
+ * says why on its art: the wishlist's bookmark in a corner, or a Similar to
+ * band across the top with the icons of the games you play that it is like,
+ * which opens them as covers (SimilarPanel). arrive is its place when the view
+ * arrives (DESIGN.md › Motion).
  */
-export const StoreCard = memo(function StoreCard({ tile, owned, onOpen, arrive }: {
+export const StoreCard = memo(function StoreCard({ tile, owned, similar = NONE, priced = false, onOpen, onOpenGame, arrive }: {
   tile: StoreTile
   owned: boolean
+  /** Show the price under the name (the Wishlist); elsewhere only a coming game's date or a sale's discount. */
+  priced?: boolean
+  /** The library games this pick is like, closest first. */
+  similar?: readonly Game[]
   onOpen: (tile: StoreTile) => void
+  /** A game of yours from the Similar to panel, opened in the Library. */
+  onOpenGame?: (game: Game) => void
   arrive?: number
 }) {
   const [missing, setMissing] = useState(false)
   const onMissing = useCallback(() => setMissing(true), [])
   const warm = useWarm(tile.appId, tile.art)
   const score = reviewText(tile.review, tile.reviewPercent)
+  const like = tile.wished ? NONE : similar
   return (
+    <div className={`exo-store-card-slot${arrive != null ? ' exo-motion-arrive' : ''}`} style={arrive != null ? { '--i': arrive } as CSSProperties : undefined}>
     <button
       type="button"
-      className={`exo-store-card${arrive != null ? ' exo-motion-arrive' : ''}`}
-      style={arrive != null ? { '--i': arrive } as CSSProperties : undefined}
+      className="exo-store-card"
       onClick={() => onOpen(tile)}
       {...warm}
-      aria-label={[tile.name, owned ? 'in your library' : '', score].filter(Boolean).join(', ')}
+      aria-label={[tile.name, owned ? 'in your library' : '', tile.wished ? 'on your wishlist' : '', score].filter(Boolean).join(', ')}
     >
       <span className="exo-store-poster" data-vt-art>
         {missing
           ? <span className="exo-store-poster-name" aria-hidden="true">{tile.name}</span>
           : <SteamImage sources={artSources(tile, ['poster', 'header'], ['header'])} onMissing={onMissing} />}
         {owned ? <span className="exo-store-badge">In library</span> : null}
+        {tile.wished ? <span className="exo-glass exo-store-mark" aria-hidden="true"><Bookmark size={14} filled /></span> : null}
       </span>
       <span className="exo-store-card-title">{tile.name}</span>
-      <span className="exo-store-meta" aria-hidden="true">
-        {tile.soon
-          ? <span className="exo-store-when">{tile.when ?? 'Coming soon'}</span>
-          : <Price compact free={tile.free} final={tile.final} initial={tile.initial} discount={tile.discount} currency={tile.currency} priceText={tile.priceText} />}
-        {tile.reviewPercent != null && tile.review ? <span className="exo-store-score"><ThumbsUp size={11} filled />{tile.reviewPercent}%</span> : null}
-      </span>
+      {/* Price and score are on the game's page; a card says only what its shelf is about: when it comes, or the sale.
+          The Wishlist is about the price, so its cards show it. */}
+      {tile.soon || tile.discount > 0 || (priced && tile.final != null) ? (
+        <span className="exo-store-meta" aria-hidden="true">
+          {tile.soon ? <span className="exo-store-when">{tile.when ?? 'Coming soon'}</span>
+            : priced ? <Price free={tile.free} final={tile.final} initial={tile.initial} discount={tile.discount} currency={tile.currency} priceText={tile.priceText} wasText={tile.wasText} />
+            : <span className="exo-store-save">-{tile.discount}%</span>}
+        </span>
+      ) : null}
     </button>
+    {like.length ? <SimilarTo games={like} onOpenGame={onOpenGame} /> : null}
+    </div>
   )
 })
+
+const NONE: readonly Game[] = []
+
+/**
+ * Similar to, across the top of a pick's art: the icons of the games of yours it is like. Pressed, it opens a popover
+ * (large glass, light dismiss) with those games as covers, each opening in the Library.
+ */
+function SimilarTo({ games, onOpenGame }: { games: readonly Game[]; onOpenGame?: (game: Game) => void }) {
+  const id = useId()
+  const anchor = `--exo-like-${id.replace(/[^a-z0-9]/gi, '')}` as const
+  const panel = useRef<HTMLDivElement>(null)
+  return (
+    <>
+      <button type="button" className="exo-glass exo-store-similar" style={{ anchorName: anchor }} popoverTarget={id}
+        aria-label={`Similar to ${games.map(g => g.title).join(', ')}`}>
+        Similar to
+        <span className="exo-store-similar-icons" aria-hidden="true">
+          {games.map(g => <CoverArt key={g.id} game={g} className="exo-store-similar-icon" />)}
+        </span>
+      </button>
+      <div ref={panel} id={id} popover="auto" className="exo-glass is-panel exo-store-like-pop" style={{ positionAnchor: anchor } as CSSProperties}
+        role="dialog" aria-label="Similar to your games">
+        <p className="exo-store-like-head">Similar to</p>
+        <div className="exo-store-like-covers">
+          {games.map(g => (
+            <button key={g.id} type="button" className="exo-store-like-game" onClick={() => { panel.current?.hidePopover(); onOpenGame?.(g) }}>
+              <CoverArt game={g} className="exo-store-like-cover" />
+              <span className="exo-store-card-title">{g.title}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+    </>
+  )
+}

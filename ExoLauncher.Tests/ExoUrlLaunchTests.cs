@@ -24,6 +24,8 @@ public sealed class ExoUrlLaunchTests
     [InlineData("steam://rungameid/730//-console")]
     [InlineData("steam://openurl/file:///C:/Windows/System32/cmd.exe")]
     [InlineData("steam://exit")]
+    [InlineData("steam://openurl")]
+    [InlineData("steam://openurl/")]
     [InlineData("file:///C:/Windows/System32/cmd.exe")]
     [InlineData("ms-settings:privacy")]
     [InlineData("ms-windows-store://review/?productid=1")]

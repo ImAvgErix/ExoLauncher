@@ -35,6 +35,10 @@ export function Room({ mouse }: { mouse: ReturnType<typeof useMouse> }) {
     )
   }
   const section: Section = { status: mouse.status, client: mouse.client, apply: mouse.apply, applyAll: mouse.applyAll, busy: mouse.busy }
+  // The library reads some mice without being able to change them yet (a receiver with nothing paired, a model whose
+  // settings channel isn't known): their settings would show made-up values and every change would fail, so only the
+  // mouse itself shows, with why.
+  const ready = mouse.status.ui?.settingsReady !== false
   return (
     <main className="m-room">
       <Device status={mouse.status} brand={mouse.brand} readAt={mouse.readAt} busy={mouse.busy} error={mouse.error}>
@@ -47,7 +51,8 @@ export function Room({ mouse }: { mouse: ReturnType<typeof useMouse> }) {
           />
         ) : null}
       </Device>
-      <Settings key={mouse.current?.id}>
+      {ready ? null : <ReadOnly note={mouse.status.ui?.statusNote} />}
+      {ready ? <Settings key={mouse.current?.id}>
         <Sensitivity {...section} />
         <CoreExtrasPanels {...section} />
         <Performance {...section} />
@@ -60,8 +65,19 @@ export function Room({ mouse }: { mouse: ReturnType<typeof useMouse> }) {
         <Lighting {...section} />
         <Power {...section} />
         {mouse.current ? <Profiles device={finalmouseProfileKey(mouse.current.id)} status={mouse.status} client={mouse.client} applyAll={mouse.applyAll} busy={mouse.busy} /> : null}
-      </Settings>
+      </Settings> : null}
     </main>
+  )
+}
+
+/** A mouse Exo can see but not set up yet: the library's reason when it is one Exo can act on (it can name pages of other apps). */
+function ReadOnly({ note }: { note?: string | null }) {
+  const why = note && !/under Advanced|protocol capture/i.test(note) ? note : null
+  return (
+    <section className="m-readonly m-arrive" style={{ '--i': 1 } as CSSProperties}>
+      <p className="m-name">Exo can't change this mouse's settings yet</p>
+      <p className="m-meta">{why ?? "Its battery and connection show here; changing its settings needs support OpenMouse doesn't have yet."}</p>
+    </section>
   )
 }
 

@@ -26,6 +26,15 @@ public sealed class BridgeRequestSizeTests
     }
 
     [Fact]
+    public void ABigRequestIsJudgedByItsFirstWordsNotBuiltIntoATree()
+    {
+        // The id and method come last: past the head the host looks at, so there is nothing to answer and no tree is built.
+        var tail = "{\"params\":{\"png\":\"" + new string('A', 2_000_000) + "\"},\"version\":1,\"id\":\"r2\",\"method\":\"app.log\"}";
+        Assert.False(ExoBridgeProtocol.TryParseRequest(tail, out var request));
+        Assert.Empty(request.Id);
+    }
+
+    [Fact]
     public void MalformedRequestsHaveNoId()
     {
         Assert.False(ExoBridgeProtocol.TryParseRequest("{\"id\":5,\"method\":\"app.log\"}", out var request));

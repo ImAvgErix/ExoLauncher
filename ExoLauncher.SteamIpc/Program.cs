@@ -118,7 +118,13 @@ internal static partial class Program
             }
 
             var action = args[0].Trim().ToLowerInvariant();
-            if (action == "watch") return RunWatch(args, appId);
+            if (action == "watch")
+            {
+                var watchCode = RunWatch(args, appId);
+                // steamclient64 keeps worker threads; returning from Main will hang, and a watch whose parent is gone must not linger.
+                Environment.Exit(watchCode);
+                return watchCode;
+            }
             if (action is "props" or "set")
             {
                 var propsCode = action == "props" ? RunProps(args, appId) : RunSet(args, appId);

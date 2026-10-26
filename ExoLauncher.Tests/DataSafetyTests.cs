@@ -8,6 +8,7 @@ namespace ExoLauncher.Tests;
 /// Files Exo swaps inside other programs' installs, proven in temp folders.
 /// Ways it could fail: an upscaler backup is torn and later handed back as the "original"; Exo's write marker names
 /// bytes Exo did not write, so Exo's vendor DLL is adopted as the original;
+/// a restore leaves its saved copy behind, so after a game update Restore puts the pre-update file over the new one;
 /// an unreadable download queue crashes startup or is overwritten.
 /// </summary>
 public sealed class DataSafetyTests : IDisposable
@@ -64,6 +65,24 @@ public sealed class DataSafetyTests : IDisposable
         Assert.Empty(Directory.GetFiles(_tmp, "*.exo-tmp"));
     }
 
+    [Fact]
+    public void Upscaler_write_that_cannot_mark_itself_puts_the_previous_file_back()
+    {
+        var dest = Path.Combine(_tmp, "nvngx_dlss.dll");
+        var source = Path.Combine(_tmp, "vendor.dll");
+        File.WriteAllBytes(dest, Bytes(4));
+        File.WriteAllBytes(source, Bytes(5));
+        Assert.True(DlssSwapService.TryCaptureFirstShipped(dest));
+        // A folder where the marker belongs: the marker cannot be written, after the file was already swapped.
+        Directory.CreateDirectory(dest + DlssSwapService.WrittenSuffix);
+
+        Assert.ThrowsAny<Exception>(() => DlssSwapService.WriteWithBackup(dest, source, Sha(Bytes(5))));
+
+        Assert.Equal(Bytes(4), File.ReadAllBytes(dest));
+        Assert.Empty(Directory.GetFiles(_tmp, "*.exo-prev"));
+        Assert.Empty(Directory.GetFiles(_tmp, "*.exo-tmp"));
+    }
+
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
@@ -82,6 +101,27 @@ public sealed class DataSafetyTests : IDisposable
         Assert.Equal(expected, File.ReadAllBytes(dest + DlssSwapService.SwapperBackupSuffix));
         Assert.Equal(expected, File.ReadAllBytes(dest + DlssSwapService.BackupSuffix));
         Assert.False(File.Exists(dest + DlssSwapService.StaleSuffix));
+    }
+
+    [Fact]
+    public void Upscaler_restore_leaves_no_saved_original_to_go_stale_after_a_game_update()
+    {
+        var dest = Path.Combine(_tmp, "nvngx_dlss.dll");
+        File.WriteAllBytes(dest, Bytes(10));
+        Assert.True(DlssSwapService.TryCaptureFirstShipped(dest));
+        // A restore ends with the live file equal to the saved original; then the saved copies go.
+        DlssSwapService.ClearSavedOriginal(dest);
+        Assert.Equal(Bytes(10), File.ReadAllBytes(dest));
+        Assert.False(File.Exists(dest + DlssSwapService.SwapperBackupSuffix));
+        Assert.False(File.Exists(dest + DlssSwapService.BackupSuffix));
+
+        // The store updates the game's file. Nothing may offer to put the old one back over it...
+        File.WriteAllBytes(dest, Bytes(11));
+        Assert.False(DlssSwapService.HasValidRestoreClaim(dest));
+
+        // ...and the next swap saves the updated file as the original.
+        Assert.True(DlssSwapService.ReconcileOriginal(dest, liveIsKnownRelease: false));
+        Assert.Equal(Bytes(11), File.ReadAllBytes(dest + DlssSwapService.SwapperBackupSuffix));
     }
 
     // ---- download queue ----

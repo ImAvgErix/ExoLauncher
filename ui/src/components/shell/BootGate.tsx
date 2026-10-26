@@ -3,6 +3,7 @@ import { Button } from '../ui/Button'
 import { host, type LauncherSettings, type StoreStatus } from '../../lib/host'
 import { ErrorBoundary } from './ErrorBoundary'
 import { shouldReduceMotion } from '../../lib/motionPreference'
+import type { View } from './TitleBar'
 import { useChildRef, useDismiss } from '../../lib/dismiss'
 
 let painted = false
@@ -122,6 +123,14 @@ function Onboarding({ stores, onSettings, onStores, onComplete, onAddFolder }: B
   )
 }
 
+/** Rooms LauncherApp gives back while hidden (its sweep); only these keep scroll. */
+export const EJECTABLE_ROOMS: readonly View[] = ['store', 'system', 'settings']
+
+/** Where each of those rooms' scroller sat when it was last scrolled, so an
+ *  unmounted room comes back where it was. Scroll events fire only on the
+ *  scroller itself, so the room listens on it once found. */
+const roomScroll = new Map<string, number>()
+
 /** The moves a view arrives with (DESIGN.md › Motion), as opposed to loops and work. */
 const ENTRANCES = new Set(['exo-arrive', 'exo-switch', 'exo-enter', 'exo-enter-cover', 'exo-fade-in', 'exo-float-in'])
 
@@ -170,6 +179,35 @@ export function Room({ name, mounted, active, covered = false, warm = false, lab
     }
     arrived.current = true
   }, [active, floating])
+  // The scroller appears with the room's children (a first-open chunk can suspend),
+  // so it is found on the next frames; then it is listened to and, for a remount,
+  // returned to where it was once its content is tall enough again.
+  useEffect(() => {
+    const room = frame.current
+    if (!mounted || !name || !room) return
+    let scroller: HTMLElement | null = null
+    const find = () => room.querySelector<HTMLElement>('main') ??
+      [...room.querySelectorAll<HTMLElement>('*')]
+                .find(el => el.scrollHeight > el.clientHeight + 8 && /auto|scroll/.test(getComputedStyle(el).overflowY)) ?? null
+    let tries = 90
+    const attach = () => {
+      scroller ??= find()
+      if (!scroller) { if (--tries > 0) requestAnimationFrame(attach); return }
+      const saved = roomScroll.get(name)
+      const save = () => { if (scroller) roomScroll.set(name, scroller.scrollTop) }
+      scroller.addEventListener('scroll', save, { passive: true })
+      if (saved == null) return
+      let retop = 30
+      const restore = () => {
+        if (!scroller) return
+        scroller.scrollTop = saved
+        if (Math.abs(scroller.scrollTop - saved) > 1 && --retop > 0) requestAnimationFrame(restore)
+      }
+      requestAnimationFrame(restore)
+    }
+    requestAnimationFrame(attach)
+    return () => { tries = 0 }
+  }, [mounted, name])
   if (!mounted) return null
   const backstage = warm && !active && !floating
   return (

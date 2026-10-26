@@ -156,6 +156,12 @@ public sealed partial class MicCatalogTests
         var amd = MicCatalog.Describe(new MicIdentity("Microphone (AMD Streaming Audio Device)", null, null, null, null, "SWD", 48000));
         Assert.Equal("AMD Noise Suppression mic", amd.Title);
         Assert.True(MicCatalog.StandsDown(amd, MicStage.NoiseSuppression));
+
+        // Krisp's virtual mic, as Windows names it (its own KRISPVUSB bus under ROOT), cleaned once, by Krisp.
+        var krisp = MicCatalog.Describe(new MicIdentity("Krisp Microphone (Krisp Audio)", "Krisp Audio", "Krisp Audio", null, null, "KRISPVUSB", 48000));
+        Assert.Equal("Krisp mic", krisp.Title);
+        Assert.Equal(MicKind.Virtual, krisp.Kind);
+        Assert.True(MicCatalog.StandsDown(krisp, MicStage.NoiseSuppression));
     }
 
     private static IEnumerable<object> Entries() =>

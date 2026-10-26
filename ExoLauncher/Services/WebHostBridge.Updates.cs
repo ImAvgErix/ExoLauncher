@@ -3,6 +3,18 @@ namespace ExoLauncher.Services;
 
 public sealed partial class WebHostBridge
 {
+    private string? _updateProblem;
+    private bool _updateProblemRead;
+
+    /// <summary>How the update before this start ended, when it didn't take: said beside the same version being offered again.</summary>
+    private string? LastUpdateProblem()
+    {
+        if (_updateProblemRead) return _updateProblem;
+        _updateProblemRead = true;
+        var root = Path.GetDirectoryName(Path.TrimEndingDirectorySeparator(AppContext.BaseDirectory));
+        return _updateProblem = root is null ? null : UpdateOutcome.Take(root);
+    }
+
     /// <param name="manual">Settings' "Check for update": bypasses the release cache.</param>
     private async Task<object> CheckUpdateAsync(bool manual, CancellationToken ct)
     {
@@ -15,7 +27,7 @@ public sealed partial class WebHostBridge
             UpdateAvailable = check.UpdateAvailable,
             Latest = check.RemoteVersion,
             Current = check.LocalVersion,
-            Message = check.Message,
+            Message = check.UpdateAvailable && LastUpdateProblem() is { } problem ? problem + " " + check.Message : check.Message,
             Upcoming = check.Upcoming,
             // In-app only — no browser URL for install.
             InApp = true,

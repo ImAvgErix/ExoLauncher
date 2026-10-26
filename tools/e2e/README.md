@@ -8,7 +8,15 @@ node tools/e2e/run.mjs                       # everything (about 30 minutes)
 node tools/e2e/run.mjs --suites rooms,stress # some suites
 node tools/e2e/run.mjs --skip zoom --quick   # fewer rounds, no restarts as a 4K screen
 node tools/e2e/run.mjs --attach --keep       # drive the Exo already running on --port 9339 and leave it there
+node tools/e2e/run.mjs --allow-game                # run although a game is playing (its real clicks and window moves may take focus from the game)
+node tools/e2e/run.mjs --changed --plan      # which suites the changed files can reach; touches nothing
+node tools/e2e/run.mjs --changed             # run only those (changes against HEAD, untracked files included)
+node tools/e2e/run.mjs --changed main        # the same against another base
 ```
+
+`--changed` maps files to suites in `lib/affected.mjs` (tests: `node --test tools/e2e/lib/affected.test.mjs`). It errs
+wide: any app change also runs `shell`, and an app file no rule knows is named in the plan instead of dropped. `--suites`
+names suites outright and wins over `--changed`.
 
 The report lands in `e2e-reports/<time>/`: `summary.md` (read this), `report.json` (every check with its evidence and
 numbers), `screenshots/` and `SHA256SUMS.txt` (`sha256sum -c SHA256SUMS.txt` in Git Bash checks the folder). Each check
@@ -22,10 +30,10 @@ and why). Exit code 0: nothing failed; 1: a check failed; 2: the run itself coul
 | `shell` | Startup time (from app.log's milestones), app.log and the console clean, **the screen showing the whole page** (a screenshot of the screen against the page's own picture), the window filling its monitor, the Bar's parts, the window buttons clicked for real. |
 | `rooms` | Every Appearance chosen through Settings, then every room in it: layout (nothing cut off by the window, no sideways scroll, no control under something), **contrast measured from pixels** (words against what is really behind them, glass and art included), no block in the other theme's color, pictures loaded, controls named, no console errors. |
 | `library` | Every sort, a game's sheet by click and keyboard, its menu, Ctrl+K to a game, a folder made, opened, recolored and deleted, the + menu, Continue, the whole grid scrolled. |
-| `store` | Shelves, the banner's picks, a shelf's arrows, search, a game's page with its requirements. Nothing bought or wishlisted; Free on Epic (Epic's own site) is never clicked. |
+| `store` | Shelves, the banner's picks, a shelf's arrows, search, the calendar (days, exact dates only, its filters), a game's page with its requirements. Nothing bought or wishlisted; Free on Epic (Epic's own site) is never clicked. |
 | `discord` | Signed in, the lists ending clear of the user panel, the test channel opened, a message sent, reacted to and deleted, invite links (live and dead), server pages, Discord's settings, a profile. Only in the test place (Uhh #mod-chat); the test message is deleted even when a step fails. Nothing joins a call. |
 | `music` | Home, search, a playlist and back, the player. Nothing is played. |
-| `system` | The driver and its newest version, Display's menus (opened, never changed), Shaders' games. |
+| `system` | The driver and its newest version, Display's menus (opened, never changed), Shaders' games, and Shaders' engine leaving once the board is off screen. |
 | `devices` | Exo Mouse loads, finds the mouse, wears Exo's Appearance. |
 | `capture` | Snip from the title bar's Capture menu, round after round (Exo Capture's overlay is given Return, so each snip is of the screen under the cursor, and goes to the Recycle Bin after): the overlay showing within 150 ms, the editor drawn no larger than it is shown, the page's memory and WebView2's back where they were after, and no `webview-process-failed` in app.log. |
 | `settings` | Every section, every switch in General and Downloads turned and turned back, Text size, Escape. |

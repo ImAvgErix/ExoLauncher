@@ -429,6 +429,8 @@ public sealed class AppUpdateService
             if (!Directory.Exists(_updatesDirectory))
                 return;
 
+            // A cancelled or stalled update leaves its partial download (up to 512 MB); it is cleaned here, not only by the next one.
+            ResumableDownload.CleanupAbandoned(_updatesDirectory);
             var installers = new List<FileInfo>();
             foreach (var path in Directory.EnumerateFiles(_updatesDirectory, "ExoLauncher-Setup-*", SearchOption.TopDirectoryOnly))
             {

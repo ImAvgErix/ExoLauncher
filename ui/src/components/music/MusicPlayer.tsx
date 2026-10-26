@@ -579,7 +579,7 @@ function PlayerBar({ playback, player, panel, onPanel, onChanged }: {
           {/* The badge rides the artist line, so the title never gives up room when it appears. */}
           <span className="exo-music-bar-sub">
             {failed ? <span className="exo-music-row-sub is-failed" role="alert">{failed}</span> : <span className="exo-music-row-sub">{playback?.artist}</span>}
-            <QualityBadge />
+            <QualityBadge playing={!!(playback?.title || player?.title)} />
           </span>
         </span>
         {player?.trackUri ? <SongVerdict player={player} change={change} /> : null}
@@ -596,11 +596,11 @@ function PlayerBar({ playback, player, panel, onPanel, onChanged }: {
   )
 }
 
-/** Lossless, when Spotify streams at that quality. */
-function QualityBadge() {
+/** Lossless, when Spotify streams a song at that quality; nothing playing has no quality to show. */
+function QualityBadge({ playing }: { playing: boolean }) {
   const { has, revision } = usePlayer()
   const { data } = useView('audio', { offset: revision }, !has('audio'))
-  return (data as { quality?: number } | null)?.quality === 5 ? <span className="exo-music-badge">Lossless</span> : null
+  return playing && (data as { quality?: number } | null)?.quality === 5 ? <span className="exo-music-badge">Lossless</span> : null
 }
 
 function BarControls({ playback, player, change, onFail }: {

@@ -37,5 +37,6 @@ DWORD FindDiscord();
 
 /// Exo's cleaned voice for the microphone track: a pipe Exo writes 20 ms frames to (each a 16-byte header, when its
 /// sound was captured in 100 ns units, its sample frames and channels, then 16-bit stereo at 48 kHz). While frames
-/// come, the microphone track takes them instead of the raw microphone; this takes the pipe and closes it at its end.
+/// come, the microphone track takes them and the raw microphone's stream stops (Windows shows Exo alone using the
+/// microphone), starting again as soon as they stop; this takes the pipe and closes it at its end.
 void StartVoiceFeed(HANDLE pipe);

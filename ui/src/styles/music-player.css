@@ -53,7 +53,6 @@
   color: var(--color-good);
 }
 
-
 .exo-music-side-head {
   display: flex;
   align-items: center;
@@ -157,6 +156,34 @@
   min-height: 0;
   padding: 24px 32px 32px;
   overflow-y: auto;
+  container: music-page / inline-size;
+}
+
+/* A narrow page (a portrait screen, a panel open beside it): songs drop the album column so a name keeps the
+   room, and Search's top result sits above its songs instead of beside them. */
+@container music-page (max-width: 640px) {
+  .exo-music-main .exo-music-track {
+    grid-template-columns: 44px minmax(0, 1fr) 32px 56px;
+  }
+
+  .exo-music-main .exo-music-track-album {
+    display: none;
+  }
+
+  .exo-music-main .exo-music-search-head {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Narrowest: a song's More goes too (right-click still opens its menu). */
+@container music-page (max-width: 420px) {
+  .exo-music-main .exo-music-track {
+    grid-template-columns: 44px minmax(0, 1fr) 56px;
+  }
+
+  .exo-music-main .exo-music-track-more {
+    display: none;
+  }
 }
 
 .exo-music-back {

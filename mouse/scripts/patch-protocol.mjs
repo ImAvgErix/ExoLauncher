@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../node_modules/@openmouse/protocol')
 const version = JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8')).version
-if (version !== '0.45.2') throw new Error(`@openmouse/protocol is ${version}; check scripts/patch-protocol.mjs against it.`)
+if (version !== '0.47.0') throw new Error(`@openmouse/protocol is ${version}; check scripts/patch-protocol.mjs against it.`)
 
 const files = {
   'dist/finalmouse/index.js': [

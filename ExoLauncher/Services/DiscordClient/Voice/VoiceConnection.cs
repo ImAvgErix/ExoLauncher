@@ -150,7 +150,7 @@ internal sealed class VoiceConnection : IAsyncDisposable
             }
         }
         catch (OperationCanceledException) when (_stop.IsCancellationRequested) { return "ended"; }
-        catch (Exception ex) when (ex is WebSocketException or IOException or JsonException or TimeoutException)
+        catch (Exception ex) when (ex is WebSocketException or IOException or JsonException or TimeoutException or OperationCanceledException)
         {
             AppLog.Info("Discord voice: connection dropped (" + ex.GetType().Name + ").");
         }
@@ -625,6 +625,9 @@ internal sealed class VoiceConnection : IAsyncDisposable
     // Arrival times (microseconds) by unwrapped transport sequence number, not yet reported; what came in this second.
     private readonly SortedDictionary<long, long> _arrivals = [];
     private long _lastTransport = -1, _nextReported = -1, _feedbackAt, _rembAt, _received, _receivedSince, _receivedPerSecond;
+    // The smoothed share of the media's packets lost on the way in (0-1): over 5 % it reins REMB in, so the
+    // server eases off a link that is losing instead of being told it can take twice what arrived.
+    private double _lossShare;
     private uint _media;
     private byte _feedbackCount;
     private int _secondsLogged;
@@ -664,9 +667,16 @@ internal sealed class VoiceConnection : IAsyncDisposable
                 var from = _nextReported;
                 var to = Math.Min(_arrivals.Keys.Max(), from + 2000);
                 var times = new List<long?>();
-                for (var s = from; s <= to; s++) times.Add(_arrivals.Remove(s, out var at) ? at : null);
+                var lost = 0;
+                for (var s = from; s <= to; s++)
+                {
+                    if (_arrivals.Remove(s, out var at)) times.Add(at);
+                    else { times.Add(null); lost++; }
+                }
                 foreach (var stale in _arrivals.Keys.Where(k => k <= to).ToList()) _arrivals.Remove(stale);
                 _nextReported = to + 1;
+                // Missing in the window counts as lost; late ones still arriving were only jitter to it.
+                _lossShare += ((double)lost / times.Count - _lossShare) * 0.3;
                 feedback = Rtcp.TransportFeedback(_ssrc, _media, (ushort)from, _feedbackCount++, times);
             }
             if (now - _rembAt >= 1000)
@@ -674,7 +684,10 @@ internal sealed class VoiceConnection : IAsyncDisposable
                 _receivedPerSecond = _rembAt == 0 ? 0 : (_received - _receivedSince) * 8 * 1000 / Math.Max(1, now - _rembAt);
                 _receivedSince = _received;
                 _rembAt = now;
-                if (_media != 0) remb = Rtcp.Remb(_ssrc, Math.Max(10_000_000, _receivedPerSecond * 2), [_media]);
+                // Losing over 5 %: tell the server a little under what arrived, so it finds the rate the link keeps.
+                // Under it: twice what arrived and at least 10 Mbit/s, so a stream rises to the quality it was sent at.
+                var takes = _lossShare > 0.05 ? Math.Max(1_500_000, (long)(_receivedPerSecond * 0.9)) : Math.Max(10_000_000, _receivedPerSecond * 2);
+                if (_media != 0) remb = Rtcp.Remb(_ssrc, takes, [_media]);
                 // What a watched stream or camera comes in at, once a minute, so its quality can be read back.
                 if (_media != 0 && ++_secondsLogged % 60 == 0) AppLog.Info($"Discord video: receiving {_receivedPerSecond / 1000} kbit/s.");
             }
@@ -937,13 +950,14 @@ internal sealed class VoiceConnection : IAsyncDisposable
     internal void StartSoundshare(uint app)
     {
         if (_soundshare is not null || _transport is null || _dave is null) return;
-        _musicEncoder = Opus.NewMusicEncoder();
+        _musicEncoder = Opus.NewMusicEncoder(256000);
         _soundshare = new StreamAudio(app);
         _soundshare.Captured += frame =>
         {
             if (_musicEncoder == 0 || _transport is not { Started: true } || _dave is null) return;
             try
             {
+                if (_lossWanted != _lossSet) Opus.SetExpectedLoss(_musicEncoder, _lossSet = _lossWanted);
                 Span<byte> opus = stackalloc byte[1275];
                 var length = Opus.Encode(_musicEncoder, frame, opus);
                 if (length > 0) SendFrame(opus[..length]);
@@ -963,7 +977,7 @@ internal sealed class VoiceConnection : IAsyncDisposable
         var audio = _audio!;
         // While a game runs it steps aside: a model per voice (a quarter of a core each) beside the game starved the
         // microphone's own thread, and your voice went out late, choppy or not at all.
-        if (_listening || gain == 0 || !App.Services.Settings.Shared.DiscordOthersNoiseSuppression || GameRunning.Now)
+        if (_listening || gain == 0 || !(App.Services.Settings.Shared.DiscordOthersNoiseSuppression || VoiceProcessing.ExoOn(App.Services.Settings.Shared)) || GameRunning.Now)
         {
             audio.Play(ssrc, frame, gain);
             return;

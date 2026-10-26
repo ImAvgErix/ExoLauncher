@@ -39,7 +39,9 @@ internal static class TrackerGgPlaytime
         bool Ok,
         bool ProfilePrivate,
         IReadOnlyDictionary<string, int> Minutes,
-        string Message);
+        string Message,
+        /// <summary>Games whose figure is tracker.gg's lifetime total (its overview), which replaces an earlier reading; the rest are only ever raised.</summary>
+        IReadOnlySet<string>? Lifetime = null);
 
     internal static string ProfilePageUrl(string riotId) =>
         "https://tracker.gg/valorant/profile/riot/" + EncodeRiotId(riotId) + "/overview";
@@ -88,7 +90,10 @@ internal static class TrackerGgPlaytime
         return minutes;
     }
 
-    internal static int? ParseBestMinutes(string? json)
+    internal static int? ParseBestMinutes(string? json) => ParseReading(json)?.Minutes;
+
+    /// <summary>The best figure in a profile, and whether it is tracker.gg's lifetime total (overview) rather than a sum of queues or one season.</summary>
+    internal static (int Minutes, bool Lifetime)? ParseReading(string? json)
     {
         if (string.IsNullOrWhiteSpace(json) || IsPrivateProfile(json)) return null;
         try
@@ -133,9 +138,9 @@ internal static class TrackerGgPlaytime
 
             // Overview/profile is tracker.gg lifetime. Playlist sums are only
             // a fallback: they can be current-act or overlapping queues.
-            if (overview is > 0) return overview;
-            if (playlists.Count > 0) return playlists.Values.Sum();
-            return seasons > 0 ? seasons : null;
+            if (overview is > 0) return (overview.Value, true);
+            if (playlists.Count > 0) return (playlists.Values.Sum(), false);
+            return seasons > 0 ? (seasons, false) : null;
         }
         catch (JsonException)
         {
@@ -150,6 +155,7 @@ internal static class TrackerGgPlaytime
             return new Result(false, false, new Dictionary<string, int>(), "Riot ID must look like Name#TAG.");
 
         var minutes = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        var lifetime = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var anyPrivate = false;
         var anyBlocked = false;
         var encoded = EncodeRiotId(id);
@@ -206,10 +212,11 @@ internal static class TrackerGgPlaytime
                 if (!minutes.TryGetValue(pair.Key, out var current) || pair.Value > current)
                     minutes[pair.Key] = pair.Value;
             }
+            if (ParseReading(json) is { Lifetime: true }) lifetime.Add(gameId);
         }
 
         if (minutes.Count > 0)
-            return new Result(true, false, minutes, "Imported hours from tracker.gg.");
+            return new Result(true, false, minutes, "Imported hours from tracker.gg.", lifetime);
         if (anyPrivate)
             return new Result(
                 false,

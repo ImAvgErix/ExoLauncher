@@ -58,7 +58,7 @@ const wchar_t* CodecName(Codec codec)
     }
 }
 
-static GUID Subtype(Codec codec)
+GUID Subtype(Codec codec)
 {
     switch (codec)
     {
@@ -68,8 +68,6 @@ static GUID Subtype(Codec codec)
     }
 }
 
-namespace
-{
 /// The MFTs for a category and types; true and the chosen one's name when any matches the adapter.
 /// One that says it is on this adapter wins over one that does not say: on a PC with two GPUs
 /// (an Intel or AMD iGPU beside the gaming card) the other GPU's encoder cannot read our frames.
@@ -111,7 +109,6 @@ bool FindMft(const GUID& category, UINT32 flags, const GUID& inSub, const GUID& 
     for (UINT32 i = 0; i < count; ++i) list[i]->Release();
     CoTaskMemFree(list);
     return pick >= 0;
-}
 }
 
 Codec EncoderSupport::Best() const
@@ -480,7 +477,9 @@ VideoEncoder::VideoEncoder(GpuDevice& gpu, Codec codec, UINT width, UINT height,
             if (FAILED(m_api->SetValue(&CODECAPI_AVEncCommonRateControlMode, &mode)))
                 SetApi(m_api.get(), CODECAPI_AVEncCommonRateControlMode, eAVEncCommonRateControlMode_PeakConstrainedVBR);
             SetApi(m_api.get(), CODECAPI_AVEncCommonBufferSize, bitrate / 2);
-            SetApi(m_api.get(), CODECAPI_AVEncVideoMinQP, 18);
+            // QP 12, not 18: a still screen or crisp UI is worth its finest quantization; the rate control
+            // still holds the bit rate when motion comes back.
+            SetApi(m_api.get(), CODECAPI_AVEncVideoMinQP, 12);
         }
         else
         {
@@ -500,9 +499,9 @@ VideoEncoder::VideoEncoder(GpuDevice& gpu, Codec codec, UINT width, UINT height,
         SetApi(m_api.get(), CODECAPI_AVEncMPVGOPSize, fps * (realtime ? 60 : 2));
         SetApi(m_api.get(), CODECAPI_AVEncMPVDefaultBPictureCount, 0);
         SetApiBool(m_api.get(), CODECAPI_AVLowLatencyMode, true);
-        // Leans to speed: NVENC, AMF and Quick Sync run beside the game's own GPU work. A stream's
-        // bit rate is lower than a file's, so it takes a little more care per frame.
-        SetApi(m_api.get(), CODECAPI_AVEncCommonQualityVsSpeed, realtime ? 55 : 40);
+        // Leans to speed still — NVENC, AMF and Quick Sync run beside the game's own GPU work — but a
+        // stream's bit rate is lower than a file's, so it takes markedly more care per frame.
+        SetApi(m_api.get(), CODECAPI_AVEncCommonQualityVsSpeed, realtime ? 70 : 40);
     }
 
     com_ptr<IMFMediaType> out;
@@ -1002,23 +1001,10 @@ CaptureSession::CaptureSession(std::shared_ptr<GpuDevice> gpu, const Options& op
         }
     }
 
-    DXGI_FORMAT targetFormat = m_hdr ? DXGI_FORMAT_P010 : DXGI_FORMAT_NV12;
-    for (int i = 0; i < 6; ++i)
-    {
-        D3D11_TEXTURE2D_DESC desc{};
-        desc.Width = m_width;
-        desc.Height = m_height;
-        desc.MipLevels = 1;
-        desc.ArraySize = 1;
-        desc.Format = targetFormat;
-        desc.SampleDesc.Count = 1;
-        desc.Usage = D3D11_USAGE_DEFAULT;
-        desc.BindFlags = D3D11_BIND_RENDER_TARGET;
-        Target target;
-        Check(m_gpu->device->CreateTexture2D(&desc, nullptr, target.texture.put()), "frame texture");
-        m_targets.push_back(std::move(target));
-        m_free->push_back(i);
-    }
+    // Four converted frames: two at most are in use (one with the encoder, one being converted), measured beside a game on
+    // the same GPU. An encoder that holds more gets more, up to six (AddTarget); each is 3 MB at 1080p, 12 MB at 4K.
+    m_targets.reserve(MaxTargets);
+    for (int i = 0; i < 4; ++i) m_free->push_back(AddTarget());
 
     // Through Windows, the converter waits its turn behind the game. From inside the game it reads
     // a texture the game writes next, so at low priority it would hold the game up.
@@ -1208,6 +1194,45 @@ ID3D11VideoProcessorInputView* CaptureSession::InputFor(ID3D11Texture2D* texture
     return m_copyView.get();
 }
 
+int CaptureSession::TakeTarget()
+{
+    {
+        std::lock_guard lock(*m_freeLock);
+        if (!m_free->empty())
+        {
+            int index = m_free->back();
+            m_free->pop_back();
+            return index;
+        }
+    }
+    if (m_targets.size() >= MaxTargets) return -1;
+    try { return AddTarget(); }
+    catch (const std::exception&) { return -1; }
+}
+
+int CaptureSession::AddTarget()
+{
+    D3D11_TEXTURE2D_DESC desc{};
+    desc.Width = m_width;
+    desc.Height = m_height;
+    desc.MipLevels = 1;
+    desc.ArraySize = 1;
+    desc.Format = m_hdr ? DXGI_FORMAT_P010 : DXGI_FORMAT_NV12;
+    desc.SampleDesc.Count = 1;
+    desc.Usage = D3D11_USAGE_DEFAULT;
+    desc.BindFlags = D3D11_BIND_RENDER_TARGET;
+    Target target;
+    Check(m_gpu->device->CreateTexture2D(&desc, nullptr, target.texture.put()), "frame texture");
+    if (m_vpEnum)
+    {
+        D3D11_VIDEO_PROCESSOR_OUTPUT_VIEW_DESC outDesc{};
+        outDesc.ViewDimension = D3D11_VPOV_DIMENSION_TEXTURE2D;
+        Check(m_videoDevice->CreateVideoProcessorOutputView(target.texture.get(), m_vpEnum.get(), &outDesc, target.view.put()), "converter output");
+    }
+    m_targets.push_back(std::move(target));
+    return static_cast<int>(m_targets.size()) - 1;
+}
+
 void CaptureSession::EnsureProcessor(UINT width, UINT height, DXGI_FORMAT format)
 {
     if (m_vp && m_inW == width && m_inH == height && m_inFormat == format) return;
@@ -1267,11 +1292,7 @@ void CaptureSession::EnsureProcessor(UINT width, UINT height, DXGI_FORMAT format
 void CaptureSession::Convert(int64_t time, ID3D11VideoProcessorInputView* input)
 {
     if (!m_vp || !input || m_content.cx <= 0) return;
-    int index = -1;
-    {
-        std::lock_guard lock(*m_freeLock);
-        if (!m_free->empty()) { index = m_free->back(); m_free->pop_back(); }
-    }
+    int index = TakeTarget();
     if (index < 0) { ++m_dropped; return; }
     if (time <= m_lastSubmit) time = m_lastSubmit + 1;
 
@@ -1370,11 +1391,7 @@ void CaptureSession::Repeat()
                 continue;
             }
             if (!live && time - m_lastSubmit <= 1'000'000) continue;
-            int index = -1;
-            {
-                std::lock_guard free(*m_freeLock);
-                if (!m_free->empty()) { index = m_free->back(); m_free->pop_back(); }
-            }
+            int index = TakeTarget();
             if (index < 0) { ++m_dropped; continue; }
             // The newest picture again: no new frame means nothing on screen changed.
             if (index != m_lastIndex) m_gpu->context->CopyResource(m_targets[index].texture.get(), m_targets[m_lastIndex].texture.get());

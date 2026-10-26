@@ -1,7 +1,6 @@
 {
   "name": "exo-launcher-ui",
   "private": true,
-  "version": "3.11.0",
   "type": "module",
   "engines": {
     "node": ">=24.19.0"

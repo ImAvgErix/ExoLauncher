@@ -46,6 +46,9 @@
 .exo-tile {
   position: relative;
   isolation: isolate;
+  /* A card's inner layout never reaches the grid's, and the grid's never reaches a card's: the window
+     re-measuring on scroll only lays out what changed. */
+  contain: layout;
   min-width: 0;
 }
 
@@ -86,6 +89,10 @@
 .exo-tile-media {
   position: absolute;
   inset: 0;
+  /* The cover's paint is the scroll's biggest cost: skip it for tiles out of view. The frame
+     keeps the clip and the ring lives on it, so nothing here can crop either. inset:0 pins
+     the box to the frame, so a skipped subtree never changes its size. */
+  content-visibility: auto;
 }
 
 .exo-tile-media .exo-cover {

@@ -75,6 +75,19 @@ internal static class ExoBridgeProtocol
         if (string.IsNullOrWhiteSpace(raw) || raw.Length > MaxImageRequestCharacters)
             return false;
 
+        // A request over the usual size is read from its first words alone: only the few methods that carry a picture may be
+        // that big, and a page cannot make the UI thread build a tree of tens of megabytes for any other.
+        if (raw.Length > MaxRequestCharacters)
+        {
+            var (headId, headMethod) = ReadHead(raw);
+            if (headId is null || headMethod is null) return false;
+            if (raw.Length > MaxCharactersFor(headMethod))
+            {
+                request = new ExoBridgeRequest(headId, headMethod, default, false);
+                return false;
+            }
+        }
+
         try
         {
             using var document = JsonDocument.Parse(raw);
@@ -111,6 +124,21 @@ internal static class ExoBridgeProtocol
         {
             return false;
         }
+    }
+
+    private static readonly System.Text.RegularExpressions.Regex HeadWord =
+        new(@"""(id|method)""\s*:\s*""([^""\\]{1,128})""", System.Text.RegularExpressions.RegexOptions.Compiled | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
+    /// <summary>The id and method named in a request's first 512 characters (the page writes them first); null for one it can't find.</summary>
+    private static (string? Id, string? Method) ReadHead(string raw)
+    {
+        string? id = null, method = null;
+        foreach (System.Text.RegularExpressions.Match match in HeadWord.Matches(raw[..Math.Min(raw.Length, 512)]))
+        {
+            if (match.Groups[1].Value == "id") id ??= match.Groups[2].Value;
+            else method ??= match.Groups[2].Value;
+        }
+        return (id, method);
     }
 
     internal static string SerializeResponse(string id, bool ok, object? result, string? error)

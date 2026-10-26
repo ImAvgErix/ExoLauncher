@@ -2,19 +2,21 @@
 #   the README title (and its release tag links), the top CHANGELOG heading,
 #   and docs/RELEASE_<version>.md (the only release file, same version and date).
 # Also checks every CHANGELOG release heading reads "## X.Y.Z — Month D, YYYY".
-#   pwsh -File .github/scripts/Test-DocsVersion.ps1 [-Root <repo>] [-Version <X.Y.Z>]
+#   pwsh -File .github/scripts/Test-DocsVersion.ps1 [-Root <repo>] [-Version <X.Y.Z>] [-AllowUnreleased]
+# -AllowUnreleased skips a "## Unreleased" section above the top release (a branch in development); a release leaves it off.
 # Exit code 1 lists every mismatch.
 [CmdletBinding()]
 param(
     [string]$Root = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)),
-    [string]$Version
+    [string]$Version,
+    [switch]$AllowUnreleased
 )
 $ErrorActionPreference = 'Stop'
 $inv = [Globalization.CultureInfo]::InvariantCulture
 $problems = [Collections.Generic.List[string]]::new()
 
 $changelog = Get-Content -LiteralPath (Join-Path $Root 'CHANGELOG.md') -Encoding utf8
-$headings = @($changelog | Where-Object { $_ -match '^## ' })
+$headings = @($changelog | Where-Object { $_ -match '^## ' -and -not ($AllowUnreleased -and $_ -eq '## Unreleased') })
 foreach ($h in $headings) {
     if ($h -match '^## \d+\.\d+\.\d+$') { continue }  # an old entry with no recorded date
     $ok = $h -match '^## (\d+\.\d+\.\d+) — (\w+ \d{1,2}, \d{4})$'

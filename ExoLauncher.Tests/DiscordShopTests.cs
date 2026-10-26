@@ -56,4 +56,13 @@ public sealed class DiscordShopTests
         using var doc = JsonDocument.Parse(json);
         Assert.Equal(confirm, DiscordRest.NeedsConfirmation(doc.RootElement));
     }
+
+    // The native confirmation states the charge in words the user can check against their card.
+    [Theory]
+    [InlineData(999L, "usd", "9.99 USD")]
+    [InlineData(150000L, "eur", "1,500.00 EUR")]
+    [InlineData(1200L, "JPY", "1,200 JPY")]
+    [InlineData(5L, "gbp", "0.05 GBP")]
+    public void TheChargeIsStatedInTheCurrencysOwnUnit(long amount, string currency, string text) =>
+        Assert.Equal(text, DiscordRest.PriceText(amount, currency));
 }

@@ -1,9 +1,10 @@
 using System.Globalization;
 using System.Text.Json;
+using ExoLauncher.Helpers;
 
 namespace ExoLauncher.Services;
 
-/// <summary>The Store room: store.home, store.search, store.game, store.gameOffers, store.wishlist, store.open; store.changed (what: home or wishlist) and store.sale.</summary>
+/// <summary>The Store room: store.home, store.calendar, store.search, store.game, store.gameOffers, store.wishlist, store.open; store.changed (what: home or wishlist) and store.sale.</summary>
 public sealed partial class WebHostBridge
 {
     /// <summary>
@@ -17,6 +18,7 @@ public sealed partial class WebHostBridge
             return new { ok = false };
         var owner = App.MainAppWindow is { } window ? WinRT.Interop.WindowNative.GetWindowHandle(window) : 0;
         var page = owner == 0 ? url : await StoreLinks.ResolveAsync(url, owner, ct).ConfigureAwait(true) ?? url;
+        if (page.Scheme != Uri.UriSchemeHttps || !IsStoreHost(page.Host)) page = url;
         try
         {
             if (StoreLinks.AppUri(page) is { } app)
@@ -28,7 +30,7 @@ public sealed partial class WebHostBridge
             System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(page.AbsoluteUri) { UseShellExecute = true });
             return new { ok = true };
         }
-        catch (Exception ex) { return new { ok = false, message = ex.Message }; }
+        catch (Exception ex) { return OpenFailed("that page", ex); }
     }
 
     private static bool IsStoreHost(string host)
@@ -44,26 +46,67 @@ public sealed partial class WebHostBridge
         var refresh = ReadBool(p, hasParams, "refresh") == true;
         var home = await Task.Run(() => _services.Store.HomeAsync(refresh, ct), ct).ConfigureAwait(false);
         if (home is null) return new { ok = false, message = "The store could not be reached. Check your connection and try again." };
+        var (played, owned) = StoreTasteInputs();
+        home = await _services.Store.ForYouHomeAsync(home, played, owned, ct).ConfigureAwait(false);
         return new
         {
             ok = true,
             at = home.At.ToString("O", CultureInfo.InvariantCulture),
             hero = home.Hero.Select(MapTile),
             shelves = home.Shelves.Select(s => new { id = s.Id, title = s.Title, items = s.Items.Select(MapTile) }),
-            free = StoreService.FreeAt(home.Free, DateTimeOffset.UtcNow).Select(f => new
+        };
+    }
+
+    /// <summary>
+    /// The calendar for this PC: Steam's public lists placed by day, ordered by the wishlist and by the tags of the Steam
+    /// games played most. The library supplies hours and ownership here, in native code; the page gets only the result.
+    /// </summary>
+    private async Task<object> StoreCalendarAsync(CancellationToken ct)
+    {
+        var (played, owned) = StoreTasteInputs();
+        StoreService.Calendar? calendar;
+        try { calendar = await Task.Run(() => _services.Store.CalendarAsync(played, owned.AppIds, ct), ct).ConfigureAwait(false); }
+        catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException or JsonException)
+        {
+            calendar = null;
+        }
+        if (calendar is null) return new { ok = false, message = "The store could not be reached. Check your connection and try again." };
+        return new
+        {
+            ok = true,
+            at = calendar.At.ToString("O", CultureInfo.InvariantCulture),
+            interests = calendar.Interests,
+            days = calendar.Days.Select(d => new
             {
-                title = f.Title, url = f.Url, images = f.Images ?? [], now = f.Now,
-                from = f.From?.ToString("O", CultureInfo.InvariantCulture),
-                until = f.Until?.ToString("O", CultureInfo.InvariantCulture),
+                date = d.Date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+                entries = d.Entries.Select(e => new { tile = MapTile(e.Tile), wished = e.Wished, owned = e.Owned, earlyAccess = e.EarlyAccess, why = e.Why }),
             }),
         };
+    }
+
+    /// <summary>
+    /// What the Store tailors itself by, read here from the library so paths and ids stay native: every game played
+    /// (any store; a Steam game by its app id) with its hours, and what the library has, by Steam app id and by title.
+    /// </summary>
+    private (IReadOnlyList<StoreService.Played> Played, StoreService.OwnedGames Owned) StoreTasteInputs()
+    {
+        static string? SteamId(Models.GameEntry g) => g.Id.StartsWith("steam:", StringComparison.Ordinal) && g.Id.Length > 6 ? g.Id[6..] : null;
+        var library = _services.Library.PeekCachedLibrary();
+        var played = library.Where(g => g.PlaytimeMinutes is > 0)
+            .Select(g => new StoreService.Played(g.Id, SteamId(g), g.Title, g.PlaytimeMinutes!.Value / 60.0, g.LastPlayedUtc)).ToList();
+        var mine = library.Where(g => g.Owned || g.Installed).ToList();
+        // A Steam game is known by its app id; only a game from another store goes by its title (owning Resident Evil 4
+        // from 2005 on Steam must not hide its remake, another app with the same name).
+        return (played, new StoreService.OwnedGames(
+            mine.Select(SteamId).OfType<string>().ToHashSet(StringComparer.Ordinal),
+            mine.Where(g => SteamId(g) is null).Select(g => StoreService.TitleKey(g.Title)).Where(k => k.Length > 0).ToHashSet(StringComparer.Ordinal)));
     }
 
     private static object MapTile(StoreService.Tile t) => new
     {
         appId = t.AppId, name = t.Name, final = t.Final, initial = t.Initial, discount = t.Discount, currency = t.Currency,
         priceText = t.PriceText, wasText = t.WasText, review = t.Review, reviewPercent = t.ReviewPercent, free = t.Free,
-        art = MapArt(t.Art), soon = t.Soon, when = t.When,
+        art = MapArt(t.Art), soon = t.Soon, when = t.When, wished = t.Wished, similarTo = t.SimilarTo,
     };
 
     private static object? MapArt(StoreService.Art? a) => a is null ? null : new { poster = a.Poster, hero = a.Hero, capsule = a.Capsule, header = a.Header };
@@ -91,7 +134,7 @@ public sealed partial class WebHostBridge
 
     private async Task<object> StoreGameAsync(JsonElement p, bool hasParams, CancellationToken ct)
     {
-        if (ReadString(p, hasParams, "appId") is not { Length: > 0 } appId || !appId.All(char.IsAsciiDigit)) return new { ok = false, message = "No game." };
+        if (ReadString(p, hasParams, "appId") is not { Length: > 0 and <= 10 } appId || !appId.All(char.IsAsciiDigit)) return new { ok = false, message = "No game." };
         try
         {
             var g = await _services.Store.GameAsync(appId, ct).ConfigureAwait(false);
@@ -123,7 +166,7 @@ public sealed partial class WebHostBridge
     /// <summary>The other official launchers for a game page, Epic first, from CheapShark.</summary>
     private async Task<object> StoreGameOffersAsync(JsonElement p, bool hasParams, CancellationToken ct)
     {
-        if (ReadString(p, hasParams, "appId") is not { Length: > 0 } appId || !appId.All(char.IsAsciiDigit)) return new { ok = false, offers = Array.Empty<object>() };
+        if (ReadString(p, hasParams, "appId") is not { Length: > 0 and <= 10 } appId || !appId.All(char.IsAsciiDigit)) return new { ok = false, offers = Array.Empty<object>() };
         try
         {
             // CheapShark did not answer: ok false, so the page does not keep "sold nowhere else".
@@ -144,8 +187,8 @@ public sealed partial class WebHostBridge
     private Task<object> StoreWishlistAsync(JsonElement p, bool hasParams, CancellationToken ct)
     {
         var action = ReadString(p, hasParams, "action") ?? "get";
-        var appId = ReadString(p, hasParams, "appId") is { Length: > 0 } id && id.All(char.IsAsciiDigit) ? id : null;
-        var name = ReadString(p, hasParams, "name");
+        var appId = ReadString(p, hasParams, "appId") is { Length: > 0 and <= 10 } id && id.All(char.IsAsciiDigit) ? id : null;
+        var name = ReadString(p, hasParams, "name") is { } given && given.Length > 200 ? given[..200] : ReadString(p, hasParams, "name");
         return Task.Run(() => StoreWishlistOffThreadAsync(action, appId, name, ct), ct);
     }
 

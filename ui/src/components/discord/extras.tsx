@@ -1,6 +1,6 @@
 import { LottieSticker } from './LottieSticker'
 import { FavoriteMenu } from './EmojiPicker'
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { host } from '../../lib/host'
 import { report } from '../../lib/report'
 import { requestDiscordSettings, type DiscordStickerGroup, type DiscordUser } from '../../lib/discord'
@@ -291,12 +291,13 @@ export function StickerPicker({ guildId, tabs, onPick, onClose }: { guildId: str
     }).catch((error: unknown) => report(error, 'StickerPicker.favorite'))
   }
   const q = query.trim().toLowerCase()
-  const usable = new Map((groups ?? []).flatMap(group => group.stickers.map(sticker => [sticker.id, { sticker, usable: group.usable }] as const)))
+  // The lookups stay put while a search runs: a keystroke re-filters, not re-maps every sticker Discord sent.
+  const usable = useMemo(() => new Map((groups ?? []).flatMap(group => group.stickers.map(sticker => [sticker.id, { sticker, usable: group.usable }] as const))), [groups])
   // A favorite Discord no longer has (a server you left) is left out, as Discord does.
-  const favorite: DiscordStickerGroup = { id: 'favorites', name: 'Favorites', icon: null, usable: true, stickers: favorites.flatMap(id => usable.get(id)?.sticker ?? []) }
-  const shown = [...(q ? [] : [favorite]), ...(groups ?? [])]
+  const favorite: DiscordStickerGroup = useMemo(() => ({ id: 'favorites', name: 'Favorites', icon: null, usable: true, stickers: favorites.flatMap(id => usable.get(id)?.sticker ?? []) }), [favorites, usable])
+  const shown = useMemo(() => [...(q ? [] : [favorite]), ...(groups ?? [])]
     .map(group => ({ ...group, stickers: group.stickers.filter(sticker => !q || sticker.name.toLowerCase().includes(q)) }))
-    .filter(group => group.stickers.length > 0)
+    .filter(group => group.stickers.length > 0), [groups, favorite, q])
   return (
     <div className="exo-dc-picker is-gif" ref={box} role="dialog" aria-label="Stickers">
       {tabs}

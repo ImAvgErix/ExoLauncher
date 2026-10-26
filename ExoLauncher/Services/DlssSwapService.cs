@@ -693,7 +693,7 @@ public sealed partial class DlssSwapService
             }
 
             foreach (var dest in restoredPaths)
-                TryDelete(dest + BackupSuffix);
+                ClearSavedOriginal(dest);
         }
         catch (Exception ex)
         {
@@ -820,7 +820,7 @@ public sealed partial class DlssSwapService
         catch { return false; }
     }
 
-    private static void Walk(string dir, List<string> files, ref string? antiCheat, int depth, CancellationToken ct)
+    internal static void Walk(string dir, List<string> files, ref string? antiCheat, int depth, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
         if (depth > 16) return;
@@ -844,12 +844,13 @@ public sealed partial class DlssSwapService
             try
             {
                 var info = new DirectoryInfo(child);
-                if ((info.Attributes & FileAttributes.ReparsePoint) != 0) continue;
+                // By name first: a junction or link called EasyAntiCheat is still that game's anti-cheat. Only its contents are never walked.
                 if (AntiCheatForFolder(info.Name) is { } found)
                 {
                     antiCheat ??= found;
                     continue;
                 }
+                if ((info.Attributes & FileAttributes.ReparsePoint) != 0) continue;
                 if (SkipScanFolderNames.Contains(info.Name))
                 {
                     // No upscaler DLLs here, but an anti-cheat marker still counts.
@@ -1505,8 +1506,12 @@ public sealed partial class DlssSwapService
     private static void WriteMarker(string path, string text)
     {
         var temporary = path + ".exo-tmp";
-        File.WriteAllText(temporary, text);
-        File.Move(temporary, path, overwrite: true);
+        try
+        {
+            File.WriteAllText(temporary, text);
+            File.Move(temporary, path, overwrite: true);
+        }
+        finally { TryDelete(temporary); }
     }
 
     private static string? PreferFactory(string dest)
@@ -1515,6 +1520,19 @@ public sealed partial class DlssSwapService
         if (File.Exists(factory)) return factory;
         var backup = dest + BackupSuffix;
         return File.Exists(backup) ? backup : null;
+    }
+
+    /// <summary>
+    /// After a verified restore the live file is the original, so the saved copies hold nothing the game does not.
+    /// They go, all of them: a first-shipped copy left behind would, after a game update, look like a saved original
+    /// with no marker to say it is stale, and Restore would put the old file over the new one.
+    /// </summary>
+    internal static void ClearSavedOriginal(string dest)
+    {
+        TryDelete(dest + BackupSuffix);
+        TryDelete(dest + SwapperBackupSuffix);
+        TryDelete(dest + WrittenSuffix);
+        TryDelete(dest + StaleSuffix);
     }
 
     /// <summary>
@@ -1576,9 +1594,29 @@ public sealed partial class DlssSwapService
             throw new InvalidOperationException(NoBackupMessage);
         if (!File.Exists(dest + BackupSuffix))
             CopyVerified(dest + SwapperBackupSuffix, dest + BackupSuffix, overwrite: false);
-        ReplaceExisting(dest, source);
-        WriteMarker(dest + WrittenSuffix, sha!);
-        TryDelete(dest + StaleSuffix);
+        // The write and its marker land together or not at all: a file swapped but not marked (a full disk, a scanner
+        // holding the marker) would leave a marker naming other bytes, which makes Restore refuse the game's own file.
+        var before = dest + ".exo-prev";
+        var previousMarker = TryReadText(dest + WrittenSuffix);
+        CopyVerified(dest, before, overwrite: true);
+        try
+        {
+            ReplaceExisting(dest, source);
+            WriteMarker(dest + WrittenSuffix, sha!);
+            TryDelete(dest + StaleSuffix);
+        }
+        catch
+        {
+            try
+            {
+                ReplaceExisting(dest, before);
+                if (previousMarker is null) TryDelete(dest + WrittenSuffix);
+                else WriteMarker(dest + WrittenSuffix, previousMarker);
+            }
+            catch (Exception ex) { AppLog.Warn("Upscaler write could not be undone for " + dest + ": " + ex.Message); }
+            throw;
+        }
+        finally { TryDelete(before); }
     }
 
     private static void RollbackDest(string dest)

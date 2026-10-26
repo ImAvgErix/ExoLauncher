@@ -1,5 +1,5 @@
 // The Store, used: its shelves, the banner's picks, a shelf's arrows, search, and a game's page (with its
-// requirements against this PC). Nothing is bought or wishlisted.
+// requirements against this PC). Nothing is bought or wishlisted (the calendar is only opened and read).
 import { sleep } from '../cdp.mjs'
 
 export async function run(t) {
@@ -54,6 +54,39 @@ export async function run(t) {
     await k.fill('.exo-store-search input', '')
     await sleep(800)
     return results ? [] : ['no results for "portal"']
+  })
+
+  await run.check('store', 'calendar', 'the calendar lists games by release day, exact dates only, with its filters', async (c) => {
+    const chip = (name) => () => [...document.querySelectorAll('.exo-store-top .exo-shelf-chip')].find(b => b.textContent.trim() === name) ?? null
+    if (!await t.shell.click(chip('Calendar'))) return ['the Store has no Calendar view']
+    const state = await t.shell.waitFor(() => document.querySelector('.exo-cal-note') ? 'ready' : document.querySelector('.exo-store-error') ? 'error' : null, { timeoutMs: 30000 })
+    if (state === 'error') c.skip('the store did not answer')
+    if (state !== 'ready') return ['the calendar never showed']
+    const view = await t.shell.eval(`({
+      days: [...document.querySelectorAll('section[aria-labelledby^="exo-cal-"]')].map(s => ({
+        title: s.querySelector('h2')?.textContent.trim(),
+        cards: s.querySelectorAll('.exo-cal-item .exo-store-card').length,
+        whens: [...s.querySelectorAll('.exo-store-when')].map(w => w.textContent.trim()),
+      })),
+      switches: document.querySelectorAll('.exo-cal-filters [role="switch"]').length,
+      empty: !!document.querySelector('.exo-store-empty'),
+    })`)
+    c.evidence.view = view
+    c.metric('days', view.days.length)
+    const failures = []
+    if (view.switches !== 3) failures.push(`${view.switches} filters, not 3`)
+    if (!view.days.length && !view.empty) failures.push('no days and no empty message')
+    for (const d of view.days) {
+      if (!d.title) failures.push('a day without a title')
+      if (d.cards === 0) failures.push(`${d.title} has no games`)
+      // A game known only as "Q1 2027" or "Feb 2027" has no day to sit on.
+      for (const w of d.whens) if (!/^[A-Z][a-z]{2} \d{1,2}(, \d{4})?$/.test(w)) failures.push(`${d.title}: "${w}" is not an exact date`)
+    }
+    await c.shot('calendar', t.shell)
+    failures.push(...await k.look(c, 'calendar'))
+    await t.shell.click(chip('Discover'))
+    await t.shell.waitFor(() => document.querySelector('.exo-store-hero'), { timeoutMs: 10000 })
+    return failures
   })
 
   await run.check('store', 'page', 'a game\'s page opens with its price, About and requirements against this PC', async (c) => {

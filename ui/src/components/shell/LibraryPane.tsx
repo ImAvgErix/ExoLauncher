@@ -42,6 +42,8 @@ export type LibraryPaneProps = {
   onOpen: (game: Game) => void
   /** Play (or install) straight from Continue, Friends are playing and a card's menu. */
   onPlay: (game: Game) => void
+  /** A friend's game you don't have: the Store, searching for it. */
+  onFindInStore: (title: string) => void
   /** A Riot game's menu: switch to another saved Riot account, then Play. */
   onPlayAs: (game: Game, account: { key: string; name: string }) => void
   /** The card whose Play or Install is starting right now; its button says so. */
@@ -422,7 +424,7 @@ export const LibraryPane = memo(function LibraryPane(props: LibraryPaneProps) {
             {!showHidden && <>
               <ContinueRow games={props.playing} transferFor={props.transferFor} startingId={props.startingId} onOpen={openGame} onPlay={props.onPlay} onMenu={openMenu} />
               <GiftsShelf />
-              <FriendsPlaying games={props.games} startingId={props.startingId} onOpen={openGame} onPlay={props.onPlay} />
+              <FriendsPlaying games={props.games} startingId={props.startingId} onOpen={openGame} onPlay={props.onPlay} onFind={props.onFindInStore} />
             </>}
             <BrowseShelf
               heading={shelf.heading}

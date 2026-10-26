@@ -1,20 +1,12 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { host } from '../../lib/host'
 import { type DiscordMessage } from '../../lib/discord'
 import { Avatar } from './presence'
 import { Icons } from './icons'
 import { ModalBack } from './SettingsLayer'
+import { useLayer } from './admin'
 
 type Target = { id: string; name: string; place: string | null; avatar: string | null; dm: boolean }
-
-// Escape cancels; the dialog's own Enter is the form's.
-function useEscape(onClose: () => void) {
-  useEffect(() => {
-    const key = (event: KeyboardEvent) => { if (event.key === 'Escape') { event.stopPropagation(); onClose() } }
-    window.addEventListener('keydown', key, true)
-    return () => window.removeEventListener('keydown', key, true)
-  }, [onClose])
-}
 
 // Your DMs (most recent first) and every server's channels you can write in, from what the client already holds.
 function useTargets() {
@@ -43,7 +35,8 @@ export function ForwardDialog({ message, onClose }: { message: DiscordMessage; o
   const [note, setNote] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-  useEscape(onClose)
+  const box = useRef<HTMLDivElement>(null)
+  useLayer(box, onClose)
   const q = query.trim().toLowerCase()
   const shown = (targets ?? []).filter(t => !q || t.name.toLowerCase().includes(q) || t.place?.toLowerCase().includes(q)).slice(0, 60)
   const send = async () => {
@@ -53,12 +46,14 @@ export function ForwardDialog({ message, onClose }: { message: DiscordMessage; o
       const result = await host.discordSend(id, note.trim(), undefined, undefined, { forward: { channelId: message.channel_id, messageId: message.id } })
         .catch(() => ({ ok: false, message: null }))
       if (!result.ok) { setBusy(false); setError(result.message ?? 'Discord did not forward that.'); return }
+      // Sent: a retry after a later one failed goes only to those still picked, never twice to this one.
+      setPicked(list => list.filter(other => other !== id))
     }
     onClose()
   }
   return (
     <ModalBack onClose={onClose}>
-      <div className="exo-dc-modal exo-dc-forward-dialog" role="dialog" aria-label="Forward to" onClick={event => event.stopPropagation()}>
+      <div ref={box} className="exo-dc-modal exo-dc-forward-dialog" role="dialog" aria-modal="true" aria-label="Forward to" tabIndex={-1} onClick={event => event.stopPropagation()}>
         <h2>Forward to</h2>
         <input className="exo-dc-modal-input" placeholder="Search" value={query} autoFocus aria-label="Search conversations" onChange={event => setQuery(event.target.value)} />
         <div className="exo-dc-forward-list" role="listbox" aria-multiselectable="true" aria-label="Conversations">
@@ -95,7 +90,8 @@ export function NewThreadDialog({ message, onClose, onCreated }: { message: Disc
   const [name, setName] = useState(() => message.content.replace(/\s+/g, ' ').trim().slice(0, 40) || 'New thread')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-  useEscape(onClose)
+  const box = useRef<HTMLDivElement>(null)
+  useLayer(box, onClose)
   const create = async () => {
     if (busy || !name.trim()) return
     setBusy(true); setError(null)
@@ -106,7 +102,7 @@ export function NewThreadDialog({ message, onClose, onCreated }: { message: Disc
   }
   return (
     <ModalBack onClose={onClose}>
-      <div className="exo-dc-modal" role="dialog" aria-label="Create thread" onClick={event => event.stopPropagation()}>
+      <div ref={box} className="exo-dc-modal" role="dialog" aria-modal="true" aria-label="Create thread" tabIndex={-1} onClick={event => event.stopPropagation()}>
         <h2>Create thread</h2>
         <input className="exo-dc-modal-input" value={name} maxLength={100} autoFocus aria-label="Thread name"
           onChange={event => setName(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') void create() }} />

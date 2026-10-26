@@ -32,7 +32,8 @@ internal sealed unsafe partial class VoiceAudio : IDisposable
     // Played frames, kept for the next decode: the call's sound allocates nothing per frame once it runs.
     private readonly Stack<float[]> _spare = new();
     private Thread? _capture, _render, _voice;
-    private bool _handlerFailed, _live;
+    private int _handlerFailed;
+    private bool _live;
     private EchoCanceller? _echo;
     private volatile bool _onHead; // the speakers open now are headphones or a headset
     // The frames the microphone's thread has cut and the voice thread hasn't run yet: each with when its first sample
@@ -104,11 +105,12 @@ internal sealed unsafe partial class VoiceAudio : IDisposable
                 FrameWholeAt = _ringWhole[slot];
                 CancelEcho(_ring[slot]);
                 // A handler that throws here would end Exo (this thread has no other catch): its frame is dropped.
+                // Every 3000th failing frame still says so (a failure that starts repeating never goes silent),
+                // with the message the first time.
                 try { Captured?.Invoke(_ring[slot]); }
                 catch (Exception ex) when (ex is not OutOfMemoryException)
                 {
-                    if (!_handlerFailed) AppLog.Warn("Discord voice: a microphone frame failed (" + ex.GetType().Name + ").");
-                    _handlerFailed = true;
+                    if (_handlerFailed++ % 3000 == 0) AppLog.Warn("Discord voice: a microphone frame failed (" + ex.GetType().Name + ": " + ex.Message + ").");
                 }
                 Volatile.Write(ref _read, read + 1);
             }
@@ -191,9 +193,9 @@ internal sealed unsafe partial class VoiceAudio : IDisposable
     /// A speaker's decoded 20 ms frame (from <see cref="Rent"/>), queued for the mix: evened out to everyone's speaking
     /// level where Even Out Voices is on, then at their User Volume (gain).
     /// </summary>
-    internal void Play(uint ssrc, float[] frame, float gain = 1f)
+    internal void Play(uint ssrc, float[] frame, float gain = 1f, bool level = true)
     {
-        var even = EvensVoices && App.Services.Settings.Shared.DiscordEvenVoices;
+        var even = level && EvensVoices && (App.Services.Settings.Shared.DiscordEvenVoices || VoiceProcessing.ExoOn(App.Services.Settings.Shared));
         // Under the lock: a speaker's frames come from the receive thread or their own cleaner's, one leveler each.
         lock (_mixGate)
         {
@@ -248,6 +250,10 @@ internal sealed unsafe partial class VoiceAudio : IDisposable
         object? clientObject = null;
         try
         {
+            // A WAV as the microphone (EXO_MIC_FILE, dev builds' self-tests): frames at real-time pace through the
+            // same ring and voice thread, so every test sees the chain exactly as a call does.
+            if (captureSide && Environment.GetEnvironmentVariable("EXO_MIC_FILE") is { Length: > 0 } micFile && File.Exists(micFile))
+                return FileCapture(micFile, side);
             enumerator = (IMMDeviceEnumerator)new MMDeviceEnumeratorComObject();
             var settings = App.Services.Settings.Current;
             device = AudioDevices.Open(enumerator, captureSide, captureSide ? settings.DiscordInputDevice : settings.DiscordOutputDevice);
@@ -448,6 +454,64 @@ internal sealed unsafe partial class VoiceAudio : IDisposable
 
     /// <summary>How far into a packet (in 100 ns units) the sample at this float index is.</summary>
     internal static long Offset(int floats) => floats / Opus.Channels * 10_000_000L / Opus.SampleRate;
+
+    // The file's frames at the pace a microphone delivers them (20 ms each), at Input Volume, until stopped.
+    private bool FileCapture(string path, CancellationToken side)
+    {
+        var pcm = ReadWavMono(path);
+        var frame = new float[FrameFloats];
+        var at = 0L;
+        var next = System.Diagnostics.Stopwatch.GetTimestamp();
+        var ticksPerFrame = (long)(System.Diagnostics.Stopwatch.Frequency * 0.02);
+        while (!_stop.IsCancellationRequested && !side.IsCancellationRequested)
+        {
+            var left = (next - System.Diagnostics.Stopwatch.GetTimestamp()) * 1000 / System.Diagnostics.Stopwatch.Frequency;
+            if (left > 0 && side.WaitHandle.WaitOne((int)Math.Min(left, 200))) break;
+            Volatile.Write(ref CaptureCpu, ThreadCpu());
+            var gain = App.Services.Settings.Shared.DiscordInputVolume / 100f;
+            Array.Clear(frame);
+            var mono = (int)(at % pcm.Length);
+            for (var i = 0; i < Opus.FrameSamples; i++)
+            {
+                var s = pcm[(mono + i) % pcm.Length] * gain;
+                frame[2 * i] = frame[2 * i + 1] = s;
+            }
+            HandOn(frame, QpcNow());
+            at += Opus.FrameSamples;
+            next += ticksPerFrame;
+            var behind = (System.Diagnostics.Stopwatch.GetTimestamp() - next) / System.Diagnostics.Stopwatch.Frequency;
+            if (behind > 0.2) next = System.Diagnostics.Stopwatch.GetTimestamp();
+        }
+        return false;
+    }
+
+    // A mono or stereo WAV (16-bit PCM or 32-bit float, 48 kHz) as mono floats; anything else throws.
+    private static float[] ReadWavMono(string path)
+    {
+        var b = File.ReadAllBytes(path);
+        var channels = BitConverter.ToInt16(b, 22);
+        var format = BitConverter.ToInt16(b, 20);
+        var rate = BitConverter.ToInt32(b, 24);
+        var bits = BitConverter.ToInt16(b, 34);
+        var data = b.AsSpan();
+        var at = b.Length;
+        for (var i = 12; i + 8 <= b.Length; i += 8 + BitConverter.ToInt32(b, i + 4))
+            if (b.AsSpan(i, 4).SequenceEqual("data"u8)) { at = i + 8; break; }
+        if (at >= b.Length || rate != Opus.SampleRate) throw new InvalidDataException(path);
+        var frames = (b.Length - at) / (bits / 8) / channels;
+        var take = new float[frames];
+        for (var i = 0; i < frames; i++)
+        {
+            double sum = 0;
+            for (var c = 0; c < channels; c++)
+            {
+                var o = at + (i * channels + c) * (bits / 8);
+                sum += format == 3 ? BitConverter.ToSingle(b, o) : BitConverter.ToInt16(b, o) / 32768f;
+            }
+            take[i] = (float)(sum / channels);
+        }
+        return take;
+    }
 
     // Until stopped; true when the speakers went away.
     private bool Render(IAudioClient client, AutoResetEvent ready, uint bufferFrames, CancellationToken side)

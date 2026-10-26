@@ -38,6 +38,9 @@ jobs:
       - run: dotnet build ExoLauncher.sln -c Release -p:Platform=x64 -p:WindowsAppSDKSelfContained=true -p:PublishReadyToRun=false
       # Self-contained, so the test host needs no Windows App Runtime installed on the runner.
       - run: dotnet test --project ExoLauncher.Tests/ExoLauncher.Tests.csproj -c Release -p:Platform=x64 -p:WindowsAppSDKSelfContained=true -p:PublishReadyToRun=false --no-build
+      # The installer's payload check and the update rollback, on fake bytes: nothing is installed or started.
+      - run: ./tools/Test-InstallerPayload.ps1
+      - run: ./tools/Test-UpdateRollback.ps1
       - run: dotnet publish ExoLauncher/ExoLauncher.csproj -c Release -p:Platform=x64 -p:WindowsAppSDKSelfContained=true -p:PublishReadyToRun=false -o artifacts/package
 
   ui:

@@ -65,8 +65,9 @@ internal static class NoiseSuppressorDownload
 /// delay, up to a second; and whose instances all shared one model's buffers. On some PCs voices went out silent,
 /// choppy or garbled. Here nothing waits on a thread or a timer, nothing is inserted, and each instance has a model of
 /// its own. A frame the library can't clean passes through as it came.
-/// It turns noise down by at most <see cref="MostDb"/> (Voice Tune's strength, else <see cref="GentleDb"/>), its
-/// post-filter off. Its delay is DeepFilterNet's 10 ms STFT hop (the low-latency model has no lookahead), measured
+/// It turns noise down by at most <see cref="MostDb"/> (Voice Tune's strength, else <see cref="GentleDb"/>), with
+/// DeepFilterNet's own post-filter on at β 0.02 (it won the voice-chain evaluation over the same chain with it off).
+/// Its delay is DeepFilterNet's 10 ms STFT hop (the low-latency model has no lookahead), measured
 /// from the sound by <see cref="DelaySamples"/>. Each hop's local SNR estimate (<see cref="SpeechDb"/>) is its own
 /// judgment of how much voice the frame holds, which the gate reads as Discord's reads Krisp's.
 /// As Krisp runs its own DeepFilterNet-type model, the sound goes in at the level the model knows (<see cref="ModelDb"/>,
@@ -159,9 +160,13 @@ internal sealed unsafe class NoiseSuppressor : IDisposable
         _state = state;
         _input = (float*)NativeMemory.AllocZeroed(WarmSamples, sizeof(float));
         _output = (float*)NativeMemory.AllocZeroed(WarmSamples, sizeof(float));
-        _postFilter(state, 0f);
-        _thresholds(state, MinDb, MaxErbDb, FullDf);
+        _postFilter(state, 0.02f);
+        ApplyThresholds();
     }
+
+    // DeepFilterNet's stage thresholds; the light argument drops it to the first (ERB) stage alone while the CPU can't
+    // keep up (DeepFilterNet's own advice for a CPU too slow for it).
+    private void ApplyThresholds(bool light = false) => _thresholds(_state, MinDb, MaxErbDb, light ? LightDf : FullDf);
 
     // One let go of waits here for the next call, Voice Check or Voice Tune (each holds its own model: about 40 MB of its
     // own memory and 80 MB in use, half a second to load), and is freed after a minute unused (df_free), so a PC between
@@ -182,7 +187,8 @@ internal sealed unsafe class NoiseSuppressor : IDisposable
             // Warmed as a new one is, at full strength: silence alone left the last user's noise in the model's running
             // statistics (3 s of loud noise let a fan through the next call's gate, measured in the voice chain test).
             idle._inUse = 1;
-            if (idle._light) { idle._light = false; _thresholds(idle._state, MinDb, MaxErbDb, FullDf); }
+            idle._light = false;
+            idle.ApplyThresholds();
             idle.WarmUp();
             return idle;
         }
@@ -214,7 +220,7 @@ internal sealed unsafe class NoiseSuppressor : IDisposable
     {
         var limit = Math.Clamp(limitDb, 0, MostDb);
         if (limit != _limit) { _attenuation(_state, limit); _limit = limit; }
-        if (Load.Light != _light) { _light = Load.Light; _thresholds(_state, MinDb, MaxErbDb, _light ? LightDf : FullDf); }
+        if (Load.Light != _light) { _light = Load.Light; ApplyThresholds(_light); }
         var frame = stereo.Length / 2;
         double power = 0;
         for (var i = 0; i < frame; i++) { var s = _input[i] = (stereo[i * 2] + stereo[i * 2 + 1]) * 0.5f; power += s * (double)s; }

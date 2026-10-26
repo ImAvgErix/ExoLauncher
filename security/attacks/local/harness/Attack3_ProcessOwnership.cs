@@ -49,26 +49,23 @@ internal static class Attack3_ProcessOwnership
 
             // (1) A process whose exe is NOT under the client's install dir is
             // excluded from the group => never trimmed/throttled/killed.
-            var groupWrongDir = ManagedProcessResources.HostedGroup("discord", decoyId, decoyDirB,
-                auxiliaryNames: new[] { "Discord" });
+            var groupWrongDir = ManagedProcessResources.HostedGroup("discord", decoyId, decoyDirB);
             Check.That("Decoy outside install dir is NOT grouped",
                 groupWrongDir.Processes.Count == 0,
                 $"HostedGroup(dir={Path.GetFileName(decoyDirB)}) returned {groupWrongDir.Processes.Count} members for a Discord.exe living in dir A");
 
             // Sanity: path-gating includes it only when the dir actually matches.
-            var groupRightDir = ManagedProcessResources.HostedGroup("discord", decoyId, decoyDirA,
-                auxiliaryNames: new[] { "Discord" });
+            var groupRightDir = ManagedProcessResources.HostedGroup("discord", decoyId, decoyDirA);
             Check.That("Grouping is by install-dir prefix, not by name",
                 groupRightDir.Processes.Any(p => p.Pid == decoy.Id),
                 $"same Discord.exe IS grouped when directory == its own folder ({groupRightDir.Processes.Count} members)");
 
             // (2) Anti-cheat (vgc.exe) is never a descendant of a hosted client
             // nor under its dir, so it is never in a kill group.
-            var discordGroupForKill = ManagedProcessResources.HostedGroup("discord", decoyId, decoyDirB,
-                auxiliaryNames: new[] { "Discord", "vgc", "vgk", "Vanguard" });
+            var discordGroupForKill = ManagedProcessResources.HostedGroup("discord", decoyId, decoyDirB);
             Check.That("Anti-cheat (vgc) never joins a hosted-client group",
                 discordGroupForKill.Processes.All(p => p.Pid != vgc!.Id),
-                "even listed as an auxiliary name, vgc.exe outside the install dir is excluded by the path prefix check");
+                "vgc.exe is no descendant of the root and sits outside the install dir, so the tree walk and the path prefix check both exclude it");
 
             // (3) PID reuse / TOCTOU: identity carries the process creation time.
             // A fabricated identity with the right PID but a wrong start time is

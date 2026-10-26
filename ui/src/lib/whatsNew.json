@@ -1,54 +1,287 @@
 [
   {
+    "version": "3.15.1",
+    "items": [
+      {
+        "icon": "Mic",
+        "title": "Exo Voice is Exo's own",
+        "detail": "Noise suppression runs Exo's own AI end to end — Krisp is gone — and Hear your voice plays live exactly what the call sends."
+      },
+      {
+        "icon": "StoreBag",
+        "title": "A Store made for you",
+        "detail": "Discover leads with games picked from what you play and wish for, marks why on each cover, and leaves out games you already own."
+      },
+      {
+        "icon": "Calendar",
+        "title": "A release calendar",
+        "detail": "The Store's Calendar shows what just came out and what's coming, your wishlist first."
+      },
+      {
+        "icon": "Volume",
+        "title": "Look into a voice channel",
+        "detail": "Click a voice channel to see who's in it, who's live and whose camera is on before you join; double-click joins."
+      },
+      {
+        "icon": "Live",
+        "title": "Stream volume",
+        "detail": "While you watch someone's Go Live, their menu has Stream volume and Mute stream, as in Discord."
+      },
+      {
+        "icon": "Users",
+        "title": "More from your friends",
+        "detail": "Friends are playing shows eight games, games you don't have too, and a game played with Medal or Overwolf reads as the game."
+      },
+      {
+        "icon": "ImageUpload",
+        "title": "Pictures send smaller",
+        "detail": "Big images added to a Discord message are remade smaller before they upload, so they fit under the size limit."
+      },
+      {
+        "icon": "Smile",
+        "title": "Bigger reactions",
+        "detail": "Reactions on Discord messages are larger and easier to read, and a role's colour can be any colour."
+      },
+      {
+        "icon": "Cover",
+        "title": "Recordings take less room",
+        "detail": "While you aren't playing, Exo quietly re-saves your recordings at about a third of the size."
+      },
+      {
+        "icon": "Appearance",
+        "title": "Portrait screens",
+        "detail": "Library, Discord, System and Music keep their words and the player whole on a portrait screen or a narrow window."
+      },
+      {
+        "icon": "GraphicsCard",
+        "title": "Games on the fast chip",
+        "detail": "On a laptop with two graphics chips, Exo can have every game run on the faster one."
+      },
+      {
+        "icon": "Sliders",
+        "title": "Best settings in one press",
+        "detail": "System › This PC sets your power plan, driver profile and HDR together."
+      },
+      {
+        "icon": "Monitor",
+        "title": "HDR before the game starts",
+        "detail": "Games that check for HDR only at launch now find it on."
+      },
+      {
+        "icon": "Gamepad",
+        "title": "Riot hours fix themselves",
+        "detail": "VALORANT and League hours that were counted too high correct themselves on the next refresh."
+      },
+      {
+        "icon": "Download",
+        "title": "GOG pauses keep their progress",
+        "detail": "Pausing a GOG download no longer throws away what it already has."
+      },
+      {
+        "icon": "Mouse",
+        "title": "More mice",
+        "detail": "Exo Mouse now works with Scyrox and Hitscan mice, with updated Lamzu and Pulsar support."
+      }
+    ]
+  },
+  {
     "version": "3.15.0",
     "items": [
-      { "icon": "Hash", "title": "Run your server from Exo", "detail": "Server Settings has every page Discord's does, from Access and Onboarding to invites, roles and the Server Guide." },
-      { "icon": "Chats", "title": "Group DMs and video calls", "detail": "Start a group DM with up to nine friends, and video call anyone from your DM with them." },
-      { "icon": "Chats", "title": "Bookmarks and reminders", "detail": "Save a message for later, or have Exo remind you about it, and find both in your Inbox." },
-      { "icon": "EyeOff", "title": "Message requests", "detail": "DMs from people you don't know wait apart from your chats until you accept them." },
-      { "icon": "Live", "title": "Previews that play", "detail": "YouTube, Twitch, Vimeo, TikTok and SoundCloud links play right in the chat." },
-      { "icon": "Hash", "title": "React in one press", "detail": "Your favorite reactions sit on every message, and a custom status shows what you're up to." },
-      { "icon": "Shaders", "title": "Honest compile times", "detail": "Shaders learns how long each game takes on your PC, and tells ready games apart." },
-      { "icon": "Monitor", "title": "Snips at once", "detail": "Snip opens instantly and stays light, even across several screens." },
-      { "icon": "Mouse", "title": "Thanks to snekxs", "detail": "Exo Mouse is built on OpenMouse, made by snekxs, and the Devices room now says so." }
+      {
+        "icon": "Hash",
+        "title": "Run your server from Exo",
+        "detail": "Server Settings has every page Discord's does, from Access and Onboarding to invites, roles and the Server Guide."
+      },
+      {
+        "icon": "Chats",
+        "title": "Group DMs and video calls",
+        "detail": "Start a group DM with up to nine friends, and video call anyone from your DM with them."
+      },
+      {
+        "icon": "Chats",
+        "title": "Bookmarks and reminders",
+        "detail": "Save a message for later, or have Exo remind you about it, and find both in your Inbox."
+      },
+      {
+        "icon": "EyeOff",
+        "title": "Message requests",
+        "detail": "DMs from people you don't know wait apart from your chats until you accept them."
+      },
+      {
+        "icon": "Live",
+        "title": "Previews that play",
+        "detail": "YouTube, Twitch, Vimeo, TikTok and SoundCloud links play right in the chat."
+      },
+      {
+        "icon": "Hash",
+        "title": "React in one press",
+        "detail": "Your favorite reactions sit on every message, and a custom status shows what you're up to."
+      },
+      {
+        "icon": "Shaders",
+        "title": "Honest compile times",
+        "detail": "Shaders learns how long each game takes on your PC, and tells ready games apart."
+      },
+      {
+        "icon": "Monitor",
+        "title": "Snips at once",
+        "detail": "Snip opens instantly and stays light, even across several screens."
+      },
+      {
+        "icon": "Mouse",
+        "title": "Thanks to snekxs",
+        "detail": "Exo Mouse is built on OpenMouse, made by snekxs, and the Devices room now says so."
+      }
     ]
   },
   {
     "version": "3.14.1",
     "items": [
-      { "icon": "Sliders", "title": "Starts lighter", "detail": "Exo opens sooner and uses about a third less memory: a room you don't open doesn't load." },
-      { "icon": "Cover", "title": "Select several games", "detail": "Press Select in your Library to hide, file or uninstall many games at once." },
-      { "icon": "Folder", "title": "Arrange your folders", "detail": "Drag a folder to move it, or use Move earlier and Move later on its menu." },
-      { "icon": "Live", "title": "Watch several streams", "detail": "Watch more than one friend's Go Live at a time, each with its own sound." },
-      { "icon": "Live", "title": "Streams that look and sound right", "detail": "Friends' streams show whole and stay sharp, and your stream carries your games and music, never your own voice." },
-      { "icon": "Appearance", "title": "Glass that stays glass", "detail": "Switching servers, Settings sections and pages keeps the glass clear the whole way." },
-      { "icon": "Shaders", "title": "The newest Exo Shaders", "detail": "Exo Shaders brings SCSKiller's newest improvements and sets each one up for you." }
+      {
+        "icon": "Sliders",
+        "title": "Starts lighter",
+        "detail": "Exo opens sooner and uses about a third less memory: a room you don't open doesn't load."
+      },
+      {
+        "icon": "Cover",
+        "title": "Select several games",
+        "detail": "Press Select in your Library to hide, file or uninstall many games at once."
+      },
+      {
+        "icon": "Folder",
+        "title": "Arrange your folders",
+        "detail": "Drag a folder to move it, or use Move earlier and Move later on its menu."
+      },
+      {
+        "icon": "Live",
+        "title": "Watch several streams",
+        "detail": "Watch more than one friend's Go Live at a time, each with its own sound."
+      },
+      {
+        "icon": "Live",
+        "title": "Streams that look and sound right",
+        "detail": "Friends' streams show whole and stay sharp, and your stream carries your games and music, never your own voice."
+      },
+      {
+        "icon": "Appearance",
+        "title": "Glass that stays glass",
+        "detail": "Switching servers, Settings sections and pages keeps the glass clear the whole way."
+      },
+      {
+        "icon": "Shaders",
+        "title": "The newest Exo Shaders",
+        "detail": "Exo Shaders brings SCSKiller's newest improvements and sets each one up for you."
+      }
     ]
   },
   {
     "version": "3.14.0",
     "items": [
-      { "icon": "Mic", "title": "Clearer voice", "detail": "Fans, desk knocks and keyboard clicks are taken out of your mic, and your words aren't cut off." },
-      { "icon": "Volume", "title": "Everyone at one volume", "detail": "Each person in a call comes through at about the same loudness, so one loud mic doesn't drown out the rest." },
-      { "icon": "Mic", "title": "Noise suppression like Discord’s", "detail": "Pick Exo AI, Standard or None in Voice & Video, and Exo tells you when your mic sends nothing." },
-      { "icon": "GraphicsCard", "title": "Driver updates on Radeon and Intel", "detail": "System keeps your AMD or Intel graphics driver up to date in one click, as it does on a GeForce." },
-      { "icon": "Appearance", "title": "Clearer glass", "detail": "Menus, sheets and buttons are clear glass now: the colors behind them show through, and their edges catch the light." },
-      { "icon": "Sliders", "title": "Your PC, checked", "detail": "System shows what's slowing your PC down, gives your PC a power plan tuned for its processor, and keeps your AMD or Intel chipset driver up to date." },
-      { "icon": "Sliders", "title": "Interrupts in one press", "detail": "System › This PC can move your graphics card, USB and network to MSI mode, so they don't wait on each other. Undo puts them back." },
-      { "icon": "GraphicsCard", "title": "Exo's profile on Radeon and Intel", "detail": "An AMD Radeon or an Intel Arc gets the same one-press tuning as a GeForce, FSR 4 in FSR 3.1 games on a Radeon, and frame generation for the games you pick." },
-      { "icon": "Chats", "title": "Discord stays fast", "detail": "Messages and profiles load instantly, even right after you switch windows." },
-      { "icon": "Live", "title": "Go Live your friends can watch", "detail": "Your stream plays smoothly on Discord's app, in sharper H.265 when everyone watching can play it." },
-      { "icon": "Live", "title": "Watch friends' streams", "detail": "Open a friend's Go Live and watch it right in Exo." },
-      { "icon": "Sliders", "title": "Lighter on your PC", "detail": "Calls with clips on and the streams you watch take far less of your processor and graphics card." },
-      { "icon": "Hash", "title": "Discord, done right", "detail": "Every channel opens, chats open at the newest message, and links show as previews." },
-      { "icon": "Appearance", "title": "Light, Dark and Void", "detail": "Choose your look in Settings › General. Void is pure black, for OLED screens." },
-      { "icon": "Gift", "title": "Gifts in your Library", "detail": "Games friends give you on Steam or Epic show in your Library, ready to accept in one click. Sign in to Steam once in Settings › Game stores." },
-      { "icon": "FolderOpen", "title": "Folders you can peek into", "detail": "Hover a folder and its games rise out of it." },
-      { "icon": "Folder", "title": "Folders your way", "detail": "Sort each folder its own way, put a game in more than one folder, and give a folder a picture of your own." },
-      { "icon": "EyeOff", "title": "Hide games", "detail": "Right-click a game and choose Hide to keep it out of your Library. Hidden games in the sort menu shows them again." },
-      { "icon": "Cover", "title": "Sharper covers", "detail": "Game covers in your Library look as crisp as on the game's own page." },
-      { "icon": "Shaders", "title": "Fewer shader stutters", "detail": "Compiled shaders are kept on NVIDIA's newest drivers instead of being thrown away." },
-      { "icon": "Mouse", "title": "More mice", "detail": "Exo Mouse supports 40 more SteelSeries mice and keeps working after your PC sleeps." }
+      {
+        "icon": "Mic",
+        "title": "Clearer voice",
+        "detail": "Fans, desk knocks and keyboard clicks are taken out of your mic, and your words aren't cut off."
+      },
+      {
+        "icon": "Volume",
+        "title": "Everyone at one volume",
+        "detail": "Each person in a call comes through at about the same loudness, so one loud mic doesn't drown out the rest."
+      },
+      {
+        "icon": "Mic",
+        "title": "Noise suppression like Discord’s",
+        "detail": "Pick Exo AI, Standard or None in Voice & Video, and Exo tells you when your mic sends nothing."
+      },
+      {
+        "icon": "GraphicsCard",
+        "title": "Driver updates on Radeon and Intel",
+        "detail": "System keeps your AMD or Intel graphics driver up to date in one click, as it does on a GeForce."
+      },
+      {
+        "icon": "Appearance",
+        "title": "Clearer glass",
+        "detail": "Menus, sheets and buttons are clear glass now: the colors behind them show through, and their edges catch the light."
+      },
+      {
+        "icon": "Sliders",
+        "title": "Your PC, checked",
+        "detail": "System shows what's slowing your PC down, gives your PC a power plan tuned for its processor, and keeps your AMD or Intel chipset driver up to date."
+      },
+      {
+        "icon": "Sliders",
+        "title": "Interrupts in one press",
+        "detail": "System › This PC can move your graphics card, USB and network to MSI mode, so they don't wait on each other. Undo puts them back."
+      },
+      {
+        "icon": "GraphicsCard",
+        "title": "Exo's profile on Radeon and Intel",
+        "detail": "An AMD Radeon or an Intel Arc gets the same one-press tuning as a GeForce, FSR 4 in FSR 3.1 games on a Radeon, and frame generation for the games you pick."
+      },
+      {
+        "icon": "Chats",
+        "title": "Discord stays fast",
+        "detail": "Messages and profiles load instantly, even right after you switch windows."
+      },
+      {
+        "icon": "Live",
+        "title": "Go Live your friends can watch",
+        "detail": "Your stream plays smoothly on Discord's app, in sharper H.265 when everyone watching can play it."
+      },
+      {
+        "icon": "Live",
+        "title": "Watch friends' streams",
+        "detail": "Open a friend's Go Live and watch it right in Exo."
+      },
+      {
+        "icon": "Sliders",
+        "title": "Lighter on your PC",
+        "detail": "Calls with clips on and the streams you watch take far less of your processor and graphics card."
+      },
+      {
+        "icon": "Hash",
+        "title": "Discord, done right",
+        "detail": "Every channel opens, chats open at the newest message, and links show as previews."
+      },
+      {
+        "icon": "Appearance",
+        "title": "Light, Dark and Void",
+        "detail": "Choose your look in Settings › General. Void is pure black, for OLED screens."
+      },
+      {
+        "icon": "Gift",
+        "title": "Gifts in your Library",
+        "detail": "Games friends give you on Steam or Epic show in your Library, ready to accept in one click. Sign in to Steam once in Settings › Game stores."
+      },
+      {
+        "icon": "FolderOpen",
+        "title": "Folders you can peek into",
+        "detail": "Hover a folder and its games rise out of it."
+      },
+      {
+        "icon": "Folder",
+        "title": "Folders your way",
+        "detail": "Sort each folder its own way, put a game in more than one folder, and give a folder a picture of your own."
+      },
+      {
+        "icon": "EyeOff",
+        "title": "Hide games",
+        "detail": "Right-click a game and choose Hide to keep it out of your Library. Hidden games in the sort menu shows them again."
+      },
+      {
+        "icon": "Cover",
+        "title": "Sharper covers",
+        "detail": "Game covers in your Library look as crisp as on the game's own page."
+      },
+      {
+        "icon": "Shaders",
+        "title": "Fewer shader stutters",
+        "detail": "Compiled shaders are kept on NVIDIA's newest drivers instead of being thrown away."
+      },
+      {
+        "icon": "Mouse",
+        "title": "More mice",
+        "detail": "Exo Mouse supports 40 more SteelSeries mice and keeps working after your PC sleeps."
+      }
     ]
   }
 ]

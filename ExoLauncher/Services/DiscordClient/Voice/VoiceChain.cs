@@ -4,13 +4,13 @@ namespace ExoLauncher.Services.DiscordClient.Voice;
 
 /// <summary>
 /// What the chain did to the last frame. Suppression: "standard" (WebRTC's own, Discord's Standard: <see cref="WebRtcNoise"/>), "on" (DeepFilterNet ran, turning noise down by up to SuppressionLimitDb), "light" (its first stage alone, while the CPU can't keep up with both: <see cref="Overload"/>),
-/// "mic" (the microphone's own stands in), "loading", "missing" (its plugin isn't here or won't load) or "off". Gain: "windows" (Windows' own, where the microphone's driver keeps it on) or "off". Tuned: a kept Voice Tune tuning (or Voice Tune's take) set the
+/// "mic" (the microphone's own stands in), "loading", "missing" (its plugin isn't here or won't load) or "off". Gain: "windows" (Windows' own, where the microphone's driver keeps it on) or "exo" (Exo's leveler: <see cref="SpeechLeveler"/>). Tuned: a kept Voice Tune tuning (or Voice Tune's take) set the
 /// suppression's strength. app.log says it as the chain runs, in its order.
 /// </summary>
 internal readonly record struct VoiceStages(string Suppression, int SuppressionLimitDb, bool Focus, string Gain, bool Tuned)
 {
     public override string ToString() => string.Create(CultureInfo.InvariantCulture,
-        $"low cut, noise suppression {Suppression}{(Suppression is "on" or "light" ? $" (up to {SuppressionLimitDb} dB)" : "")}, {(Focus ? "Voice Focus" : "gate")}, gain control {Gain}{(Focus ? "" : ", release fade")}, {(Tuned ? "tuned for this mic" : "not tuned")}");
+        $"low cut, noise suppression {Suppression}{(Suppression is "on" or "light" ? $" (up to {SuppressionLimitDb} dB)" : "")}, {(Focus ? "Voice Focus" : "gate")}, gain control {Gain}{(Focus ? "" : ", voice shape, release fade")}, {(Tuned ? "tuned for this mic" : "not tuned")}");
 }
 
 /// <summary>
@@ -20,8 +20,9 @@ internal readonly record struct VoiceStages(string Suppression, int SuppressionL
 /// microphone's own is as good, e.g. NVIDIA Broadcast; then Voice Focus or the level gate, which decides on the cleaned
 /// frame, measured against the microphone's sound it came from (<see cref="NoiseSuppressor.InputDb"/>, suppression's
 /// delay back) and against floors learned from both, so the room's fans and hum never open it
-/// (<see cref="VoiceGate.Voiced"/>); and the gate's release fade and lead-in (Discord's 100 ms before a
-/// word). Nothing waits on a later frame: none of it adds delay. Fed 20 ms stereo frames in place, from one thread.
+/// (<see cref="VoiceGate.Voiced"/>); the voice's shape (EQ and a soft compressor, <see cref="VoiceShape"/>) and
+/// the leveler (<see cref="SpeechLeveler"/>) where Windows' gain control isn't on; and the gate's release fade and lead-in
+/// (Discord's 100 ms before a word). Nothing waits on a later frame: none of it adds delay. Fed 20 ms stereo frames in place, from one thread.
 /// </summary>
 internal sealed class VoiceChain : IDisposable
 {
@@ -30,6 +31,8 @@ internal sealed class VoiceChain : IDisposable
     private readonly KnockDetector _knock = new();
     private WebRtcNoise? _standard;
     private NoiseSuppressor? _suppressor;
+    private readonly VoiceShape _shape = new();
+    private readonly SpeechLeveler _leveler = new(-22f);
     private MyVoice? _myVoice;
     private Task<MyVoice?>? _myVoiceLoading;
     private int _myVoiceRetryIn;
@@ -91,15 +94,23 @@ internal sealed class VoiceChain : IDisposable
     /// <summary>Runs one frame through in place; whether the gate is open (voice to send).</summary>
     internal bool Process(float[] frame, VoiceProcessing processing, string? micId, bool systemGain)
     {
+        var exo = processing.Profile == "exo";
+        // A kept Voice Tune for this microphone (or Voice Tune's own take before it is kept): its gain and its
+        // suppression limit, so a quiet mic's voice reaches the chain at the level it is meant to be heard at.
+        var tuning = exo ? Tuning ?? Kept(micId) : null;
+        if (tuning is { GainDb: not 0 } t)
+        {
+            var gain = MathF.Pow(10, t.GainDb / 20);
+            for (var i = 0; i < frame.Length; i++) frame[i] *= gain;
+        }
         // First, the low cut: what is under a voice (a desk's knocks through the stand, rumble, breath pops) never reaches
         // gain control, suppression or the gate, which read it as sound to send.
         _lowCut.Process(frame);
         // A knock is judged in the frame it comes out of suppression in, its delay later.
         _knocks = (_knocks << 1) | (_knock.Hit(frame) ? 1u : 0u);
-        var exo = processing.Profile == "exo";
-        // A kept Voice Tune is no longer used: Exo Voice is one fixed chain (only Voice Tune's own take still passes one).
-        var tuning = exo ? Tuning : null;
-        var limit = Math.Min(tuning?.SuppressionLimitDb ?? NoiseSuppressor.GentleDb, NoiseSuppressor.MostDb);
+        // Exo Voice's own AI runs DeepFilterNet's default thresholds and its post-filter: that chain won the
+        // voice-chain evaluation (a WebRTC pass first, and low thresholds, each distorted more than they caught).
+        var limit = Math.Min(tuning?.SuppressionLimitDb ?? NoiseSuppressor.MostDb, NoiseSuppressor.MostDb);
         var suppression = "off";
         float? heard = null, speech = null;
         DelaySamples = 0;
@@ -115,15 +126,17 @@ internal sealed class VoiceChain : IDisposable
             }
             else suppression = "missing";
         }
+        // Exo Voice and Custom's AI run Exo's own chain: DeepFilterNet plus Exo's stages.
         else if (processing.NoiseSuppression && Suppressor() is { } suppressor)
         {
             suppressor.Process(frame, limit);
-            (heard, speech) = (suppressor.InputDb, suppressor.SpeechDb);
+            heard = suppressor.InputDb;
+            speech = suppressor.SpeechDb;
             suppression = suppressor.Load.Light ? "light" : "on";
             DelaySamples = suppressor.DelaySamples;
         }
         else if (processing.NoiseSuppression) suppression = _missing ? "missing" : "loading";
-        Stages = new VoiceStages(suppression, limit, processing.Focus, systemGain ? "windows" : "off", tuning is not null);
+        Stages = new VoiceStages(suppression, limit, processing.Focus, systemGain ? "windows" : exo ? "exo" : "off", tuning is not null);
         var focus = processing.Focus && !Recording;
         var cleaned = Cleaned;
         var open = false;
@@ -133,6 +146,9 @@ internal sealed class VoiceChain : IDisposable
             var behind = Math.Min(DelaySamples / Opus.FrameSamples, 30);
             var knock = (_knocks >> behind & 1) != 0;
             open = _gate.Voiced(frame, processing.AutoSensitivity, processing.Threshold, heard, speech, knock);
+            // While suppression is still loading the raw room would pass the gate: hold everything until it is on
+            // (the first seconds of a call went out uncleaned before, fan and all).
+            if (suppression == "loading") open = false;
             // Only My Voice: a voice judged not the user's is held back (MyVoice), judged on what the gate let through.
             if (!focus)
             {
@@ -144,6 +160,14 @@ internal sealed class VoiceChain : IDisposable
                 }
             }
             cleaned?.Invoke(frame, open, DelaySamples);
+        }
+        if (!focus && exo)
+        {
+            // Exo Voice's voice as it is sent: EQ and a soft compressor shape it, and the leveler evens it toward one
+            // speaking level, stood down where Windows' own gain control already rides it (Voice Focus has its own).
+            // None and a custom chain send the voice as the gate left it.
+            _shape.Process(frame);
+            if (!systemGain) _leveler.Process(frame, open);
         }
         if (focus)
         {
@@ -218,13 +242,15 @@ internal sealed class VoiceChain : IDisposable
     }
 
     /// <summary>
-    /// Loads noise suppression now, on this thread (Voice Check and Voice Tune, before their first frame, so it is
-    /// cleaned like every other). A call needn't: its chain loads it off the audio thread while the first frames pass.
+    /// Loads noise suppression now, on this thread (Hear your voice and Voice Tune, before their first frame, so it is
+    /// cleaned like every other, with the same model and thresholds a call runs). A call needn't: its chain loads it
+    /// off the audio thread while the first frames pass.
     /// </summary>
     internal void Prepare(VoiceProcessing processing)
     {
         if (!processing.NoiseSuppression) return;
-        if (processing.Suppressor != "standard") _suppressor ??= NoiseSuppressor.Create();
+        if (processing.Suppressor == "standard") return;
+        _suppressor ??= NoiseSuppressor.Create();
     }
 
     // The voiceprint and model are read off the audio thread; until they are, nothing is held back.

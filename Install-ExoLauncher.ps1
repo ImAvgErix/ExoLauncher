@@ -44,7 +44,6 @@ if (-not $asset) {
 }
 
 $destDir = Join-Path $env:LOCALAPPDATA 'ExoLauncher\app'
-New-Item -ItemType Directory -Force -Path $destDir | Out-Null
 $sfx = Join-Path $env:TEMP ('ExoLauncher-setup-' + [guid]::NewGuid().ToString('N') + [IO.Path]::GetExtension($asset.name))
 
 Write-Host "[*] $($release.tag_name) -> $sfx" -ForegroundColor DarkGray
@@ -80,11 +79,13 @@ if ($versionInfo.ProductName -ne 'Exo Launcher' -or
 
 # The release asset is an NSIS installer, not the installed application. Let it
 # perform its atomic app.incoming -> app swap; never rename it to ExoLauncher.exe.
-$installer = Start-Process -FilePath $sfx -ArgumentList '/S' -WorkingDirectory ([IO.Path]::GetDirectoryName($sfx)) -Wait -PassThru -WindowStyle Hidden
+try {
+    $installer = Start-Process -FilePath $sfx -ArgumentList '/S' -WorkingDirectory ([IO.Path]::GetDirectoryName($sfx)) -Wait -PassThru -WindowStyle Hidden
+}
+finally { Remove-Item -LiteralPath $sfx -Force -ErrorAction SilentlyContinue }
 if ($installer.ExitCode -ne 0) { throw "Installer failed with exit code $($installer.ExitCode)." }
 $target = Join-Path $destDir 'ExoLauncher.exe'
 if (-not (Test-Path -LiteralPath $target)) { throw 'Installer completed but ExoLauncher.exe was not found.' }
-Remove-Item -LiteralPath $sfx -Force -ErrorAction SilentlyContinue
 Write-Host "[+] Installed to $target" -ForegroundColor Green
 Start-Process -FilePath $target -WorkingDirectory $destDir
 

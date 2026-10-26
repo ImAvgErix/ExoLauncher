@@ -155,19 +155,13 @@
   width: var(--exo-card-w);
 }
 
-/* Inside a floating settings panel: an even 12px inset all round, and the boxes inside it curve with its corners
-   (the panel's radius less the inset), so the top-left reads as one shape. */
+/* Inside a floating settings panel: an even 12px inset all round. The section list is a plain column parted
+   from the page by one hairline, not a box of its own. */
 .exo-set-room > .exo-settings,
 .exo-dc-settings,
 .exo-props {
   padding: 12px;
   gap: 12px;
-}
-
-.exo-set-room > .exo-settings .exo-settings-nav,
-.exo-dc-settings .exo-dc-settings-nav,
-.exo-props .exo-props-nav {
-  border-radius: calc(var(--exo-sheet-radius) - 12px);
 }
 
 /* Game Properties: a wide floating panel over the game page, laid out as Settings' floating panel: the

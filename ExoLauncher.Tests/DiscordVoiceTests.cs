@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Sockets;
+using ExoLauncher.Models;
 using ExoLauncher.Services.DiscordClient.Voice;
 using Xunit;
 
@@ -402,10 +403,35 @@ public sealed class VoiceChainTests
         var sent = 0;
         for (var f = 0; f < 150; f++) if (chain.Process(Noise(random, 0.01f), VoiceProcessing.ExoVoice, null, systemGain: false) && f >= 50) sent++;
         // DeepFilterNet ran: whole, or its light stage when the CPU was too busy for it (Overload).
-        Assert.Equal(new VoiceStages(chain.Stages.Suppression == "light" ? "light" : "on", NoiseSuppressor.GentleDb, false, "off", false), chain.Stages);
+        Assert.Equal(new VoiceStages(chain.Stages.Suppression == "light" ? "light" : "on", NoiseSuppressor.MostDb, false, "exo", false), chain.Stages);
         Assert.Equal(0, sent);
         chain.Process(Noise(random, 0.01f), VoiceProcessing.ExoVoice, null, systemGain: true);
-        Assert.Equal("windows", chain.Stages.Gain); // Exo has no gain stage: only Windows' own, where a driver keeps it on, shows
+        Assert.Equal("windows", chain.Stages.Gain); // Windows' own gain, where a driver keeps it on, stands in for Exo's leveler
+    }
+
+    // A build that still has "krisp" saved gets Exo Voice: the Exo profile and chain, never a missing plugin.
+    [Fact]
+    public void AKrispKindIsExoVoiceNow()
+    {
+        var settings = new AppSettings { DiscordNoiseSuppression = true, DiscordNoiseSuppressionKind = "krisp" };
+        var processing = VoiceProcessing.From(settings);
+        Assert.Equal(("exo", "exo", true), (processing.Profile, processing.Suppressor, processing.NoiseSuppression));
+    }
+
+    // The settings' kind becomes the chain's suppressor: Exo Voice (and older kinds) run Exo's own chain as the
+    // Exo profile, Standard runs plain (the custom profile: none of Exo's shaping stages), off is off.
+    [Fact]
+    public void TheNoiseSuppressionKindChoosesTheChain()
+    {
+        var settings = new AppSettings { DiscordNoiseSuppression = true };
+        foreach (var (kind, profile, suppressor) in new[] { ("exo", "exo", "exo"), ("ai", "exo", "ai"), ("krisp", "exo", "exo"), ("an-older-kind", "exo", "exo"), ("standard", "custom", "standard") })
+        {
+            settings.DiscordNoiseSuppressionKind = kind;
+            var processing = VoiceProcessing.From(settings);
+            Assert.Equal((profile, suppressor, true), (processing.Profile, processing.Suppressor, processing.NoiseSuppression));
+        }
+        settings.DiscordNoiseSuppression = false;
+        Assert.False(VoiceProcessing.From(settings).NoiseSuppression);
     }
 
     [Fact]
@@ -417,7 +443,7 @@ public sealed class VoiceChainTests
         using var custom = new VoiceChain { StepsAside = false };
         var plain = new VoiceProcessing("custom", false, false, false, true, -60, 0, false);
         custom.Process(new float[VoiceAudio.FrameFloats], plain, null, systemGain: false);
-        Assert.Equal(new VoiceStages("off", NoiseSuppressor.GentleDb, false, "off", false), custom.Stages);
+        Assert.Equal(new VoiceStages("off", NoiseSuppressor.MostDb, false, "off", false), custom.Stages);
     }
 
     // Fan and room noise (pink and brown, as a PC's fans make), which DeepFilterNet keeps only about 5 dB down until it has
@@ -581,7 +607,7 @@ public sealed class NoiseSuppressorTests
     internal static void UseTestPlugin()
     {
         var root = new DirectoryInfo(AppContext.BaseDirectory);
-        while (root is not null && !Directory.Exists(Path.Combine(root.FullName, "voice"))) root = root.Parent;
+        while (root is not null && !Directory.Exists(Path.Combine(root.FullName, "voice", "build"))) root = root.Parent;
         NoiseSuppressor.PluginPath = Path.Combine(root!.FullName, "voice", "build", "dfn", "exo-deepfilter.dll");
     }
 

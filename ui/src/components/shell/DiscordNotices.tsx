@@ -26,6 +26,8 @@ export const DiscordNotices = memo(function DiscordNotices({ onOpen }: {
 }) {
   const [banners, setBanners] = useState<Banner[]>([])
   const [held, setHeld] = useState(false)
+  // A banner that went while the pointer was on it never says it left: nothing is held with none on screen.
+  useEffect(() => { if (banners.length === 0) setHeld(false) }, [banners.length])
 
   const leave = useCallback((match: (b: Banner) => boolean) => {
     setBanners(list => list.some(b => match(b) && !b.leaving) ? list.map(b => match(b) ? { ...b, leaving: true } : b) : list)
@@ -56,7 +58,8 @@ export const DiscordNotices = memo(function DiscordNotices({ onOpen }: {
   const nextDue = held ? null : Math.min(...banners.filter(b => !b.leaving).map(b => b.at + STAY_MS))
   useEffect(() => {
     if (nextDue === null || !Number.isFinite(nextDue)) return
-    const timer = window.setTimeout(() => leave(b => b.at + STAY_MS <= Date.now()), Math.max(0, nextDue - Date.now()))
+    // A timer can fire a millisecond or two early; a banner that early is due, or nothing would re-arm and it would stay.
+    const timer = window.setTimeout(() => leave(b => b.at + STAY_MS <= Date.now() + 10), Math.max(0, nextDue - Date.now()))
     return () => window.clearTimeout(timer)
   }, [nextDue, leave])
 

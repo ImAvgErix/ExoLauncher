@@ -18,6 +18,17 @@ import { useLayoutEffect, type RefObject } from 'react'
 
 const SVG_NS = 'http://www.w3.org/2000/svg'
 const maps = new Map<string, Promise<string>>()
+/** Each key holds a displacement map as a data URL; a window resize mints a key per settled size, so the map is
+ * capped or a long session of resizes would hold them all. Oldest-inserted entries go first. */
+const MAPS_MAX_ENTRIES = 64
+
+function rememberMap(key: string, map: Promise<string>): void {
+  if (!maps.has(key) && maps.size >= MAPS_MAX_ENTRIES) {
+    const oldest = maps.keys().next().value
+    if (oldest !== undefined) maps.delete(oldest)
+  }
+  maps.set(key, map)
+}
 let defs: SVGDefsElement | null = null
 let serial = 0
 
@@ -141,7 +152,7 @@ export function useLens(ref: RefObject<HTMLElement | null>, mounted = true) {
       const radius = Math.min(parseFloat(getComputedStyle(el).borderTopLeftRadius) || h / 2, h / 2, w / 2)
       const bezel = Math.max(6, Math.min(18, Math.min(w, h) * 0.32))
       const key = `${w}x${h}x${Math.round(radius)}`
-      if (!maps.has(key)) maps.set(key, buildMap(w, h, radius, bezel))
+      if (!maps.has(key)) rememberMap(key, buildMap(w, h, radius, bezel))
       void maps.get(key)!.then(href => {
         if (!live || !href) return
         const next = lensFilter(id, href, w, h)

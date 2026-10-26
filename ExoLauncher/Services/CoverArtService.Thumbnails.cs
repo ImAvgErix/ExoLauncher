@@ -41,7 +41,7 @@ public static partial class CoverArtService
     /// Null means the cover itself is missing (the card moves to its next candidate).
     /// A source that is already small enough, not a JPEG, or fails to scale is served as is.
     /// </summary>
-    internal static async Task<ThumbnailBody?> ReadThumbnailAsync(string coverName, int width)
+    internal static async Task<ThumbnailBody?> ReadThumbnailAsync(string coverName, int width, bool dim = false)
     {
         if (!IsSafeCacheFileName(coverName) || coverName.StartsWith(ThumbnailPrefix, StringComparison.OrdinalIgnoreCase) ||
             IsTemporaryCacheName(coverName) || !IsThumbnailWidth(width))
@@ -61,18 +61,21 @@ public static partial class CoverArtService
         string? thumb = null;
         if (IsThumbnailSource(source))
         {
-            var name = ThumbnailFileName(coverName, width, info.Length, info.LastWriteTimeUtc);
+            var name = ThumbnailFileName(coverName, width, info.Length, info.LastWriteTimeUtc, dim);
             var path = Path.Combine(root, name);
             if (File.Exists(path)) thumb = path;
             else if (!ThumbnailNotNeeded.ContainsKey(name))
             {
-                var work = ThumbnailWork.GetOrAdd(name, key => new Lazy<Task<string?>>(() => CreateThumbnailAsync(source, path, width)));
+                var work = ThumbnailWork.GetOrAdd(name, key => new Lazy<Task<string?>>(() => CreateThumbnailAsync(source, path, width, dim)));
                 try { thumb = await work.Value.ConfigureAwait(false); }
                 finally { ThumbnailWork.TryRemove(new KeyValuePair<string, Lazy<Task<string?>>>(name, work)); }
                 if (thumb is null && ThumbnailNotNeeded.Count < 4096) ThumbnailNotNeeded.TryAdd(name, 0);
             }
         }
 
+        // A dim thumbnail that couldn't be made is no answer: the source served as is would show a not-installed
+        // game at full color, so the card falls to its plain thumbnail, which it dims with the CSS filter.
+        if (dim && thumb is null) return null;
         var served = thumb ?? source;
         try
         {
@@ -96,17 +99,47 @@ public static partial class CoverArtService
     /// <summary>Bumped when the scaler changes, so thumbnails an older one made are replaced, not reused.</summary>
     private const int ThumbnailFormat = 2;
 
-    internal static string ThumbnailFileName(string coverName, int width, long length, DateTime lastWriteUtc)
+    internal static string ThumbnailFileName(string coverName, int width, long length, DateTime lastWriteUtc, bool dim = false)
     {
         Span<byte> key = stackalloc byte[20];
         BitConverter.TryWriteBytes(key[..8], length);
         BitConverter.TryWriteBytes(key[8..16], lastWriteUtc.Ticks);
         BitConverter.TryWriteBytes(key[16..], ThumbnailFormat);
         var stamp = Convert.ToHexStringLower(SHA256.HashData(key)[..8]);
-        return $"{ThumbnailPrefix}{width}-{stamp}-{Path.GetFileNameWithoutExtension(coverName)}.jpg";
+        return $"{ThumbnailPrefix}{(dim ? "dim-" : "")}{width}-{stamp}-{Path.GetFileNameWithoutExtension(coverName)}.jpg";
     }
 
-    private static async Task<string?> CreateThumbnailAsync(string source, string destination, int width)
+    /// <summary>
+    /// The grid's not-installed look (library.css' former
+    /// <c>filter: saturate(0.45) brightness(0.42)</c>) as one matrix, applied to the
+    /// thumbnail once instead of painting through a CSS filter every scroll frame.
+    /// <paramref name="r"/>, <paramref name="g"/>, <paramref name="b"/> and the
+    /// result are sRGB-encoded, the space CSS filters operate in.
+    /// </summary>
+    internal static (byte R, byte G, byte B) DimPixel(byte r, byte g, byte b)
+    {
+        // CSS feColorMatrix saturate(0.45) (weights 0.2126/0.7152/0.0722), then
+        // brightness(0.42), a linear multiply: combined here so the order is
+        // already folded in.
+        var nr = 0.2381106f * r + 0.1652112f * g + 0.0166782f * b;
+        var ng = 0.0491106f * r + 0.3542112f * g + 0.0166782f * b;
+        var nb = 0.0491106f * r + 0.1652112f * g + 0.2056782f * b;
+        return ((byte)Math.Clamp((int)(nr + 0.5f), 0, 255),
+                (byte)Math.Clamp((int)(ng + 0.5f), 0, 255),
+                (byte)Math.Clamp((int)(nb + 0.5f), 0, 255));
+    }
+
+    /// <summary><see cref="DimPixel"/> over opaque BGRA8 pixels in place.</summary>
+    private static void ApplyDim(byte[] pixels)
+    {
+        for (var i = 0; i + 3 < pixels.Length; i += 4)
+        {
+            var (r, g, b) = DimPixel(pixels[i + 2], pixels[i + 1], pixels[i]);
+            pixels[i] = b; pixels[i + 1] = g; pixels[i + 2] = r;
+        }
+    }
+
+    private static async Task<string?> CreateThumbnailAsync(string source, string destination, int width, bool dim = false)
     {
         await ThumbnailSlots.WaitAsync().ConfigureAwait(false);
         var temp = Path.Combine(Path.GetDirectoryName(destination)!, "~" + Guid.NewGuid().ToString("N") + ".tmp");
@@ -157,6 +190,7 @@ public static partial class CoverArtService
                 var pixels = new byte[decodedWidth * decodedHeight * 4];
                 decoded.CopyToBuffer(pixels.AsBuffer());
                 var scaled = LanczosResample(pixels, decodedWidth, decodedHeight, targetWidth, targetHeight);
+                if (dim) ApplyDim(scaled);
                 using var bitmap = SoftwareBitmap.CreateCopyFromBuffer(
                     scaled.AsBuffer(), BitmapPixelFormat.Bgra8, targetWidth, targetHeight, BitmapAlphaMode.Ignore);
                 using var output = new InMemoryRandomAccessStream();

@@ -17,7 +17,7 @@ $problems = [Collections.Generic.List[string]]::new()
 # The public file set, as published path -> source path.
 $publicFiles = [ordered]@{}
 foreach ($f in 'README.md', 'CHANGELOG.md', 'PRIVACY.md', 'LICENSE', 'THIRD_PARTY_NOTICES.md',
-    'docs/HELP.md', 'docs/SUPPORT_MATRIX.md', 'docs/VENDORS.md') { $publicFiles[$f] = Join-Path $repo $f }
+    'BUILDING.md', 'CONTRIBUTING.md', 'TRADEMARKS.md', 'docs/HELP.md', 'docs/SUPPORT_MATRIX.md', 'docs/VENDORS.md') { $publicFiles[$f] = Join-Path $repo $f }
 $githubRoot = $repo
 Get-ChildItem -LiteralPath (Join-Path $githubRoot '.github') -Recurse -File -Force | ForEach-Object {
     $publicFiles[[IO.Path]::GetRelativePath($githubRoot, $_.FullName).Replace('\', '/')] = $_.FullName

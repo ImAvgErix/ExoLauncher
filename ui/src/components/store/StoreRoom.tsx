@@ -1,20 +1,24 @@
-import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
-import { CHECK_PATH, ChevronLeft, ChevronRight, Close, ExternalLink, Loader2, Refresh, Search } from '../../brand/icons'
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
+import { Bookmark, CHECK_PATH, ChevronLeft, ChevronRight, Close, Refresh, Search } from '../../brand/icons'
 import { shouldReduceMotion } from '../../lib/motionPreference'
-import { host, onHostEvent, type Game, type StoreFreeGame, type StoreHome, type StoreTile } from '../../lib/host'
+import { host, onHostEvent, type Game, type StoreCalendar, type StoreHome, type StoreTile } from '../../lib/host'
 import { onPageActivityChanged, pageIsActive } from '../../lib/pageActivity'
 import { report } from '../../lib/report'
 import { useGlide } from '../../lib/glide'
 import { GameOverlay } from '../../motion'
 import { onScreen, pane, pressedArt, transition, visible } from '../../lib/viewTransition'
 import { useTopOnChange } from '../../lib/topOnChange'
+import { onStoreSearch, takeStoreSearch } from '../../lib/storeSearch'
+import { Switch } from '../Switch'
 import { SteamImage, StoreCard, useWarm } from './StoreCard'
+import { CoverArt } from '../CoverArt'
 import { StoreGamePage } from './StoreGamePage'
-import { artSources, freeWhen, steamArt, useOwned, useWishlist } from './storeData'
+import { artSources, steamArt, useOwned, useWishlist } from './storeData'
 
-type Tab = 'home' | 'wishlist'
+type Tab = 'home' | 'calendar' | 'wishlist'
 /** A card at its place in the view; arrive: the view is showing its items for the first time. */
-type CardFn = (tile: StoreTile, index: number, arrive: boolean) => ReactNode
+/** priced: the card shows its price (the Wishlist, where the price is the point); elsewhere it is on the game's page. */
+type CardFn = (tile: StoreTile, index: number, arrive: boolean, priced?: boolean) => ReactNode
 
 /** Views that have already arrived once this session (DESIGN.md › Motion: arrive plays the first time only). */
 const arrived = new Set<string>()
@@ -31,12 +35,17 @@ function arriveStyle(i: number): CSSProperties {
 
 /**
  * The Store room, laid out like a launcher's storefront: the big games up
- * top, then Epic's free games, top sellers, the most wishlisted games,
- * popular new releases, specials and what's coming. Search and a wishlist
+ * top, then the games picked for this person and Steam's charts with what
+ * they play woven in. Search and a wishlist
  * sit above; a game opens its own page.
  */
 /** The window a game's page sits in over the Store. */
 const PAGE_WINDOW = '.exo-game-overlay-stage:has(> .exo-sgp)'
+
+const NO_GAMES: Game[] = []
+
+/** What a hidden-unmounted Store comes back to (BootGate's roomScroll keeps the scroll). */
+const remembered = { tab: 'home' as Tab, query: '', page: null as StoreTile | null, lastPage: null as StoreTile | null }
 
 export function StoreRoom({ active, games, onSale, onOpenGame }: {
   active: boolean
@@ -46,12 +55,21 @@ export function StoreRoom({ active, games, onSale, onOpenGame }: {
   /** "In your library": the game's name and its Steam app id. */
   onOpenGame: (name: string, appId?: string) => void
 }) {
-  const [tab, setTab] = useState<Tab>('home')
-  const [query, setQuery] = useState('')
-  const [page, setPage] = useState<StoreTile | null>(null)
+  const [tab, setTab] = useState<Tab>(remembered.tab)
+  const [query, setQuery] = useState(remembered.query)
+  const [page, setPage] = useState<StoreTile | null>(remembered.page)
   // The closing fade keeps showing the game that was open.
-  const [lastPage, setLastPage] = useState<StoreTile | null>(null)
+  const [lastPage, setLastPage] = useState<StoreTile | null>(remembered.lastPage)
+  useEffect(() => { remembered.tab = tab; remembered.query = query; remembered.page = page; remembered.lastPage = lastPage },
+    [tab, query, page, lastPage])
   if (page && page !== lastPage) setLastPage(page)
+  // A search sent here from elsewhere (a friend's game you don't have): taken once the room is up, or at once when it is.
+  useEffect(() => {
+    const search = (text: string) => { setPage(null); setQuery(text) }
+    const waiting = takeStoreSearch()
+    if (waiting) search(waiting)
+    return onStoreSearch(text => { takeStoreSearch(); search(text) })
+  }, [])
   const shownPage = page ?? lastPage
   const owned = useOwned(games)
   const home = useHome()
@@ -59,6 +77,7 @@ export function StoreRoom({ active, games, onSale, onOpenGame }: {
   const hits = useSearch(query)
   const searching = query.trim().length >= 2
   const view = searching ? 'search' : tab
+  const calendar = useCalendar(view === 'calendar')
 
   const scroller = useRef<HTMLDivElement>(null)
   useTopOnChange(scroller, `${view}|${hits.query}`)
@@ -76,16 +95,27 @@ export function StoreRoom({ active, games, onSale, onOpenGame }: {
     void transition(() => setPage(null), { kind: 'morph', back: true, morph: { name: 'exo-store-art', from: visible(PAGE_WINDOW), to: () => onScreen(to) ? to : null } })
   }
 
-  const card = useCallback<CardFn>((tile, index, arrive) => (
-    <StoreCard key={tile.appId} tile={tile} owned={owned(tile.appId, tile.name)} onOpen={openPage} arrive={arrive ? index : undefined} />
-  ), [owned, openPage])
+  // The library games a pick is like, for its Similar to band; the host names them by library id.
+  // One array per set of ids while the library is the same, so a memoized card that did not change is not drawn again.
+  const { byId, similarKept } = useMemo(() => ({ byId: new Map(games.map(g => [g.id, g])), similarKept: new Map<string, Game[]>() }), [games])
+  const similar = useCallback((ids?: string[] | null) => {
+    if (!ids?.length) return NO_GAMES
+    const key = ids.join('|')
+    let list = similarKept.get(key)
+    if (!list) similarKept.set(key, list = ids.flatMap(id => byId.get(id) ?? []))
+    return list
+  }, [byId, similarKept])
+  const openLibrary = useCallback((game: Game) => onOpenGame(game.title), [onOpenGame])
+  const card = useCallback<CardFn>((tile, index, arrive, priced) => (
+    <StoreCard key={tile.appId} tile={tile} owned={owned(tile.appId, tile.name)} similar={similar(tile.similarTo)} priced={priced} onOpen={openPage} onOpenGame={openLibrary} arrive={arrive ? index : undefined} />
+  ), [owned, openPage, similar, openLibrary])
 
   const [openError, setOpenError] = useState<string | null>(null)
   // With nothing else to show, an error reads in the view itself, with Retry; over a page on screen, here.
-  const status = view === 'search' ? (hits.items ? hits.error : null) : view === 'home' ? (home.data ? home.error ?? openError : null) : wish.loaded ? wish.error : null
+  const status = viewStatus(view, { hits, home, calendar, wish, openError })
 
   return (
-    <main className="exo-store" aria-label="Store">
+    <main className="exo-store" aria-label="Store" data-room-scroll>
       <h1 className="sr-only">Store</h1>
       <header className="exo-store-top">
         <StoreTools view={view} query={query} wished={wish.items.length} refreshing={home.loading}
@@ -99,8 +129,9 @@ export function StoreRoom({ active, games, onSale, onOpenGame }: {
         <div key={view} className="exo-motion-switch">
           {view === 'search' ? <Results hits={hits} card={card} onClear={() => setQuery('')} />
             : view === 'wishlist' ? <Wishlist wish={wish} owned={owned} card={card} />
-              : <Discover home={home.data} error={home.error} retrying={home.loading} onRetry={() => void home.load(false)} card={card} onOpen={openPage}
-                  onOpenFailed={setOpenError} still={!!page || !active} working={home.refreshing} />}
+              : view === 'calendar' ? <Calendar cal={calendar} card={card} />
+              : <Discover home={home.data} error={home.error} retrying={home.loading} onRetry={() => void home.load(false)} card={card} similar={similar} onOpen={openPage}
+                  still={!!page || !active} working={home.refreshing} />}
         </div>
       </div>
 
@@ -122,14 +153,28 @@ export function StoreRoom({ active, games, onSale, onOpenGame }: {
   )
 }
 
-function Discover({ home, error, retrying, onRetry, card, onOpen, onOpenFailed, still, working }: {
+/** The line in the top bar: the view on screen's error, once that view has something to show (before, the view says it itself). */
+function viewStatus(view: string, s: {
+  hits: ReturnType<typeof useSearch>
+  home: ReturnType<typeof useHome>
+  calendar: ReturnType<typeof useCalendar>
+  wish: ReturnType<typeof useWishlist>
+  openError: string | null
+}): string | null {
+  if (view === 'search') return s.hits.items ? s.hits.error : null
+  if (view === 'home') return s.home.data ? s.home.error ?? s.openError : null
+  if (view === 'calendar') return s.calendar.data ? s.calendar.error : null
+  return s.wish.loaded ? s.wish.error : null
+}
+
+function Discover({ home, error, retrying, onRetry, card, similar, onOpen, still, working }: {
   home: StoreHome | null
+  similar: (ids?: string[] | null) => Game[]
   error: string | null
   retrying: boolean
   onRetry: () => void
   card: CardFn
   onOpen: (t: StoreTile) => void
-  onOpenFailed: (message: string | null) => void
   still: boolean
   working: boolean
 }) {
@@ -137,8 +182,7 @@ function Discover({ home, error, retrying, onRetry, card, onOpen, onOpenFailed, 
   if (!home) return error ? <Unreachable message={error} busy={retrying} onRetry={onRetry} /> : <Skeleton />
   return (
     <>
-      {home.hero?.length ? <Hero items={home.hero} onOpen={onOpen} still={still} working={working} arrive={arrive} /> : null}
-      {home.free?.length ? <FreeShelf free={home.free} working={working} arrive={arrive} onOpenFailed={onOpenFailed} /> : null}
+      {home.hero?.length ? <Hero items={home.hero} similar={similar} onOpen={onOpen} still={still} working={working} arrive={arrive} /> : null}
       {(home.shelves ?? []).map(s => s.items.length
         ? <Row key={s.id} id={s.id} title={s.title} count={s.items.length} working={working}>{s.items.map((t, i) => card(t, i, arrive))}</Row>
         : null)}
@@ -170,7 +214,7 @@ function heroWhen(when?: string | null): string {
  * the pick, so the two never disagree; under Reduce motion it does not turn.
  * The next game's art loads while this one shows.
  */
-function Hero({ items, onOpen, still, working, arrive }: { items: StoreTile[]; onOpen: (t: StoreTile) => void; still: boolean; working: boolean; arrive: boolean }) {
+function Hero({ items, similar, onOpen, still, working, arrive }: { items: StoreTile[]; similar: (ids?: string[] | null) => Game[]; onOpen: (t: StoreTile) => void; still: boolean; working: boolean; arrive: boolean }) {
   const [index, setIndex] = useState(0)
   const [hovered, setHovered] = useState(false)
   const [focused, setFocused] = useState(false)
@@ -192,10 +236,11 @@ function Hero({ items, onOpen, still, working, arrive }: { items: StoreTile[]; o
     <section className="exo-store-hero" aria-label="Featured" onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}
       onFocus={e => setFocused(e.target.matches(':focus-visible'))}
       onBlur={e => { if (!e.currentTarget.contains(e.relatedTarget)) setFocused(false) }}>
+      <HeroLight tile={current} />
       <button type="button" className={`exo-store-hero-stage${working ? ' exo-motion-work' : ''}`} data-vt-art onClick={() => onOpen(current)} {...warm} aria-label={`Open ${current.name}`}>
         <HeroArt tile={current} />
         <span className="exo-store-hero-copy">
-          {current.soon ? <span className="exo-store-hero-tag">{heroWhen(current.when)}</span> : null}
+          <HeroTags tile={current} like={similar(current.similarTo)[0]} />
           <HeroLogo key={current.appId} tile={current} />
           <span className="exo-store-hero-cta">See the game</span>
         </span>
@@ -235,6 +280,28 @@ function HeroArt({ tile }: { tile: StoreTile }) {
   )
 }
 
+/** Above the logo: when a coming game is out, and why it is here (the wishlist's bookmark, or the game you play it is like). */
+function HeroTags({ tile, like }: { tile: StoreTile; like?: Game }) {
+  if (!tile.soon && !tile.wished && !like) return null
+  return (
+    <span className="exo-store-hero-tags">
+      {tile.soon ? <span className="exo-store-hero-tag">{heroWhen(tile.when)}</span> : null}
+      {tile.wished ? <span className="exo-store-hero-tag"><Bookmark size={12} filled />On your wishlist</span> : null}
+      {!tile.wished && like ? <span className="exo-store-hero-tag">Similar to<CoverArt game={like} className="exo-store-similar-icon" />{like.title}</span> : null}
+    </span>
+  )
+}
+
+/**
+ * The featured game's light on the black around the banner (DESIGN.md › Immersive: art gets the light), as Continue's
+ * art lights the Library: its own picture, far out of focus and dim, behind the banner and the list. Still while it
+ * shows (the blur never animates); a new game's light fades in over the last one.
+ */
+function HeroLight({ tile }: { tile: StoreTile }) {
+  const src = artSources(tile, ['hero', 'header', 'capsule'])[0]?.src
+  return src ? <span className="exo-store-hero-light" aria-hidden="true"><img key={tile.appId} src={src} alt="" decoding="async" draggable={false} /></span> : null
+}
+
 function HeroPick({ tile, on, onPick }: { tile: StoreTile; on: boolean; onPick: () => void }) {
   const warm = useWarm(tile.appId, tile.art)
   return (
@@ -253,40 +320,8 @@ function HeroLogo({ tile }: { tile: StoreTile }) {
     : <img className="exo-store-hero-logo exo-motion-switch" src={steamArt(tile.appId, 'logo')} alt="" onError={() => setFailed(true)} />
 }
 
-function FreeShelf({ free, working, arrive, onOpenFailed }: { free: StoreFreeGame[]; working: boolean; arrive: boolean; onOpenFailed: (message: string | null) => void }) {
-  return (
-    <Row id="free" title="Free on Epic" wide count={free.length} working={working}>
-      {free.map((f, i) => <FreeCard key={f.url} game={f} arriveAt={arrive ? i : undefined} onOpenFailed={onOpenFailed} />)}
-    </Row>
-  )
-}
-
-/** Epic's page for a free game: busy (and not pressable again) while it opens; a failure reads in the room's status line. */
-function FreeCard({ game, arriveAt, onOpenFailed }: { game: StoreFreeGame; arriveAt?: number; onOpenFailed: (message: string | null) => void }) {
-  const [busy, setBusy] = useState(false)
-  const go = () => {
-    if (busy) return
-    setBusy(true)
-    onOpenFailed(null)
-    host.storeOpen(game.url)
-      .then(res => { if (!res.ok) onOpenFailed(res.message ?? 'Epic\'s page could not be opened.') })
-      .catch((e: unknown) => { report(e, 'Store.free'); onOpenFailed('Epic\'s page could not be opened.') })
-      .finally(() => setBusy(false))
-  }
-  return (
-    <button type="button" className={`exo-store-free-card${arriveAt != null ? ' exo-motion-arrive' : ''}`} style={arriveAt != null ? arriveStyle(arriveAt) : undefined}
-      disabled={busy} aria-busy={busy} onClick={go}>
-      <span className="exo-store-free-art"><SteamImage sources={(game.images ?? []).map(src => ({ src }))} /></span>
-      <span className="exo-glass exo-store-free-text">
-        <span className="exo-store-card-title">{game.title}</span>
-        <span className={`exo-store-free-when${game.now ? ' is-now' : ''}`}>{freeWhen(game.now, game.from, game.until)}{busy ? <Loader2 size={12} /> : <ExternalLink size={12} />}</span>
-      </span>
-    </button>
-  )
-}
-
 /** A shelf: one horizontal row, scrolled by its arrows (a page at a time) or the wheel. Arrows change only when an edge is reached or left. */
-function Row({ id, title, count, wide = false, working, children }: { id: string; title: string; count: number; wide?: boolean; working: boolean; children: ReactNode }) {
+function Row({ id, title, count, working, children }: { id: string; title: string; count: number; working: boolean; children: ReactNode }) {
   const track = useRef<HTMLDivElement>(null)
   const [edges, setEdges] = useState({ start: true, end: false })
   const measure = useCallback(() => {
@@ -314,7 +349,7 @@ function Row({ id, title, count, wide = false, working, children }: { id: string
           <button type="button" className="exo-set-btn" aria-label={`More ${title}`} disabled={edges.end} onClick={() => page(1)}><ChevronRight size={14} /></button>
         </span>
       </div>
-      <div ref={track} className={`exo-store-track${wide ? ' is-wide' : ''}`} onScroll={measure}>{children}</div>
+      <div ref={track} className="exo-store-track" onScroll={measure}>{children}</div>
     </section>
   )
 }
@@ -356,15 +391,120 @@ function Wishlist({ wish, owned, card }: {
           </span>
         </button>
       </div>
-      <div className="exo-store-grid">{(sale.length ? sale : items).map((t, i) => card(t, i, arrive))}</div>
+      <div className="exo-store-grid">{(sale.length ? sale : items).map((t, i) => card(t, i, arrive, true))}</div>
       {sale.length && rest.length ? (
         <>
           <div className="exo-shelf-head"><h2 className="exo-shelf-title">Not on sale<span className="exo-shelf-count">{rest.length}</span></h2></div>
-          <div className="exo-store-grid">{rest.map((t, i) => card(t, sale.length + i, arrive))}</div>
+          <div className="exo-store-grid">{rest.map((t, i) => card(t, sale.length + i, arrive, true))}</div>
         </>
       ) : null}
     </>
   )
+}
+
+/** A calendar day as a person says it: Today, Tomorrow, Yesterday, else the weekday and date. */
+function dayLabel(iso: string): string {
+  const [year, month, date] = iso.split('-').map(Number)
+  const day = new Date(year, month - 1, date)
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const away = Math.round((day.getTime() - today.getTime()) / 86_400_000)
+  if (away === 0) return 'Today'
+  if (away === 1) return 'Tomorrow'
+  if (away === -1) return 'Yesterday'
+  return day.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })
+}
+
+/**
+ * The calendar: what came out in the last two weeks and what is dated in the next six, a day at a time, the wishlist
+ * first and then games like the ones played most. The filters are for this view only and do nothing to the lists.
+ */
+function Calendar({ cal, card }: { cal: ReturnType<typeof useCalendar>; card: CardFn }) {
+  const [hideOwned, setHideOwned] = useState(true)
+  const [wishOnly, setWishOnly] = useState(false)
+  const [hideEarly, setHideEarly] = useState(false)
+  const arrive = useArrive('calendar', !!cal.data)
+  if (!cal.data) return cal.error ? <Unreachable message={cal.error} busy={cal.loading} onRetry={() => void cal.load()} /> : <GridSkeleton />
+  const shown = (cal.data.days ?? [])
+    .map(d => ({ ...d, entries: d.entries.filter(e => !(hideOwned && e.owned) && !(wishOnly && !e.wished) && !(hideEarly && e.earlyAccess)) }))
+    .filter(d => d.entries.length > 0)
+  // Coming up first, from today; then what came out lately, the newest first.
+  const now = new Date()
+  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+  const ahead = shown.filter(d => d.date >= today)
+  const past = shown.filter(d => d.date < today).reverse()
+  let before = 0
+  const place = (list: typeof shown) => list.map(d => { const start = before; before += d.entries.length; return { ...d, start } })
+  const groups = [{ id: 'ahead', title: 'Coming up', days: place(ahead) }, { id: 'past', title: 'Out recently', days: place(past) }].filter(g => g.days.length)
+  const interests = cal.data.interests ?? []
+  return (
+    <>
+      <p className="exo-cal-note">
+        {interests.length ? `Picked for what you play: ${interests.join(', ')}.` : 'Out in the last two weeks and dated in the next six. Games you wishlist come first.'}
+      </p>
+      <div className="exo-cal-filters" role="group" aria-label="Calendar filters">
+        <span className="exo-cal-filter"><span id="exo-cal-owned">Hide games I own</span><Switch checked={hideOwned} labelledBy="exo-cal-owned" onChange={setHideOwned} /></span>
+        <span className="exo-cal-filter"><span id="exo-cal-wish">Wishlist only</span><Switch checked={wishOnly} labelledBy="exo-cal-wish" onChange={setWishOnly} /></span>
+        <span className="exo-cal-filter"><span id="exo-cal-early">Hide Early Access</span><Switch checked={hideEarly} labelledBy="exo-cal-early" onChange={setHideEarly} /></span>
+      </div>
+      {groups.length === 0 ? (
+        <div className="exo-store-empty">
+          <p>{(cal.data.days ?? []).length ? 'Nothing matches these filters' : 'No dated releases to show right now'}</p>
+          {(cal.data.days ?? []).length ? <button type="button" className="exo-set-btn" onClick={() => { setHideOwned(false); setWishOnly(false); setHideEarly(false) }}>Show everything</button> : null}
+        </div>
+      ) : groups.map(group => (
+        <section key={group.id} aria-labelledby={`exo-cal-${group.id}`}>
+          <div className="exo-shelf-head"><h2 id={`exo-cal-${group.id}`} className="exo-shelf-title">{group.title}</h2></div>
+          {/* Days flow side by side, each as wide as its games, so a day with one game never takes a whole row. */}
+          <div className="exo-cal-days">
+            {group.days.map(day => (
+              <section key={day.date} className="exo-cal-day" aria-labelledby={`exo-cal-${day.date}`}>
+                <h3 id={`exo-cal-${day.date}`} className="exo-cal-date">{dayLabel(day.date)}</h3>
+                <div className="exo-cal-games">
+                  {day.entries.map((e, i) => (
+                    <div key={e.tile.appId} className="exo-cal-item">
+                      {/* The day says when; the card needs no date of its own. */}
+                      {card({ ...e.tile, wished: e.wished, soon: false }, Math.min(day.start + i, 24), arrive)}
+                      {e.earlyAccess ? <p className="exo-cal-why">Early Access</p> : null}
+                    </div>
+                  ))}
+                </div>
+              </section>
+            ))}
+          </div>
+        </section>
+      ))}
+    </>
+  )
+}
+
+/**
+ * The calendar from the host, asked for each time the tab shows (the host keeps Steam's lists half an hour, so this is
+ * cheap and a wishlist change reorders it); the last answer stays up while a newer one is on its way, and a slow answer
+ * that a newer one replaced is dropped.
+ */
+function useCalendar(active: boolean) {
+  const [data, setData] = useState<StoreCalendar | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [loading, setLoading] = useState(false)
+  const latest = useRef(0)
+  const load = useCallback(async () => {
+    const mine = ++latest.current
+    setLoading(true)
+    try {
+      const res = await host.storeCalendar()
+      if (mine !== latest.current) return
+      if (res.ok) { setData(res); setError(null) } else setError(res.message ?? 'The store could not be reached.')
+    } catch (e) {
+      report(e, 'Store.calendar')
+      if (mine === latest.current) setError('The store could not be reached. Check your connection and try again.')
+    } finally {
+      if (mine === latest.current) setLoading(false)
+    }
+  }, [])
+  useEffect(() => { if (active) void load() }, [active, load])
+  useEffect(() => onHostEvent('store.changed', e => { if (active && e?.what === 'wishlist') void load() }), [active, load])
+  return { data, error, loading, load }
 }
 
 /** The home page on its way: black frames under the work band. */
@@ -470,6 +610,7 @@ function StoreTools({ view, query, wished, refreshing, onTab, onQuery, onRefresh
     <>
       <div ref={chipGlide} className="exo-shelf-chips exo-glide" role="group" aria-label="Store view">
         <button type="button" className="exo-shelf-chip" aria-pressed={view === 'home'} onClick={() => onTab('home')}>Discover</button>
+        <button type="button" className="exo-shelf-chip" aria-pressed={view === 'calendar'} onClick={() => onTab('calendar')}>Calendar</button>
         <button type="button" className="exo-shelf-chip" aria-pressed={view === 'wishlist'} onClick={() => onTab('wishlist')}>
           Wishlist<span className="exo-store-chip-count">{wished || ''}</span>
         </button>

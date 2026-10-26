@@ -5,12 +5,13 @@ namespace ExoLauncher.Services.DiscordClient.Voice;
 
 /// <summary>
 /// WebRTC's own noise suppression (exo_apm.dll), Discord's "Standard": a statistical noise estimate taken off each band,
-/// gentler on a voice than a neural model and with no delay. At <see cref="Level"/> high, as Chrome runs it. 20 ms stereo
+/// gentler on a voice than a neural model and with no delay. At <see cref="Level"/> very high, the most it takes — the
+/// steady noise (a fan, a hum) first, ahead of DeepFilterNet in the Exo AI chain or alone as Standard. 20 ms stereo
 /// frames, as two 10 ms mono calls, from one thread. <see cref="InputDb"/> is the frame's level going in, for the gate.
 /// </summary>
 internal sealed partial class WebRtcNoise : IDisposable
 {
-    private const int Half = Opus.FrameSamples / 2, Level = 2;
+    private const int Half = Opus.FrameSamples / 2, Level = 3;
     private nint _ns;
     private readonly float[] _mono = new float[Half];
 

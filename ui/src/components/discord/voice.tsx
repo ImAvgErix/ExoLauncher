@@ -139,10 +139,14 @@ const fromSlider = (at: number) => at <= 0 ? 0 : Math.abs(at - 100) < 1 ? 100 : 
 
 /**
  * Discord's call items in a person's menu: User Volume (0-200%) and Mute, only for you, heard at once and kept on
- * the account; on yourself, your own Mute and Deafen.
+ * the account; while you watch their Go Live, its Stream Volume and Mute Stream too, as in Discord (User Volume is
+ * their voice alone, so it never moved the stream's sound); on yourself, your own Mute and Deafen.
  */
 export function CallPersonItems({ userId, me }: { userId: string; me: boolean }) {
-  const audio = useAccountSettings().audioUsers[userId] ?? { muted: false, volume: 100 }
+  const settings = useAccountSettings()
+  const audio = settings.audioUsers[userId] ?? { muted: false, volume: 100 }
+  const sound = settings.audioStreams[userId] ?? { muted: false, volume: 100 }
+  const watched = useWatchedIds().includes(userId)
   const own = useDiscordVoice().voice
   if (me) {
     return (
@@ -153,20 +157,29 @@ export function CallPersonItems({ userId, me }: { userId: string; me: boolean })
       </>
     )
   }
-  const at = toSlider(audio.volume)
   return (
     <>
       <span className="exo-dc-menu-line" role="separator" />
-      <div className="exo-dc-ctx-volume" role="group" aria-label="User volume">
-        <span>User volume</span>
-        <span className="exo-dc-ctx-volume-row">
-          <Slider min={0} max={200} value={at} aria-label="User volume" onChange={event => setAudioUser(userId, { volume: fromSlider(Number(event.target.value)) })} />
-          <span>{Math.round(at)}%</span>
-        </span>
-      </div>
+      <VolumeRow label="User volume" volume={audio.volume} onChange={volume => setAudioUser(userId, { volume })} />
+      {watched ? <VolumeRow label="Stream volume" volume={sound.volume} disabled={sound.muted} onChange={volume => setAudioUser(userId, { volume }, true)} /> : null}
       <span className="exo-dc-menu-line" role="separator" />
       <MenuCheck label="Mute" on={audio.muted} onToggle={() => setAudioUser(userId, { muted: !audio.muted })} />
+      {watched ? <MenuCheck label="Mute stream" on={sound.muted} onToggle={() => setAudioUser(userId, { muted: !sound.muted }, true)} /> : null}
     </>
+  )
+}
+
+// A volume row of the person menu: 0-200% on Discord's curve.
+function VolumeRow({ label, volume, disabled, onChange }: { label: string; volume: number; disabled?: boolean; onChange: (volume: number) => void }) {
+  const at = toSlider(volume)
+  return (
+    <div className="exo-dc-ctx-volume" role="group" aria-label={label}>
+      <span>{label}</span>
+      <span className="exo-dc-ctx-volume-row">
+        <Slider min={0} max={200} value={at} aria-label={label} disabled={disabled} onChange={event => onChange(fromSlider(Number(event.target.value)))} />
+        <span>{Math.round(at)}%</span>
+      </span>
+    </div>
   )
 }
 
@@ -202,6 +215,11 @@ function dropWatched(userId: string) {
   if (!watchedStreams) return
   const userIds = watchedStreams.userIds.filter(id => id !== userId)
   setWatchedStreams(userIds.length ? { ...watchedStreams, userIds, focus: watchedStreams.focus === userId ? userIds[userIds.length - 1] : watchedStreams.focus } : null)
+}
+
+// Whose Go Live you watch now: a person's menu adds Stream volume for them.
+function useWatchedIds() {
+  return useSyncExternalStore(subscribeWatched, () => watchedStreams)?.userIds ?? []
 }
 
 // Whose streams you watch in this call, which one is big, and Watch Stream and Stop Watching.
@@ -249,9 +267,6 @@ export function VoiceRoom({ channel, controls, meId, onJoin, dm = false, chat }:
   const [membersHidden, setMembersHidden] = useState(false)
   const myStream = useStreamTile() && here
   const [stage, tileWidth] = useTileWidth(members.length + small.length + (myStream ? 1 : 0))
-  // The call's bar is glass like the Bar's capsules and Music's player: its edge bends what passes under it.
-  const bar = useRef<HTMLElement>(null)
-  useLens(bar)
   const audio = useAccountSettings().audioUsers
   return (
     <section className={`exo-dc-chat exo-dc-voice-room${dm ? ' is-dm' : ''}`} aria-label={dm ? `Call with ${channel.name}` : channel.name}>
@@ -277,12 +292,31 @@ export function VoiceRoom({ channel, controls, meId, onJoin, dm = false, chat }:
           <button type="button" className="exo-dc-icon-btn" aria-label="Dismiss" onClick={dismiss}><Close size={14} /></button>
         </div>
       ) : null}
-      <footer ref={bar} className="exo-dc-voice-bar exo-glass">
-        {here ? <CallButtons controls={controls} channelId={channel.id} onCameraError={setCameraError} /> : (
-          <button type="button" className="exo-dc-voice-join" disabled={channel.canConnect === false} onClick={onJoin}>{dm ? 'Join call' : 'Join voice'}</button>
-        )}
-      </footer>
+      <VoiceBar here={here} dm={dm} channel={channel} controls={controls} onJoin={onJoin} onCameraError={setCameraError} />
     </section>
+  )
+}
+
+/**
+ * The call's bar, glass like the Bar's capsules and Music's player (its edge bends what passes under it): the call's
+ * buttons, or out of the call the Join button itself, one glass capsule rather than a button inside one.
+ */
+function VoiceBar({ here, dm, channel, controls, onJoin, onCameraError }: {
+  here: boolean
+  dm: boolean
+  channel: DiscordChannel
+  controls: VoiceControls
+  onJoin: () => void
+  onCameraError: (why: string | null) => void
+}) {
+  const bar = useRef<HTMLElement>(null)
+  useLens(bar)
+  return (
+    <footer ref={bar} className={`exo-dc-voice-bar exo-glass${here ? '' : ' is-join'}`}>
+      {here ? <CallButtons controls={controls} channelId={channel.id} onCameraError={onCameraError} /> : (
+        <button type="button" className="exo-dc-voice-join" disabled={channel.canConnect === false} onClick={onJoin}>{dm ? 'Join call' : 'Join voice'}</button>
+      )}
+    </footer>
   )
 }
 
@@ -525,8 +559,8 @@ export function IncomingCall({ name, onJoin, onDecline }: { name: string; onJoin
   return (
     <div className="exo-dc-call exo-glass" role="alert">
       <span><strong>{name}</strong> is calling</span>
-      <button type="button" className="is-join" onClick={() => onJoin(false)}>Join</button>
-      <button type="button" className="is-join" onClick={() => onJoin(true)}>Join with video</button>
+      <button type="button" onClick={() => onJoin(false)}>Join</button>
+      <button type="button" onClick={() => onJoin(true)}>Join with video</button>
       <button type="button" onClick={onDecline}>Decline</button>
     </div>
   )

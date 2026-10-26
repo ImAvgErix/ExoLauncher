@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { host } from '../../lib/host'
+import { host, onHostEvent } from '../../lib/host'
 import { rememberSignedIn, wasSignedIn } from '../../lib/music'
 import { report } from '../../lib/report'
 import { appleAdapter, spotifyAdapter, youtubeAdapter } from '../../lib/musicAdapters'
@@ -118,6 +118,27 @@ export function NativeMusicRoom({ service, active, shown, nowPlaying }: {
       void adapter.leave().catch(() => { })
     }
   }, [adapter, service, shown, attempt])
+
+  // The engine can end under a room that is playing (Spotify closed, a web player's page crashed). A room on screen starts
+  // it again, on a short leash: twice a minute at most, then it says so instead of fighting someone who closed it on purpose.
+  const stateRef = useRef(state)
+  stateRef.current = state
+  const restarts = useRef<number[]>([])
+  useEffect(() => onHostEvent('music.status', data => {
+    const status = data as { service?: string; state?: string } | null
+    if (!shown || stateRef.current !== 'running' || status?.service !== service) return
+    if (status.state !== 'closed' && status.state !== 'error') return
+    const now = Date.now()
+    restarts.current = restarts.current.filter(at => now - at < 60_000)
+    if (restarts.current.length >= 2) {
+      setState('error')
+      setMessage(`${adapter.name} stopped. Open it again.`)
+      return
+    }
+    restarts.current.push(now)
+    setState('loading')
+    setAttempt(n => n + 1)
+  }), [adapter, service, shown])
 
   if (state === 'notInstalled') return <MusicRoom service={service} active={active} />
   if (state === 'signedOut' || state === 'notPremium') {

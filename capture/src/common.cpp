@@ -140,10 +140,23 @@ bool GetBool(const json::JsonObject& o, const wchar_t* key, bool fallback)
 
 namespace
 {
+/// True when no pixel has an alpha below full: a screen capture always is.
+bool Opaque(const uint8_t* bgra, UINT width, UINT height, UINT stride)
+{
+    for (UINT y = 0; y < height; y++)
+    {
+        const uint8_t* row = bgra + static_cast<size_t>(y) * stride;
+        for (UINT x = 0; x < width; x++)
+            if (row[static_cast<size_t>(x) * 4 + 3] != 0xFF) return false;
+    }
+    return true;
+}
+
 /// Writes BGRA pixels into a WIC stream as JPEG or PNG, scaled down to maxWidth when wider.
 void WriteImage(IWICImagingFactory* wic, IWICStream* stream, const uint8_t* bgra, UINT width, UINT height, UINT stride,
     bool png, UINT maxWidth, float quality)
 {
+    const bool opaque = !png || Opaque(bgra, width, height, stride);
     com_ptr<IWICBitmap> bitmap;
     Check(wic->CreateBitmapFromMemory(width, height, GUID_WICPixelFormat32bppBGRA, stride, stride * height,
         const_cast<BYTE*>(bgra), bitmap.put()), "WIC bitmap");
@@ -164,18 +177,28 @@ void WriteImage(IWICImagingFactory* wic, IWICStream* stream, const uint8_t* bgra
     com_ptr<IWICBitmapFrameEncode> frame;
     com_ptr<IPropertyBag2> props;
     Check(encoder->CreateNewFrame(frame.put(), props.put()), "image frame");
-    if (!png && props)
+    if (props)
     {
         PROPBAG2 option{};
-        option.pstrName = const_cast<LPOLESTR>(L"ImageQuality");
         VARIANT value{};
-        value.vt = VT_R4;
-        value.fltVal = quality;
+        if (png)
+        {
+            option.pstrName = const_cast<LPOLESTR>(L"PngFilterMode");
+            value.vt = VT_UI1;
+            value.bVal = WICPngFilterAdaptive;
+        }
+        else
+        {
+            option.pstrName = const_cast<LPOLESTR>(L"ImageQuality");
+            value.vt = VT_R4;
+            value.fltVal = quality;
+        }
         props->Write(1, &option, &value);
     }
     Check(frame->Initialize(props.get()), "image frame init");
     Check(frame->SetSize(outW, outH), "image size");
-    WICPixelFormatGUID format = png ? GUID_WICPixelFormat32bppBGRA : GUID_WICPixelFormat24bppBGR;
+    // A captured frame is never translucent: PNG stores opaque shots in 24 bits, a quarter smaller for the same pixels.
+    WICPixelFormatGUID format = png && !opaque ? GUID_WICPixelFormat32bppBGRA : GUID_WICPixelFormat24bppBGR;
     Check(frame->SetPixelFormat(&format), "image format");
     com_ptr<IWICBitmapSource> converted = source;
     if (format != GUID_WICPixelFormat32bppBGRA)

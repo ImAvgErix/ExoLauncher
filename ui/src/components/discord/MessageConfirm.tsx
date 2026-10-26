@@ -41,7 +41,8 @@ export function MessageConfirm({ kind, message, channel, ctx, onConfirm, onCance
   useEffect(() => {
     const key = (event: KeyboardEvent) => {
       if (event.key === 'Escape') { event.stopPropagation(); onCancel() }
-      else if (event.key === 'Enter') { event.preventDefault(); onConfirm() }
+      // Enter on a focused button does what that button says (Tab to Cancel, Enter: cancel); anywhere else it confirms.
+      else if (event.key === 'Enter' && !(event.target instanceof HTMLButtonElement)) { event.preventDefault(); onConfirm() }
     }
     window.addEventListener('keydown', key, true)
     return () => window.removeEventListener('keydown', key, true)

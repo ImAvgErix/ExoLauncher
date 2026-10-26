@@ -183,6 +183,19 @@ public sealed class ReportedHoursTests : IDisposable
     }
 
     [Fact]
+    public void OnlyAnOverviewIsTheLifetimeTotal()
+    {
+        var overview = Profile(
+            new { type = "overview", stats = new { timePlayed = new { value = 7200, displayType = "TimeSeconds" } } },
+            new { type = "playlist", metadata = new { name = "Competitive" }, stats = new { timePlayed = new { value = 3600, displayType = "TimeSeconds" } } });
+        Assert.Equal((120, true), TrackerGgPlaytime.ParseReading(overview));
+
+        var queues = Profile(
+            new { type = "playlist", metadata = new { name = "Competitive" }, stats = new { timePlayed = new { value = 3600, displayType = "TimeSeconds" } } });
+        Assert.Equal((60, false), TrackerGgPlaytime.ParseReading(queues));
+    }
+
+    [Fact]
     public void PrivateProfileIsPrivateNotZero()
     {
         const string json = """{ "errors": [ { "code": "CollectorResultStatus::Private", "message": "This profile is private." } ] }""";

@@ -33,6 +33,25 @@ public sealed class HdrTests
     public void Hdr_comes_on_only_for_games_that_use_it(string mode, bool? supports, bool expected) =>
         Assert.Equal(expected, MainWindow.WantsHdr(mode, supports));
 
+    // A game Exo is starting counts as running until its process shows up, so HDR is on before the process starts;
+    // failing quietly would mean HDR going back off at once (the game not yet "running") or staying on after a launch that never happened.
+    [Fact]
+    public void A_game_being_started_counts_until_it_runs_or_the_grace_ends()
+    {
+        var launching = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase) { ["steam:730"] = 1_000, ["epic:fn"] = 1_000 };
+
+        // Still starting, inside the grace: both wait.
+        Assert.Equal(["steam:730", "epic:fn"], MainWindow.PendingHdrLaunches(launching, [], 2_000, 120_000).OrderByDescending(id => id));
+
+        // One shows up running (any letter case): it is the running look's now, not a pending launch.
+        Assert.Equal(["epic:fn"], MainWindow.PendingHdrLaunches(launching, ["STEAM:730"], 3_000, 120_000));
+        Assert.DoesNotContain("steam:730", launching.Keys);
+
+        // The other never appears: past the grace it is dropped, so HDR goes back off.
+        Assert.Empty(MainWindow.PendingHdrLaunches(launching, [], 1_000 + 120_001, 120_000));
+        Assert.Empty(launching);
+    }
+
     [Fact]
     public void Peak_brightness_comes_from_the_edid_hdr_block()
     {

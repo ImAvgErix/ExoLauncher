@@ -112,12 +112,12 @@ export type DiscordAccountAction = 'me' | 'name' | 'profile' | 'avatar' | 'banne
 export type DiscordClientSettings = {
   inputProfile: 'exo' | 'custom'
   noiseSuppression: boolean
-  noiseSuppressionKind?: 'ai' | 'standard'
+  noiseSuppressionKind?: 'exo' | 'ai' | 'standard'
   /** The same on everyone else's voice in a call, each their own; off by default. */
   othersNoiseSuppression: boolean
   /** Only My Voice: voices that aren't the learned one are held back in calls (needs myVoiceLearned). */
   onlyMyVoice: boolean
-  /** Whether Exo has learned this user's voice (from a Voice Check take); read-only. */
+  /** Whether Exo has learned this user's voice (from the live meter); read-only. */
   myVoiceLearned?: boolean
   /** Each person's voice in a call brought toward one speaking level, for you; on by default. */
   evenVoices: boolean
@@ -362,6 +362,8 @@ export function startDiscordSettings() {
  * and Off, and the Toggle Streamer Mode keybind. Returns the cleanup.
  */
 export function startDiscordShell() {
+  // Saved Streamer Mode reaches the host at start, not only once the Discord room has been opened.
+  syncStreamerMode()
   const offs = [
     onHostEvent('discord.camera', event => {
       if (event.state === 'live' || event.state === 'off') void host.discordSound(event.state === 'live' ? 'camera_on' : 'camera_off').catch(() => { })

@@ -72,6 +72,9 @@ kbd,
   --color-primary-fg: #000000;
   --color-good: #3dd68c;
   --color-bad: #ff5c5c;
+  /* Text on a good or bad fill: the pale status colours take black (white on them read 1.9:1 and 2.8:1). */
+  --color-on-good: #000000;
+  --color-on-bad: #000000;
   --color-card: #000000;
   --color-raised: #000000;
   --font-sans: "Inter Variable", "Inter", sans-serif;
@@ -146,13 +149,13 @@ body,
      fainter bottom one, an even hairline and a soft glow just inside, with no tint or wash across the body (both
      read as metal). Over art it dims what is behind enough to keep white words readable, lifted by a soft shadow
      (--glassy-words). */
-  --glassy-rim: inset 0 0 18px rgb(255 255 255 / 0.06);
-  --glassy-ring: inset 0 1px 0 rgb(255 255 255 / 0.55), inset 0 -1px 0 rgb(255 255 255 / 0.12), inset 0 0 0 1px rgb(255 255 255 / 0.14);
+  --glassy-rim: inset 0 0 18px rgb(255 255 255 / 0.09);
+  --glassy-ring: inset 0 1px 0 rgb(255 255 255 / 0.65), inset 0 -1px 0 rgb(255 255 255 / 0.12), inset 0 0 0 1px rgb(255 255 255 / 0.14);
   --glassy-words: 0 1px 3px rgb(0 0 0 / 0.5), 0 0 12px rgb(0 0 0 / 0.3);
   --glassy-shadow: 0 1px 2px rgb(0 0 0 / 0.18), 0 8px 24px -4px rgb(0 0 0 / 0.28);
   --glassy-shadow-raised: 0 2px 6px rgb(0 0 0 / 0.2), 0 30px 60px -18px rgb(0 0 0 / 0.55);
   /* No sheen on Void: a white wash at the top of every pane read as gray on black. */
-  --glassy-sheen: none;
+  --glassy-sheen: linear-gradient(180deg, rgb(255 255 255 / 0.07), transparent 40%);
   /* Liquid glass, chosen side by side on the user's screen: a clear body that shows the colors behind it, lit only
      at its edges (a bright top line, a faint bottom one, a hairline and a soft inner glow) with no gray tint or wash
      across it (those read as metal), and its words lifted by a soft shadow. Large glass (menus, sheets) dims what is
@@ -257,12 +260,12 @@ body,
 
   /* Dark's own glass and lifts, so Void's black never reaches it (each Appearance stands on its own). */
   --hover-fill: rgb(255 255 255 / 0.1);
-  --glassy-rim: inset 0 0 18px rgb(255 255 255 / 0.06);
-  --glassy-ring: inset 0 1px 0 rgb(255 255 255 / 0.55), inset 0 -1px 0 rgb(255 255 255 / 0.12), inset 0 0 0 1px rgb(255 255 255 / 0.14);
+  --glassy-rim: inset 0 0 18px rgb(255 255 255 / 0.09);
+  --glassy-ring: inset 0 1px 0 rgb(255 255 255 / 0.65), inset 0 -1px 0 rgb(255 255 255 / 0.12), inset 0 0 0 1px rgb(255 255 255 / 0.14);
   --glassy-words: 0 1px 3px rgb(0 0 0 / 0.5), 0 0 12px rgb(0 0 0 / 0.3);
   --glassy-shadow: 0 1px 2px rgb(0 0 0 / 0.18), 0 8px 24px -4px rgb(0 0 0 / 0.28);
   --glassy-shadow-raised: 0 2px 6px rgb(0 0 0 / 0.2), 0 30px 60px -18px rgb(0 0 0 / 0.55);
-  --glassy-sheen: linear-gradient(180deg, rgb(255 255 255 / 0.05), transparent 45%);
+  --glassy-sheen: linear-gradient(180deg, rgb(255 255 255 / 0.07), transparent 45%);
   --glassy-overlay: rgb(44 44 46 / 0.42);
   --glassy-overlay-tone: brightness(0.64);
   --exo-fill: rgb(245 245 247 / 0.08);
@@ -301,8 +304,10 @@ body,
   --color-primary: #1e1e1e;
   --color-primary-fg: #ffffff;
   /* Green and red dark enough for 4.5:1 on the light page and on light glass over art (#d12f2f read 4.2:1 there). */
-  --color-good: #0f6b3a;
+  --color-good: #0a5830;
   --color-bad: #c42020;
+  --color-on-good: #ffffff;
+  --color-on-bad: #ffffff;
   --color-card: #ffffff;
   --color-raised: #ffffff;
   --hover-fill: rgb(0 0 0 / 0.05);

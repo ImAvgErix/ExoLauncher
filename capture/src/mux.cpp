@@ -8,16 +8,61 @@
 
 namespace
 {
-constexpr size_t BufferCapBytes = size_t(3) * 1024 * 1024 * 1024; // never more than 3 GB of RAM
+constexpr size_t BufferCapBytes = size_t(3) * 1024 * 1024 * 1024; // never more than 3 GB
+// The replay's files take whole 1 MB blocks (every disk's sector size divides it), 16 MB to a file; a file is
+// deleted once nothing in it is still wanted.
+constexpr uint32_t Block = 1u << 20;
+constexpr uint32_t FileBytes = 16u << 20;
+// A drive keeps this much free beside the replay's files.
+constexpr uint64_t Reserve = 1ull << 30;
+// Held in RAM because the disk is behind: worth a line in the log.
+constexpr size_t Behind = 32u << 20;
+constexpr int64_t RetryAfter = 60LL * 10'000'000;
 
-bool ByTime(const PacketPtr& a, const PacketPtr& b)
+uint8_t* AllocatePages(size_t bytes)
 {
-    if (a->time != b->time) return a->time < b->time;
-    return a->track < b->track;
+    return static_cast<uint8_t*>(VirtualAlloc(nullptr, bytes, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE));
+}
+
+/// Replay files a run that stopped without closing them left (the PC lost power); another running copy's stay open, and stay.
+void DeleteLeftovers(const std::wstring& folder)
+{
+    WIN32_FIND_DATAW found{};
+    HANDLE find = FindFirstFileW((folder + L"\\*.exo-replay").c_str(), &found);
+    if (find == INVALID_HANDLE_VALUE) return;
+    do DeleteFileW((folder + L"\\" + found.cFileName).c_str());
+    while (FindNextFileW(find, &found));
+    FindClose(find);
 }
 }
+
+struct ReplayFile
+{
+    HANDLE handle;
+    explicit ReplayFile(HANDLE h) : handle(h) {}
+    ~ReplayFile() { CloseHandle(handle); }
+};
 
 // ---------------------------------------------------------------- replay buffer
+
+ReplayBuffer::ReplayBuffer() : m_thread([this] { Run(); }) {}
+
+ReplayBuffer::~ReplayBuffer()
+{
+    {
+        std::lock_guard lock(m_lock);
+        m_stop = true;
+    }
+    m_wake.notify_one();
+    if (m_thread.joinable()) m_thread.join();
+}
+
+void ReplayBuffer::SetFolders(std::vector<std::wstring> folders)
+{
+    std::erase_if(folders, [](const std::wstring& folder) { return folder.empty(); });
+    std::lock_guard lock(m_lock);
+    m_folders = std::move(folders);
+}
 
 void ReplayBuffer::SetLength(int64_t length100ns)
 {
@@ -28,73 +73,104 @@ void ReplayBuffer::SetLength(int64_t length100ns)
 
 void ReplayBuffer::Push(const PacketPtr& packet)
 {
-    std::lock_guard lock(m_lock);
-    if (packet->track == 0)
+    bool wake = false;
     {
+        std::lock_guard lock(m_lock);
         // The buffer always opens on a key frame.
-        if (m_video.empty() && !packet->key) return;
-        m_video.push_back(packet);
+        if (m_video.empty() && (packet->track != 0 || !packet->key)) return;
+        ReplayEntry entry;
+        entry.time = packet->time;
+        entry.duration = packet->duration;
+        entry.seq = ++m_seq;
+        entry.size = static_cast<uint32_t>(packet->data.size());
+        entry.track = packet->track;
+        entry.key = packet->key;
+        entry.packet = packet;
+        (packet->track == 0 ? m_video : m_audio).push_back(std::move(entry));
+        m_bytes += packet->data.size();
+        m_ram += packet->data.size();
+        if (!m_folders.empty())
+        {
+            m_queue.push_back({ m_seq, packet });
+            m_queued += packet->data.size();
+            wake = m_queued >= Block;
+        }
+        TrimLocked();
     }
-    else
-    {
-        if (m_video.empty()) return;
-        m_audio.push_back(packet);
-    }
-    m_bytes += packet->data.size();
-    TrimLocked();
+    if (wake) m_wake.notify_one();
 }
 
 void ReplayBuffer::TrimLocked()
 {
     if (m_video.empty()) return;
-    int64_t newest = m_video.back()->time;
-    if (!m_audio.empty()) newest = std::max(newest, m_audio.back()->time);
+    auto drop = [this](const ReplayEntry& e) {
+        m_bytes -= e.size;
+        if (e.packet) m_ram -= e.size;
+    };
+    int64_t newest = m_video.back().time;
+    if (!m_audio.empty()) newest = std::max(newest, m_audio.back().time);
     int64_t cutoff = newest - m_length;
     for (;;)
     {
         // The next key frame after the oldest one; drop the oldest group of
         // pictures while that key frame still leaves the full length behind it.
-        auto next = std::find_if(m_video.begin() + 1, m_video.end(), [](const PacketPtr& p) { return p->key; });
+        auto next = std::find_if(m_video.begin() + 1, m_video.end(), [](const ReplayEntry& e) { return e.key; });
         if (next == m_video.end()) break;
-        if ((*next)->time > cutoff && m_bytes <= BufferCapBytes) break;
-        for (auto it = m_video.begin(); it != next; ++it) m_bytes -= (*it)->data.size();
+        if (next->time > cutoff && m_bytes <= BufferCapBytes) break;
+        for (auto it = m_video.begin(); it != next; ++it) drop(*it);
         m_video.erase(m_video.begin(), next);
     }
-    int64_t start = m_video.front()->time;
-    while (!m_audio.empty() && m_audio.front()->time < start)
+    int64_t start = m_video.front().time;
+    while (!m_audio.empty() && m_audio.front().time < start)
     {
-        m_bytes -= m_audio.front()->data.size();
+        drop(m_audio.front());
         m_audio.pop_front();
+    }
+    // What the writer has not taken yet and no longer needs.
+    while (!m_queue.empty())
+    {
+        auto& list = m_queue.front().packet->track == 0 ? m_video : m_audio;
+        if (!list.empty() && m_queue.front().seq >= list.front().seq) break;
+        m_queued -= m_queue.front().packet->data.size();
+        m_queue.pop_front();
     }
 }
 
-std::vector<PacketPtr> ReplayBuffer::Snapshot(int64_t length100ns) const
+ReplayClip ReplayBuffer::Snapshot(int64_t length100ns) const
 {
-    std::lock_guard lock(m_lock);
-    std::vector<PacketPtr> out;
-    if (m_video.empty()) return out;
-    auto from = m_video.begin();
-    if (length100ns > 0)
+    std::vector<ReplayEntry> out;
     {
-        int64_t newest = m_video.back()->time;
-        int64_t cutoff = newest - length100ns;
-        for (auto it = m_video.begin(); it != m_video.end(); ++it)
-            if ((*it)->key && (*it)->time <= cutoff) from = it;
+        std::lock_guard lock(m_lock);
+        if (m_video.empty()) return ReplayClip();
+        auto from = m_video.begin();
+        if (length100ns > 0)
+        {
+            int64_t cutoff = m_video.back().time - length100ns;
+            for (auto it = m_video.begin(); it != m_video.end(); ++it)
+                if (it->key && it->time <= cutoff) from = it;
+        }
+        int64_t start = from->time;
+        out.insert(out.end(), from, m_video.end());
+        for (auto& a : m_audio)
+            if (a.time >= start) out.push_back(a);
     }
-    int64_t start = (*from)->time;
-    out.insert(out.end(), from, m_video.end());
-    for (auto& a : m_audio)
-        if (a->time >= start) out.push_back(a);
-    std::stable_sort(out.begin(), out.end(), ByTime);
-    return out;
+    std::stable_sort(out.begin(), out.end(), [](const ReplayEntry& a, const ReplayEntry& b) {
+        return a.time != b.time ? a.time < b.time : a.track < b.track;
+    });
+    return ReplayClip(std::move(out));
 }
 
 void ReplayBuffer::Clear()
 {
-    std::lock_guard lock(m_lock);
-    m_video.clear();
-    m_audio.clear();
-    m_bytes = 0;
+    {
+        std::lock_guard lock(m_lock);
+        m_video.clear();
+        m_audio.clear();
+        m_queue.clear();
+        m_queued = m_bytes = m_ram = 0;
+        ++m_generation;
+    }
+    m_wake.notify_one();
 }
 
 size_t ReplayBuffer::Bytes() const
@@ -107,7 +183,210 @@ int64_t ReplayBuffer::Span() const
 {
     std::lock_guard lock(m_lock);
     if (m_video.empty()) return 0;
-    return m_video.back()->time - m_video.front()->time;
+    return m_video.back().time - m_video.front().time;
+}
+
+// The writer: packets in the order they came, gathered into blocks and written past the file cache (no copy of the
+// replay builds up in Windows' memory either). A packet is on disk, and lets go of its RAM, once its last block is.
+void ReplayBuffer::Run()
+{
+    struct Placed { uint64_t seq; int track; uint32_t offset, end; };
+    std::vector<std::shared_ptr<ReplayFile>> files; // every file still open: entries or a save may read it
+    std::shared_ptr<ReplayFile> file;                // the one being filled
+    uint32_t used = 0, start = 0, capacity = 0;      // bytes placed in it, where the gathered block starts, its size
+    Pages block(AllocatePages(Block));
+    std::vector<Placed> placed; // in the gathered block, waiting for its write
+    std::vector<std::wstring> cleaned;
+    uint64_t generation = 0, count = 0;
+    int64_t retryAt = 0;
+    int where = -1; // the folder in use for the log; -2 in RAM
+    bool told = false;
+
+    auto publish = [&](uint32_t written) {
+        std::lock_guard lock(m_lock);
+        auto it = placed.begin();
+        for (; it != placed.end() && it->end <= written; ++it)
+        {
+            auto& list = it->track == 0 ? m_video : m_audio;
+            auto e = std::lower_bound(list.begin(), list.end(), it->seq, [](const ReplayEntry& x, uint64_t seq) { return x.seq < seq; });
+            if (e == list.end() || e->seq != it->seq || !e->packet) continue; // already trimmed
+            e->file = file;
+            e->offset = it->offset;
+            e->packet = nullptr;
+            m_ram -= e->size;
+        }
+        placed.erase(placed.begin(), it);
+    };
+    // The gathered block (a file's last one padded); a disk that refuses it ends the files for a minute.
+    auto write = [&]() -> bool {
+        uint32_t filled = used - start;
+        if (filled < Block) memset(block.get() + filled, 0, Block - filled);
+        OVERLAPPED at{};
+        at.Offset = start;
+        DWORD wrote = 0;
+        if (!WriteFile(file->handle, block.get(), Block, &wrote, &at) || wrote != Block)
+        {
+            Log(std::string("Instant replay: the disk refused its file") + Failure(HRESULT_FROM_WIN32(GetLastError()), "").what() + "; it stays in memory.");
+            file = nullptr;
+            placed.clear();
+            where = -2;
+            retryAt = Now100ns() + RetryAfter;
+            return false;
+        }
+        publish(start + filled);
+        return true;
+    };
+    auto open = [&](uint32_t size) -> bool {
+        int64_t now = Now100ns();
+        if (now < retryAt) return false;
+        std::vector<std::wstring> folders;
+        {
+            std::lock_guard lock(m_lock);
+            folders = m_folders;
+        }
+        uint32_t want = std::max(FileBytes, (size + Block - 1) / Block * Block);
+        std::string why = "no folder for its files";
+        for (int i = 0; i < static_cast<int>(folders.size()); ++i)
+        {
+            const auto& folder = folders[i];
+            if (!EnsureFolder(folder)) { why = "its folder can't be made"; continue; }
+            if (std::find(cleaned.begin(), cleaned.end(), folder) == cleaned.end())
+            {
+                DeleteLeftovers(folder);
+                cleaned.push_back(folder);
+            }
+            ULARGE_INTEGER free{};
+            if (GetDiskFreeSpaceExW(folder.c_str(), &free, nullptr, nullptr) && free.QuadPart < want + Reserve) { why = "the drive is full"; continue; }
+            wchar_t name[64];
+            swprintf_s(name, L"\\replay-%lu-%llu.exo-replay", GetCurrentProcessId(), static_cast<unsigned long long>(++count));
+            HANDLE h = CreateFileW((folder + name).c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
+                FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_NOT_CONTENT_INDEXED | FILE_FLAG_NO_BUFFERING | FILE_FLAG_DELETE_ON_CLOSE, nullptr);
+            if (h == INVALID_HANDLE_VALUE) { why = std::string("its file can't be made") + Failure(HRESULT_FROM_WIN32(GetLastError()), "").what(); continue; }
+            // The file's room is taken now (a drive filling up fails here, not mid-file); its writes yield to the game's.
+            FILE_ALLOCATION_INFO room{};
+            room.AllocationSize.QuadPart = want;
+            if (!SetFileInformationByHandle(h, FileAllocationInfo, &room, sizeof(room)) && GetLastError() == ERROR_DISK_FULL)
+            {
+                why = "the drive is full";
+                CloseHandle(h);
+                continue;
+            }
+            FILE_IO_PRIORITY_HINT_INFO low{ IoPriorityHintLow };
+            SetFileInformationByHandle(h, FileIoPriorityHintInfo, &low, sizeof(low));
+            file = std::make_shared<ReplayFile>(h);
+            files.push_back(file);
+            used = start = 0;
+            capacity = want;
+            if (where != i) Log(i == 0 ? "Instant replay: on disk, beside Exo's capture data." : "Instant replay: on disk, in the captures folder.");
+            where = i;
+            return true;
+        }
+        if (where != -2) Log("Instant replay: in memory, " + why + ".");
+        where = -2;
+        retryAt = now + RetryAfter;
+        return false;
+    };
+    auto place = [&](const Queued& q) {
+        uint32_t size = static_cast<uint32_t>(q.packet->data.size());
+        if (file && used + size > capacity)
+        {
+            // The file is full: its last block, and on to a new file.
+            if (used > start) write();
+            file = nullptr;
+        }
+        if (!file && !open(size)) return;
+        placed.push_back({ q.seq, q.packet->track, used, used + size });
+        const uint8_t* from = q.packet->data.data();
+        for (uint32_t left = size; left > 0 && file;)
+        {
+            uint32_t n = std::min(left, Block - (used - start));
+            memcpy(block.get() + (used - start), from, n);
+            used += n;
+            from += n;
+            left -= n;
+            if (used - start == Block && write()) start += Block;
+        }
+    };
+
+    for (;;)
+    {
+        std::deque<Queued> work;
+        std::vector<std::shared_ptr<ReplayFile>> closing;
+        size_t ram = 0;
+        {
+            std::unique_lock lock(m_lock);
+            // With files open, every half second (the newest packets, and files to close); else when there is a block's worth.
+            auto due = [&] { return m_stop || m_queued >= Block || generation != m_generation; };
+            if (files.empty()) m_wake.wait(lock, due);
+            else m_wake.wait_for(lock, std::chrono::milliseconds(500), due);
+            if (m_stop) break;
+            if (generation != m_generation)
+            {
+                // Clear(): the next replay starts in new files; these close once no save reads them.
+                generation = m_generation;
+                file = nullptr;
+                placed.clear();
+                retryAt = 0;
+                told = false;
+            }
+            work.swap(m_queue);
+            m_queued = 0;
+            ram = m_ram;
+            for (auto it = files.begin(); it != files.end();)
+            {
+                if (*it != file && it->use_count() == 1) { closing.push_back(std::move(*it)); it = files.erase(it); }
+                else ++it;
+            }
+        }
+        closing.clear(); // closed and deleted here, never on an encoder's thread
+        if (ram > Behind && !told && where != -2)
+        {
+            told = true;
+            Log("Instant replay: the disk is behind; " + std::to_string(ram >> 20) + " MB waits in memory.");
+        }
+        if (block)
+            for (auto& q : work) place(q);
+    }
+}
+
+PacketPtr ReplayClip::Get(size_t i)
+{
+    auto& e = m_entries[i];
+    if (e.packet) return e.packet;
+    constexpr size_t slots = std::extent_v<decltype(m_slots)>;
+    if (!m_cache) m_cache.reset(AllocatePages(size_t(Block) * slots));
+    if (!m_cache) throw Failure(E_OUTOFMEMORY, "replay read");
+    auto packet = std::make_shared<Packet>();
+    packet->track = e.track;
+    packet->time = e.time;
+    packet->duration = e.duration;
+    packet->key = e.key;
+    packet->data.resize(e.size);
+    for (uint32_t done = 0; done < e.size;)
+    {
+        uint32_t at = e.offset + done, index = at / Block, in = at % Block;
+        // The block from the cache, else read into the slot used longest ago.
+        size_t s = 0;
+        while (s < slots && !(m_slots[s].used && m_slots[s].file == e.file.get() && m_slots[s].block == index)) ++s;
+        if (s == slots)
+        {
+            s = 0;
+            for (size_t k = 1; k < slots; ++k)
+                if (m_slots[k].used < m_slots[s].used) s = k;
+            OVERLAPPED where{};
+            where.Offset = index * Block;
+            DWORD read = 0;
+            BOOL ok = ReadFile(e.file->handle, m_cache.get() + s * Block, Block, &read, &where);
+            if (!ok || read != Block) throw Failure(HRESULT_FROM_WIN32(ok ? ERROR_HANDLE_EOF : GetLastError()), "replay read");
+            m_slots[s].file = e.file.get();
+            m_slots[s].block = index;
+        }
+        m_slots[s].used = ++m_reads;
+        uint32_t n = std::min(e.size - done, Block - in);
+        memcpy(packet->data.data() + done, m_cache.get() + s * Block + in, n);
+        done += n;
+    }
+    return packet;
 }
 
 // ---------------------------------------------------------------- MP4 writer
@@ -183,6 +462,24 @@ void Mp4Writer::WriteNow(const Packet& packet, int64_t duration)
     if (packet.key) sample->SetUINT32(MFSampleExtension_CleanPoint, TRUE);
     Check(m_writer->WriteSample(static_cast<DWORD>(packet.track), sample.get()), "write sample");
     m_last = std::max(m_last, packet.time - m_base + duration);
+    // The sink writer takes samples as fast as they come (unthrottled, for a recording that comes live), so a save or a
+    // trim, handing it a minute of video at once, had every copy waiting in RAM. Past 8 MB waiting it gets time to write;
+    // one that stops moving for 5 s is not waited on again.
+    auto queued = [this] {
+        size_t bytes = 0;
+        for (int i = 0; i <= m_audioTracks; ++i)
+        {
+            MF_SINK_WRITER_STATISTICS stats{};
+            stats.cb = sizeof(stats);
+            if (SUCCEEDED(m_writer->GetStatistics(static_cast<DWORD>(i), &stats))) bytes += stats.dwByteCountQueued;
+        }
+        return bytes;
+    };
+    for (int waited = 0; m_paced && queued() > (8u << 20); ++waited)
+    {
+        if (waited == 2500) m_paced = false;
+        else Sleep(2);
+    }
 }
 
 int64_t Mp4Writer::Finish()

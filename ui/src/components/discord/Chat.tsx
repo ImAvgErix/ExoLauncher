@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { host, onHostEvent } from '../../lib/host'
 import { report } from '../../lib/report'
 import { shouldReduceMotion } from '../../lib/motionPreference'
@@ -135,8 +135,7 @@ export function Chat({ channel, guildId, meId, me, hidden, channelName, roles, a
   const manages = channel.canManageMessages
   const ctx = useMemo<MarkdownContext>(() => ({ users, channelName, meId, guildId, colors, avatars, roleIcons, roles, moderator: !!guildId && manages === true, dmName }),
     [users, channelName, meId, guildId, colors, avatars, roleIcons, roles, manages, dmName])
-  const [membersPreferred, setMembersShown] = useState(readMembersShown)
-  const membersShown = membersPreferred && !onHide
+  const [membersShown, toggleMembers] = useMembersShown(!!onHide)
   const canSend = channel.canSend !== false
   const onReply = useCallback((message: DiscordMessage) => { setEditing(null); setReplyTo(message); setReplyPing(message.author.id !== meId ? true : null) }, [meId])
   const { actions, dialogs } = useMessageTools({
@@ -159,7 +158,7 @@ export function Chat({ channel, guildId, meId, me, hidden, channelName, roles, a
       {dialogs}
       <ChatHeader channel={channel} guildId={guildId} serverName={serverName} onOpenThread={onOpenThread} ctx={ctx} membersShown={membersShown} onCall={onCall} inCall={inCall}
         parent={parent} onBack={onBack} onHide={onHide}
-        onToggleMembers={onHide ? undefined : () => setMembersShown(shown => { writeMembersShown(!shown); return !shown })} />
+        onToggleMembers={onHide ? undefined : toggleMembers} />
       <div className="exo-dc-chat-body">
       <div className="exo-dc-chat-main">
       <NewBar bar={newBar} messages={messages} meId={meId} onRead={markAllRead} />
@@ -804,12 +803,17 @@ function useAuthorColors(guildId: string | null, messages: DiscordMessage[]) {
   useEffect(() => {
     if (!guildId || !authors) { setLooks(NO_LOOKS()); return }
     let live = true
+    let waiting: number | undefined
     const load = () => host.discordColors(guildId, authors.split(',')).then(result => {
       if (live) setLooks({ colors: new Map(Object.entries(result.colors)), avatars: new Map(Object.entries(result.avatars ?? {})), roleIcons: new Map(Object.entries(result.icons ?? {})) })
     }).catch(() => { })
     load()
-    const off = onHostEvent('discord.colors', event => { if (event.guildId === guildId) load() })
-    return () => { live = false; off() }
+    // Member chunks land in bursts after a channel opens, each announcing new colors: one fetch a beat covers them.
+    const off = onHostEvent('discord.colors', event => {
+      if (event.guildId !== guildId || waiting !== undefined) return
+      waiting = window.setTimeout(() => { waiting = undefined; if (live) load() }, 400)
+    })
+    return () => { live = false; window.clearTimeout(waiting); off() }
   }, [guildId, authors])
   return looks
 }
@@ -832,6 +836,26 @@ function DayDivider({ iso }: { iso: string }) {
       <span>{new Date(iso).toLocaleDateString(undefined, { dateStyle: 'long' })}</span>
     </div>
   )
+}
+
+// A window narrow enough that the member list would squeeze the chat (a portrait screen): discord.css's 900 px.
+const NARROW = '(max-width: 900px)'
+function useNarrowWindow() {
+  return useSyncExternalStore(changed => {
+    const query = window.matchMedia(NARROW)
+    query.addEventListener('change', changed)
+    return () => query.removeEventListener('change', changed)
+  }, () => window.matchMedia(NARROW).matches)
+}
+
+// The member list's shown state and its toggle: the wide window's kept choice, or a narrow window's own, which starts
+// hidden (discord.css lays it over the chat there); never while a call's chat beside it hides it.
+function useMembersShown(hiddenByCall: boolean) {
+  const [preferred, setPreferred] = useState(readMembersShown)
+  const narrow = useNarrowWindow()
+  const [narrowShown, setNarrowShown] = useState(false)
+  const toggle = () => narrow ? setNarrowShown(shown => !shown) : setPreferred(shown => { writeMembersShown(!shown); return !shown })
+  return [(narrow ? narrowShown : preferred) && !hiddenByCall, toggle] as const
 }
 
 function readMembersShown() {

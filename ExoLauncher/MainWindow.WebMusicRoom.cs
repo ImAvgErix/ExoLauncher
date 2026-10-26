@@ -107,8 +107,12 @@ public sealed partial class MainWindow
             return new { ok = false, message = "Nothing to play." };
         var label = MusicWebPolicy.Label(service);
         // Every action is a click the user just made in Exo's room.
+        // Woken first by a read; the action then goes once, never repeated: a call that timed out may still have run, and sent
+        // again a like, a shuffle or a new playlist would be done twice.
+        if (await WebMusicCallAsync(service, "1", timeout: TimeSpan.FromSeconds(2)) is null)
+            return new { ok = false, message = label + " did not take that. Try again." };
         var reply = await WebMusicCallAsync(service, apple
-            ? AppleMusicNative.Act(action, uri, context, index, on, uid, query, text) : YouTubeMusicNative.Act(action, uri, context, index, on, uid, query, text), click: apple);
+            ? AppleMusicNative.Act(action, uri, context, index, on, uid, query, text) : YouTubeMusicNative.Act(action, uri, context, index, on, uid, query, text), attempts: 1, click: apple);
         if (reply is { ValueKind: JsonValueKind.Object } answer && answer.TryGetProperty("ok", out var ok) && ok.ValueKind == JsonValueKind.True)
             return new { ok = true };
         if (reply is { ValueKind: JsonValueKind.Object } failed && failed.TryGetProperty("error", out var error))
@@ -212,7 +216,7 @@ public sealed partial class MainWindow
     }
 
     /// A suspended page answers nothing until it resumes: wake it and retry.
-    private async Task<JsonElement?> WebMusicCallAsync(string service, string expression, int attempts = 5, bool click = false)
+    private async Task<JsonElement?> WebMusicCallAsync(string service, string expression, int attempts = 5, bool click = false, TimeSpan? timeout = null)
     {
         for (var attempt = 0; attempt < attempts && !_lifetimeCts.IsCancellationRequested; attempt++)
         {
@@ -223,7 +227,7 @@ public sealed partial class MainWindow
                 try { await Task.Delay(500, _lifetimeCts.Token); } catch (OperationCanceledException) { return null; }
             }
             JsonElement? reply;
-            try { reply = await MusicWebEvaluate(core, click)(expression, TimeSpan.FromSeconds(15), _lifetimeCts.Token); }
+            try { reply = await MusicWebEvaluate(core, click)(expression, timeout ?? TimeSpan.FromSeconds(15), _lifetimeCts.Token); }
             catch { reply = null; }
             if (reply is not null) return reply;
         }

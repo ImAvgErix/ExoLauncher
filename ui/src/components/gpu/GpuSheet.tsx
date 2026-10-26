@@ -5,6 +5,7 @@ import { useHdrState } from '../../lib/hdr'
 import { Row, State, SwitchRow } from '../settings/parts'
 import { ShadersBoard } from '../shaders/ShadersBoard'
 import { UpscalersTab } from '../upscalers/UpscalersSheet'
+import { BestSetup } from './BestSetup'
 import { DisplayTab } from './DisplayTab'
 import { ProfileTab } from './ProfileTab'
 import { InterruptRows } from './InterruptRows'
@@ -35,7 +36,7 @@ export function GpuHub({ active, jump, games, settings, onSave }: {
     else part?.scrollIntoView({ block: 'start' })
   }, [active, jump])
   return (
-    <section ref={room} className="exo-system" aria-label="System">
+    <section ref={room} className="exo-system" aria-label="System" data-room-scroll>
       <header className="exo-system-head">
         <span className="exo-system-head-icon" aria-hidden="true"><GraphicsCard size={20} /></span>
         <span className="exo-system-head-id">
@@ -47,7 +48,7 @@ export function GpuHub({ active, jump, games, settings, onSave }: {
         <div className="exo-system-stack" data-system-part="graphics">
           <Panel title="Driver and profile"><ProfileTab active={active} /></Panel>
           <Panel title="HDR"><HdrTab active={active} settings={settings} onSave={onSave} /></Panel>
-          <Panel title="This PC"><ThisPcTab active={active} /><InterruptRows active={active} /></Panel>
+          <Panel title="This PC"><BestSetup active={active} settings={settings} onSave={onSave} /><ThisPcTab active={active} /><InterruptRows active={active} /></Panel>
         </div>
         <Panel title="Upscalers"><UpscalersTab active={active} games={games} /></Panel>
       </div>

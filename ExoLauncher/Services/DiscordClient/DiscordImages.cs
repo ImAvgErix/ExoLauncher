@@ -116,9 +116,17 @@ internal static partial class DiscordImages
         var format = System.Web.HttpUtility.ParseQueryString(url.Query).Get("format");
         var cleanFormat = format is null ? "" : NotAlphanumeric().Replace(format, "").ToLowerInvariant();
         if (cleanFormat.Length > 0) name = $"{Path.GetFileNameWithoutExtension(name)}.{cleanFormat}";
-        else if (!name.Contains('.', StringComparison.Ordinal)) name = $"{name}.{TypeExtension(contentType)}";
+        // Whatever the address says, the file ends in a picture's extension: a link named payload.exe, or ?format=exe,
+        // must not land in Downloads as a program.
+        if (!ImageExtensions.Contains(Path.GetExtension(name).TrimStart('.'))) name = $"{name}.{TypeExtension(contentType)}";
         return name.Trim('.', ' ').Length == 0 ? "image.png" : name;
     }
+
+    private static readonly HashSet<string> ImageExtensions = new(["png", "jpg", "jpeg", "jpe", "gif", "webp", "avif", "bmp"], StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Save Image writes only what Discord says is a picture.</summary>
+    internal static bool IsImageType(string? contentType) =>
+        contentType is not null && contentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase);
 
     private static string TypeExtension(string? contentType) => contentType switch
     {

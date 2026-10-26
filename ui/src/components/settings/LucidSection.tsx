@@ -23,6 +23,7 @@ const TIMES = Array.from({ length: 48 }, (_, i) => {
  */
 export const LucidSection = memo(function LucidSection() {
   const [state, setState] = useState<LucidState | null>(null)
+  const newest = useRef(0)
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<{ row: string; text: string } | null>(null)
   const [fetched, setFetched] = useState(false)
@@ -52,10 +53,12 @@ export const LucidSection = memo(function LucidSection() {
 
   /** Shows the change at once; Lucid's own file has the last word when it lands. */
   function change(row: string, patch: LucidChange, shown: Partial<LucidSettings>) {
+    const mine = ++newest.current
     setError(null)
     setState(current => current?.settings ? { ...current, settings: { ...current.settings, ...shown } } : current)
     host.lucid('change', { change: patch }).then(next => {
-      setState(next)
+      // Only the newest change's answer: an older one would snap a quick second change back until its own answer lands.
+      if (mine === newest.current) setState(next)
       if (next.message) setError({ row, text: next.message })
     }, (cause: unknown) => {
       report(cause, 'LucidSection.change')

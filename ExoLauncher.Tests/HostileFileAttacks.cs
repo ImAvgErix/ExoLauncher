@@ -174,6 +174,66 @@ public class HostileFileAttacks
 
     // ---- settings.json through the real SettingsService ----
 
+    // A settings.json that is valid JSON but not an object (a stray [] or null) is corrupt, not locked: it must be moved
+    // aside so defaults can be saved, not copied aside again on every launch with saving off for good.
+    [Theory]
+    [InlineData("[]")]
+    [InlineData("null")]
+    [InlineData("5")]
+    [InlineData("\"text\"")]
+    public void Settings_that_are_not_an_object_are_quarantined_and_saving_works(string payload)
+    {
+        var prior = Environment.GetEnvironmentVariable(PathHelper.DataDirOverrideVariable);
+        var dir = Path.Combine(Path.GetTempPath(), "exo-settings-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            Environment.SetEnvironmentVariable(PathHelper.DataDirOverrideVariable, dir);
+            var path = Path.Combine(dir, "settings.json");
+            File.WriteAllText(path, payload);
+
+            var svc = new SettingsService();
+            svc.Load();
+
+            Assert.Single(Directory.GetFiles(dir, "settings.json.corrupt-*"));
+            Assert.Empty(Directory.GetFiles(dir, "settings.json.unreadable-*"));
+            Assert.False(File.Exists(path));
+            svc.Save();
+            Assert.True(File.Exists(path));
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(PathHelper.DataDirOverrideVariable, prior);
+            try { Directory.Delete(dir, true); } catch { }
+        }
+    }
+
+    // One field of the wrong type (a hand edit, a type that changed between versions) costs that field, not every setting.
+    [Fact]
+    public void Settings_with_one_bad_field_keep_the_rest()
+    {
+        var prior = Environment.GetEnvironmentVariable(PathHelper.DataDirOverrideVariable);
+        var dir = Path.Combine(Path.GetTempPath(), "exo-settings-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            Environment.SetEnvironmentVariable(PathHelper.DataDirOverrideVariable, dir);
+            File.WriteAllText(Path.Combine(dir, "settings.json"), """{ "onboardingComplete": true, "autoUpdateChipset": false, "pauseDownloadsWhilePlaying": "sometimes" }""");
+
+            var svc = new SettingsService();
+            svc.Load();
+
+            Assert.False(svc.Current.AutoUpdateChipset);          // kept
+            Assert.True(svc.Current.PauseDownloadsWhilePlaying);  // the bad one, back at its default
+            Assert.Empty(Directory.GetFiles(dir, "settings.json.corrupt-*"));
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(PathHelper.DataDirOverrideVariable, prior);
+            try { Directory.Delete(dir, true); } catch { }
+        }
+    }
+
     [Fact]
     public void Settings_load_survives_corrupt_and_giant_files()
     {

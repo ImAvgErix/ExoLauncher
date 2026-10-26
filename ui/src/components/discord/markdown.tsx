@@ -74,7 +74,9 @@ function Spoiler({ moderator, children }: { moderator?: boolean; children: React
 }
 
 function Timestamp({ seconds, style }: { seconds: number; style: string }) {
+  // <t:9999999999999> is a valid token but not a valid date, and toISOString() throws on it: shown as written.
   const date = new Date(seconds * 1000)
+  if (Number.isNaN(date.getTime())) return <>{`<t:${seconds}:${style}>`}</>
   return <time className="exo-dc-time-chip" dateTime={date.toISOString()}>{formatTimestamp(date, style)}</time>
 }
 
@@ -196,7 +198,9 @@ export function Link({ url, children }: { url: string; children: ReactNode }) {
   )
 }
 
-const ONLY_EMOJI = /^(?:\s*<a?:\w{2,32}:\d{5,20}>\s*|\s*\p{Extended_Pictographic}(?:️|‍\p{Extended_Pictographic})*\s*){1,27}$/u
+// The whitespace sits once after each item, not on both sides of it: with both, a space between two emoji can be matched two ways and a
+// message of emoji and one word took twice as long per emoji (24 of them, 1.6 s) to fail.
+const ONLY_EMOJI = /^\s*(?:(?:<a?:\w{2,32}:\d{5,20}>|\p{Extended_Pictographic}(?:\uFE0F|\u200D\p{Extended_Pictographic})*)\s*){1,27}$/u
 
 /** A message's text as blocks: fenced code, quotes, headings, small text and lines of inline markdown. */
 /** One line of a message (a reply's quote): mentions, emoji and styling as in the message, its lines run together. */

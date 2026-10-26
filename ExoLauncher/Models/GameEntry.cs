@@ -363,8 +363,8 @@ public sealed class AppSettings
     public bool HdrSdrGamma { get; set; } = true;
     /// <summary>DeepFilterNet 3 on the microphone in Exo's own Discord calls (<see cref="ExoLauncher.Services.DiscordClient.Voice.NoiseSuppressor"/>).</summary>
     public bool DiscordNoiseSuppression { get; set; } = true;
-    /// <summary>Which noise suppression runs when it is on, as Discord's Krisp / Standard choice: "ai" (DeepFilterNet, the default), or "standard" (Google's WebRTC: <see cref="ExoLauncher.Services.DiscordClient.Voice.WebRtcNoise"/>).</summary>
-    public string DiscordNoiseSuppressionKind { get; set; } = "ai";
+    /// <summary>Which noise suppression runs when it is on: "exo" (Exo Voice, the default: the tuned Exo AI chain), "standard" (Google's WebRTC alone: <see cref="ExoLauncher.Services.DiscordClient.Voice.WebRtcNoise"/>), or an earlier build's "ai" or "krisp" (all Exo Voice now).</summary>
+    public string DiscordNoiseSuppressionKind { get; set; } = "exo";
     /// <summary>The same on everyone else's voice in a call, each their own (<see cref="ExoLauncher.Services.DiscordClient.Voice.InboundCleaner"/>); off by default.</summary>
     public bool DiscordOthersNoiseSuppression { get; set; }
     /// <summary>Only My Voice: voices that aren't the user's learned one are held back in calls (<see cref="ExoLauncher.Services.DiscordClient.Voice.MyVoice"/>); off by default.</summary>
@@ -433,6 +433,8 @@ public sealed class AppSettings
     public bool AutoUpdateGames { get; set; } = true;
     /// <summary>This PC's chipset driver (AMD's on a Ryzen, Intel's on an Intel processor) updates by itself while the PC is idle (<see cref="ExoLauncher.Services.ChipsetUpdate"/>).</summary>
     public bool AutoUpdateChipset { get; set; } = true;
+    /// <summary>On a PC with two graphics chips, Windows is asked to run Exo's games on the fast one (<see cref="ExoLauncher.Services.GpuPreference"/>); off until the user turns it on.</summary>
+    public bool FastGpuForGames { get; set; }
     /// <summary>Lucid (<see cref="ExoLauncher.Services.LucidCompanion"/>) starts with Exo, out of sight; off until the user turns it on.</summary>
     public bool StartLucidWithExo { get; set; }
     /// <summary>Apps whose start with Windows Exo turned off (<see cref="ExoLauncher.Helpers.StartupApps"/>); one turned back on stays on.</summary>

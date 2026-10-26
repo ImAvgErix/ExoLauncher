@@ -118,11 +118,14 @@ export function startMouseRelay() {
       : undefined
     if (!m || !call) return
     const { id, params } = m
+    // The answer goes to the frame that asked: one reloaded since (its request ids start over) is not given another's answer.
+    const asker = event.source
+    const answer = (message: object) => { if (asker === frameWindow()) postToMouse(message) }
     call(params ?? {})
-      .then(result => postToMouse({ id, result }))
+      .then(result => answer({ id, result }))
       .catch((error: unknown) => {
         report(error, 'DevicesRoom.hid', { level: 'warn' })
-        postToMouse({ id, error: error instanceof Error ? error.message : 'Exo could not reach the device.' })
+        answer({ id, error: error instanceof Error ? error.message : 'Exo could not reach the device.' })
       })
   })
   onTextScale(scale => postToMouse({ event: 'exo.textScale', data: { scale } }))

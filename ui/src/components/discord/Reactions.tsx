@@ -7,6 +7,7 @@ import { loadEmojis } from './EmojiPicker'
 import { Icons } from './icons'
 import { emojiUrl } from './markdown'
 import { ModalBack } from './SettingsLayer'
+import { useLayer } from './admin'
 
 /** One chip under a message: a reaction's normal count, or its super reactions on a chip of their own, as Discord shows them. */
 type Chip = { reaction: DiscordReaction; burst: boolean; count: number; mine: boolean }
@@ -144,11 +145,8 @@ export function ReactionsDialog({ message, first, onClose }: { message: DiscordM
     }).finally(() => { if (asked.current === ask) setBusy(false) })
   }, [message.channel_id, message.id, chosen])
   useEffect(() => { setUsers([]); setMore(true); load() }, [chosenKey]) // eslint-disable-line react-hooks/exhaustive-deps -- chosenKey names the list
-  useEffect(() => {
-    const key = (event: KeyboardEvent) => { if (event.key === 'Escape') { event.stopPropagation(); onClose() } }
-    window.addEventListener('keydown', key, true)
-    return () => window.removeEventListener('keydown', key, true)
-  }, [onClose])
+  const box = useRef<HTMLDivElement>(null)
+  useLayer(box, onClose)
   const remove = (user: DiscordUser) => {
     if (!chosen) return
     void host.discordReact(message.channel_id, message.id, reactionKey(chosen.reaction.emoji), false, { burst: chosen.burst, userId: user.id }).then(result => {
@@ -158,7 +156,7 @@ export function ReactionsDialog({ message, first, onClose }: { message: DiscordM
   }
   return (
     <ModalBack onClose={onClose}>
-      <div className="exo-dc-modal exo-dc-reactors" role="dialog" aria-label="Reactions" onClick={event => event.stopPropagation()}>
+      <div ref={box} className="exo-dc-modal exo-dc-reactors" role="dialog" aria-modal="true" aria-label="Reactions" tabIndex={-1} onClick={event => event.stopPropagation()}>
         <div className="exo-dc-reactors-emoji" role="tablist" aria-label="Reactions">
           {chips.map(chip => {
             const key = `${reactionKey(chip.reaction.emoji)}:${chip.burst}`

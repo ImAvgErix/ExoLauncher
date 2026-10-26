@@ -90,6 +90,17 @@ export async function run(t) {
     return answer ? [] : ['no answer within 20 s']
   })
 
+  await run.check('settings', 'capture-shrink', 'Capture › Make recordings smaller shows the saved setting (on unless turned off)', async (c) => {
+    if (!await t.shell.eval(`!!document.querySelector('.exo-settings')?.checkVisibility()`) && !await open(t)) return ['Settings did not open']
+    const status = await t.host('capture.status')
+    if (!status?.settings) { c.skip('Exo Capture is not installed or did not answer'); return [] }
+    const shown = await t.shell.waitFor(() => { const s = document.querySelector('[role="switch"][aria-labelledby="set-capture-shrink"]'); return s ? s.getAttribute('aria-checked') : null }, { timeoutMs: 5000 })
+    c.evidence.saved = status.settings.autoShrink
+    c.evidence.shown = shown
+    if (shown === null) return ['no Make recordings smaller switch in Settings › Capture']
+    return String(status.settings.autoShrink !== false) === shown ? [] : [`the switch shows ${shown}, the saved setting is ${status.settings.autoShrink}`]
+  })
+
   await run.check('settings', 'close', 'Escape closes Settings back to the room you were in', async () => {
     if (!await t.shell.eval(`!!document.querySelector('.exo-settings')?.checkVisibility()`) && !await open(t)) return ['Settings did not open']
     await t.shell.key('Escape')

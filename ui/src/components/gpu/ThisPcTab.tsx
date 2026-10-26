@@ -4,12 +4,12 @@ import { report } from '../../lib/report'
 import { trimStop } from '../../lib/utils'
 import { Row, State } from '../settings/parts'
 
-type HealthAction = 'apply' | 'undo' | 'chipset' | 'gamemode'
-const ROW: Record<HealthAction, PcHealthItem['key']> = { apply: 'power', undo: 'power', chipset: 'chipset', gamemode: 'gamemode' }
+type HealthAction = 'apply' | 'undo' | 'chipset' | 'gamemode' | 'gpusched' | 'gpupref' | 'gpupref-undo'
+const ROW: Record<HealthAction, PcHealthItem['key']> = { apply: 'power', undo: 'power', chipset: 'chipset', gamemode: 'gamemode', gpusched: 'gpusched', gpupref: 'gpupref', 'gpupref-undo': 'gpupref' }
 
 /**
  * System > This PC: a row only for what is wrong with the PC's setup (RAM below its rated speed, Resizable BAR off,
- * a power plan that isn't Exo's, an old AMD or Intel chipset driver, Game Mode off), else one quiet line. Exo's power plan, tuned
+ * a power plan that isn't Exo's, an old AMD or Intel chipset driver, Game Mode off, GPU scheduling off on a frame generation card), else one quiet line. Exo's power plan, tuned
  * for this PC's processor, is switched to when you press Use Exo's plan, with Undo; the chipset driver Exo updates by itself while
  * you're away, or now with Update (read every few seconds while it installs); the rest are for the BIOS or Windows.
  * Read again when Exo's window comes back, so Game Mode turned on in Settings goes away.
@@ -85,6 +85,12 @@ function Action({ item, busy, onAct }: { item: PcHealthItem; busy: boolean; onAc
     // Applied: installed, waiting for a restart (Exo never restarts the PC).
     return item.applied ? null : <button type="button" className="exo-set-btn" disabled={busy} onClick={() => onAct('chipset')}>Update</button>
   }
-  if (item.key === 'gamemode') return <button type="button" className="exo-set-btn" disabled={busy} onClick={() => onAct('gamemode')}>Open Settings</button>
+  if (item.key === 'gpupref') {
+    if (busy) return <State>Working…</State>
+    return item.applied
+      ? item.canUndo ? <button type="button" className="exo-set-btn" onClick={() => onAct('gpupref-undo')}>Undo</button> : null
+      : <button type="button" className="exo-set-btn is-primary" onClick={() => onAct('gpupref')}>Use the fast card</button>
+  }
+  if (item.key === 'gamemode' || item.key === 'gpusched') return <button type="button" className="exo-set-btn" disabled={busy} onClick={() => onAct(item.key as 'gamemode' | 'gpusched')}>Open Settings</button>
   return null
 }

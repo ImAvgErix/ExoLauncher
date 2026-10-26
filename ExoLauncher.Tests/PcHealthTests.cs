@@ -190,6 +190,62 @@ public sealed class PcHealthTests
         Assert.False(PcHealth.GameModeOff("0"));
     }
 
+    // ---- GPU scheduling (HAGS) ----
+
+    [Fact]
+    public void GpuSchedulingIsOffOnlyWhenItsSwitchWroteOne()
+    {
+        // HwSchMode: 2 on, 1 off. Missing means Windows decides, which is not a problem to report.
+        Assert.True(PcHealth.HagsOff(1));
+        Assert.False(PcHealth.HagsOff(2));
+        Assert.False(PcHealth.HagsOff(null));
+        Assert.False(PcHealth.HagsOff("1"));
+    }
+
+    [Theory]
+    [InlineData("NVIDIA GeForce RTX 4070 SUPER", "DLSS frame generation needs")]
+    [InlineData("NVIDIA GeForce RTX 5080", "DLSS frame generation needs")]
+    [InlineData("AMD Radeon RX 7800 XT", "AMD recommends")]
+    [InlineData("AMD Radeon RX 9070 XT", "AMD recommends")]
+    public void GpuSchedulingOffOnAFrameGenerationCardIsSaid(string gpu, string maker)
+    {
+        var item = PcHealth.Decide(ThisPc() with { Gpu = new PcHealth.GpuBar(gpu, false, true), HagsOff = true }).Single(i => i.Key == "gpusched");
+        Assert.Equal("GPU scheduling", item.Label);
+        Assert.Contains(maker, item.Detail);
+    }
+
+    [Theory]
+    [InlineData("NVIDIA GeForce RTX 3070", false)]   // no frame generation to hold back
+    [InlineData("NVIDIA RTX 4000 Ada Generation", false)] // a workstation card, not a GeForce 40
+    [InlineData("NVIDIA GeForce RTX 4070", true)]    // integrated: shared memory, nothing to say
+    public void GpuSchedulingIsLeftAloneWhereItDoesntMatter(string gpu, bool uma) =>
+        Assert.DoesNotContain(PcHealth.Decide(ThisPc() with { Gpu = new PcHealth.GpuBar(gpu, uma, true), HagsOff = true }), i => i.Key == "gpusched");
+
+    [Fact]
+    public void GpuSchedulingOnShowsNoRow() =>
+        Assert.DoesNotContain(PcHealth.Decide(ThisPc() with { Gpu = new PcHealth.GpuBar("NVIDIA GeForce RTX 4070", false, true), HagsOff = false }), i => i.Key == "gpusched");
+
+    // ---- Two graphics chips ----
+
+    private static readonly PcHealth.HybridGpu TwoChips = new("Intel(R) UHD Graphics", "NVIDIA GeForce RTX 4060 Laptop GPU");
+
+    [Fact]
+    public void ALaptopWithTwoChipsIsOfferedTheFastOneAndUndoOnceTaken()
+    {
+        var offer = PcHealth.Decide(ThisPc() with { Hybrid = TwoChips }).Single(item => item.Key == "gpupref");
+        Assert.False(offer.Applied);
+        Assert.Contains("RTX 4060", offer.Detail);
+        Assert.Contains("UHD Graphics", offer.Detail);
+
+        var taken = PcHealth.Decide(ThisPc() with { Hybrid = TwoChips, FastGpuForGames = true }).Single(item => item.Key == "gpupref");
+        Assert.True(taken.Applied);
+        Assert.True(taken.CanUndo);
+    }
+
+    [Fact]
+    public void OneChipShowsNoGraphicsForGamesRow() =>
+        Assert.DoesNotContain(PcHealth.Decide(ThisPc() with { Hybrid = null, FastGpuForGames = true }), item => item.Key == "gpupref");
+
     // ---- What shows ----
 
     // Nexus LiteOS on this PC: maximum state 100, boost aggressive, parking off. Balanced on a dual-CCD X3D parks (AMD's provisioning).

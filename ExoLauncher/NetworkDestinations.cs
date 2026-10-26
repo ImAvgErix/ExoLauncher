@@ -41,13 +41,13 @@ internal static class NetworkDestinations
     internal const string Igdb = "IGDB (Twitch)";
     internal const string Upscalers = "Vendor upscaler files (NVIDIA DLSS, AMD FidelityFX SDK and Intel XeSS repositories on GitHub, raw.githubusercontent.com at pinned commits and at each newer release's commit, found through api.github.com; other DLSS, FSR 3.1 and XeSS builds from DLSS Swapper's archive, dlss-swapper-downloads.beeradmoore.com)";
     internal const string UpscalerList = "DLSS Swapper's release list (beeradmoore.github.io/dlss-swapper/manifest.json)";
-    internal const string StoreRoom = "Store room: Steam store and Steam Web API (store search, ranked lists, game pages), CheapShark (prices from official stores only), Epic free games";
+    internal const string StoreRoom = "Store room: Steam store and Steam Web API (store search, ranked lists, game pages), CheapShark (prices from official stores only)";
     internal const string StoreTags = "Store room: Steam tag names (IStoreService/GetTagList)";
     internal const string MusicArtwork = "Music artwork (Spotify, YouTube Music and Apple Music image servers)";
     internal const string Shaders = "Exo Shaders (SCSKiller's servers api.scskiller.com and api.scskiller.io; GitHub: Oodle and zlib-ng codec libraries, and some games' public archive keys)";
     internal const string AmdDrivers = "AMD (newest chipset and graphics driver versions and their downloads: `www.amd.com`, `drivers.amd.com`)";
     internal const string IntelDrivers = "Intel (newest chipset and graphics driver versions and their downloads: `www.intel.com`, `downloadmirror.intel.com`)";
-    internal const string NvidiaDrivers = "NVIDIA (driver lookup and download, and RTX Noise Removal's runtime: `www.nvidia.com`, `gfwsl.geforce.com`, `api-forums.nvidia.com`, `us.download.nvidia.com`, `international.download.nvidia.com`)";
+    internal const string NvidiaDrivers = "NVIDIA (driver lookup and download: `www.nvidia.com`, `gfwsl.geforce.com`, `api-forums.nvidia.com`, `us.download.nvidia.com`, `international.download.nvidia.com`)";
     internal const string DiscordClient = "Exo's own Discord client (discord.com, gateway.discord.gg, remote-auth-gateway.discord.gg, cdn.discordapp.com, Discord's media proxy on discordapp.net, Discord's voice servers on discord.media, Discord's file uploads for apps on storage.googleapis.com)";
     internal const string StripeCards = "Stripe's card form in Exo's Discord Shop (js.stripe.com, api.stripe.com, m.stripe.network, hooks.stripe.com), only while you add a card or your bank confirms a payment";
     internal const string DiscordGifs = "GIF hosts Discord points to (klipy.com, tenor.com, giphy.com)";
@@ -159,7 +159,6 @@ internal static class NetworkDestinations
         new("store.steampowered.com", StoreRoom),
         new("api.steampowered.com", StoreRoom),
         new("www.cheapshark.com", StoreRoom),
-        new("store-site-backend-static-ipv4.ak.epicgames.com", StoreRoom),
         new("api.steampowered.com", StoreTags),
 
         // MediaSessionService: the playing song's cover from a web player, for the mini player.

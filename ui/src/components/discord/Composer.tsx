@@ -146,6 +146,12 @@ export function Composer({ channelId, guildId, users, placeholder, disabled, rep
   const mentions = useRef(drafts.get(channelId)?.mentions ?? new Map<string, string>())
   const [files, setFiles] = useState<File[]>([])
   const [spoilers, setSpoilers] = useState<Set<File>>(new Set())
+  // Shrinks still running when Enter lands finish before the send reads the files.
+  const pendingShrinks = useRef<Promise<void>[]>([])
+  const filesNow = useRef<File[]>(files)
+  const spoilersNow = useRef<Set<File>>(spoilers)
+  filesNow.current = files
+  spoilersNow.current = spoilers
   const [note, setNote] = useState<string | null>(null)
   const [picker, setPicker] = useState<Expression | null>(null)
   const [emojis, setEmojis] = useState<DiscordGuildEmoji[]>([])
@@ -160,6 +166,8 @@ export function Composer({ channelId, guildId, users, placeholder, disabled, rep
   const box = useRef<HTMLTextAreaElement>(null)
   const fileInput = useRef<HTMLInputElement>(null)
   const typedAt = useRef(0)
+  // Set while submit waits (the emoji list, a picture being shrunk): a second Enter then would send the same message twice.
+  const preparing = useRef(false)
   const [cooldown, startCooldown] = useCooldown(channelId)
   // A command chosen from the / list fills the box until it's sent or cancelled.
   const [command, setCommand] = useState<CommandEntry | null>(null)
@@ -263,7 +271,20 @@ export function Composer({ channelId, guildId, users, placeholder, disabled, rep
 
   function addFiles(list: FileList | File[] | null) {
     if (!list) return
-    setFiles(current => [...current, ...Array.from(list)].slice(0, MAX_FILES))
+    const added = Array.from(list)
+    setFiles(current => [...current, ...added].slice(0, MAX_FILES))
+    // Big images go up smaller on their own: WebP keeps them looking the same at a fraction of the size.
+    for (const file of added.slice(0, MAX_FILES)) {
+      const shrinking = shrinkable(file)
+      if (!shrinking) continue
+      pendingShrinks.current.push(shrinking.then(smaller => {
+        if (smaller === file) return
+        const alt = fileDescriptions.get(file)
+        if (alt) { fileDescriptions.delete(file); fileDescriptions.set(smaller, alt) }
+        setSpoilers(current => current.has(file) ? new Set([...current].map(f => f === file ? smaller : f)) : current)
+        setFiles(current => current.map(f => f === file ? smaller : f))
+      }))
+    }
     // Back in the box, as Discord does: Enter sends the files, with or without words.
     requestAnimationFrame(() => box.current?.focus())
   }
@@ -280,16 +301,25 @@ export function Composer({ channelId, guildId, users, placeholder, disabled, rep
   }
 
   async function submit() {
-    if (!text.trim() && files.length === 0) return
-    if (cooldown > 0) { setNote(`Slowmode is on. Wait ${cooldown} seconds.`); return }
-    // :name: needs the emoji list; the first message after opening waits for it.
-    const set = unicode ?? (text.includes(':') ? await loadUnicodeEmoji().catch(() => null) : null)
-    if (set && !unicode) setUnicode(set)
-    const content = outgoing(text, set?.byName ?? null)
-    if (content.length > limit) { setTooLong(content.length); return }
+    if (preparing.current) return
+    preparing.current = true
+    let content: string
+    try {
+      if (!text.trim() && files.length === 0) return
+      if (cooldown > 0) { setNote(`Slowmode is on. Wait ${cooldown} seconds.`); return }
+      // :name: needs the emoji list; the first message after opening waits for it.
+      const set = unicode ?? (text.includes(':') ? await loadUnicodeEmoji().catch(() => null) : null)
+      if (set && !unicode) setUnicode(set)
+      content = outgoing(text, set?.byName ?? null)
+      if (content.length > limit) { setTooLong(content.length); return }
+      if (pendingShrinks.current.length) { await Promise.allSettled(pendingShrinks.current); pendingShrinks.current = [] }
+    } finally { preparing.current = false }
+    // Nothing awaits between here and the box being cleared, so no second Enter can slip in.
+    const sendFrom = filesNow.current
+    const sendSpoilers = spoilersNow.current
     const sentText = text
-    const sentFiles = files.map(file => {
-      if (!spoilers.has(file)) return file
+    const sentFiles = sendFrom.map(file => {
+      if (!sendSpoilers.has(file)) return file
       const copy = new File([file], `SPOILER_${file.name}`, { type: file.type })
       const alt = fileDescriptions.get(file)
       if (alt) fileDescriptions.set(copy, alt)
@@ -306,8 +336,8 @@ export function Composer({ channelId, guildId, users, placeholder, disabled, rep
       // Back in the box when Discord didn't take it, unless you've started another message.
       mentions.current = sentMentions
       setText(current => current || sentText)
-      setFiles(current => current.length ? current : files)
-      setSpoilers(spoilers)
+      setFiles(current => current.length ? current : sendFrom)
+      setSpoilers(sendSpoilers)
     }
   }
 
@@ -394,6 +424,29 @@ export function Composer({ channelId, guildId, users, placeholder, disabled, rep
 }
 
 const textFile = (text: string) => new File([text], 'message.txt', { type: 'text/plain' })
+
+/**
+ * A big still image goes to Discord as WebP when that is meaningfully smaller: at quality 1 it looks the
+ * same, and Discord draws it inline like the original. Never wins enough or can't decode: the original goes.
+ * GIF, SVG, WebP and AVIF are left alone — animated or already compact, re-encoding only loses.
+ */
+async function shrinkImage(file: File): Promise<File> {
+  try {
+    const bitmap = await createImageBitmap(file)
+    const canvas = new OffscreenCanvas(bitmap.width, bitmap.height)
+    canvas.getContext('2d')!.drawImage(bitmap, 0, 0)
+    bitmap.close()
+    const blob = await canvas.convertToBlob({ type: 'image/webp', quality: 1 })
+    if (blob.size >= file.size * 0.85) return file
+    const name = file.name.replace(/\.[^.]+$/, '') || 'image'
+    return new File([blob], `${name}.webp`, { type: 'image/webp', lastModified: file.lastModified })
+  } catch { return file }
+}
+
+/** The same image, smaller, when the file is a shrinkable kind — else nothing to wait on. */
+function shrinkable(file: File) {
+  return file.size > 256 * 1024 && /^image\/(?!gif|svg|webp|avif)/.test(file.type) ? shrinkImage(file) : null
+}
 
 // Over the limit, Discord's way out: the message as a file.
 function TooLong({ length, limit, onFile, onClose }: { length: number | null; limit: number; onFile: () => void; onClose: () => void }) {

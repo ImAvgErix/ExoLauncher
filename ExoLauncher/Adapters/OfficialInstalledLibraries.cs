@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text.Json;
+using ExoLauncher.Helpers;
 using ExoLauncher.Models;
 using Microsoft.Win32;
 
@@ -500,7 +501,8 @@ internal static partial class OfficialInstalledLibraries
             try
             {
                 var exe = Path.GetFullPath(Path.Combine(contentDir, exeName));
-                if (exe.StartsWith(Path.GetFullPath(contentDir), StringComparison.OrdinalIgnoreCase) && fileExists(exe))
+                // Inside the folder, not merely a name that starts like it (Content-x beside Content).
+                if (PathHelper.IsUnderRoot(exe, contentDir) && fileExists(exe))
                     return exe;
             }
             catch { /* fall through to directory scan */ }
@@ -612,7 +614,8 @@ internal static partial class OfficialInstalledLibraries
             var exe = Path.IsPathRooted(command)
                 ? command
                 : Path.GetFullPath(Path.Combine(installDir, command));
-            if (!fileExists(exe)) return null;
+            // The game's own program: a path in the manifest that leaves the install folder (a rooted one, or ..) is not it.
+            if (!PathHelper.IsUnderRoot(exe, installDir) || !fileExists(exe)) return null;
             var folderId = new DirectoryInfo(installDir).Name;
             return new GameEntry
             {

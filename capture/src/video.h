@@ -24,6 +24,12 @@ struct GpuDevice
 enum class Codec { H264, HEVC, AV1 };
 const wchar_t* CodecName(Codec codec);
 
+GUID Subtype(Codec codec);
+/// The MFTs for a category and types; true and the chosen one's name when any matches the adapter (the one that
+/// says it is on this adapter wins). Used by the encoder and by Shrink.
+bool FindMft(const GUID& category, UINT32 flags, const GUID& inSub, const GUID& outSub, const LUID* luid,
+    std::wstring* name, com_ptr<IMFActivate>* chosen);
+
 /// What this PC's GPU can encode in hardware, and play back.
 struct EncoderSupport
 {
@@ -139,6 +145,9 @@ public:
 
 private:
     void OnFrame(winrt::Windows::Graphics::Capture::Direct3D11CaptureFramePool const& pool);
+    /// A free converted-frame texture, or a new one while there are fewer than MaxTargets; -1 when all are in use.
+    int TakeTarget();
+    int AddTarget();
     void EnsureProcessor(UINT width, UINT height, DXGI_FORMAT format);
     ID3D11VideoProcessorInputView* InputFor(ID3D11Texture2D* texture, UINT width, UINT height);
     void Convert(int64_t time, ID3D11VideoProcessorInputView* input);
@@ -180,7 +189,8 @@ private:
     com_ptr<ID3D11VideoProcessorEnumerator> m_vpEnum;
     com_ptr<ID3D11VideoProcessor> m_vp;
     struct Target { com_ptr<ID3D11Texture2D> texture; com_ptr<ID3D11VideoProcessorOutputView> view; };
-    std::vector<Target> m_targets;
+    static constexpr size_t MaxTargets = 6;
+    std::vector<Target> m_targets; // grown only under m_convert
     std::shared_ptr<std::vector<int>> m_free = std::make_shared<std::vector<int>>();
     std::shared_ptr<std::mutex> m_freeLock = std::make_shared<std::mutex>();
     int64_t m_lastFrame = 0;

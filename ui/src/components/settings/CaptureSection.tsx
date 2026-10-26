@@ -104,6 +104,7 @@ export const CaptureSection = memo(function CaptureSection() {
       <ReplayRows state={state} settings={settings} />
       <CaptureKeyRows state={state} settings={settings} />
       <StorageRows settings={settings} />
+      <ShrinkRow settings={settings} />
     </Section>
   )
 })
@@ -203,6 +204,19 @@ function PrintScreenRow({ state, settings }: { state: CaptureState | null; setti
       checked={settings?.printScreen === true}
       disabled={!settings}
       onChange={value => save({ printScreen: value })}
+    />
+  )
+}
+
+function ShrinkRow({ settings }: { settings: CaptureSettings | null }) {
+  return (
+    <SwitchRow
+      id="set-capture-shrink"
+      label="Make recordings smaller"
+      detail="While you aren’t playing and the PC is plugged in, Exo re-saves your recordings, older ones too, at about a third of the size, with audio untouched. It checks every file looks the same first, and keeps the original if not."
+      checked={settings?.autoShrink !== false}
+      disabled={!settings}
+      onChange={value => save({ autoShrink: value })}
     />
   )
 }

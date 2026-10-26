@@ -70,8 +70,7 @@ public sealed class PathTraversalAttacks : IDisposable
 
         // A junction INSIDE the root that points outside it.
         var link = Path.Combine(root, "link");
-        if (!TryCreateJunction(link, realTarget))
-            return; // environment cannot create a junction; skip silently.
+        Assert.SkipUnless(TryCreateJunction(link, realTarget), "This volume takes no junctions.");
 
         // Deleting through the junction must be refused: the child is reached
         // via a reparse point.
@@ -93,26 +92,33 @@ public sealed class PathTraversalAttacks : IDisposable
         Directory.CreateDirectory(outside);
         File.WriteAllText(Path.Combine(outside, "nvngx_dlss.dll"), "victim");
 
-        // A symlink inside the game folder that points at an outside DLL.
+        // A symlink inside the game folder that points at an outside DLL (needs Developer Mode or a privilege).
         var linkDll = Path.Combine(gameRoot, "nvngx_dlss.dll");
-        var created = TryCreateFileSymlink(linkDll, Path.Combine(outside, "nvngx_dlss.dll"));
+        Assert.SkipUnless(TryCreateFileSymlink(linkDll, Path.Combine(outside, "nvngx_dlss.dll")), "File symlinks need Developer Mode or a privilege here.");
+        Assert.False(DlssSwapService.IsSafeGamePath(gameRoot, linkDll),
+            "upscaler accepted a symlinked DLL that resolves outside the game folder");
+    }
 
-        if (created)
-        {
-            Assert.False(DlssSwapService.IsSafeGamePath(gameRoot, linkDll),
-                "upscaler accepted a symlinked DLL that resolves outside the game folder");
-        }
+    [Fact]
+    public void Upscaler_IsSafeGamePath_rejects_a_dll_reached_through_a_junction()
+    {
+        var gameRoot = Path.Combine(_tmp, "game");
+        Directory.CreateDirectory(gameRoot);
+        var outside = Path.Combine(_tmp, "sys");
+        Directory.CreateDirectory(outside);
+        File.WriteAllText(Path.Combine(outside, "nvngx_dlss.dll"), "victim");
 
-        // A junction directory inside the game folder pointing outside.
         var linkDir = Path.Combine(gameRoot, "bin");
-        if (TryCreateJunction(linkDir, outside))
-        {
-            var viaJunction = Path.Combine(linkDir, "nvngx_dlss.dll");
-            Assert.False(DlssSwapService.IsSafeGamePath(gameRoot, viaJunction),
-                "upscaler accepted a DLL reached through a junction out of the game folder");
-        }
+        Assert.SkipUnless(TryCreateJunction(linkDir, outside), "This volume takes no junctions.");
+        Assert.False(DlssSwapService.IsSafeGamePath(gameRoot, Path.Combine(linkDir, "nvngx_dlss.dll")),
+            "upscaler accepted a DLL reached through a junction out of the game folder");
+    }
 
-        // A plain in-folder DLL is accepted.
+    [Fact]
+    public void Upscaler_IsSafeGamePath_accepts_a_plain_dll_in_the_folder()
+    {
+        var gameRoot = Path.Combine(_tmp, "game");
+        Directory.CreateDirectory(gameRoot);
         var plain = Path.Combine(gameRoot, "real.dll");
         File.WriteAllText(plain, "x");
         Assert.True(DlssSwapService.IsSafeGamePath(gameRoot, plain));

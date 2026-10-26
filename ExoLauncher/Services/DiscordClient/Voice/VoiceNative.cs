@@ -92,7 +92,9 @@ internal static unsafe partial class Opus
     {
         var encoder = EncoderCreate(SampleRate, Channels, ApplicationVoip, out var error);
         if (error != 0 || encoder == 0) throw new InvalidOperationException("Opus encoder: " + error);
-        EncoderCtl(encoder, SetBitrate, bitrate);
+        // One channel of voice is transparent well under 128 kbps; more on a boosted channel only spends
+        // uplink Go Live's video could use, for no audible gain.
+        EncoderCtl(encoder, SetBitrate, Math.Min(bitrate, 128_000));
         EncoderCtl(encoder, SetComplexity, 10);
         EncoderCtl(encoder, SetForceChannels, 1);
         EncoderCtl(encoder, SetInbandFec, 1);
@@ -101,12 +103,13 @@ internal static unsafe partial class Opus
         return encoder;
     }
 
-    /// <summary>A music encoder for a stream's sound: full-band stereo at 128 kbps, with in-band FEC.</summary>
+    /// <summary>A music encoder for a stream's sound: full-band stereo at the given rate, with in-band FEC.</summary>
     internal static nint NewMusicEncoder(int bitrate = 128000)
     {
         var encoder = EncoderCreate(SampleRate, Channels, ApplicationAudio, out var error);
         if (error != 0 || encoder == 0) throw new InvalidOperationException("Opus encoder: " + error);
         EncoderCtl(encoder, SetBitrate, bitrate);
+        EncoderCtl(encoder, SetComplexity, 10);
         EncoderCtl(encoder, SetInbandFec, 1);
         EncoderCtl(encoder, SetPacketLossPerc, 5);
         EncoderCtl(encoder, SetSignal, SignalMusic);

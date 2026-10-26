@@ -8,7 +8,7 @@ These run as their own programs. Exo talks to them only through messages, and Ex
 
 | Program | License | Source |
 | --- | --- | --- |
-| **Exo Mouse** (the Devices room), built on OpenMouse's protocol library `@openmouse/protocol` 0.45.2; [OpenMouse](https://github.com/OpenMouse-Project/openmouse) is made by [snekxs](https://github.com/snekxs) and its contributors, and is in Exo with snekxs's permission | AGPL-3.0-or-later | [github.com/ImAvgErix/exo-mouse](https://github.com/ImAvgErix/exo-mouse) |
+| **Exo Mouse** (the Devices room), built on OpenMouse's protocol library `@openmouse/protocol` 0.46.0; [OpenMouse](https://github.com/OpenMouse-Project/openmouse) is made by [snekxs](https://github.com/snekxs) and its contributors, and is in Exo with snekxs's permission | AGPL-3.0-or-later | [github.com/ImAvgErix/exo-mouse](https://github.com/ImAvgErix/exo-mouse) |
 | **Exo Shaders** (System > Shaders), an unofficial fork of [SCSKiller](https://github.com/BlueHeisenberg/SCSKiller) | GPL-3.0-or-later, with an additional permission under section 7 (`LICENSE-EXCEPTION.txt`) | [github.com/ImAvgErix/exo-shaders](https://github.com/ImAvgErix/exo-shaders). Its own third-party notices ship in `addons\shaders\THIRD-PARTY-NOTICES.md`. Its native helpers come unmodified from SCSKiller 1.3.0 (see `engine/prebuilt/SOURCE.md` in its repository). |
 | **Exo Capture** (instant replay, recording and snips; `addons\capture`) | GPL-3.0-or-later | [github.com/ImAvgErix/exo-capture](https://github.com/ImAvgErix/exo-capture) |
 | **OBS Studio game capture files** 32.2.2 (`graphics-hook`, `inject-helper`, `get-graphics-offsets`; 32- and 64-bit), OBS Project and contributors, unmodified and signed by OBS Project, LLC, used by Exo Capture only for a game Windows capture gets no picture from | GPL-2.0-or-later | [github.com/obsproject/obs-studio/tree/32.2.2](https://github.com/obsproject/obs-studio/tree/32.2.2) (`plugins/win-capture`) |
@@ -22,11 +22,11 @@ The source for every build of these programs that Exo ships is published at the 
 
 | Component | Version | License |
 | --- | --- | --- |
-| .NET runtime (self-contained) | 11 | MIT |
+| .NET runtime (self-contained) | 10 | MIT |
 | Windows App SDK (WinUI) | 2.x | Microsoft Software License Terms |
-| Microsoft Edge WebView2 SDK | 1.0.4191.47 | BSD-3-Clause |
+| Microsoft Edge WebView2 SDK | 1.0.4314.35 | BSD-3-Clause |
 | [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) C API (`sherpa-onnx-c-api.dll`) with [ONNX Runtime](https://github.com/microsoft/onnxruntime) (`onnxruntime.dll`), from the org.k2fsa.sherpa.onnx.runtime.win-x64 package, for Only My Voice | 1.13.8 | Apache-2.0 (sherpa-onnx), MIT (ONNX Runtime) |
-| Microsoft.Data.Sqlite | 10.0.12 | MIT |
+| Microsoft.Data.Sqlite | 10.0.13 | MIT |
 | SQLitePCLRaw | 3.0.5 | Apache-2.0 |
 | SQLite | bundled with SQLitePCLRaw | Public domain |
 | libdave (Discord, DAVE end-to-end encryption for calls; `dave.dll`) | 8de72b1 | MIT |
@@ -35,12 +35,12 @@ The source for every build of these programs that Exo ships is published at the 
 | Opus (Xiph.Org, `opus.dll`) | 1.5 | BSD-3-Clause |
 | webrtc-audio-processing (freedesktop.org's copy of WebRTC's audio processing; its AEC3 echo canceller in calls, built into `exo_apm.dll`), with the code it carries: Ooura's and Mark Olesen's FFTs, pffft, rnnoise and spl_sqrt_floor, each under its own permissive license | 2.1 | BSD-3-Clause |
 | Abseil C++ (Google, linked into `exo_apm.dll`) | 20240722.0 | Apache-2.0 |
-| React, React DOM | 19.3.0 | MIT |
+| React, React DOM | 19.3.1 | MIT |
 | clsx | 2.1.1 | MIT |
 | qrcode-generator (Kazuhiko Arase), the Discord sign-in code | 2.0.4 | MIT |
 | lottie-web (Airbnb), Discord's animated stickers | 5.13.0 | MIT |
 | hls.js | 1.7.3 | Apache-2.0 |
-| dash.js | 4.7.4 | BSD-3-Clause |
+| dash.js | 5.2.1 | BSD-3-Clause |
 | Inter font (Rasmus Andersson and the Inter Project Authors), the official release's variable fonts: InterVariable.woff2 and InterVariable-Italic.woff2 in the UI (`ui/public/fonts`) and Exo Mouse, InterVariable.ttf in the app | 4.1 | SIL Open Font License 1.1 |
 | Tabler Icons (Paweł Kuna), through Iconify's `@iconify-json/tabler`: every icon in the UI, Exo Mouse and setup | 3.48.0 | MIT |
 | Simple Icons, the marks of a Discord profile's connected accounts (`ui/src/components/discord/connectionMarks.ts`; Skype, Xbox and Amazon from 8.15.0) | 15.22.0 | CC0 1.0 |
@@ -60,7 +60,6 @@ Exo does not ship these in its installer; it downloads a fixed release and check
 | [Nile](https://github.com/imLinguin/nile) | Amazon Games library, installs and launches | GPL-3.0 |
 | [DeepFilterNet](https://github.com/Rikorose/DeepFilterNet) 3 (Hendrik Schröter), 0.5.6: `exo-deepfilter.dll`, Exo's build of its C interface, libDF, with the low-latency model and the Rust crates it links (tract, ndarray and the rest, each MIT or Apache-2.0), from Exo's own GitHub release | Noise suppression in Discord calls, fetched when Exo's Discord client first needs it | MIT or Apache-2.0 |
 | [TitaNet-small](https://catalog.ngc.nvidia.com/orgs/nvidia/teams/nemo/models/titanet_small) (NVIDIA NeMo) as sherpa-onnx publishes it in ONNX: `titanet_small.onnx`, from [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx)'s release, checked against its size and SHA-256 | Only My Voice in Discord calls, fetched the first time you choose Use as My Voice | CC-BY-4.0 |
-| [NVIDIA Maxine](https://developer.nvidia.com/maxine) Audio Effects SDK 1.6.1.2 redistributable (NVIDIA Corporation): `NVAudioEffects.dll`, its CUDA, TensorRT and OpenSSL libraries and the `dereverb_denoiser_48k` model, from NVIDIA's own server for your card's generation, checked against its size and NVIDIA's signature | RTX Noise Removal in Discord calls, only when you choose Download | NVIDIA Software License Agreement and Product-Specific Terms for NVIDIA AI Products |
 | NVIDIA DLSS, AMD FidelityFX / FSR, Intel XeSS files, from each vendor's own GitHub release | Upscaler updates, only for files a game already ships | DLSS: [NVIDIA RTX SDKs License](https://github.com/NVIDIA/DLSS/blob/main/LICENSE.txt); FidelityFX / FSR: [AMD's FidelityFX SDK license](https://github.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK/blob/main/docs/license.md); XeSS: [Intel Simplified Software License](https://github.com/intel/xess/blob/main/LICENSE.txt) (October 2022), in full below |
 
 Upscaler builds that NVIDIA, AMD and Intel don't publish on GitHub come from [DLSS Swapper](https://github.com/beeradmoore/dlss-swapper)'s public archive; Exo uses its release list and download archive only, not its code.

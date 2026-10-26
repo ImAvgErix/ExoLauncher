@@ -421,30 +421,38 @@ internal static partial class GpuDriverUpdate
         var maker = Maker(latest.Vendor);
         Report("downloading", 0, $"Downloading from {maker}");
         var partial = path + ".part";
-        using (var request = Request(latest.Vendor, latest.Url))
-        using (var response = await Http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead).ConfigureAwait(false))
+        try
         {
-            response.EnsureSuccessStatusCode();
-            if (response.RequestMessage?.RequestUri?.Host != DownloadHost(latest.Vendor)) throw new InvalidDataException($"The download didn't come from {maker}.");
-            var total = response.Content.Headers.ContentLength ?? latest.Size;
-            if (total > MaxBytes) throw new InvalidDataException($"{maker}'s download is larger than a driver.");
-            await using var source = await response.Content.ReadAsStreamAsync().ConfigureAwait(false);
-            await using var target = new FileStream(partial, FileMode.Create, FileAccess.Write, FileShare.None, 1 << 20, useAsync: true);
-            var buffer = new byte[1 << 20];
-            long done = 0;
-            var lastPercent = -1;
-            int read;
-            while ((read = await source.ReadAsync(buffer).ConfigureAwait(false)) > 0)
+            using (var request = Request(latest.Vendor, latest.Url))
+            using (var response = await Http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead).ConfigureAwait(false))
             {
-                done += read;
-                if (done > MaxBytes) throw new InvalidDataException($"{maker}'s download is larger than a driver.");
-                await target.WriteAsync(buffer.AsMemory(0, read)).ConfigureAwait(false);
-                var percent = total > 0 ? (int)Math.Min(100, done * 100 / total) : 0;
-                if (percent != lastPercent) { lastPercent = percent; Report("downloading", percent, $"Downloading from {maker}"); }
+                response.EnsureSuccessStatusCode();
+                if (response.RequestMessage?.RequestUri?.Host != DownloadHost(latest.Vendor)) throw new InvalidDataException($"The download didn't come from {maker}.");
+                var total = response.Content.Headers.ContentLength ?? latest.Size;
+                if (total > MaxBytes) throw new InvalidDataException($"{maker}'s download is larger than a driver.");
+                await using var source = await response.Content.ReadAsStreamAsync().ConfigureAwait(false);
+                await using var target = new FileStream(partial, FileMode.Create, FileAccess.Write, FileShare.None, 1 << 20, useAsync: true);
+                var buffer = new byte[1 << 20];
+                long done = 0;
+                var lastPercent = -1;
+                int read;
+                while ((read = await StallGuard.ReadAsync(source, buffer).ConfigureAwait(false)) > 0)
+                {
+                    done += read;
+                    if (done > MaxBytes) throw new InvalidDataException($"{maker}'s download is larger than a driver.");
+                    await target.WriteAsync(buffer.AsMemory(0, read)).ConfigureAwait(false);
+                    var percent = total > 0 ? (int)Math.Min(100, done * 100 / total) : 0;
+                    if (percent != lastPercent) { lastPercent = percent; Report("downloading", percent, $"Downloading from {maker}"); }
+                }
+                if (response.Content.Headers.ContentLength is { } length && done != length) throw new InvalidDataException("The download was cut short.");
             }
-            if (response.Content.Headers.ContentLength is { } length && done != length) throw new InvalidDataException("The download was cut short.");
+            File.Move(partial, path, true);
         }
-        File.Move(partial, path, true);
+        catch
+        {
+            try { File.Delete(partial); } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+            throw;
+        }
     }
 
     internal static string DownloadHost(string vendor) => vendor == "amd" ? "drivers.amd.com" : "downloadmirror.intel.com";

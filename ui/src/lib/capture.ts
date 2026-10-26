@@ -36,6 +36,8 @@ export type CaptureSettings = {
   folder: string
   keepGb: number
   keepDays: number
+  /** New recordings are re-encoded to smaller files that look the same, while no game runs. */
+  autoShrink: boolean
 }
 
 /** One file in the captures folder. */

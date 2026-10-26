@@ -143,7 +143,14 @@ internal static class LucidCompanion
                 if (File.Exists(VoiceDspPath) && VoiceDspOff(File.ReadAllText(VoiceDspPath)) is { } off)
                 {
                     // Lucid's own way: UTF-8 without a mark (its Voice Core rejects a file that starts with one).
-                    File.WriteAllText(VoiceDspPath, off, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+                    // Beside it and moved over, as Lucid itself writes: Lucid never reads half a file.
+                    var staged = VoiceDspPath + ".exo-tmp";
+                    try
+                    {
+                        File.WriteAllText(staged, off, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+                        File.Move(staged, VoiceDspPath, overwrite: true);
+                    }
+                    finally { try { File.Delete(staged); } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { } }
                     AppLog.Info("Lucid: Lucid Voice turned off; Exo Voice handles the mic.");
                     // A Voice Tune made through Lucid Voice set its gate for Lucid's louder sound: without it the gate would hold
                     // back a normal voice, so that mic's tuning is let go of (Exo Voice's general settings until it is tuned again).

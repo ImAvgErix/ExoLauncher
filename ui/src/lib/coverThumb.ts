@@ -94,6 +94,17 @@ export function thumbUrl(url: string, width: number | null): string {
   return `${THUMB_ORIGIN}${rest}${rest.includes('?') ? '&' : '?'}w=${width}`
 }
 
+/** The not-installed variant of a grid thumbnail: the host applies the CSS filter's
+ *  saturate(0.45) brightness(0.42) once while it resizes, so a dim card paints plain. */
+export function dimThumbUrl(url: string, width: number | null): string {
+  return `${thumbUrl(url, width)}&dim=1`
+}
+
+/** A URL the host dimmed (&dim=1); a dim card showing anything else gets the CSS filter instead. */
+export function isDimThumbUrl(url: string | null | undefined): boolean {
+  return !!url && url.includes('dim=1')
+}
+
 export function isThumbUrl(url: string): boolean {
   return url.startsWith(`${THUMB_ORIGIN}/`)
 }

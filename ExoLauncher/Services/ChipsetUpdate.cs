@@ -259,7 +259,7 @@ internal sealed class ChipsetUpdate(string vendor, ChipsetUpdate.IHost host, str
             File.WriteAllText(temp, JsonSerializer.Serialize(status));
             File.Move(temp, StatePath, overwrite: true);
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { AppLog.Debug($"{Maker} chipset: the update state wasn't saved: " + ex.Message); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { AppLog.Warn($"{Maker} chipset: the update state wasn't saved: " + ex.Message); }
     }
 
     // ---- The newest package: the maker's page read at most every 12 hours, kept across runs ----
@@ -382,7 +382,7 @@ internal sealed class ChipsetUpdate(string vendor, ChipsetUpdate.IHost host, str
                 var buffer = new byte[1 << 20];
                 long done = 0;
                 int read;
-                while ((read = await source.ReadAsync(buffer, ct).ConfigureAwait(false)) > 0)
+                while ((read = await StallGuard.ReadAsync(source, buffer, ct).ConfigureAwait(false)) > 0)
                 {
                     done += read;
                     if (done > MaxBytes) throw new InvalidDataException($"{maker}'s download is larger than its chipset package.");

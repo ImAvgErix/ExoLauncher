@@ -146,6 +146,13 @@ internal sealed partial class DiscordRest
 
     internal sealed record PaymentChoice(string Id, string Label, string? Expires, bool Default, bool Usable);
 
+    private static readonly HashSet<string> WholeUnitCurrencies = new(StringComparer.OrdinalIgnoreCase) { "jpy", "krw", "vnd", "clp", "isk", "huf", "twd", "ugx", "xaf", "xof", "xpf" };
+
+    /// <summary>A charge in words for the confirmation: "9.99 USD". Discord's amounts are in the currency's smallest unit.</summary>
+    internal static string PriceText(long amount, string currency) =>
+        (WholeUnitCurrencies.Contains(currency) ? amount.ToString("N0", CultureInfo.InvariantCulture) : (amount / 100m).ToString("N2", CultureInfo.InvariantCulture))
+        + " " + currency.ToUpperInvariant();
+
     private static string? Text(JsonElement e, string name) =>
         e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
 

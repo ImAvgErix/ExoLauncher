@@ -126,7 +126,7 @@ export const GameCard = memo(function GameCard({
       >
         <div className="exo-tile-frame" data-vt-art>
           <span className="exo-tile-media" aria-hidden="true">
-            <CoverArt game={game} preload={preload} className="absolute inset-0 h-full w-full" />
+            <CoverArt game={game} preload={preload} dim={!state.installed} className="absolute inset-0 h-full w-full" />
           </span>
           <TileMotion working={state.transferring} finished={finished} />
           {state.transferring && (

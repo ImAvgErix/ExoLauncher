@@ -141,6 +141,7 @@
   <ItemGroup>
     <!-- Discord voice: libdave (DAVE end-to-end encryption), libopus and exo_apm (WebRTC's echo cancellation), built by voice\build.ps1. -->
     <Content Include="..\voice\out\dave.dll;..\voice\out\opus.dll;..\voice\out\exo_apm.dll;..\voice\out\LICENSE-*.txt" Link="%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+
     <Content Include="..\LICENSE" Link="LICENSE.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="..\THIRD_PARTY_NOTICES.md" Link="THIRD_PARTY_NOTICES.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="..\PRIVACY.md" Link="PRIVACY.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />

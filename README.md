@@ -2,7 +2,7 @@
 <h1 align="center">Exo Launcher 3.15</h1>
 <p align="center"><strong>Your games, your music, your friends and your mouse. One app.</strong></p>
 <p align="center">Exo brings every game store, Discord, Spotify, Apple Music, YouTube Music, your captures and your mouse software into one fast, quiet window for Windows 11.</p>
-<p align="center"><a href="https://github.com/ImAvgErix/ExoLauncher/releases/latest/download/ExoLauncher-Setup.exe"><strong>Download for Windows 11</strong></a> · <a href="https://github.com/ImAvgErix/ExoLauncher/releases/tag/v3.15.0">What's new in 3.15</a> · <a href="CHANGELOG.md">Changelog</a> · <a href="PRIVACY.md">Privacy</a></p>
+<p align="center"><a href="https://github.com/ImAvgErix/ExoLauncher/releases/latest/download/ExoLauncher-Setup.exe"><strong>Download for Windows 11</strong></a> · <a href="https://github.com/ImAvgErix/ExoLauncher/releases/tag/v3.15.1">What's new in 3.15</a> · <a href="CHANGELOG.md">Changelog</a> · <a href="PRIVACY.md">Privacy</a></p>
 
 ![The Exo Library: every game from every store in one grid](docs/media/library.jpg)
 
@@ -73,13 +73,13 @@ System > Graphics > Upscalers lists every installed game that can get newer DLSS
 
 ![System > Shaders: Exo Shaders shows which games are compiled](docs/media/shaders.jpg)
 
-Exo Shaders precompiles each game's shaders for the graphics driver you have now, so a game doesn't stutter the first time it meets a new effect. It shows which games are compiled and keeps a queue, and skips a game Windows already compiled for your card. When your driver updates, it compiles them again while your PC is idle, holding its memory use down so the rest of your PC stays quick.
+Exo Shaders precompiles each game's shaders for the graphics driver you have now, so a game doesn't stutter the first time it meets a new effect. It shows which games are compiled and keeps a queue, and skips a game Windows already compiled for your card. When your driver updates, it compiles them again while your PC is idle, holding its memory use down so the rest of your PC stays quick. It runs only while it has work to do.
 
 ### Store
 
 ![The Store: featured games, Epic's free games and new and trending games](docs/media/store.jpg)
 
-Steam's big new and upcoming games, new and trending, the most anticipated, top sellers, sales and the most wishlisted, Epic's free games, and search, with prices in your own currency and review scores. Wishlist a game and Exo tells you when it goes on sale.
+Steam's big new and upcoming games, new and trending, the most anticipated, top sellers, sales and the most wishlisted, shelves picked from what you play, and search, with prices in your own currency and review scores. Wishlist a game and Exo tells you when it goes on sale.
 
 ![A Store game page: trailers, buying options, description, details and system requirements](docs/media/store-game.jpg)
 
@@ -142,7 +142,7 @@ Appearance (Match Windows, Light, Dark or Void), Glass, text size and reduce mot
 
 ## License and legal
 
-- **Exo Launcher** is free for personal use under its own [terms](LICENSE), provided as is, without warranty. Its source is in this repository for anyone to read and check, but it is not open source: copying it, forking it outside GitHub or publishing changed versions needs written permission.
+- **Exo Launcher** is free for personal use under its own [terms](LICENSE), provided as is, without warranty. Its source is in this repository for anyone to read and check, but it is not open source: copying it, forking it outside GitHub or publishing changed versions needs written permission. You can [build it yourself](BUILDING.md) to check it against the release, [contribute](CONTRIBUTING.md) fixes, and read the rules on [names and logos](TRADEMARKS.md).
 - **Open-source parts that ship with Exo** keep their own licenses, and their source is public:
   - [Exo Mouse](https://github.com/ImAvgErix/exo-mouse) (AGPL-3.0-or-later), built on OpenMouse by snekxs.
   - [Exo Capture](https://github.com/ImAvgErix/exo-capture) (GPL-3.0-or-later), with OBS Studio's game capture hook.

@@ -4,10 +4,10 @@ namespace ExoLauncher.Services.DiscordClient.Voice;
 
 /// <summary>
 /// Noise suppression on one person's voice in a call (Voice & Video › Noise Suppression for Others, off by default; never
-/// on a Go Live stream's sound): their decoded frames go through a DeepFilterNet of their own, as each voice has its own
-/// room and the model its own state for it, on a thread of their own, so one person's few milliseconds a frame never hold
-/// up another's or the receive thread; then to the mix, 20 ms later. Each instance is its own copy of the plugin with its
-/// own model (instances sharing one corrupted each other, see NoiseSuppressor.LoadCopy) and, while they talk, costs what the
+/// on a Go Live stream's sound): their decoded frames go through a DeepFilterNet of their own, as each voice
+/// has its own room and the model its own state for it, on a thread of their own, so one person's few milliseconds a
+/// frame never hold up another's or the receive thread; then to the mix, 20 ms later. Each instance is its own model
+/// (instances sharing one corrupted each other, see NoiseSuppressor.LoadCopy) and, while they talk, costs what the
 /// microphone's does. It loads off this thread (an instance let go of before
 /// comes back at once); until it is in, their voice plays as it came. The end of each sentence is pushed out by the
 /// silence Discord sends after it (<see cref="Drain"/>), instead of waiting in the model for their next word.
@@ -57,7 +57,8 @@ internal sealed class InboundCleaner : IDisposable
         while (!_stop)
         {
             _ready.WaitOne(200);
-            if (_suppressor is null && !_failed && _loading.IsCompleted) _suppressor = _loading.IsCompletedSuccessfully ? _loading.Result : null;
+            if (_suppressor is null && !_failed && _loading is { IsCompleted: true, IsCompletedSuccessfully: true })
+                _suppressor = _loading.Result;
             while (!_stop)
             {
                 (float[]? Frame, float Gain) next;
@@ -102,6 +103,10 @@ internal sealed class InboundCleaner : IDisposable
         _thread.Join(1000);
         _suppressor?.Dispose();
         // One still loading is let go of when it is in.
-        if (_suppressor is null) _loading.ContinueWith(t => t.Result?.Dispose(), CancellationToken.None, TaskContinuationOptions.OnlyOnRanToCompletion, TaskScheduler.Default);
+        if (_suppressor is null)
+            _loading.ContinueWith(t =>
+            {
+                if (t.IsCompletedSuccessfully) t.Result?.Dispose();
+            }, CancellationToken.None, TaskContinuationOptions.OnlyOnRanToCompletion, TaskScheduler.Default);
     }
 }

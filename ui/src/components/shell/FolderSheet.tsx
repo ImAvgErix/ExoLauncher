@@ -5,6 +5,7 @@ import { CHECK_PATH, ImageUpload, Search } from '../../brand/icons'
 import { FOLDER_COLORS, FOLDER_COLOR_NAMES, folderColor, type FolderColor } from '../../lib/folders'
 import type { Game, LibraryFolder } from '../../lib/host'
 import { useDismiss } from '../../lib/dismiss'
+import { useDialogFocus } from '../../lib/focusTrap'
 
 /** What the folder's picture may be, as the host takes it (FolderArtStore). */
 const PICTURE_TYPES = ['image/png', 'image/jpeg', 'image/webp']
@@ -40,6 +41,7 @@ export function FolderSheet({ folder, library, folders, onSave, onCancel }: {
   const [cropped, setCropped] = useState(false)
   const sheet = useRef<HTMLDivElement>(null)
   useDismiss(sheet, onCancel, { modal: true })
+  useDialogFocus(sheet)
   // The other folders each game is in, by name: shown under it, since ticking it here keeps it there too.
   const elsewhere = useMemo(() => {
     const names = new Map<string, string[]>()

@@ -182,7 +182,11 @@ public sealed partial class MainWindow
         if (action is "removeFromPlaylist" or "jamRemove" && !SpotifyNative.IsId(uid)) return new { ok = false, message = "Spotify did not take that. Try again." };
         if (uid is { Length: > 80 }) uid = null;
         var act = new SpotifyAct(action, SpotifyNative.IsUri(uri) ? uri : null, context, index, on, uid, query, name, description, image);
-        var reply = await SpotifyCallAsync(bridge => bridge.ActAsync(act, _lifetimeCts.Token));
+        // The wake-up and its retries are for a read that asks nothing of the account. The action itself goes once: a call that
+        // timed out may still have run, and sent again a like, a shuffle or a new playlist would be done twice.
+        if (await SpotifyCallAsync(bridge => bridge.PingAsync(_lifetimeCts.Token)) is null)
+            return new { ok = false, message = "Spotify did not take that. Try again." };
+        var reply = await SpotifyCallAsync(bridge => bridge.ActAsync(act, _lifetimeCts.Token), attempts: 1);
         if (reply is { ValueKind: JsonValueKind.Object } answer && answer.TryGetProperty("ok", out var ok) && ok.ValueKind == JsonValueKind.True)
             return new { ok = true, uri = answer.TryGetProperty("uri", out var made) && SpotifyNative.IsUri(made.GetString()) ? made.GetString() : null };
         if (reply is { ValueKind: JsonValueKind.Object } failed && failed.TryGetProperty("error", out var error))

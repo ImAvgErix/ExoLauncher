@@ -11,7 +11,8 @@ const files = [
   path.join(root, 'exo-shell.css'),
 ]
 // Discord's dock draws your bar on its own glass (system.css), so the bar itself is not a control.
-const skip = new Set(['.exo-dc .exo-dc-me'])
+// A color swatch shows its own color: a backdrop would dim the color and pixelate the 28px square.
+const skip = new Set(['.exo-dc .exo-dc-me', '.exo-dc-swatch'])
 
 function splitTop(selector) {
   const out = []

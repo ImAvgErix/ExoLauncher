@@ -568,8 +568,12 @@ public sealed partial class WebHostBridge
         string? failure = null;
         try
         {
-            RiotAccounts.SaveLive(RiotAccounts.LiveDataDir, RiotAccounts.StoreDir);
-            if (!RiotAccounts.Restore(RiotAccounts.LiveDataDir, RiotAccounts.StoreDir, target.Key))
+            // The signed-in account is saved before it is replaced; one that could not be saved (a session too big, an identity that
+            // would not read) is left signed in rather than lost.
+            var live = RiotAccounts.ReadLive(RiotAccounts.LiveDataDir) is not null;
+            if (RiotAccounts.SaveLive(RiotAccounts.LiveDataDir, RiotAccounts.StoreDir) is null && live)
+                failure = "Exo could not save the signed-in Riot account, so it left it signed in.";
+            else if (!RiotAccounts.Restore(RiotAccounts.LiveDataDir, RiotAccounts.StoreDir, target.Key))
                 failure = "Exo could not use that account's saved sign-in. Add it again.";
         }
         catch (Exception ex)
@@ -598,8 +602,11 @@ public sealed partial class WebHostBridge
             return new { ok = false, message = refusal };
         try
         {
+            var live = RiotAccounts.ReadLive(RiotAccounts.LiveDataDir) is not null;
             var kept = RiotAccounts.SaveLive(RiotAccounts.LiveDataDir, RiotAccounts.StoreDir);
             if (kept is not null) AppLog.Info("Riot: saved the signed-in account before adding another.");
+            // Signing it out with no copy would lose it for good.
+            else if (live) return new { ok = false, message = "Exo could not save the signed-in Riot account, so it left it signed in." };
             RiotAccounts.ClearLive(RiotAccounts.LiveDataDir);
         }
         catch (Exception ex)

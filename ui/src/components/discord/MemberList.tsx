@@ -25,14 +25,29 @@ export function MemberList({ guildId }: { guildId: string }) {
 
   useEffect(() => {
     let live = true
-    const load = () => host.discordMembers(guildId).then(next => {
-      if (next.items.length) shownLists.set(guildId, next)
-      if (live) { asked.current = null; setList(current => next.items.length || !current ? next : current) }
-    })
-      .catch((error: unknown) => report(error, 'MemberList.load'))
+    let waiting: number | undefined
+    let last = 0
+    const load = () => {
+      last = Date.now()
+      host.discordMembers(guildId).then(next => {
+        // The lists of servers visited this session stay cached, but not without end (a big server's is hundreds of KB).
+        if (next.items.length) {
+          shownLists.delete(guildId)
+          shownLists.set(guildId, next)
+          while (shownLists.size > 24) shownLists.delete(shownLists.keys().next().value!)
+        }
+        if (live) { asked.current = null; setList(current => next.items.length || !current ? next : current) }
+      })
+        .catch((error: unknown) => report(error, 'MemberList.load'))
+    }
     load()
-    const off = onHostEvent('discord.members', event => { if (event.guildId === guildId) load() })
-    return () => { live = false; off() }
+    // A presence change is one event and a busy server sends them in bursts; the list is whole either way, so one load a
+    // half-second covers them all (an update waiting already covers one that arrives behind it).
+    const off = onHostEvent('discord.members', event => {
+      if (event.guildId !== guildId || waiting !== undefined) return
+      waiting = window.setTimeout(() => { waiting = undefined; if (live) load() }, Math.max(80, 500 - (Date.now() - last)))
+    })
+    return () => { live = false; window.clearTimeout(waiting); off() }
   }, [guildId])
 
   function onScroll(event: React.UIEvent<HTMLElement>) {

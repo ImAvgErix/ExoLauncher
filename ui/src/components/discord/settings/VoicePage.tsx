@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
-import { host, onHostEvent, type MicLevel, type VoiceCheckResult, type VoiceStages } from '../../../lib/host'
+import { host, onHostEvent, type MicLevel, type VoiceStages } from '../../../lib/host'
 import { setDiscordPrefs, useDiscordPrefs, type DiscordClientSettings, type DiscordKeybind } from '../../../lib/discordPrefs'
 import { Choice } from '../../settings/Choice'
 import { Menu } from '../../ui/Menu'
@@ -10,7 +10,6 @@ import { SoundRow } from './AppPages'
 import { Category, ChoiceRow, LoadError, Row, SliderRow, ToggleRow, useClientSettings, useRemembered } from './parts'
 import { cameraError } from '../../../lib/goLive'
 import { usePageActive } from '../../../lib/pageActivity'
-import { Takes } from './Takes'
 
 type Audio = Awaited<ReturnType<typeof host.discordAudio>>
 type Save = (change: Partial<DiscordClientSettings>) => Promise<string | null>
@@ -87,16 +86,20 @@ function InputProfile({ settings, save }: { settings: DiscordClientSettings; sav
   return (
     <Category>
       <LiveVoice live={live} />
-      <VoiceCheck onLearned={() => void save({})} />
+      <HearYourVoice />
       <NoiseSuppression settings={settings} save={save} />
       <OnlyMyVoice settings={settings} save={save} />
-      <ToggleRow label="Noise suppression for others" detail="Takes background noise out of everyone else's voice, for you. Each person talking uses about as much of your PC as your own mic's."
-        checked={settings.othersNoiseSuppression} onChange={value => save({ othersNoiseSuppression: value })} />
-      <ToggleRow label="Even out voices" detail="Brings everyone's voice to about the same loudness, for you, so one loud mic doesn't drown out the rest. Your volume for each person still applies."
-        checked={settings.evenVoices} onChange={value => save({ evenVoices: value })} />
-      <ToggleRow label="Echo cancellation" detail="Takes your speakers out of your mic, so nobody hears themselves. Not needed, so not run, on headphones."
-        checked={settings.echoCancellation} onChange={value => save({ echoCancellation: value })} />
-      <Sensitivity settings={settings} save={save} live={live} />
+      {settings.noiseSuppression ? null : (
+        <>
+          <ToggleRow label="Noise suppression for others" detail="Takes background noise out of everyone else's voice, for you. Each person talking uses about as much of your PC as your own mic's."
+            checked={settings.othersNoiseSuppression} onChange={value => save({ othersNoiseSuppression: value })} />
+          <ToggleRow label="Even out voices" detail="Brings everyone's voice to about the same loudness, for you, so one loud mic doesn't drown out the rest. Your volume for each person still applies."
+            checked={settings.evenVoices} onChange={value => save({ evenVoices: value })} />
+          <ToggleRow label="Echo cancellation" detail="Takes your speakers out of your mic, so nobody hears themselves. Not needed, so not run, on headphones."
+            checked={settings.echoCancellation} onChange={value => save({ echoCancellation: value })} />
+          <Sensitivity settings={settings} save={save} live={live} />
+        </>
+      )}
       <ToggleRow label="Push to talk" detail="Activates your mic only when you hold down a designated key." checked={settings.pushToTalk} onChange={value => save({ pushToTalk: value })} />
       {settings.pushToTalk ? (
         <>
@@ -111,19 +114,19 @@ function InputProfile({ settings, save }: { settings: DiscordClientSettings; sav
   )
 }
 
-type Suppression = 'ai' | 'standard' | 'none'
+type Suppression = 'exo' | 'standard' | 'none'
 
 const suppressionDetail: Record<Suppression, string> = {
-  ai: 'Exo’s AI takes background noise, typing and clicks out of your mic, like Discord’s Krisp.',
-  standard: 'Google’s WebRTC noise suppression, Discord’s Standard: lighter, takes out steady noise like fans and hum.',
-  none: 'Your mic as it is.',
+  exo: 'Exo Voice: Exo’s own AI. Keyboard, clicks, fan and desk noise out, your voice clear, shaped and levelled. It also cleans and evens everyone else’s voice, cancels your speakers’ echo and sets sensitivity itself.',
+  standard: 'Standard (WebRTC): the statistical noise suppression Discord falls back to, then Exo’s gate and the rest as you set them.',
+  none: 'Your mic as it is; each part below is then yours to set.',
 }
 
-/** Noise Suppression as Discord offers it (Krisp, Standard, None): Exo AI (DeepFilterNet), Standard (WebRTC's own) or None. */
+/** Noise suppression: Exo Voice (Exo's own AI chain), Standard (WebRTC), or the mic as it is. */
 function NoiseSuppression({ settings, save }: { settings: DiscordClientSettings; save: Save }) {
-  const value: Suppression = !settings.noiseSuppression ? 'none' : settings.noiseSuppressionKind === 'standard' ? 'standard' : 'ai'
+  const value: Suppression = !settings.noiseSuppression ? 'none' : settings.noiseSuppressionKind === 'standard' ? 'standard' : 'exo'
   const choices: { value: Suppression; label: string }[] = [
-    { value: 'ai', label: 'Exo AI' },
+    { value: 'exo', label: 'Exo Voice' },
     { value: 'standard', label: 'Standard' },
     { value: 'none', label: 'None' },
   ]
@@ -133,101 +136,51 @@ function NoiseSuppression({ settings, save }: { settings: DiscordClientSettings;
   )
 }
 
-/** Only My Voice: on once Exo has learned the voice (Voice Check › Use as My Voice); Forget deletes the voiceprint. */
+/** Only My Voice: once Exo has learned the voice (Teach Exo My Voice, over the live meter); Forget deletes the voiceprint. */
 function OnlyMyVoice({ settings, save }: { settings: DiscordClientSettings; save: Save }) {
   const learned = settings.myVoiceLearned === true
+  const [learning, setLearning] = useState<'busy' | string | null>(null)
+  const learn = () => {
+    setLearning('busy')
+    host.discordMyVoice('learn')
+      .then(r => { setLearning(r.ok ? null : r.message ?? 'Exo couldn’t learn your voice.'); if (r.ok) void save({}) })
+      .catch(() => setLearning('Exo couldn’t learn your voice.'))
+  }
   const forget = () => void host.discordMyVoice('forget').then(() => save({ onlyMyVoice: false })).catch(() => { })
   return (
     <>
       <ToggleRow label="Only my voice" checked={learned && settings.onlyMyVoice} disabled={!learned}
-        detail={learned ? 'Holds back voices that aren’t yours: someone else in the room, a TV or a stream.' : 'Record a voice check, then choose use as my voice.'}
+        detail={learned ? 'Holds back voices that aren’t yours: someone else in the room, a TV or a stream.'
+          : 'First teach Exo your voice: talk on the meter above for a few seconds, then Teach Exo my voice.'}
         onChange={value => save({ onlyMyVoice: value })} />
-      {learned ? (
-        <Row label="Your voice" detail="Learned from a voice check. It stays on this PC.">
-          <button type="button" className="exo-set-btn" onClick={forget}>Forget</button>
-        </Row>
-      ) : null}
-    </>
-  )
-}
-
-const CHECK_SECONDS = 8
-
-/**
- * Voice Check: talk (and type, if you like) for a few seconds, then hear yourself before and after, as the
- * call sends you. A mic that clips or is too quiet is named, with one press to set Microphone Volume right.
- */
-function VoiceCheck({ onLearned }: { onLearned: () => void }) {
-  const [result, setResult] = useState<VoiceCheckResult | null>(null)
-  const [left, setLeft] = useState<number | null>(null)
-  const record = () => {
-    setResult(null)
-    setLeft(CHECK_SECONDS)
-    const timer = window.setInterval(() => setLeft(n => (n && n > 1 ? n - 1 : n)), 1000)
-    host.discordVoiceCheck(CHECK_SECONDS)
-      .then(setResult)
-      .catch(() => setResult({ ok: false, message: 'The microphone didn\'t answer.' }))
-      .finally(() => { window.clearInterval(timer); setLeft(null) })
-  }
-  return (
-    <>
-      <Row label="Voice check" detail={left !== null ? `Talk now… ${left}` : 'Talk for a few seconds, then hear yourself as the call hears you.'} error={result && !result.ok ? result.message : null}>
-        <button type="button" className="exo-set-btn" disabled={left !== null} onClick={record}>{result?.ok ? 'Again' : 'Record'}</button>
+      <Row label="Your voice" detail={learned ? 'Learned on this PC; it never leaves it.' : (learning === 'busy' ? 'Learning your voice…' : learning ?? 'Talk on the meter above, then teach it here.')}
+        error={learning !== null && learning !== 'busy' ? learning : null}>
+        {learned ? <button type="button" className="exo-set-btn" onClick={forget}>Forget</button>
+          : <button type="button" className="exo-set-btn" disabled={learning === 'busy'} onClick={learn}>Teach Exo my voice</button>}
       </Row>
-      {result?.ok ? <VoiceCheckResults result={result} onLearned={onLearned} /> : null}
     </>
   )
 }
 
-// Peaks near full scale clip; a voice peaking under -24 dB is too quiet for any processing to rescue cleanly.
-function micAdvice(r: VoiceCheckResult): { text: string; target?: number } | null {
-  if ((r.voicedShare ?? 0) < 0.1) return { text: "No voice heard: talk during the recording, then play it back." }
-  const peak = r.peakDb ?? -100
-  if ((r.clipped ?? 0) > 0 || peak > -1) return { text: 'Your mic clipped: it was too loud for a moment, which sounds harsh.', target: -6 }
-  if (peak < -24) return { text: 'Your mic is quiet: turning it up gives the cleanest sound.', target: -8 }
-  return null
-}
-
-function VoiceCheckResults({ result, onLearned }: { result: VoiceCheckResult; onLearned: () => void }) {
-  const [volume, setVolume] = useState<number | null>(null)
-  const [fixed, setFixed] = useState(false)
-  const [learning, setLearning] = useState<'busy' | 'done' | string | null>(null)
-  const learn = () => {
-    setLearning('busy')
-    host.discordMyVoice('learn')
-      .then(r => { setLearning(r.ok ? 'done' : r.message ?? 'Exo couldn’t learn your voice.'); if (r.ok) onLearned() })
-      .catch(() => setLearning('Exo couldn’t learn your voice.'))
+/** Hear Your Voice: your microphone played back through the chain exactly as the call sends it, live. */
+function HearYourVoice() {
+  const [on, setOn] = useState(false)
+  const [speakers, setSpeakers] = useState(false)
+  useEffect(() => () => { void host.discordMicMonitor(false).catch(() => { }) }, [])
+  const toggle = (value: boolean) => {
+    void host.discordMicMonitor(value).then(r => { setOn(r.on); setSpeakers(r.on && !r.onHead) }).catch(() => { })
   }
-  useEffect(() => { host.discordAudio({}).then(audio => setVolume(audio.inputVolume)).catch(() => { }) }, [])
-  const advice = micAdvice(result)
-  const fix = () => {
-    if (advice?.target === undefined || volume === null) return
-    const next = Math.round(Math.max(25, Math.min(200, volume * 10 ** ((advice.target - (result.peakDb ?? 0)) / 20))))
-    void host.discordAudio({ inputVolume: next }).then(audio => { setVolume(audio.inputVolume); setFixed(true) }).catch(() => { })
-  }
-  const db = (v?: number) => (v === undefined ? '–' : v < -90 ? 'silent' : `${Math.round(v)} dB`)
   return (
-    <div className="exo-dc-settings-row exo-dc-voice-check">
-      <span className="exo-dc-settings-copy">
-        <strong>Before and after</strong>
-        <span>Peak {db(result.peakDb)} · room {db(result.noiseDb)}, {db(result.noiseAfterDb)} after · your voice {db(result.voiceDb)}</span>
-        {advice && !fixed ? <span className="exo-dc-voice-check-advice">{advice.text}</span> : null}
-        {fixed ? <span>Microphone volume is now {volume}%. Record again to hear it.</span> : null}
-        {learning === 'busy' ? <span>Learning your voice…</span> : learning === 'done' ? <span>Exo knows your voice now. Turn on only my voice below.</span> : learning ? <span className="exo-dc-voice-check-advice">{learning}</span> : null}
-      </span>
-      <span className="exo-dc-voice-check-takes">
-        <Takes before={result.before} after={result.after} />
-        {advice?.target !== undefined && !fixed ? <button type="button" className="exo-set-btn is-primary" onClick={fix}>Fix microphone volume</button> : null}
-        {(result.voicedShare ?? 0) >= 0.3 && learning !== 'busy' && learning !== 'done' ? <button type="button" className="exo-set-btn" onClick={learn}>Use as my voice</button> : null}
-      </span>
-    </div>
+    <ToggleRow label="Hear your voice" checked={on} onChange={toggle}
+      detail={speakers ? 'Your voice as the call sends it, live. Speakers echo back into the mic — wear headphones for a clean check.'
+        : 'Your voice as the call sends it, live: everything that ran on it, the gate’s cuts included.'} />
   )
 }
 
 const SUPPRESSION: Record<VoiceStages['suppression'], string> = {
-  standard: 'Standard (WebRTC)', on: 'Exo AI (DeepFilterNet)', light: 'DeepFilterNet, its lighter stage alone while your PC is busy', mic: 'Your microphone’s own, so Exo’s steps aside', loading: 'Loading…', missing: 'Not downloaded yet', off: 'Off',
+  standard: 'Standard (WebRTC)', on: 'Exo’s own AI', light: 'Exo’s own AI, its lighter stage alone while your PC is busy', mic: 'Your microphone’s own, so Exo’s steps aside', loading: 'Loading…', missing: 'Not available', off: 'Off',
 }
-const GAIN: Record<VoiceStages['gain'], string> = { windows: 'Windows’', off: 'Off' }
+const GAIN: Record<VoiceStages['gain'], string> = { windows: 'Windows’', exo: 'Exo’s leveler', off: 'Off' }
 const ECHO: Record<VoiceStages['echo'], string> = { on: 'On in calls, for your speakers', head: 'Not needed on headphones', off: 'Off' }
 /** A level as a meter's fill, -100 to 0 dB across its track. */
 const fill = (db: number) => ({ '--fill': Math.max(0, Math.min(100, db + 100)) / 100 }) as CSSProperties

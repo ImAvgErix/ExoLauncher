@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react'
 import { host, onHostEvent, type Game } from '../../lib/host'
 import { thumbUrl } from '../../lib/coverThumb'
-import { usePageClock } from '../../lib/pageActivity'
+import { usePageClock, usePageVisible } from '../../lib/pageActivity'
 import { report } from '../../lib/report'
 
 type Tone = 'good' | 'warn' | 'primary' | 'muted' | 'bad'
@@ -49,28 +49,45 @@ const call = (method: string, params?: unknown) => host.shadersCall(method, para
 const message = (error: unknown, fallback: string) => error instanceof Error && error.message ? error.message : fallback
 
 /**
- * The engine's state while the board shows: read once, then kept live by the engine's own events
- * (a state event is the whole snapshot, a progress event the queue), newest rev wins. The engine
- * compiles the same whether or not anything shows; coming back reads it fresh.
+ * The newest state wins. The last state the engine left when it exited has rev 0; a starting engine's first states
+ * (scanning, no games listed yet) don't replace it, as it lists them already.
  */
-function useShaderEngine(active: boolean) {
+const stale = (prev: Snapshot | null, next: Snapshot) =>
+  !!prev && (prev.rev > next.rev || (prev.rev === 0 && !!next.app.scanning && next.games.length === 0 && prev.games.length > 0))
+
+/** Each engine counts its revs from 1: what an earlier one sent reads as rev 0, so the running one's states win. */
+const rebase = (prev: Snapshot | null) => prev && prev.rev > 0 ? { ...prev, rev: 0 } : prev
+
+/**
+ * The engine's state: the last one it left when it exited, until the board is on screen; then the engine runs, read
+ * once and kept live by its own events (a state event is the whole snapshot, a progress event the queue). The engine
+ * compiles the same whether or not anything shows, and exits by itself a minute after nothing needs it.
+ */
+function useShaderEngine(shown: boolean) {
   const [snap, setSnap] = useState<Snapshot | null>(null)
   const [missing, setMissing] = useState(false)
   const [failed, setFailed] = useState<string | null>(null)
-  const take = useCallback((next: Snapshot) => setSnap(prev => prev && prev.rev > next.rev ? prev : next), [])
+  const take = useCallback((next: Snapshot) => setSnap(prev => stale(prev, next) ? prev : next), [])
   const read = useCallback(() => call('snapshot').then(next => { take(next as Snapshot); setFailed(null) }).catch((error: unknown) => {
     report(error, 'ShadersBoard.snapshot', { level: 'warn' })
     setFailed(message(error, 'The shader engine did not answer.'))
   }), [take])
-  // Once with the room, as it's first built: the board is filled by the time it's scrolled to.
+  // Once with the room, as it's first built: the last state, so the board is filled by the time it's scrolled to,
+  // without starting the engine.
   useEffect(() => {
     let live = true
-    void host.shadersAddon().then(status => { if (live) { if (status.present) void read(); else setMissing(true) } }).catch(() => { if (live) setMissing(true) })
+    void host.shadersAddon().then(status => {
+      if (!live) return
+      if (!status.present) setMissing(true)
+      else if (status.snapshot) take(status.snapshot as Snapshot)
+    }).catch(() => { if (live) setMissing(true) })
     return () => { live = false }
-  }, [read])
+  }, [take])
   useEffect(() => {
-    if (!active) return
+    if (!shown) return
     let live = true
+    // The engine may have exited and started again since the board last showed.
+    setSnap(rebase)
     void host.shadersAddon().then(status => {
       if (!live) return
       if (!status.present) { setMissing(true); return }
@@ -82,15 +99,29 @@ function useShaderEngine(active: boolean) {
       else if (name === 'progress') {
         const next = data as { rev: number; queue: Queue }
         setSnap(prev => prev && next.rev > prev.rev ? { ...prev, rev: next.rev, queue: next.queue } : prev)
-      } else if (name === 'ready' || name === 'addon') void read()
+      } else if (name === 'ready') { setSnap(rebase); void read() }
+      else if (name === 'addon') void read()
     })
     return () => {
       live = false
       off()
       void call('ui.visible', { visible: false }).catch(() => { })
     }
-  }, [active, read, take])
+  }, [shown, read, take])
   return { snap, missing, failed, read }
+}
+
+/** On screen: its room shown, Exo not hidden or minimized, and the board in (or near) the room's view. */
+function useShown(element: HTMLElement | null, active: boolean) {
+  const visible = usePageVisible()
+  const [near, setNear] = useState(false)
+  useEffect(() => {
+    if (!element || !active) return
+    const watch = new IntersectionObserver(([entry]) => setNear(entry.isIntersecting), { rootMargin: '200px 0px' })
+    watch.observe(element)
+    return () => { watch.disconnect(); setNear(false) }
+  }, [element, active])
+  return active && visible && near
 }
 
 /**
@@ -150,13 +181,15 @@ function coverFinder(games: readonly Game[]) {
 const wallClock = () => Date.now()
 
 /**
- * System > Shaders, in Exo itself: games are scanned on their own (and on Refresh), and only those that still need
- * compiling show, each as its poster with its state; Compile queues every ready game in the order shown,
- * and the queue plays out live on the posters (the one compiling first, with its progress, then the rest).
- * The waiting and ready posters drag (or move with Ctrl and the arrow keys) into the order to compile.
+ * System > Shaders, in Exo itself: games are scanned on their own (each time the engine starts, and when Exo's games
+ * change) and on Refresh, and only those that still need compiling show, each as its poster with its state; Compile
+ * queues every ready game in the order shown, and the queue plays out live on the posters (the one compiling first,
+ * with its progress, then the rest). The waiting and ready posters drag (or move with Ctrl and the arrow keys) into
+ * the order to compile. The engine runs while the board is on screen, and shows its last state before that.
  */
 export function ShadersBoard({ active, games }: { active: boolean; games: readonly Game[] }) {
-  const { snap, missing, failed, read } = useShaderEngine(active)
+  const [root, setRoot] = useState<HTMLElement | null>(null)
+  const { snap, missing, failed, read } = useShaderEngine(useShown(root, active))
   const cover = useMemo(() => coverFinder(games), [games])
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -165,15 +198,6 @@ export function ShadersBoard({ active, games }: { active: boolean; games: readon
   const [pending, setPending] = useState<string[] | null>(null)
   const [moved, setMoved] = useState('')
   const estimates = useEstimates(active, `${snap?.games.length ?? 0}:${snap?.queue.finished?.length ?? 0}:${snap?.app.scanning ? 1 : 0}`, snap?.games)
-  // Games are found on their own: a scan when the room first shows, and again when the Library's games change.
-  const scanned = useRef<number | null>(null)
-  const scanning = !!snap?.app.scanning
-  const haveSnap = !!snap
-  useEffect(() => {
-    if (!active || !haveSnap || scanning || scanned.current === games.length) return
-    scanned.current = games.length
-    void call('scan').catch((caught: unknown) => report(caught, 'ShadersBoard.scan', { level: 'warn' })).finally(() => void read())
-  }, [active, haveSnap, scanning, games.length, read])
   const run = (key: string, ...steps: Step[]) => {
     setBusy(key)
     setError(null)
@@ -185,7 +209,18 @@ export function ShadersBoard({ active, games }: { active: boolean; games: readon
       .finally(() => { setBusy(null); void read().finally(() => setPending(null)) })
   }
   if (missing) return <p className="exo-shaders-empty">Exo Shaders is not installed on this PC.</p>
-  if (!snap) return <Unread failed={failed} onRetry={() => void read()} />
+  // Before the first snapshot: nothing while it is read, else why it failed and Try again. The same element as the
+  // board's, so its observer (useShown) doesn't see it leave the screen when the snapshot comes.
+  if (!snap) return (
+    <div ref={setRoot} className="exo-shaders-board" aria-busy={failed ? undefined : true}>
+      {failed
+        ? <header className="exo-shaders-bar">
+          <span className="exo-shaders-line is-bad" role="alert">{failed}</span>
+          <button type="button" className="exo-set-btn" onClick={() => void read()}>Try again</button>
+        </header>
+        : null}
+    </div>
+  )
   const { queue } = snap
   const current = queue.current ?? null
   const view = arrange(snap, order, pending)
@@ -212,7 +247,7 @@ export function ShadersBoard({ active, games }: { active: boolean; games: readon
   }
 
   return (
-    <div className="exo-shaders-board">
+    <div ref={setRoot} className="exo-shaders-board">
       <Bar snap={snap} view={view} estimates={estimates} busy={busy} run={run} />
       <Delivery snap={snap} />
       {error || failed ? <p className="exo-shaders-error" role="alert">{error ?? failed}</p> : null}
@@ -351,13 +386,15 @@ function Posters({ posters, lane, onMove, render }: {
   const list = useRef<HTMLUListElement>(null)
   const [drag, setDrag] = useState<Dragging | null>(null)
   const dragged = useRef(false)
+  /** The lane posters' boxes, measured once as a drag starts; re-measured only if the room scrolls mid-drag. */
+  const rects = useRef<DOMRect[] | null>(null)
+  const measureLane = () => {
+    rects.current = Array.from(list.current?.querySelectorAll<HTMLElement>('[data-lane]') ?? []).map(item => item.getBoundingClientRect())
+  }
   /** Where in the lane the pointer would drop: before the first poster it is ahead of, else after the last. */
   const slotAt = (x: number, y: number) => {
-    const items = Array.from(list.current?.querySelectorAll<HTMLElement>('[data-lane]') ?? [])
-    const index = items.findIndex(item => {
-      const box = item.getBoundingClientRect()
-      return y < box.top || (y <= box.bottom && x < box.left + box.width / 2)
-    })
+    const items = rects.current ?? []
+    const index = items.findIndex(box => y < box.top || (y <= box.bottom && x < box.left + box.width / 2))
     return index < 0 ? items.length : index
   }
   const down = (event: PointerEvent<HTMLLIElement>, id: string) => {
@@ -371,13 +408,14 @@ function Posters({ posters, lane, onMove, render }: {
       if (Math.hypot(event.clientX - drag.x, event.clientY - drag.y) < 6) return
       try { event.currentTarget.setPointerCapture(event.pointerId) } catch { /* a pointer already up; the drag still follows the list */ }
       dragged.current = true
+      measureLane()
     }
     // The System room scrolls the list (it's one page); near its top or bottom edge it scrolls on.
     const scroller = list.current?.closest<HTMLElement>('.exo-system') ?? list.current
     const box = scroller?.getBoundingClientRect()
     if (box && scroller) {
       const edge = event.clientY < box.top + 48 ? -1 : event.clientY > box.bottom - 48 ? 1 : 0
-      if (edge) scroller.scrollBy({ top: edge * 16 })
+      if (edge) { scroller.scrollBy({ top: edge * 16 }); measureLane() }
     }
     setDrag({ ...drag, to: slotAt(event.clientX, event.clientY) })
   }
@@ -387,6 +425,7 @@ function Posters({ posters, lane, onMove, render }: {
       const from = lane.indexOf(drag.id)
       onMove(drag.id, drag.to > from ? drag.to - 1 : drag.to)
     }
+    rects.current = null
     setDrag(null)
   }
   const target = drag?.to ?? null
@@ -406,25 +445,12 @@ function Posters({ posters, lane, onMove, render }: {
             onPointerDown={event => down(event, game.id)}
             onPointerMove={moveTo}
             onPointerUp={up}
-            onPointerCancel={() => setDrag(null)}>
+            onPointerCancel={() => { rects.current = null; setDrag(null) }}>
             {render(game, drop)}
           </li>
         )
       })}
     </ul>
-  )
-}
-
-/** Before the first snapshot: nothing while it is read, else why it failed and Try again. */
-function Unread({ failed, onRetry }: { failed: string | null; onRetry: () => void }) {
-  if (!failed) return <div className="exo-shaders-board" aria-busy="true" />
-  return (
-    <div className="exo-shaders-board">
-      <header className="exo-shaders-bar">
-        <span className="exo-shaders-line is-bad" role="alert">{failed}</span>
-        <button type="button" className="exo-set-btn" onClick={onRetry}>Try again</button>
-      </header>
-    </div>
   )
 }
 

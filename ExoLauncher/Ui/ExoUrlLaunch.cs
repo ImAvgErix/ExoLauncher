@@ -25,7 +25,8 @@ internal static class ExoUrlLaunch
         return uri.Host.ToLowerInvariant() switch
         {
             "store" or "nav" or "open" => true,
-            "openurl" => Uri.TryCreate(uri.OriginalString["steam://openurl/".Length..], UriKind.Absolute, out var inner) && inner.Scheme == Uri.UriSchemeHttps,
+            "openurl" => uri.OriginalString.Length > "steam://openurl/".Length
+                && Uri.TryCreate(uri.OriginalString["steam://openurl/".Length..], UriKind.Absolute, out var inner) && inner.Scheme == Uri.UriSchemeHttps,
             "install" or "rungameid" => rest.Length is > 0 and <= 20 && rest.All(char.IsAsciiDigit) && uri.Query.Length == 0,
             _ => false,
         };

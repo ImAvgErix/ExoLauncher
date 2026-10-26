@@ -202,13 +202,15 @@ export function sortGames(games: Game[], mode: SortMode | string, recent: string
       // lastPlayedUtc already carries Exo's own launch stamps. Exo's launch order only
       // breaks ties, so a game played outside Exo is not held behind an older Exo launch.
       const rank = new Map(recent.map((id, i) => [id.toLowerCase(), i]))
+      // Each game's stamp is parsed once: inside the comparator it would be parsed per comparison (~log n × more).
+      const keyOf = new Map(rest.map((g) => [g, {
+        played: g.lastPlayedUtc ? Date.parse(g.lastPlayedUtc) : 0,
+        rank: rank.get(g.id.toLowerCase()) ?? 9999,
+      }] as const))
       ordered = [...rest].sort((a, b) => {
-        const la = a.lastPlayedUtc ? Date.parse(a.lastPlayedUtc) : 0
-        const lb = b.lastPlayedUtc ? Date.parse(b.lastPlayedUtc) : 0
-        if (la !== lb) return lb - la
-        const ra = rank.get(a.id.toLowerCase()) ?? 9999
-        const rb = rank.get(b.id.toLowerCase()) ?? 9999
-        if (ra !== rb) return ra - rb
+        const ka = keyOf.get(a)!, kb = keyOf.get(b)!
+        if (ka.played !== kb.played) return kb.played - ka.played
+        if (ka.rank !== kb.rank) return ka.rank - kb.rank
         return cmpTitle(a, b)
       })
       break

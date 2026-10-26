@@ -63,7 +63,7 @@ internal static class VoiceTune
             return new
             {
                 ok = true, message = (string?)null, report, windows = WindowsState(), kept = Kept(mic) is not null, mic = Mic(),
-                before = VoiceCheck.Wav(pieces.Reading), after = VoiceCheck.Wav(Render(pieces.Reading, report.Tuning, stepsAside)),
+                before = VoiceTake.Wav(pieces.Reading), after = VoiceTake.Wav(Render(pieces.Reading, report.Tuning, stepsAside)),
             };
         }
         finally
@@ -101,7 +101,7 @@ internal static class VoiceTune
             for (var i = 0; i < Opus.FrameSamples; i++) frame[2 * i] = frame[2 * i + 1] = Math.Clamp(reading[f * Opus.FrameSamples + i] * gain, -1f, 1f);
             if (!chain.Process(frame, VoiceProcessing.ExoVoice, null, systemGain: false)) continue;
             codec.Through(frame);
-            VoiceCheck.Mono(frame, output, f * Opus.FrameSamples);
+            VoiceTake.Mono(frame, output, f * Opus.FrameSamples);
         }
         return output;
     }

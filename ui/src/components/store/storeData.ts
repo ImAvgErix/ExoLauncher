@@ -69,13 +69,6 @@ export function useOwned(games: readonly Game[]) {
   }, [games])
 }
 
-/** "Free until Oct 15", "Free Oct 15 – 22": short local dates for Epic's free games. */
-export function freeWhen(now: boolean, from?: string | null, until?: string | null): string {
-  const day = (iso?: string | null) => iso ? new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : ''
-  if (now) return until ? `Free until ${day(until)}` : 'Free now'
-  return from ? `Free ${day(from)}${until ? ` – ${day(until)}` : ''}` : 'Free soon'
-}
-
 /** "Very Positive · 92%": Steam's review summary, empty when the game has none. */
 export function reviewText(review?: string | null, percent?: number | null): string {
   if (!review) return ''
@@ -84,6 +77,8 @@ export function reviewText(review?: string | null, percent?: number | null): str
 
 // A game's page, asked for once: a card on screen warms it, the click then draws the same answer at once.
 const GAME_KEEP_MS = 10 * 60_000
+/** Each entry holds a whole game's page; a long browse is capped or it would hold them all. Oldest-inserted go first. */
+const KEEP_MAX_ENTRIES = 96
 type Kept<T> = { at: number; answer: Promise<T>; value?: T }
 const games = new Map<string, Kept<StoreGame>>()
 const offers = new Map<string, Kept<{ ok: boolean; offers: StoreOffer[] }>>()
@@ -92,9 +87,15 @@ const offers = new Map<string, Kept<{ ok: boolean; offers: StoreOffer[] }>>()
 function keep<T>(cache: Map<string, Kept<T>>, appId: string, fresh: boolean, ask: () => Promise<T>, ok: (value: T) => boolean): Promise<T> {
   const known = cache.get(appId)
   if (known && !fresh && Date.now() - known.at < GAME_KEEP_MS) return known.answer
+  if (!cache.has(appId) && cache.size >= KEEP_MAX_ENTRIES) {
+    const oldest = cache.keys().next().value
+    if (oldest !== undefined) cache.delete(oldest)
+  }
   const entry: Kept<T> = { at: Date.now(), answer: ask() }
   cache.set(appId, entry)
-  entry.answer.then(value => { if (ok(value)) entry.value = value; else cache.delete(appId) }, () => cache.delete(appId))
+  // Only this entry is dropped: a newer one may have replaced it under the same key while this answer was on its way.
+  const drop = () => { if (cache.get(appId) === entry) cache.delete(appId) }
+  entry.answer.then(value => { if (ok(value)) entry.value = value; else drop() }, drop)
   return entry.answer
 }
 
@@ -108,12 +109,18 @@ export const loadGame = (appId: string, fresh = false) => keep(games, appId, fre
 /** Steam's page if it already arrived, so the game page draws whole from its first frame. */
 export const peekGame = (appId: string) => peek(games, appId)
 /** The other official launchers' offers; kept only when CheapShark answered, so a slow answer is asked again next time. */
-export const loadOffers = (appId: string) => keep(offers, appId, false, () => host.storeGameOffers(appId), res => res.ok).then(res => res.offers ?? [])
+export const loadOffers = (appId: string) => keep(offers, appId, false, () => host.storeGameOffers(appId), res => res.ok).then(res => (res.ok ? res.offers ?? [] : null))
 export const peekOffers = (appId: string) => peek(offers, appId)?.offers ?? null
 
 const images = new Set<string>()
+/** Only what a duplicate preload test needs; capped so a long browse does not grow it. */
+const IMAGES_MAX_ENTRIES = 2048
 function preloadImage(src?: string | null) {
   if (!src || images.has(src)) return
+  if (images.size >= IMAGES_MAX_ENTRIES) {
+    const oldest = images.keys().next().value
+    if (oldest !== undefined) images.delete(oldest)
+  }
   images.add(src)
   const image = new Image()
   image.decoding = 'async'
@@ -131,6 +138,8 @@ export function warmGame(appId: string, art?: StoreArt | null): Promise<unknown>
 }
 
 // Cards warm as they come on screen, three games at a time, each once.
+// Capped like the page cache it feeds: past it a card may warm again, which the cache still shares.
+const WARMED_MAX_ENTRIES = 1024
 const warmed = new Set<string>()
 const waiting: (() => Promise<unknown>)[] = []
 let warming = 0
@@ -148,6 +157,10 @@ const seen = typeof IntersectionObserver === 'undefined' ? null : new Intersecti
     seen?.unobserve(card)
     const appId = card.dataset.warm
     if (!appId || warmed.has(appId)) continue
+    if (warmed.size >= WARMED_MAX_ENTRIES) {
+      const oldest = warmed.keys().next().value
+      if (oldest !== undefined) warmed.delete(oldest)
+    }
     warmed.add(appId)
     const art = cardArt.get(card)
     waiting.push(() => warmGame(appId, art))
@@ -214,19 +227,29 @@ const wishSnapshot = () => wish
 export function useWishlist() {
   const { items, loaded, error } = useSyncExternalStore(subscribeWishlist, wishSnapshot)
   const [checking, setChecking] = useState(false)
+  // Answers come back in any order: only the newest change's list is shown, so a quick second toggle isn't undone by the first one's answer.
+  const newest = useRef(0)
   const [checked, flashChecked] = useDone()
   const set = useCallback(async (tile: StoreTile, on: boolean) => {
+    const mine = ++newest.current
     const before = wish.items
     setWish(on
       ? [{ ...tile, addedAt: new Date().toISOString() }, ...before.filter(w => w.appId !== tile.appId)]
       : before.filter(w => w.appId !== tile.appId), null)
+    // A failed change puts back this game alone: another toggle made while it was on its way stays.
+    const undo = (message: string) => {
+      const was = before.find(w => w.appId === tile.appId)
+      const rest = wish.items.filter(w => w.appId !== tile.appId)
+      const at = was ? before.indexOf(was) : 0
+      setWish(was ? [...rest.slice(0, at), was, ...rest.slice(at)] : rest, message)
+    }
     try {
       const res = await host.storeWishlist(on ? 'add' : 'remove', { appId: tile.appId, name: tile.name })
-      if (res.message) setWish(before, res.message)
-      else setWish(res.items, null)
+      if (res.message) undo(res.message)
+      else if (mine === newest.current) setWish(res.items, null)
     } catch (e) {
       report(e, 'Store.wish')
-      setWish(before, 'The wishlist could not be changed. Try again.')
+      undo('The wishlist could not be changed. Try again.')
     }
   }, [])
   const check = useCallback(() => {

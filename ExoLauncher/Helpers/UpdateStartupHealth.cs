@@ -52,7 +52,7 @@ internal static class UpdateStartupHealth
         }
         catch (Exception ex)
         {
-            AppLog.Debug("Update startup receipt was not written: " + ex.GetType().Name);
+            AppLog.Warn("Update startup receipt was not written: " + ex.GetType().Name);
             return false;
         }
     }

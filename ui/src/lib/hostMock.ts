@@ -634,7 +634,8 @@ const MOCK_HANDLERS: Record<string, MockHandler> = {
     profileUrl: 'https://tracker.gg/valorant',
   }),
   'web.preferences.get': () => ({ microphone: 'ask', camera: 'ask', clipboard: 'ask', notifications: 'ask' }),
-  'shaders.addon': () => ({ ok: true, present: mockShaders }),
+  // The state the engine left when it last exited (rev 0), shown until the board is on screen and the engine runs.
+  'shaders.addon': () => ({ ok: true, present: mockShaders, snapshot: mockShaders ? { ...mockShadersSnapshot(), rev: 0 } : undefined }),
   'capture.status': () => ({ ok: true, state: mockCaptureState, settings: mockCaptureSettings }),
   'capture.settings': (params) => {
     Object.assign(mockCaptureSettings, params)
@@ -684,6 +685,8 @@ const MOCK_HANDLERS: Record<string, MockHandler> = {
     return { ok: true, favorites: [...mockFavoriteEmojis], frequent: ['joy', 'thumbsup', 'fire', '968812152267866172', 'heart', 'skull', 'sob', 'eyes', 'pray', 'copyright'], reactions: ['thumbsup', 'joy', 'heart'] }
   },
   'discord.view': mockOk,
+  // Watching a stream in the mock: always taken (no pictures arrive), so its view, controls and menus can be seen.
+  'discord.stream': () => ({ ok: true }),
   'discord.voice': (params?: { action?: string; guildId?: string; channelId?: string }) => ({ ok: true, voice: params?.action === 'join' ? { state: 'connected', guildId: params.guildId ?? null, channelId: params.channelId ?? null, muted: false, deafened: false, e2ee: true } : { state: 'off', guildId: null, channelId: null, muted: false, deafened: false, e2ee: false } }),
   'discord.ring': mockOk,
   'discord.golive': mockGoLiveHandler,
@@ -711,8 +714,8 @@ const MOCK_HANDLERS: Record<string, MockHandler> = {
     : { ok: true, data: params?.action === 'consent' ? { usageStatistics: true, personalization: true } : [] },
   'discord.clientSettings': (params?: Record<string, unknown>) => (mockDiscordClient = { ...mockDiscordClient, ...params }),
   'discord.micTest': mockOk,
+  'discord.micMonitor': () => ({ ok: true, on: false, onHead: true }),
   'discord.voiceTune': () => ({ ok: false, message: 'Voice Tune needs Exo.' }),
-  'discord.voiceCheck': () => ({ ok: false, message: 'Voice Check needs Exo.' }),
   'discord.sound': mockOk,
   'discord.server': (p?: { action?: string; invite?: string; hideMuted?: boolean }) => p?.action === 'notify' && p.hideMuted !== undefined
     ? (mockHideMuted = p.hideMuted, { ok: true })
@@ -941,7 +944,11 @@ const MOCK_HANDLERS: Record<string, MockHandler> = {
     return mockGpu === 'intel' ? { ok: true, vendor: 'intel', supported: true, frameGen: mockFrameGen }
       : { ok: true, vendor: 'amd', supported: mockGpu === 'amd', afmf: p?.afmf === true, amdSoftware: true }
   },
-  'store.home': () => ({ ok: true, at: new Date().toISOString(), hero: [], shelves: [{ id: 'mock', title: 'Top sellers', items: [MOCK_STORE_TILE] }], free: [] }),
+  'store.home': () => ({ ok: true, at: new Date().toISOString(), hero: [], shelves: [{ id: 'mock', title: 'Top sellers', items: [MOCK_STORE_TILE] }] }),
+  'store.calendar': () => ({
+    ok: true, at: new Date().toISOString(), interests: ['Roguelike', 'Co-op'],
+    days: [{ date: new Date().toISOString().slice(0, 10), entries: [{ tile: MOCK_STORE_TILE, wished: true, owned: false, earlyAccess: false, why: ['On your wishlist', 'Like Roguelike and Co-op'] }] }],
+  }),
   'store.search': () => ({ ok: true, items: [] }),
   'store.open': () => ({ ok: true }),
   'store.gameOffers': () => ({ ok: true, offers: [

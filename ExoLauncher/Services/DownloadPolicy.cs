@@ -130,7 +130,8 @@ internal sealed class DownloadPolicy : IDisposable
     [DllImport("user32.dll")]
     private static extern bool GetLastInputInfo(ref LastInputInfo info);
 
-    private static TimeSpan IdleFor()
+    /// <summary>How long since the last keyboard or mouse input (GetLastInputInfo).</summary>
+    internal static TimeSpan IdleFor()
     {
         var info = new LastInputInfo { Size = (uint)Marshal.SizeOf<LastInputInfo>() };
         return GetLastInputInfo(ref info) ? TimeSpan.FromMilliseconds(unchecked((uint)Environment.TickCount - info.Time)) : TimeSpan.Zero;

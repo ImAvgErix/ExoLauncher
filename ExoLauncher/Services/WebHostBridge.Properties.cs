@@ -370,7 +370,18 @@ public sealed partial class WebHostBridge
                 var text = SteamPlaytime.ReadSharedText(config);
                 var updated = LegendaryProperties.SetIniValue(text, appName, "install_tags",
                     string.Join(',', LegendaryProperties.TagsFor(components, chosen)));
-                await File.WriteAllTextAsync(config, updated, ct).ConfigureAwait(true);
+                // Written beside it and moved over, so a crash or a full disk never leaves Epic's config cut off.
+                var staged = config + ".exo-" + Guid.NewGuid().ToString("N");
+                try
+                {
+                    await File.WriteAllTextAsync(staged, updated, ct).ConfigureAwait(true);
+                    File.Move(staged, config, overwrite: true);
+                }
+                catch
+                {
+                    try { File.Delete(staged); } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+                    throw;
+                }
                 AppLog.Info($"Epic properties: install tags changed for {appName}.");
                 // Legendary's repair downloads what the tags add and deletes what they drop.
                 StartStoreDownload(game, update: false);

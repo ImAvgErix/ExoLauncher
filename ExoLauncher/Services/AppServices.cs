@@ -152,6 +152,7 @@ public sealed class AppServices
         });
         Store.Start();
         Downloads.Start();
+        NvidiaTrayIcon.Soon();
         // Exo's power plan: switched to by itself on Windows' own plans, refreshed while it's on (PowerPlan.Auto).
         _ = Task.Run(() =>
         {
@@ -219,6 +220,7 @@ public sealed class AppServices
         try { _lifetime.Cancel(); } catch { }
         PlaytimeService.FlushActiveSessions();
         LucidCompanion.HideTray(false);
+        NvidiaTrayIcon.Stop();
         Shaders.Dispose();
         if (_store.IsValueCreated) _store.Value.Dispose();
         if (_hid.IsValueCreated) _hid.Value.Dispose();

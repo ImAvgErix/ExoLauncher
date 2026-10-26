@@ -278,7 +278,9 @@ internal static class H264Rtp
     /// </summary>
     internal sealed class SentHistory
     {
-        private const int Size = 1024;
+        // A high-rate stream's second is over a thousand packets; 2048 keeps about two of them so a NACK that
+        // lands late (one round trip is ~50 ms) can still be answered.
+        private const int Size = 2048;
         private readonly (ushort Sequence, uint Timestamp, bool Marker, byte[]? Payload, long ResentAt)[] _ring = new (ushort, uint, bool, byte[]?, long)[Size];
 
         // What went out and what the server asked for since the last report (Interlocked: frames, RTCP and the timer

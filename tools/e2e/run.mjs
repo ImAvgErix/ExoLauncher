@@ -3,6 +3,11 @@
 // it (the screen itself, not only the page's own picture).
 //
 //   node tools/e2e/run.mjs [--suites shell,rooms,...] [--skip zoom] [--quick] [--attach] [--keep] [--port 9339] [--out dir]
+//   node tools/e2e/run.mjs --changed [base] [--plan]   # only the suites the changed files can reach (lib/affected.mjs)
+//
+// --changed picks the suites from the files changed against base (default HEAD, untracked files included); --plan only
+// prints that choice and why, and exits without touching Exo, so a change can be sized before a 30-minute run.
+// --suites names suites outright and wins over --changed.
 //
 // Suites (tools/e2e/suites/*.mjs) run in the order listed in SUITES. --attach drives an Exo already running with the
 // debug port instead of restarting it; --keep leaves it running with the port afterwards; --quick does fewer rounds
@@ -19,6 +24,7 @@ import * as exo from './lib/exo.mjs'
 import { win } from './lib/win.mjs'
 import { kit } from './lib/kit.mjs'
 import { sleep } from './cdp.mjs'
+import { suitesFor, changedFiles, describePlan } from './lib/affected.mjs'
 
 export const SUITES = ['shell', 'rooms', 'library', 'store', 'discord', 'music', 'system', 'devices', 'capture', 'settings', 'appearance', 'layout', 'motion', 'perf', 'stress', 'zoom']
 
@@ -30,7 +36,18 @@ const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\..+/, '').
 const out = opt('out', join(repo, 'e2e-reports', stamp))
 const port = Number(opt('port', 9339))
 const skip = new Set((opt('skip', '') || '').split(',').filter(Boolean))
-const chosen = (opt('suites', '') || SUITES.join(',')).split(',').filter(s => SUITES.includes(s) && !skip.has(s))
+// --changed [base]: the base is the next word unless that is another flag.
+const changedAt = argv.indexOf('--changed')
+const changedBase = changedAt >= 0 && argv[changedAt + 1] && !argv[changedAt + 1].startsWith('--') ? argv[changedAt + 1] : 'HEAD'
+let picked = opt('suites', '') ? opt('suites', '').split(',') : SUITES
+if (changedAt >= 0 && !opt('suites', '')) {
+  const plan = suitesFor(changedFiles(repo, changedBase), SUITES)
+  console.log(describePlan(plan, SUITES.length).join('\n'))
+  picked = plan.suites
+}
+const chosen = picked.filter(s => SUITES.includes(s) && !skip.has(s))
+if (flag('plan')) { console.log(chosen.length ? `would run: ${chosen.join(', ')}` : 'would run nothing'); process.exit(0) }
+if (changedAt >= 0 && !chosen.length) { console.log('Nothing to run.'); process.exit(0) }
 
 const run = new Run(out)
 await run.init()
@@ -74,7 +91,8 @@ try {
   } else {
     await t.relaunch()
   }
-  if (await t.shell.eval(`!!document.querySelector('.exo-continue-card.is-playing')`))
+  // --allow-game: the owner said to run anyway; its real clicks and window moves may take focus from the game.
+  if (!flag('allow-game') && await t.shell.eval(`!!document.querySelector('.exo-continue-card.is-playing')`))
     throw Object.assign(new Error('a game is running; try again after it'), { code: 2 })
   await win.front().catch(() => {})
 

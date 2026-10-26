@@ -81,8 +81,11 @@ internal static class SpotifyDevTools
     internal static async Task<string?> AttachAsync(string targetId, CancellationToken cancellation)
     {
         var reply = await SendAsync("Target.attachToTarget", new { targetId, flatten = true }, null, cancellation).ConfigureAwait(false);
-        return reply is { } message && message.TryGetProperty("result", out var result) &&
-               result.TryGetProperty("sessionId", out var session) ? session.GetString() : null;
+        var id = reply is { } message && message.TryGetProperty("result", out var result) &&
+                 result.TryGetProperty("sessionId", out var session) ? session.GetString() : null;
+        // The id belongs to this connection: after Spotify restarts, a new connection must not take the old one's id as its own.
+        if (id is not null && Volatile.Read(ref _current) is { } current) current.Track(id);
+        return id;
     }
 
     /// False once the page closed, the session was detached, or Spotify exited.
@@ -155,12 +158,14 @@ internal static class SpotifyDevTools
     {
         private readonly ConcurrentDictionary<int, TaskCompletionSource<JsonElement?>> _pending = new();
         private readonly ConcurrentDictionary<string, byte> _detached = new();
+        private readonly ConcurrentDictionary<string, byte> _attached = new();
         private readonly SemaphoreSlim _writeGate = new(1, 1);
         private int _nextId;
         private volatile bool _closed;
 
         internal bool IsClosed => _closed;
-        internal bool IsLive(string sessionId) => !_closed && !_detached.ContainsKey(sessionId);
+        internal bool IsLive(string sessionId) => !_closed && _attached.ContainsKey(sessionId) && !_detached.ContainsKey(sessionId);
+        internal void Track(string sessionId) => _attached[sessionId] = 0;
 
         internal void Start() => _ = Task.Run(ReadLoopAsync);
 

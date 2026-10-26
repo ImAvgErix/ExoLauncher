@@ -21,25 +21,81 @@ struct StreamFormat
     int fps = 60;
 };
 
-/// Encoded packets in RAM, the last N seconds starting at a video key frame.
+/// One file of an instant replay on disk; deleted when it closes.
+struct ReplayFile;
+/// Memory from VirtualAlloc: page-aligned, as reads and writes past Windows' file cache need.
+struct PagesFree { void operator()(uint8_t* p) const { VirtualFree(p, 0, MEM_RELEASE); } };
+using Pages = std::unique_ptr<uint8_t, PagesFree>;
+
+/// One packet of an instant replay: in its file once written, in RAM until then.
+struct ReplayEntry
+{
+    int64_t time = 0;
+    int64_t duration = 0;
+    uint64_t seq = 0;
+    uint32_t size = 0;
+    uint32_t offset = 0;
+    int track = 0;
+    bool key = false;
+    std::shared_ptr<ReplayFile> file;
+    PacketPtr packet;
+};
+
+/// A replay being saved: its packets in time order, each read from disk as the MP4 takes it.
+class ReplayClip
+{
+public:
+    explicit ReplayClip(std::vector<ReplayEntry> entries = {}) : m_entries(std::move(entries)) {}
+    size_t Size() const { return m_entries.size(); }
+    /// Packet i, read from its file when it is on disk.
+    PacketPtr Get(size_t i);
+
+private:
+    struct Slot { const ReplayFile* file = nullptr; uint32_t block = 0; uint64_t used = 0; };
+    std::vector<ReplayEntry> m_entries;
+    Pages m_cache; // the last blocks read
+    Slot m_slots[4];
+    uint64_t m_reads = 0;
+};
+
+/// The last N seconds of encoded packets, starting at a video key frame. As ShadowPlay does, they go to files on
+/// disk as they come (whole blocks past Windows' file cache, written by a thread of their own); RAM keeps an index and
+/// the newest moments not written yet. With no disk to take them (full, failing or behind) they stay in RAM.
 class ReplayBuffer
 {
 public:
+    ReplayBuffer();
+    ~ReplayBuffer();
+    /// Where its files go: the first folder with room; none keeps the replay in RAM.
+    void SetFolders(std::vector<std::wstring> folders);
     void SetLength(int64_t length100ns);
+    /// The encoders call it: it never waits on the disk.
     void Push(const PacketPtr& packet);
     /// Every packet from the oldest video key frame, ordered by time.
-    std::vector<PacketPtr> Snapshot(int64_t length100ns = 0) const;
+    ReplayClip Snapshot(int64_t length100ns = 0) const;
+    /// Empties it; its files are deleted.
     void Clear();
     size_t Bytes() const;
     int64_t Span() const;
 
 private:
+    struct Queued { uint64_t seq; PacketPtr packet; };
     void TrimLocked();
+    void Run();
     mutable std::mutex m_lock;
-    std::deque<PacketPtr> m_video;
-    std::deque<PacketPtr> m_audio;
+    std::condition_variable m_wake;
+    std::deque<ReplayEntry> m_video;
+    std::deque<ReplayEntry> m_audio;
+    std::deque<Queued> m_queue; // for the writer, in the order they came
+    size_t m_queued = 0;        // bytes in m_queue
     size_t m_bytes = 0;
+    size_t m_ram = 0; // bytes of the replay not on disk
+    uint64_t m_seq = 0;
+    uint64_t m_generation = 0; // a Clear() since
     int64_t m_length = 60LL * 10'000'000;
+    std::vector<std::wstring> m_folders;
+    bool m_stop = false;
+    std::thread m_thread;
 };
 
 /// An MP4 written from encoded packets, no re-encode.
@@ -62,6 +118,7 @@ private:
     int64_t m_nominal = 166'667;
     PacketPtr m_pendingVideo;
     bool m_finished = false;
+    bool m_paced = true;
 };
 
 /// Every packet of a recording as it arrives, beside the MP4 ("<file>.mp4.exo-rec"). An MP4

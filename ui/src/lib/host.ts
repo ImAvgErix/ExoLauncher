@@ -149,7 +149,7 @@ export type VoiceTuneResult = {
 export type VoiceStages = {
   profile: 'exo' | 'custom'
   suppression: 'standard' | 'on' | 'light' | 'mic' | 'loading' | 'missing' | 'off'; suppressionLimitDb: number
-  focus: boolean; gain: 'windows' | 'off'
+  focus: boolean; gain: 'windows' | 'exo' | 'off'
   /** Echo cancellation as a call on the chosen speakers runs it: on, not run on headphones or a headset, or off. */
   echo: 'on' | 'head' | 'off'
   tuned: boolean
@@ -158,23 +158,14 @@ export type VoiceStages = {
 /** The live microphone: its level, the level the gate judged (after noise suppression), what was sent, and whether the gate is open. */
 export type MicLevel = { level: number; gateLevel: number; after: number; voiced: boolean; stages: VoiceStages }
 
-export type VoiceCheckResult = {
-  ok: boolean; message?: string | null
-  before?: string; after?: string
-  peakDb?: number; clipped?: number; noiseDb?: number; noiseAfterDb?: number; voiceDb?: number; voicedShare?: number
-}
-
 /** Something Go Live can share: a screen or an app's window, its picture and icon (data URLs), and the game it is, if one. */
 export type GoLiveSource = { id: string; kind: 'screen' | 'window'; title: string; app: string; icon?: string | null; thumb?: string | null; game?: string | null; height?: number }
 
 /** What a Store card shows besides art: Steam's own regional price text ("19,99€"), its review summary, free to play, and when an unreleased game comes out. */
-export type StoreFacts = { priceText?: string | null; wasText?: string | null; review?: string | null; reviewPercent?: number | null; free?: boolean; soon?: boolean; when?: string | null }
+export type StoreFacts = { priceText?: string | null; wasText?: string | null; review?: string | null; reviewPercent?: number | null; free?: boolean; soon?: boolean; when?: string | null; wished?: boolean; similarTo?: string[] | null }
 
 /** A Steam game on a Store shelf; prices in cents of currency (Steam's for the Windows region) when the list carries them. */
 export type StoreTile = StoreFacts & { appId: string; name: string; final?: number | null; initial?: number | null; discount: number; currency?: string | null; art?: StoreArt | null }
-
-/** Epic's free game: free now, or the dates it will be. */
-export type StoreFreeGame = { title: string; url: string; images: string[]; from?: string | null; until?: string | null; now: boolean }
 
 export type StoreHome = {
   ok: boolean
@@ -182,7 +173,18 @@ export type StoreHome = {
   at?: string
   hero?: StoreTile[]
   shelves?: { id: string; title: string; items: StoreTile[] }[]
-  free?: StoreFreeGame[]
+}
+
+/** One game on the Store calendar: why it is there for this PC (wishlist, tags of what is played), and whether the library has it. */
+export type StoreCalendarEntry = { tile: StoreTile; wished: boolean; owned: boolean; earlyAccess: boolean; why: string[] }
+
+/** The Store calendar: games by release day (local), the last two weeks and the next six; interests are the tags the played games point to. */
+export type StoreCalendar = {
+  ok: boolean
+  message?: string
+  at?: string
+  interests?: string[]
+  days?: { date: string; entries: StoreCalendarEntry[] }[]
 }
 
 /** An official launcher that sells the game (Steam, Epic Games Store, GOG, Ubisoft Store), price in cents of currency; outside the US CheapShark's rows carry none. Steam's row has Steam's text. */
@@ -416,7 +418,7 @@ export type GpuImportAnswer = {
 
 /** System > This PC: one row per setup problem (none when all is well); power switches to Exo's plan for cpu, with Undo; chipset Exo updates (busy while it installs, applied while it waits for a restart, url only after a failed install). */
 export type PcHealthItem = {
-  key: 'ram' | 'rebar' | 'power' | 'chipset' | 'gamemode'
+  key: 'ram' | 'rebar' | 'power' | 'chipset' | 'gamemode' | 'gpusched' | 'gpupref'
   label: string
   detail: string
   url?: string | null
@@ -993,6 +995,8 @@ export interface HostEventMap {
   'capture.state': CaptureState
   /** A clip, recording, snip, trim or export was saved; a snip ("snip") opens in the editor, Exo in front. */
   'capture.saved': { item: CaptureItem; kind?: string }
+  /** A recording Exo was asked to make smaller (or found smaller by itself) finished: the new item and the sizes, or message when it was left as it was. */
+  'capture.shrunk': { id: string; item?: CaptureItem | null; before: number; after: number; message?: string | null }
   /** An event from the shader add-on's engine (or "addon" for its engine's own state), for its page. */
   'shaders.event': { name: string; data?: unknown }
   /** System > Display: a change nobody kept was put back when its countdown ran out. */
@@ -1283,7 +1287,7 @@ export const host = {
     rawCall<InstallResponse>('game.repair', { id }),
   gameExtras: (id: string) =>
     rawCall<{ ok: boolean; achievementsUnlocked?: number | null; achievementsTotal?: number | null; message?: string }>('game.extras', { id }),
-  openFolder: (id: string) => rawCall<{ ok: boolean; message?: string; path?: string }>('game.openFolder', { id }),
+  openFolder: (id: string) => rawCall<{ ok: boolean; message?: string }>('game.openFolder', { id }),
   properties: (id: string) => rawCall<GameProperties>('game.properties', { id }).then(withNulls),
   /** One Properties change; `secret` (a beta access code) never goes in `value`. */
   setProperty: (id: string, key: GamePropertyKey, value = '', secret?: string) =>
@@ -1376,7 +1380,7 @@ export const host = {
   /** Every capture, newest first; with a game id, that game's only. */
   captureList: (gameId?: string | null, limit?: number) =>
     rawCall<{ ok: boolean; items?: CaptureItem[] }>('capture.list', { gameId: gameId ?? null, limit: limit ?? 0 }),
-  captureItem: (id: string, action: 'favourite' | 'unfavourite' | 'delete' | 'reveal' | 'copy' | 'discord') =>
+  captureItem: (id: string, action: 'favourite' | 'unfavourite' | 'delete' | 'reveal' | 'copy' | 'discord' | 'shrink') =>
     rawCall<{ ok: boolean; message?: string; item?: CaptureItem }>('capture.item', { id, action }),
   /** A lossless trim, or an export preset, between two points (ms). */
   captureEdit: (id: string, preset: CaptureExport, startMs: number, endMs: number) =>
@@ -1384,8 +1388,8 @@ export const host = {
   /** The snip editor's PNG (base64) over the snip, then copied. */
   captureSaveImage: (id: string, png: string) =>
     rawCall<{ ok: boolean; message?: string; item?: CaptureItem }>('capture.saveImage', { id, png }, 60_000),
-  /** The shader add-on: whether it is installed, its engine's state, and its page's URL. */
-  shadersAddon: () => rawCall<{ ok: boolean; present: boolean; state?: string; message?: string | null; url?: string }>('shaders.addon'),
+  /** The shader add-on: whether it is installed, its engine's state, and the last state the engine left when it exited (never starts it). */
+  shadersAddon: () => rawCall<{ ok: boolean; present: boolean; state?: string; message?: string | null; snapshot?: unknown }>('shaders.addon'),
   /** One request from the add-on's page to its engine. */
   shadersCall: (method: string, params?: unknown) =>
     rawCall<{ ok: boolean; result?: unknown; message?: string }>('shaders.call', { method, params: params ?? {} }, 10 * 60_000),
@@ -1647,7 +1651,8 @@ export const host = {
     rawCall<DiscordClientSettings>('discord.clientSettings', change, 15_000),
   /** The live microphone in Voice & Video: on starts or renews it (levels arrive as discord.micLevel), off stops it. */
   discordMicTest: (on: boolean) => rawCall<{ ok: boolean }>('discord.micTest', { on }),
-  /** Only My Voice: learn the voice from the last Voice Check take (fetches the 40 MB voice model the first time), or forget it. */
+  discordMicMonitor: (on: boolean) => rawCall<{ ok: boolean; on: boolean; onHead: boolean }>('discord.micMonitor', { on }),
+  /** Only My Voice: learn the voice from the live meter's last seconds (fetches the 40 MB voice model the first time), or forget it. */
   discordMyVoice: (action: 'learn' | 'forget') => rawCall<{ ok: boolean; learned: boolean; message?: string | null }>('discord.myVoice', { action }, 180_000),
   /**
    * Lucid, the separate EQ app: its state, Start with Exo (set), its own window (open), Equalizer APO's device picker
@@ -1662,8 +1667,6 @@ export const host = {
   /** Voice Tune: record the guided take (each part's seconds), cancel it, whether this mic has a kept tuning (state), keep its tuning for this mic, forget it, or fix Windows (unmute, no ducking). */
   discordVoiceTune: (action: 'record' | 'cancel' | 'state' | 'keep' | 'forget' | 'unmute' | 'noDucking', params: { parts?: number[] } = {}) =>
     rawCall<VoiceTuneResult & { windows?: VoiceTuneWindows; processing?: string | null }>('discord.voiceTune', { action, ...params }, 90_000),
-  /** Voice Check: seconds from the microphone, before and after the input profile's processing (WAV data), and how the mic is set. */
-  discordVoiceCheck: (seconds: number) => rawCall<VoiceCheckResult>('discord.voiceCheck', { seconds }, 20_000),
   /** Plays one of Discord's sounds (preview: even when it's turned off). */
   discordSound: (name: string, preview = false) => rawCall<{ ok: boolean }>('discord.sound', { name, preview }),
   discordMutualFriends: (userId: string) =>
@@ -1731,13 +1734,15 @@ export const host = {
   /** A Profile Inspector import to the global profile: pick a .nip (waits for the picker), apply, undo, cancel, or state. */
   gpuImport: (action: 'pick' | 'apply' | 'undo' | 'cancel' | 'state') =>
     rawCall<GpuImportAnswer>('gpu.import', { action }, action === 'pick' ? 10 * 60_000 : 30_000),
-  /** System > This PC: the checks; apply or undo AMD's power plan tuning; gamemode opens Windows' Game Mode settings. */
-  systemHealth: (action?: 'apply' | 'undo' | 'chipset' | 'gamemode') => rawCall<PcHealth>('system.health', action ? { action } : {}, 35_000),
+  /** System > This PC: the checks; apply or undo AMD's power plan tuning; gamemode and gpusched open Windows' Game Mode and Graphics settings. */
+  systemHealth: (action?: 'apply' | 'undo' | 'chipset' | 'gamemode' | 'gpusched' | 'gpupref' | 'gpupref-undo') => rawCall<PcHealth>('system.health', action ? { action } : {}, 35_000),
   /** System > This PC > Interrupts: the devices; apply switches every one that can to MSI mode, undo puts all back, revert one. Waits on Windows' permission prompt. */
   systemInterrupts: (action?: 'apply' | 'undo' | 'revert', device?: string) =>
     rawCall<Interrupts>('system.interrupts', action ? { action, ...(device ? { device } : {}) } : {}, 120_000),
   /** The saved home page at once (refreshed behind it); refresh waits for a fresh one. */
   storeHome: (refresh = false) => rawCall<StoreHome>('store.home', refresh ? { refresh: true } : {}, 45_000),
+  /** Games by release day, ordered by the wishlist and the tags of what is played; ok false when Steam's lists could not be read. */
+  storeCalendar: () => rawCall<StoreCalendar>('store.calendar', {}, 45_000),
   /** superseded: a newer search replaced this one. */
   storeSearch: (query: string) => rawCall<{ ok: boolean; message?: string; items: StoreTile[] }>('store.search', { query }, 20_000),
   /** A store page or CheapShark deal: opens in that store's launcher when installed, else the browser. */

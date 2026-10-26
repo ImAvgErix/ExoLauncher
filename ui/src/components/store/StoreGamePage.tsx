@@ -38,7 +38,7 @@ export function StoreGamePage({ seed, onScreen, owned, wished, onWish, onOpenLib
   onClose: () => void
 }) {
   const game = useStoreGame(seed.appId)
-  const others = useOtherOffers(seed.appId)
+  const { offers: others, failed: othersFailed } = useOtherOffers(seed.appId)
   const name = game.data?.name ?? seed.name
   const hero = artSources({ appId: seed.appId, art: game.data?.art ?? seed.art }, ['hero', 'header', 'capsule'])
   const data = game.data
@@ -64,7 +64,7 @@ export function StoreGamePage({ seed, onScreen, owned, wished, onWish, onOpenLib
             <h2 id="exo-sgp-title" className="sr-only">{name}</h2>
             <Pills tags={data?.tags ?? null} />
           </div>
-          <BuyPanel game={data} loading={!data && !game.error} others={others} seed={seed} owned={owned} wished={wished} onWish={onWish} onOpenLibrary={onOpenLibrary} />
+          <BuyPanel game={data} loading={!data && !game.error} others={others} othersFailed={othersFailed} seed={seed} owned={owned} wished={wished} onWish={onWish} onOpenLibrary={onOpenLibrary} />
           <About text={data ? data.description ?? '' : null} />
           <Specs specs={data ? data.specs ?? [] : null} fit={data?.fit ?? null} />
         </div>
@@ -109,10 +109,11 @@ function HeroLogo({ appId, name }: { appId: string; name: string }) {
  * reserved row while they are asked), Wishlist, GG.deals, and the library
  * game when it is owned.
  */
-function BuyPanel({ game, loading, others, seed, owned, wished, onWish, onOpenLibrary }: {
+function BuyPanel({ game, loading, others, othersFailed, seed, owned, wished, onWish, onOpenLibrary }: {
   game: StoreGame | null
   loading: boolean
   others: StoreOffer[] | null
+  othersFailed: boolean
   seed: StoreTile
   owned: boolean
   wished: boolean
@@ -132,7 +133,7 @@ function BuyPanel({ game, loading, others, seed, owned, wished, onWish, onOpenLi
       <div className="exo-sgp-others">
         {others === null ? <span className="exo-sgp-offer is-loading exo-motion-work" aria-hidden="true" /> : null}
         {(others ?? []).map(offer => <OfferRow key={offer.store} offer={offer} primary={false} free={false} soon={soon} />)}
-        {others?.length === 0 ? <span className="exo-sgp-only">Only on Steam</span> : null}
+        {others?.length === 0 ? <span className="exo-sgp-only">{othersFailed ? 'Other stores unavailable' : 'Only on Steam'}</span> : null}
       </div>
       <div className="exo-sgp-tools">
         <button type="button" className={`exo-game-tool${wished ? ' is-on' : ''}`} aria-pressed={wished}
@@ -358,15 +359,16 @@ function useStoreGame(appId: string) {
   return { ...state, retry }
 }
 
-/** The other launchers' offers, asked for alongside Steam's page; null while they are on their way, empty when there are none. */
+/** The other launchers' offers, asked for alongside Steam's page; null while they are on their way, empty when there are none, `failed` when they could not be asked. */
 function useOtherOffers(appId: string) {
   const [offers, setOffers] = useState<StoreOffer[] | null>(() => peekOffers(appId))
+  const [failed, setFailed] = useState(false)
   useEffect(() => {
     let live = true
     loadOffers(appId)
-      .then(list => { if (live) setOffers(list) })
-      .catch((e: unknown) => { report(e, 'Store.offers'); if (live) setOffers([]) })
+      .then(list => { if (live) { setFailed(list === null); setOffers(list ?? []) } })
+      .catch((e: unknown) => { report(e, 'Store.offers'); if (live) { setFailed(true); setOffers([]) } })
     return () => { live = false }
   }, [appId])
-  return offers
+  return { offers, failed }
 }

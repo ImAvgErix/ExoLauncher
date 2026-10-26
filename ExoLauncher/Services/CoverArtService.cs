@@ -738,16 +738,28 @@ public static partial class CoverArtService
         }
     }
 
+    private static readonly object TitleMapWrite = new();
+
     private static void PersistTitleMap(string? path = null)
     {
-        try
+        // One writer at a time, to a file beside it that is moved over: a crash or the installer's stop never leaves the map cut
+        // off, which would drop every title bound to its art.
+        lock (TitleMapWrite)
         {
-            var destination = path ?? TitleMapPath;
-            Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
-            var obj = new Dictionary<string, string>(TitleSteamMap, StringComparer.OrdinalIgnoreCase);
-            File.WriteAllText(destination, JsonSerializer.Serialize(obj));
+            string? staged = null;
+            try
+            {
+                var destination = path ?? TitleMapPath;
+                Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
+                var obj = new Dictionary<string, string>(TitleSteamMap, StringComparer.OrdinalIgnoreCase);
+                staged = destination + ".tmp";
+                File.WriteAllText(staged, JsonSerializer.Serialize(obj));
+                File.Move(staged, destination, overwrite: true);
+                staged = null;
+            }
+            catch { /* ignore */ }
+            finally { if (staged is not null) try { File.Delete(staged); } catch { /* the next write replaces it */ } }
         }
-        catch { /* ignore */ }
     }
 
     /// <summary>

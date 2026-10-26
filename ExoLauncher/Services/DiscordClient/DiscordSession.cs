@@ -86,8 +86,22 @@ internal sealed partial class DiscordSession
     {
         if (failure is null || _stop.IsCancellationRequested) return;
         AppLog.Warn("Discord client: the connection stopped (" + failure.InnerException?.GetType().Name + ").");
+        StopTimers();
         lock (StartGate) if (_current == this) _current = null;
         SetState("error", "The connection to Discord stopped. Try again.");
+    }
+
+    // What a session armed dies with it: after a sign-out a saved-message reminder must not still pop up with that
+    // account's text, nor a custom status clear send a presence for a connection that is gone.
+    private void StopTimers()
+    {
+        lock (_reminderGate)
+        {
+            _reminderTimer?.Dispose();
+            _reminderTimer = null;
+            _reminders.Clear();
+        }
+        Interlocked.Exchange(ref _customExpiry, null)?.Cancel();
     }
 
     /// <summary>Disconnects; the sign-in stays saved until <see cref="SignOutAsync"/> clears it.</summary>
@@ -101,6 +115,7 @@ internal sealed partial class DiscordSession
             session.LeaveVoice();
             session._stop.Cancel();
             session._ws?.Abort();
+            session.StopTimers();
         }
         SetState(DiscordToken.Read() is null ? "signedOut" : "off");
         BadgeChanged?.Invoke(0);

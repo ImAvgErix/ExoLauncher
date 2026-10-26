@@ -65,6 +65,8 @@ public sealed partial class MainWindow
         /// <summary>0: no limit.</summary>
         public int KeepGb { get; set; }
         public int KeepDays { get; set; }
+        /// <summary>Exo Capture re-encodes recordings to smaller files that look the same, while no game runs.</summary>
+        public bool AutoShrink { get; set; } = true;
         /// <summary>Paths relative to the captures folder; never deleted by the limits.</summary>
         public List<string> Favourites { get; set; } = new();
     }
@@ -73,6 +75,8 @@ public sealed partial class MainWindow
     {
         public string? GameId { get; set; }
         public double DurationMs { get; set; }
+        /// <summary>done once shrunk, else why the add-on left it as it is; null: not tried.</summary>
+        public string? Shrink { get; set; }
     }
 
     private CaptureSettings CaptureConfig
@@ -180,6 +184,7 @@ public sealed partial class MainWindow
             var state = await addon.CallAsync("configure", parameters, CancellationToken.None).ConfigureAwait(false);
             OnCaptureEvent("state", state);
             SyncCaptureGame();
+            ScheduleShrink(TimeSpan.FromMinutes(3));
         }
         catch (Exception ex) { AppLog.Warn("Capture configure: " + ex.Message); }
     }
@@ -239,6 +244,7 @@ public sealed partial class MainWindow
             var game = App.Services.Library.Find(gameId);
             if (game is null || string.IsNullOrWhiteSpace(game.Path)) { AppLog.Info("Capture: running game " + gameId + " has no install folder in the library."); return; }
             _captureGameId = gameId;
+            CancelShrink();
             AppLog.Info("Capture: following " + game.Title + ".");
             _ = addon.CallAsync("game", new JsonObject { ["id"] = gameId, ["title"] = game.Title, ["folder"] = game.Path }, CancellationToken.None)
                 .ContinueWith(t => { _ = t.Exception; }, TaskContinuationOptions.OnlyOnFaulted);
@@ -246,6 +252,7 @@ public sealed partial class MainWindow
         else if (string.Equals(_captureGameId, gameId, StringComparison.OrdinalIgnoreCase))
         {
             _captureGameId = null;
+            ScheduleShrink(TimeSpan.FromMinutes(1));
             _ = addon.CallAsync("game", new JsonObject(), CancellationToken.None)
                 .ContinueWith(t => { _ = t.Exception; }, TaskContinuationOptions.OnlyOnFaulted);
         }
@@ -296,6 +303,7 @@ public sealed partial class MainWindow
                 _ = Task.Run(EnforceCaptureLimits);
                 var kind = data["kind"]?.GetValue<string>();
                 if (ItemFor(path) is { } item) _bridge?.PostCaptureEvent("capture.saved", new { item, kind });
+                if (kind != "snip") ScheduleShrink(Services.CaptureShrink.Settle + TimeSpan.FromSeconds(5));
                 // The page opens a snip in its editor on capture.saved; Exo comes to the front for it.
                 if (kind == "snip") DispatcherQueue.TryEnqueue(RestoreAndActivate);
                 break;
@@ -346,6 +354,7 @@ public sealed partial class MainWindow
             folder = CaptureFolder,
             s.KeepGb,
             s.KeepDays,
+            s.AutoShrink,
         };
     }
 
@@ -391,9 +400,12 @@ public sealed partial class MainWindow
                         break;
                     case "keepGb" when n is { } gb: s.KeepGb = Math.Clamp(gb, 0, 10_000); break;
                     case "keepDays" when n is { } days: s.KeepDays = Math.Clamp(days, 0, 3650); break;
+                    case "autoShrink" when v.ValueKind is JsonValueKind.True or JsonValueKind.False: s.AutoShrink = v.GetBoolean(); break;
                     case "folder" when v.ValueKind == JsonValueKind.String:
                         var folder = v.GetString()!;
-                        if (CaptureFolderProblem(folder) is { } folderProblem) error = folderProblem;
+                        // The page maps this folder to itself and lists and recycles its pictures and clips: only one just picked in Windows' picker.
+                        if (!PickedPaths.Consume(folder)) error = "Pick the folder with Change.";
+                        else if (CaptureFolderProblem(folder) is { } folderProblem) error = folderProblem;
                         else s.Folder = Path.TrimEndingDirectorySeparator(Path.GetFullPath(folder));
                         break;
                     case "folder" when v.ValueKind == JsonValueKind.Null: s.Folder = null; break;
@@ -405,6 +417,7 @@ public sealed partial class MainWindow
         DispatcherQueue.TryEnqueue(MapCaptureHosts);
         await ConfigureCaptureAsync().ConfigureAwait(true);
         _ = Task.Run(EnforceCaptureLimits);
+        ScheduleShrink(TimeSpan.FromSeconds(5));
         return new { ok = error is null, message = error, state = CaptureStateDto(), settings = CaptureSettingsDto() };
     }
 
@@ -429,6 +442,9 @@ public sealed partial class MainWindow
     {
         try
         {
+            // A network share or a \\?\ device path would dodge the guards below (and CreateDirectory would reach out to the share).
+            if (folder.StartsWith(@"\\", StringComparison.Ordinal) || folder.StartsWith("//", StringComparison.Ordinal))
+                return "Pick a folder on this PC for captures.";
             var full = Path.TrimEndingDirectorySeparator(Path.GetFullPath(folder));
             if (!Path.IsPathFullyQualified(folder) || Path.GetPathRoot(full) is { } root && string.Equals(Path.TrimEndingDirectorySeparator(root), full, StringComparison.OrdinalIgnoreCase))
                 return "Pick a folder, not a whole drive.";
@@ -618,6 +634,8 @@ public sealed partial class MainWindow
             case "reveal":
                 System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("explorer.exe", "/select,\"" + path + "\"") { UseShellExecute = true });
                 return new { ok = true };
+            case "shrink":
+                return StartManualShrink(path, relative);
             case "copy":
             case "discord":
                 if (CaptureAddon is not { } addon) return new { ok = false, message = "Exo Capture is not installed." };

@@ -7,6 +7,7 @@ import type { FolderView } from '../../lib/folders'
 import type { FolderSort, Game, InstallProgress } from '../../lib/host'
 import type { GameMenuAt } from './GameMenu'
 import { useDismiss } from '../../lib/dismiss'
+import { useDialogFocus } from '../../lib/focusTrap'
 
 /** The folder's own order first (the default), then the Library's sorts. */
 const SORT_ITEMS = [{ id: 'folder', label: 'Folder order' }, ...SORT_OPTIONS.map(mode => ({ id: mode, label: SORT_LABELS[mode] }))]
@@ -37,6 +38,8 @@ export function FolderPanel({ folder, renaming, inert, cardWidth, selectedId, qu
 }) {
   const panel = useRef<HTMLDivElement>(null)
   useDismiss(panel, onClose, { modal: true, on: !inert })
+  // Tab stays in the folder, and the folder's card has the focus again when it closes.
+  useDialogFocus(panel)
   // Rename remounts the panel (LibraryPane's key), so it opens with the field.
   const [editing, setEditing] = useState(renaming)
   useEffect(() => {

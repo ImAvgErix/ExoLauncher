@@ -199,7 +199,7 @@ public static class PlaytimeService
     /// Writes a frozen Riot lifetime snapshot. Later Exo sessions add on top
     /// of this file; the Riot ID is hashed before disk.
     /// </summary>
-    public static bool TryImportRiotLifetime(string riotId, IReadOnlyDictionary<string, int> minutes)
+    public static bool TryImportRiotLifetime(string riotId, IReadOnlyDictionary<string, int> minutes, IReadOnlySet<string>? lifetime = null)
     {
         if (string.IsNullOrWhiteSpace(riotId) || minutes is null || minutes.Count == 0)
             return false;
@@ -228,7 +228,9 @@ public static class PlaytimeService
 
             foreach (var pair in incoming)
             {
-                if (!merged.TryGetValue(pair.Key, out var current) || pair.Value > current)
+                // A lifetime total replaces what was read before, even a lower one: a figure kept only because it was
+                // higher would keep an old over-count for good. Anything less (queues added up, one season) only raises it.
+                if (lifetime?.Contains(pair.Key) == true || !merged.TryGetValue(pair.Key, out var current) || pair.Value > current)
                     merged[pair.Key] = pair.Value;
             }
 
@@ -570,7 +572,7 @@ public static class PlaytimeService
         }
         catch (Exception ex)
         {
-            AppLog.Debug("Neutral lifetime import save failed: " + ex.Message);
+            AppLog.Warn("Neutral lifetime import save failed: " + ex.Message);
             return false;
         }
         finally
@@ -753,7 +755,7 @@ public static class PlaytimeService
         }
         catch (Exception ex)
         {
-            AppLog.Debug("playtime.json load failed: " + ex.Message);
+            AppLog.Warn("playtime.json load failed: " + ex.Message);
         }
     }
 
@@ -798,7 +800,7 @@ public static class PlaytimeService
         }
         catch (Exception ex)
         {
-            AppLog.Debug("playtime.json save failed: " + ex.Message);
+            AppLog.Warn("playtime.json save failed: " + ex.Message);
         }
     }
 

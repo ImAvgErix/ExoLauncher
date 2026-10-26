@@ -28,7 +28,8 @@ public sealed partial class WebHostBridge
     {
         int[]? vendors = null;
         if (hasParams && p.ValueKind == JsonValueKind.Object && p.TryGetProperty("vendorIds", out var v) && v.ValueKind == JsonValueKind.Array)
-            vendors = v.EnumerateArray().Where(x => x.ValueKind == JsonValueKind.Number && x.TryGetInt32(out _)).Select(x => x.GetInt32()).ToArray();
+            vendors = v.EnumerateArray().Where(x => x.ValueKind == JsonValueKind.Number && x.TryGetInt32(out _)).Select(x => x.GetInt32()).Take(256).ToArray();
+        // An empty list means every maker: Exo Mouse asks that way and picks its own mice from the answer.
         return new
         {
             ok = true,

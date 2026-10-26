@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react'
 import { ChevronLeft, Close } from '../../brand/icons'
 import { avatarUrl, type DiscordUser } from '../../lib/discord'
 import { hasPermission, ROLE_GROUPS, withPermission } from '../../lib/discordPermissions'
@@ -14,9 +14,96 @@ type Draft = Partial<Pick<Role, 'name' | 'color' | 'hoist' | 'mentionable' | 'pe
 type Member = { member: { user: DiscordUser; nick?: string | null; roles: string[] } }
 type MemberSearch = { members: Member[]; total_result_count?: number }
 
-// Discord's role color swatches.
-const SWATCHES = [0x1abc9c, 0x2ecc71, 0x3498db, 0x9b59b6, 0xe91e63, 0xf1c40f, 0xe67e22, 0xe74c3c, 0x95a5a6, 0x607d8b,
-  0x11806a, 0x1f8b4c, 0x206694, 0x71368a, 0xad1457, 0xc27c0e, 0xa84300, 0x992d22, 0x979c9f, 0x546e7a]
+type Hsv = [h: number, s: number, v: number]
+
+function hsvOf(color: number): Hsv {
+  const r = (color >> 16 & 255) / 255, g = (color >> 8 & 255) / 255, b = (color & 255) / 255
+  const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min
+  let h = 0
+  if (d) h = max === r ? 60 * (((g - b) / d) % 6) : max === g ? 60 * ((b - r) / d + 2) : 60 * ((r - g) / d + 4)
+  return [(h + 360) % 360, max ? d / max : 0, max]
+}
+
+function rgbOf(h: number, s: number, v: number): number {
+  const c = v * s, x = c * (1 - Math.abs((h / 60) % 2 - 1)), m = v - c
+  const [r, g, b] = h < 60 ? [c, x, 0] : h < 120 ? [x, c, 0] : h < 180 ? [0, c, x] : h < 240 ? [0, x, c] : h < 300 ? [x, 0, c] : [c, 0, x]
+  return (Math.round((r + m) * 255) << 16) | (Math.round((g + m) * 255) << 8) | Math.round((b + m) * 255)
+}
+
+const clamp01 = (n: number) => Math.min(1, Math.max(0, n))
+
+/** Any color, not a fixed palette: a saturation/brightness field over a hue strip, plus a hex box. Color 0 is
+    Discord's "default" (no role color); the field keeps the last picked tone so toggling Default loses nothing. */
+function ColorField({ color, disabled, onChange }: { color: number; disabled?: boolean; onChange: (color: number) => void }) {
+  const last = useRef<Hsv>([213, 0.63, 0.9])
+  if (color) last.current = hsvOf(color)
+  const [h, s, v] = color ? hsvOf(color) : last.current
+  const [hex, setHex] = useState<string | null>(null)
+  const pick = (nh: number, ns: number, nv: number) => {
+    nh = ((nh % 360) + 360) % 360; ns = clamp01(ns); nv = clamp01(nv)
+    last.current = [nh, ns, nv]
+    onChange(rgbOf(nh, ns, nv))
+  }
+  const dragSV = (e: PointerEvent<HTMLDivElement>) => {
+    const r = e.currentTarget.getBoundingClientRect()
+    pick(h, (e.clientX - r.left) / r.width, 1 - (e.clientY - r.top) / r.height)
+  }
+  const dragHue = (e: PointerEvent<HTMLDivElement>) => {
+    const r = e.currentTarget.getBoundingClientRect()
+    pick(((e.clientX - r.left) / r.width) * 360, s, v)
+  }
+  const keySV = (e: KeyboardEvent) => {
+    const step = e.shiftKey ? 0.1 : 0.02
+    if (e.key === 'ArrowLeft') pick(h, s - step, v)
+    else if (e.key === 'ArrowRight') pick(h, s + step, v)
+    else if (e.key === 'ArrowUp') pick(h, s, v + step)
+    else if (e.key === 'ArrowDown') pick(h, s, v - step)
+    else return
+    e.preventDefault()
+  }
+  const keyHue = (e: KeyboardEvent) => {
+    const step = e.shiftKey ? 15 : 2
+    if (e.key === 'ArrowLeft') pick(h - step, s, v)
+    else if (e.key === 'ArrowRight') pick(h + step, s, v)
+    else return
+    e.preventDefault()
+  }
+  const commitHex = () => {
+    const text = (hex ?? '').trim().replace(/^#/, '')
+    const full = /^[0-9a-f]{6}$/i.test(text) ? text : /^[0-9a-f]{3}$/i.test(text) ? [...text].map(c => c + c).join('') : null
+    if (full) onChange(parseInt(full, 16))
+    setHex(null)
+  }
+  return (
+    <div className={`exo-dc-colorfield${disabled ? ' is-disabled' : ''}`}>
+      <div className="exo-dc-colorfield-sv" aria-label="Saturation and brightness" tabIndex={disabled ? -1 : 0}
+        style={{ background: `linear-gradient(to top, #000, #0000), linear-gradient(to right, #fff, hsl(${h} 100% 50%))` }}
+        onPointerDown={e => { if (disabled) return; e.currentTarget.setPointerCapture(e.pointerId); dragSV(e) }}
+        onPointerMove={e => { if (e.buttons & 1) dragSV(e) }}
+        onKeyDown={keySV}>
+        <i style={{ left: `calc(${s * 100}% + ${7 - s * 14}px)`, top: `calc(${(1 - v) * 100}% + ${7 - (1 - v) * 14}px)` }} />
+      </div>
+      <div className="exo-dc-colorfield-hue" role="slider" aria-label="Hue" aria-valuemin={0} aria-valuemax={359} aria-valuenow={Math.round(h)}
+        aria-valuetext={`${Math.round(h)}°`} tabIndex={disabled ? -1 : 0} aria-disabled={disabled || undefined}
+        style={{ background: 'linear-gradient(to right, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00)' }}
+        onPointerDown={e => { if (disabled) return; e.currentTarget.setPointerCapture(e.pointerId); dragHue(e) }}
+        onPointerMove={e => { if (e.buttons & 1) dragHue(e) }}
+        onKeyDown={keyHue}>
+        <i style={{ left: `calc(${(h / 360) * 100}% + ${7 - (h / 360) * 14}px)` }} />
+      </div>
+      <div className="exo-dc-colorfield-row">
+        <span className="exo-dc-colorfield-chip" style={{ background: colorOf(color) }} aria-hidden="true" />
+        <input className="exo-dc-modal-input exo-dc-field exo-dc-colorfield-hex" aria-label="Color as hex" disabled={disabled}
+          value={hex ?? (color ? colorOf(color) : '')} placeholder="Default" spellCheck={false} maxLength={7}
+          onFocus={event => setHex(event.target.value)}
+          onChange={event => setHex(event.target.value)}
+          onBlur={commitHex}
+          onKeyDown={event => { if (event.key === 'Enter') { commitHex(); event.currentTarget.blur() } }} />
+        <button type="button" className="exo-dc-tab is-raised" disabled={disabled || color === 0} onClick={() => onChange(0)}>Default</button>
+      </div>
+    </div>
+  )
+}
 
 /** Discord's Roles: every role in order (drag to reorder), @everyone's default permissions, and the role editor. */
 export function Roles({ guildId }: { guildId: string }) {
@@ -236,18 +323,7 @@ function RoleDisplay({ role, value, editable, change, guildId, onDeleted }: {
           onChange={event => change({ name: event.target.value })} />
       </Field>
       <Field label="Role color" detail="Members use the color of the highest role they have on the roles list." stacked>
-        <div className="exo-dc-swatches" role="radiogroup" aria-label="Role color">
-          <button type="button" role="radio" aria-checked={value.color === 0} aria-label="Default" className="exo-dc-swatch is-default" disabled={!editable}
-            style={{ background: colorOf(0) }} onClick={() => change({ color: 0 })} />
-          <label className="exo-dc-swatch is-custom" style={{ background: value.color && !SWATCHES.includes(value.color) ? colorOf(value.color) : undefined }}>
-            <input type="color" aria-label="Custom color" disabled={!editable} value={colorOf(value.color || 0x99aab5)}
-              onChange={event => change({ color: parseInt(event.target.value.slice(1), 16) })} />
-          </label>
-          {SWATCHES.map(color => (
-            <button key={color} type="button" role="radio" aria-checked={value.color === color} aria-label={colorOf(color)} className="exo-dc-swatch" disabled={!editable}
-              style={{ background: colorOf(color) }} onClick={() => change({ color })} />
-          ))}
-        </div>
+        <ColorField color={value.color} disabled={!editable} onChange={color => change({ color })} />
       </Field>
       <Field label="Display role members separately from online members">
         <Switch checked={value.hoist} disabled={!editable} label="Display role members separately from online members" onChange={hoist => change({ hoist })} />

@@ -2,7 +2,7 @@
  * Exo Launcher shell — the Library, rooms, and the game sheet.
  * CTA strings (Play | Install | Update) and cancelInstall live via GamePage + host.
  */
-import { lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AppUpdate, Chats, Close, Download, Gamepad, Gpu, Key, Library, Minus, Mouse, MusicNotes, Play, Refresh, Settings, StoreBag } from '../brand/icons'
 import {
   host,
@@ -47,16 +47,13 @@ import { report } from '../lib/report'
 import { applyTextTheme, readCachedTextTheme } from '../lib/exoTheme'
 import { preloadUpscalerStatuses } from '../lib/upscalerCache'
 import { preloadInitialCoverArt, preloadLibraryArtwork } from './CoverArt'
-import CommandMenu, { type Command } from './blocks/command-menu-1'
+import type { Command } from './blocks/command-menu-1'
 import { runPaletteExtra, usePaletteExtras } from './shell/paletteExtras'
 import { ExoIsland } from './shell/ExoIsland'
-import { ActivateKeySheet } from './ActivateKeySheet'
-import { WhatsNewSheet } from './shell/WhatsNewSheet'
 import { useWhatsNew } from './shell/useWhatsNew'
-import { bootGate, BootSplash, Room } from './shell/BootGate'
+import { bootGate, BootSplash, EJECTABLE_ROOMS, Room } from './shell/BootGate'
 import { ErrorBoundary } from './shell/ErrorBoundary'
-import { GameSheet } from './shell/GameSheet'
-import { GpuHub, type GpuTab } from './gpu/GpuSheet'
+import type { GpuTab } from './gpu/GpuSheet'
 import { LibraryPane } from './shell/LibraryPane'
 import { ROOM_ORDER, TitleBar, type View } from './shell/TitleBar'
 import { MUSIC_LINK, savedMusicService, saveMusicService, type MusicService } from '../lib/music'
@@ -69,7 +66,6 @@ import { useLiveLibraryRefresh } from './shell/useLiveLibraryRefresh'
 import { useShellLayout } from './shell/useShellLayout'
 import { useShelves } from './shell/useShelves'
 import type { SettingsSectionId } from './SettingsPanel'
-import { CapturesOverlay } from './captures/CapturesSheet'
 import { closeCaptures, openCaptures, useCapturesSheet } from '../lib/capture'
 
 // Rooms and heavy panes load as their own chunks the first time they render.
@@ -79,8 +75,15 @@ const FriendsRoom = lazy(() => import('./FriendsRoomRoute').then((m) => ({ defau
 const NativeMusicRoom = lazy(() => import('./music/NativeMusicRoom').then((m) => ({ default: m.NativeMusicRoom })))
 const DevicesRoom = lazy(() => import('./DevicesRoom').then((m) => ({ default: m.DevicesRoom })))
 const StoreRoom = lazy(() => import('./store/StoreRoom').then((m) => ({ default: m.StoreRoom })))
+const CommandMenu = lazy(() => import('./blocks/command-menu-1'))
+const GameSheet = lazy(() => import('./shell/GameSheet').then((m) => ({ default: m.GameSheet })))
+const GpuHub = lazy(() => import('./gpu/GpuSheet').then((m) => ({ default: m.GpuHub })))
+const ActivateKeySheet = lazy(() => import('./ActivateKeySheet').then((m) => ({ default: m.ActivateKeySheet })))
+const WhatsNewSheet = lazy(() => import('./shell/WhatsNewSheet').then((m) => ({ default: m.WhatsNewSheet })))
+const CapturesOverlay = lazy(() => import('./captures/CapturesSheet').then((m) => ({ default: m.CapturesOverlay })))
 import { useWishlistSaleCount } from './store/storeData'
 import { openDiscord, setPendingOpen, type DiscordNotice } from '../lib/discord'
+import { requestStoreSearch } from '../lib/storeSearch'
 import { onScreen, pressedArt, transition, visible, type Morph } from '../lib/viewTransition'
 
 /**
@@ -108,6 +111,9 @@ function useBootPreload(booting: boolean, settings: LauncherSettings | null, mus
         Promise.allSettled([
           import('./DevicesRoom'),
           import('./SettingsPanel').then(module => module.preloadSettingsRoom()),
+          import('./shell/GameSheet'),
+          import('./gpu/GpuSheet'),
+          import('./blocks/command-menu-1'),
         ]),
         new Promise<void>(done => window.setTimeout(done, BOOT_PRELOAD_CAP_MS)),
       ]))
@@ -117,11 +123,13 @@ function useBootPreload(booting: boolean, settings: LauncherSettings | null, mus
 }
 
 /** The rooms built the first time they're opened, each with its code; System's is in the main bundle. */
+const ROOM_IDLE_MS = 3 * 60 * 1000
+
 const LAZY_ROOMS: ReadonlyMap<View, (() => Promise<unknown>) | null> = new Map<View, (() => Promise<unknown>) | null>([
   ['store', () => import('./store/StoreRoom')],
   ['friends', () => import('./FriendsRoomRoute')],
   ['music', () => import('./music/NativeMusicRoom')],
-  ['system', null],
+  ['system', () => import('./gpu/GpuSheet')],
 ])
 /** The most a room opened the first time waits to be whole; Music starts its service's engine first. */
 const ROOM_OPEN_CAP_MS = 2500
@@ -362,6 +370,9 @@ export function LauncherApp() {
     setProgress(next)
   }, [])
   const [transferFailures, setTransferFailures] = useState<Record<string, string>>({})
+  // Games whose transfer the user (or a hold) just stopped: a Cancel or Pause is announced as a `cancelled` event and then
+  // the call itself answers ok false ("Canceled."), which is not a failure to leave a red alert for.
+  const stoppedTransfers = useRef(new Set<string>())
   const [view, setView] = useState<View>('library')
   const settingsReturnView = useRef<View>('library')
   const [musicService, setMusicService] = useState<MusicService>(savedMusicService)
@@ -485,7 +496,11 @@ export function LauncherApp() {
   const goToView = useCallback((next: View, morph?: Morph, alongside?: () => void): Promise<void> => {
     viewRequestedAt.current = performance.now()
     closeGamePage()
-    if (next === view) return Promise.resolve()
+    if (next === view) {
+      // Back to the room you are in while another is still being built: that is a change of mind, not a wait.
+      if (openingRef.current !== null) { openingRef.current = null; setOpening(null) }
+      return Promise.resolve()
+    }
     // A room opened the first time is built out of sight and shows once it's whole; asking for another room meanwhile
     // goes there instead.
     if (LAZY_ROOMS.has(next) && !openedRef.current.has(next)) {
@@ -537,6 +552,41 @@ export function LauncherApp() {
   /** The gear opens Settings and, pressed again, returns where Escape would. */
   // Settings floats over the room it was opened from, which stays on screen (dimmed) under it.
   const under = view === 'settings' ? settingsReturnView.current : view
+  // A room left open but out of sight gives its tree back after three minutes. Its
+  // code chunk stays loaded and its scroll is kept (BootGate's roomScroll), so coming
+  // back is fast and lands where it was. Devices is not ejectable: its iframe is the
+  // mouse's game-profile engine — game.runState pushes are dropped while it is gone,
+  // and a hidden room's effects do not run, so no code there could notice.
+  const underRef = useRef(under)
+  underRef.current = under
+  const viewRef = useRef(view)
+  viewRef.current = view
+  const roomHiddenAt = useRef(new Map<View, number>())
+  useEffect(() => {
+    const shown = new Set<View>([underRef.current, viewRef.current])
+    for (const room of EJECTABLE_ROOMS) {
+      if (shown.has(room)) roomHiddenAt.current.delete(room)
+      else if (openedRef.current.has(room)) roomHiddenAt.current.set(room, roomHiddenAt.current.get(room) ?? Date.now())
+    }
+  }, [under, view])
+  useEffect(() => {
+    const sweep = setInterval(() => {
+      const now = Date.now()
+      setOpenedRooms(current => {
+        let next: Set<View> | null = null
+        for (const room of EJECTABLE_ROOMS) {
+          const since = roomHiddenAt.current.get(room)
+          if (since == null || now - since < ROOM_IDLE_MS || !current.has(room)) continue
+          if (room === underRef.current || room === viewRef.current) continue
+          next ??= new Set(current)
+          next.delete(room)
+          roomHiddenAt.current.delete(room)
+        }
+        return next ?? current
+      })
+    }, 30_000)
+    return () => clearInterval(sweep)
+  }, [])
   const toggleSettings = useCallback(() => {
     if (view === 'settings') void transition(() => setView(settingsReturnView.current))
     else void goToView('settings')
@@ -561,6 +611,9 @@ export function LauncherApp() {
     setLibraryPane('game')
     setStatus(null, null)
   }, [selectCard, setStatus])
+
+  /** A friend's game you don't have: the Store, searching for it. */
+  const findInStore = useCallback((title: string) => { requestStoreSearch(title); void goToView('store') }, [goToView])
 
   /** The Store's "In your library": the Library, on that game's page. The Steam app wins over the title. */
   const openLibraryGameFromStore = useCallback((title: string, appId?: number | string) => {
@@ -630,11 +683,18 @@ export function LauncherApp() {
     }
   }, [])
 
+  // Saves answer in any order: only the newest one's answer is taken (an older one would put back what the newer already changed),
+  // and a save that failed has the settings read again, so a folder or hidden game that did not stick does not stay on screen.
+  const settingsSeq = useRef(0)
   const persistSettings = useCallback((patch: Partial<LauncherSettings>) => {
+    const mine = ++settingsSeq.current
     void host.setSettings(patch).then((saved) => {
-      if (saved) setSettings(saved)
-    }).catch((e: unknown) => report(e, 'LauncherApp.persistSettings'))
-  }, [])
+      if (saved && mine === settingsSeq.current) setSettings(saved)
+    }).catch((e: unknown) => {
+      report(e, 'LauncherApp.persistSettings')
+      if (mine === settingsSeq.current) void loadSettings()
+    })
+  }, [loadSettings])
   /** System > Graphics > HDR saves through this and hears whether it took. */
   const saveSettings = useCallback(async (patch: Partial<LauncherSettings>) => {
     try {
@@ -699,22 +759,23 @@ export function LauncherApp() {
     })
     const progressFlush = latestEvery(setProgress, PROGRESS_FLUSH_MS)
     progressFlushRef.current = progressFlush
+    // A transfer that ended (done, failed or stopped): its status line, the away notice, the library again when it finished.
+    const transferEnded = (p: InstallProgress) => {
+      if (p.status) setStatus(p.status, p.gameId)
+      notifyAway(p, gamesRef.current)
+      if (p.phase === 'completed') void loadLibrary(true, true)
+    }
     const offProgress = onHostEvent('install.progress', (data) => {
       progressVersion.current++
       const p = data as InstallProgress
       progressFlush.push(p, !p?.isActive)
+      if (p?.phase === 'cancelled' && p.gameId) stoppedTransfers.current.add(p.gameId)
       if (p?.phase === 'failed') {
         setTransferFailures(current => ({ ...current, [p.gameId]: p.status || 'Install failed.' }))
       } else if (p?.gameId && (p.isActive || p.phase === 'completed' || p.phase === 'cancelled')) {
         clearTransferFailure(p.gameId)
       }
-      if (!p?.isActive) {
-        if (p?.phase === 'completed' || p?.phase === 'failed' || p?.phase === 'cancelled') {
-          if (p.status) setStatus(p.status, p.gameId)
-          notifyAway(p, gamesRef.current)
-          if (p.phase === 'completed') void loadLibrary(true, true)
-        }
-      }
+      if (!p?.isActive && (p?.phase === 'completed' || p?.phase === 'failed' || p?.phase === 'cancelled')) transferEnded(p)
     })
     const offCovers = onHostEvent('library.updated', (data) => {
       const d = data as { games?: Game[] }
@@ -1088,6 +1149,7 @@ export function LauncherApp() {
 
   async function runTransfer(game: Game, kind: 'install' | 'update', skipDeps: boolean, scope: string | null = game.id) {
     clearTransferFailure(game.id)
+    stoppedTransfers.current.delete(game.id)
     setStatus(kind === 'update' ? 'Starting update…' : 'Starting install…', scope)
     const version = progressVersion.current
     writeProgress(p => p?.isActive ? p : pendingTransfer(game.id, kind))
@@ -1102,7 +1164,8 @@ export function LauncherApp() {
       return res
     }
     const done = kind === 'update' ? 'Update' : 'Install'
-    if (!res.ok) setTransferFailures(current => ({ ...current, [game.id]: res.message || `${done} failed` }))
+    const stopped = stoppedTransfers.current.delete(game.id)
+    if (!res.ok && !stopped) setTransferFailures(current => ({ ...current, [game.id]: res.message || `${done} failed` }))
     setStatus(res.message || (res.handoffOnly ? 'Finish this in the store app.' : res.ok ? `${done} complete` : `${done} failed`), scope)
     settleTransfer(res, res.ok, game.id, version)
     return res
@@ -1475,7 +1538,7 @@ export function LauncherApp() {
   ), [under, view, openedRooms, warming, devicesActive])
   const systemRoom = useMemo(() => (
     <Room name="system" mounted={openedRooms.has('system')} warm={warming || opening === 'system'} active={under === 'system'} covered={view === 'settings'} label="System" className="relative z-10 flex min-h-0 flex-1 flex-col">
-      <GpuHub active={view === 'system'} jump={gpuJump} games={games} settings={settings} onSave={saveSettings} />
+      <Suspense fallback={null}><GpuHub active={view === 'system'} jump={gpuJump} games={games} settings={settings} onSave={saveSettings} /></Suspense>
     </Room>
   ), [under, openedRooms, warming, opening, view, gpuJump, games, settings, saveSettings])
   const libraryRoom = useMemo(() => sortMode && (
@@ -1500,6 +1563,7 @@ export function LauncherApp() {
         onActiveGameChange={setActiveGameId}
         onOpen={openCard}
         onPlay={playFromLibrary}
+        onFindInStore={findInStore}
         onPlayAs={playAs}
         startingId={startingId}
         onOpenFolder={openGameFolder}
@@ -1516,13 +1580,13 @@ export function LauncherApp() {
       />
     </Room>
   ), [under, view, openedRooms, overlayOpen, emptyLibrary, libraryError, shelves, selectedId, activeGameId, queuedIds, sortMode, layout.reduceMotion,
-    transferFor, openCard, playFromLibrary, playAs, startingId, openGameFolder, openProperties, sortLibrary, libraryFolders, saveFolders, hiddenGames, saveHiddenGames, addGameFromLibrary,
+    transferFor, openCard, playFromLibrary, findInStore, playAs, startingId, openGameFolder, openProperties, sortLibrary, libraryFolders, saveFolders, hiddenGames, saveHiddenGames, addGameFromLibrary,
     activateKey, refreshEverything, retryLibrary, openStoreSettings, uninstallGames])
   const activateKeySheet = useMemo(() => (
-    <ActivateKeySheet open={activateKeyOpen} onClose={closeActivateKey} onStatus={keyStatus} />
+    <Suspense fallback={null}><ActivateKeySheet open={activateKeyOpen} onClose={closeActivateKey} onStatus={keyStatus} /></Suspense>
   ), [activateKeyOpen, closeActivateKey, keyStatus])
   const commandMenu = useMemo(() => (
-    <CommandMenu
+    <Suspense fallback={null}><CommandMenu
       open={commandOpen}
       onOpenChange={setCommandOpen}
       commands={commands}
@@ -1530,7 +1594,7 @@ export function LauncherApp() {
       onSelect={selectCommand}
       inputPlaceholder="Search commands and games"
       className="pointer-events-none absolute inset-0 z-[60] h-full w-full bg-transparent"
-    />
+    /></Suspense>
   ), [commandOpen, commands, selectCommand])
 
   if (holdsBoot(update)) {
@@ -1588,7 +1652,7 @@ export function LauncherApp() {
         onReset={closeGamePage}
         className="fixed inset-x-0 bottom-0 top-[var(--exo-titlebar-h,52px)] z-[80] bg-black/80"
       >
-        <GameSheet
+        <Suspense fallback={null}><GameSheet
           game={displayedGame}
           open={overlayOpen}
           instant={overlayMotion === 'instant'}
@@ -1620,12 +1684,12 @@ export function LauncherApp() {
             closeGamePage()
             void loadLibrary(true, true)
           }}
-        />
+        /></Suspense>
       </ErrorBoundary>
-      <CapturesOverlay games={games} onDiscord={sendToDiscord} />
+      <Suspense fallback={null}><CapturesOverlay games={games} onDiscord={sendToDiscord} /></Suspense>
       {activateKeySheet}
       {commandMenu}
-      <WhatsNewSheet releases={whatsNew} update={update} onClose={closeWhatsNew} />
+      <Suspense fallback={null}><WhatsNewSheet releases={whatsNew} update={update} onClose={closeWhatsNew} /></Suspense>
     </div>
   )
 }

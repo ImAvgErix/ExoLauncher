@@ -110,12 +110,14 @@ public sealed class SettingsService
             {
                 if (File.Exists(PathHelper.SettingsPath))
                 {
-                    var json = File.ReadAllText(PathHelper.SettingsPath);
+                    var json = ReadSettingsText();
                     using var settingsDocument = JsonDocument.Parse(json);
                     var settingsRoot = settingsDocument.RootElement;
+                    // A file holding [] or a bare value is corrupt, not locked: it is moved aside so defaults can be saved.
+                    if (settingsRoot.ValueKind != JsonValueKind.Object) throw new JsonException("settings.json is not a JSON object");
                     hasExplicitOnboardingState = settingsRoot.TryGetProperty("onboardingComplete", out var onboarding) &&
                         onboarding.ValueKind is JsonValueKind.True or JsonValueKind.False;
-                    loaded = JsonSerializer.Deserialize<AppSettings>(json, JsonOpts)
+                    loaded = DeserializeSalvaging(json, settingsRoot)
                         ?? throw new JsonException("settings.json deserialized to null");
                     NormalizeLoaded(loaded);
                 }
@@ -192,6 +194,43 @@ public sealed class SettingsService
         {
             AppLog.Warn("Settings quarantine failed: " + ex.Message);
             return false;
+        }
+    }
+
+    /// <summary>
+    /// The settings file, read again a moment later when something else holds it (a scanner, a backup): one miss at start would
+    /// otherwise show defaults and block every save for the session.
+    /// </summary>
+    /// <summary>
+    /// The settings, or as many of them as read: one field of the wrong type (a hand edit, a field whose type changed between
+    /// versions) used to send the whole file aside and reset every setting. The fields that don't read are left at their
+    /// defaults and named in the log; the rest are kept.
+    /// </summary>
+    private static AppSettings? DeserializeSalvaging(string json, JsonElement root)
+    {
+        try { return JsonSerializer.Deserialize<AppSettings>(json, JsonOpts); }
+        catch (JsonException first)
+        {
+            var kept = new System.Text.Json.Nodes.JsonObject();
+            var dropped = new List<string>();
+            foreach (var property in root.EnumerateObject())
+            {
+                var single = new System.Text.Json.Nodes.JsonObject { [property.Name] = System.Text.Json.Nodes.JsonNode.Parse(property.Value.GetRawText()) };
+                try { JsonSerializer.Deserialize<AppSettings>(single.ToJsonString(), JsonOpts); kept[property.Name] = single[property.Name]!.DeepClone(); }
+                catch (JsonException) { dropped.Add(property.Name); }
+            }
+            if (dropped.Count == 0) throw;
+            AppLog.Warn($"Settings: {dropped.Count} field(s) did not read and are back at their defaults ({string.Join(", ", dropped.Take(10))}); the rest are kept. {first.Message}");
+            return JsonSerializer.Deserialize<AppSettings>(kept.ToJsonString(), JsonOpts);
+        }
+    }
+
+    private static string ReadSettingsText()
+    {
+        for (var attempt = 0; ; attempt++)
+        {
+            try { return File.ReadAllText(PathHelper.SettingsPath); }
+            catch (IOException) when (attempt < 3) { Thread.Sleep(200); }
         }
     }
 
@@ -841,6 +880,7 @@ public sealed class SettingsService
         DownloadHoursEnd = source.DownloadHoursEnd is >= 0 and <= 23 ? source.DownloadHoursEnd : null,
         AutoUpdateGames = source.AutoUpdateGames,
         AutoUpdateChipset = source.AutoUpdateChipset,
+        FastGpuForGames = source.FastGpuForGames,
         MouseBridge = source.MouseBridge is "exo" or "app" ? source.MouseBridge : null,
         MouseBridgeAppAutostart = source.MouseBridgeAppAutostart,
         MouseBridgeAppPath = source.MouseBridgeAppPath,

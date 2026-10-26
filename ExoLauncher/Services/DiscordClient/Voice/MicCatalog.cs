@@ -228,6 +228,10 @@ internal static class MicCatalog
         new("AMD Noise Suppression mic", MicKind.Virtual, "AMD Software", [], ["amd streaming audio device", "amd noise suppression"],
             [new(MicStage.NoiseSuppression, "AMD Noise Suppression", MicVersus.Equal, "Keep Noise Suppression on for your input in AMD Software's Audio & Video settings; Exo's noise suppression stands down for it.")],
             ["This is AMD Noise Suppression's virtual mic. Make sure AMD Software listens to your real mic."]),
+        // Krisp's app cleans the mic on its virtual "Krisp Microphone (Krisp Audio)": cleaning it again would only cost the voice.
+        new("Krisp mic", MicKind.Virtual, "Krisp", [], ["krisp microphone", "krisp audio"],
+            [new(MicStage.NoiseSuppression, "Noise Cancellation", MicVersus.Equal, "Keep Noise Cancellation on for your microphone in Krisp; Exo's noise suppression stands down for it.")],
+            ["This is Krisp's virtual mic. Make sure Krisp listens to your real mic."]),
 
         // Corsair, Turtle Beach
         new("Corsair HS80", MicKind.Headset, "iCUE", [0x1B1C_0A69, 0x1B1C_0A6A, 0x1B1C_0A6B, 0x1B1C_0A88, 0x1B1C_0A97], ["hs80"], [], []),

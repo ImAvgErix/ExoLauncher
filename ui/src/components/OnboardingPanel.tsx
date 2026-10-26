@@ -104,7 +104,11 @@ export function OnboardingPanel({
   const capture = useCapture()
   // The apps Exo replaces; opening setup first clears what removed ones left in this user's folders.
   const [replaced, setReplaced] = useState<{ cleared: number; apps: ReplacedApp[] } | null>(null)
-  const cleanupNeeded = !!replaced && replaced.apps.some(app => app.installed || app.leftovers > 0)
+  const cleanupOffered = !!replaced && replaced.apps.some(app => app.installed || app.leftovers > 0)
+  // Once the step has been shown it stays: removing the last app would otherwise drop the step under the user and start over at Welcome.
+  const [cleanupSeen, setCleanupSeen] = useState(false)
+  if (cleanupOffered && !cleanupSeen) setCleanupSeen(true)
+  const cleanupNeeded = cleanupOffered || cleanupSeen
   const steps = visibleSteps({ pc: pcNeeded || !!lucid, capture: capture.state?.present !== false, cleanup: cleanupNeeded })
   const index = Math.max(0, steps.findIndex(item => item.id === step))
   const current = steps[index]

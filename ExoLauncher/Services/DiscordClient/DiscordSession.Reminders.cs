@@ -51,7 +51,8 @@ internal sealed partial class DiscordSession
     {
         _reminderTimer?.Dispose();
         _reminderTimer = null;
-        if (_reminders.Count == 0) return;
+        // A read that lands after the session stopped must not arm a timer for a connection that is gone.
+        if (_reminders.Count == 0 || _stop.IsCancellationRequested) return;
         var wait = _reminders[0].Due - DateTimeOffset.UtcNow;
         if (wait > TimeSpan.FromDays(7)) return;
         _reminderTimer = new System.Threading.Timer(_ => FireReminder(), null, wait < TimeSpan.Zero ? TimeSpan.Zero : wait, Timeout.InfiniteTimeSpan);

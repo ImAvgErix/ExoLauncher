@@ -204,7 +204,8 @@
 }
 
 .exo-titlebar .exo-nav-btn.is-opening > * {
-  animation: exo-nav-opening 900ms var(--ease-out) infinite alternate;
+  transition: opacity var(--dur-quick) var(--ease-out);
+  animation: exo-nav-opening var(--dur-flight) var(--ease-out) infinite alternate;
 }
 
 @keyframes exo-nav-opening {

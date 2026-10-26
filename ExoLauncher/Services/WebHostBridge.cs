@@ -647,12 +647,12 @@ public sealed partial class WebHostBridge
                 "discord.font" => await DiscordFontAsync(paramsEl, hasParams).ConfigureAwait(true),
                 "discord.clientSettings" => DiscordClientSettings(paramsEl, hasParams),
                 "discord.micTest" => DiscordMicTest(paramsEl, hasParams),
+                "discord.micMonitor" => DiscordMicMonitor(paramsEl, hasParams),
                 "discord.myVoice" => await DiscordMyVoiceAsync(paramsEl, hasParams, requestToken).ConfigureAwait(true),
                 "discord.voiceTune" => await DiscordVoiceTuneAsync(paramsEl, hasParams, requestToken).ConfigureAwait(true),
                 "lucid" => await Task.Run(() => LucidAsync(paramsEl, hasParams)).ConfigureAwait(true),
                 "lucid.headphones" => await Task.Run(LucidHeadphones).ConfigureAwait(true),
                 "lucid.update" => await Task.Run(LucidUpdateAsync).ConfigureAwait(true),
-                "discord.voiceCheck" => await DiscordClient.Voice.VoiceCheck.RecordAsync(ReadInt(paramsEl, "seconds", 3, 10, 8), requestToken).ConfigureAwait(true),
                 "discord.sound" => DiscordSound(paramsEl, hasParams),
                 "gpu.driver" => await GpuDeadlineAsync(Task.Run(() => GpuDriverAsync(paramsEl, hasParams, requestToken), requestToken), TimeSpan.FromSeconds(55), requestToken).ConfigureAwait(true),
                 "gpu.profile" => await GpuDeadlineAsync(GpuProfileAsync(paramsEl, hasParams, requestToken), TimeSpan.FromSeconds(25), requestToken).ConfigureAwait(true),
@@ -662,6 +662,7 @@ public sealed partial class WebHostBridge
                 "system.health" => await GpuDeadlineAsync(SystemHealthAsync(paramsEl, hasParams, requestToken), TimeSpan.FromSeconds(30), requestToken).ConfigureAwait(true),
                 "system.interrupts" => await SystemInterruptsAsync(paramsEl, hasParams, requestToken).ConfigureAwait(true),
                 "store.home" => await StoreHomeAsync(paramsEl, hasParams, requestToken).ConfigureAwait(true),
+                "store.calendar" => await StoreCalendarAsync(requestToken).ConfigureAwait(true),
                 "store.search" => await StoreSearchAsync(paramsEl, hasParams, requestToken).ConfigureAwait(true),
                 "store.game" => await StoreGameAsync(paramsEl, hasParams, requestToken).ConfigureAwait(true),
                 "store.gameOffers" => await StoreGameOffersAsync(paramsEl, hasParams, requestToken).ConfigureAwait(true),
@@ -684,6 +685,11 @@ public sealed partial class WebHostBridge
         catch (OperationCanceledException)
         {
             if (!_detached && id is not null) PostResponse(id, ok: false, error: "The request was canceled or timed out.");
+        }
+        catch (BridgeRequestRegistry.DuplicateRequestException)
+        {
+            // Not answered under that id: it belongs to the request still running, whose own answer is coming.
+            AppLog.Warn($"RPC {method}: a request reused the id of one still running; dropped.");
         }
         catch (Exception ex)
         {
@@ -788,6 +794,13 @@ public sealed partial class WebHostBridge
         return new { ok = true };
     }
 
+    /// <summary>A failed open for the page: what could not open, never the system message (it can carry a path). The log has the cause.</summary>
+    private static object OpenFailed(string what, Exception ex)
+    {
+        AppLog.Warn($"Could not open {what}: {ex.GetType().Name}: {ex.Message}");
+        return new { ok = false, message = $"Windows couldn’t open {what}." };
+    }
+
     private static object OpenLogsFolder()
     {
         try
@@ -798,7 +811,7 @@ public sealed partial class WebHostBridge
         }
         catch (Exception ex)
         {
-            return new { ok = false, message = ex.Message };
+            return OpenFailed("the logs folder", ex);
         }
     }
 
@@ -1007,6 +1020,9 @@ public sealed partial class WebHostBridge
 
         // Auto root: Settings override → %LOCALAPPDATA%\ExoLauncher\Games
         var requested = ReadString(p, hasParams, "path");
+        // Add a game registers a program that Exo will run: only one the user just chose in Windows' picker.
+        if (gameId == Adapters.LocalAdapter.AddPortableId && !Helpers.PickedPaths.Consume(requested))
+            return new { ok = false, message = "Choose the game in the file picker first." };
         if (string.IsNullOrWhiteSpace(requested))
             requested = _services.Settings.Current.DefaultInstallRoot;
         string path;
@@ -1038,7 +1054,6 @@ public sealed partial class WebHostBridge
         {
             ok = result.Ok,
             message = result.Message,
-            path = result.Path,
             handoffOnly = result.HandoffOnly,
             needsDependencies = result.NeedsDependencies,
             missingDependencies = MapMissingDeps(result.MissingDependencies),
@@ -1117,7 +1132,7 @@ public sealed partial class WebHostBridge
         if (result.Ok && !result.Queued) _services.Library.Invalidate();
         return new
         {
-            ok = result.Ok, message = result.Message, path = result.Path, queued = result.Queued,
+            ok = result.Ok, message = result.Message, queued = result.Queued,
             handoffOnly = result.HandoffOnly, queuedGameIds = _services.Launcher.QueuedGameIds,
             pausedDownloads = _services.Launcher.PausedDownloads,
             progress = MapProgress(_services.Launcher.CurrentProgress),
@@ -1194,8 +1209,7 @@ public sealed partial class WebHostBridge
             {
                 ok = result.Ok,
                 message = result.Message,
-                path = result.Path,
-                handoffOnly = result.HandoffOnly,
+                    handoffOnly = result.HandoffOnly,
                 needsDependencies = result.NeedsDependencies,
                 missingDependencies = MapMissingDeps(result.MissingDependencies),
                 queued = result.Queued,
@@ -1210,7 +1224,9 @@ public sealed partial class WebHostBridge
             return new
             {
                 ok = false,
-                message = "Update failed: " + ex.Message,
+                // A file or Windows error carries a path: it stays in the log (AGENTS.md).
+                message = ex is IOException or UnauthorizedAccessException or System.ComponentModel.Win32Exception
+                    ? "Update failed. The details are in the log." : "Update failed: " + ex.Message,
                 progress = MapProgress(_services.Launcher.CurrentProgress),
             };
         }
@@ -1352,11 +1368,11 @@ public sealed partial class WebHostBridge
                 Arguments = $"\"{path}\"",
                 UseShellExecute = true,
             });
-            return new { ok = true, path };
+            return new { ok = true };
         }
         catch (Exception ex)
         {
-            return new { ok = false, message = ex.Message };
+            return OpenFailed("the game folder", ex);
         }
     }
 
@@ -1525,7 +1541,7 @@ public sealed partial class WebHostBridge
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
             timeout.CancelAfter(TimeSpan.FromSeconds(25));
             var result = await TrackerGgPlaytime.LoadAsync(riotId, timeout.Token).ConfigureAwait(false);
-            if (result.Ok && PlaytimeService.TryImportRiotLifetime(riotId, result.Minutes))
+            if (result.Ok && PlaytimeService.TryImportRiotLifetime(riotId, result.Minutes, result.Lifetime))
             {
                 try
                 {
@@ -2062,7 +2078,7 @@ public sealed partial class WebHostBridge
         }
         catch (Exception ex)
         {
-            return new { ok = false, message = ex.Message };
+            return OpenFailed("that link", ex);
         }
     }
 
@@ -2245,9 +2261,10 @@ public sealed partial class WebHostBridge
                 picker.ViewMode = Windows.Storage.Pickers.PickerViewMode.List;
                 picker.FileTypeFilter.Add(".exe");
                 var file = await picker.PickSingleFileAsync();
+                if (file is not null) Helpers.PickedPaths.Remember(file.Path);
                 tcs.TrySetResult(file is null ? new { ok = false, cancelled = true, message = "Canceled." } : new { ok = true, cancelled = false, path = file.Path });
             }
-            catch (Exception ex) { tcs.TrySetResult(new { ok = false, cancelled = false, message = ex.Message }); }
+            catch (Exception ex) { AppLog.Warn("File picker: " + ex.Message); tcs.TrySetResult(new { ok = false, cancelled = false, message = "The file picker could not open." }); }
         }
         if (!_queue.HasThreadAccess) _queue.TryEnqueue(() => _ = Run());
         else _ = Run();
@@ -2292,11 +2309,13 @@ public sealed partial class WebHostBridge
                 return;
             }
 
+            Helpers.PickedPaths.Remember(folder.Path);
             tcs.TrySetResult(new { ok = true, cancelled = false, path = folder.Path });
         }
         catch (Exception ex)
         {
-            tcs.TrySetResult(new { ok = false, cancelled = false, message = ex.Message });
+            AppLog.Warn("Folder picker: " + ex.Message);
+            tcs.TrySetResult(new { ok = false, cancelled = false, message = "The folder picker could not open." });
         }
     }
 
@@ -2469,6 +2488,15 @@ public sealed partial class WebHostBridge
         }).ToList(),
     };
 
+    /// <summary>A launch target the page may see: a store id or a store URI, never a file path (AGENTS.md).</summary>
+    internal static string? PageTarget(string? target)
+    {
+        if (string.IsNullOrWhiteSpace(target)) return null;
+        if (Uri.TryCreate(target, UriKind.Absolute, out var uri) && !uri.IsFile && !uri.IsUnc && uri.Scheme.Length > 1)
+            return target;
+        return target.IndexOfAny(['\\', '/', ':']) >= 0 ? null : target;
+    }
+
     private object MapGame(GameEntry g, bool discoverExternalRunningGame = false)
     {
         var runState = _services.Launcher.GetGameRunState(g, discoverExternalRunningGame);
@@ -2505,8 +2533,9 @@ public sealed partial class WebHostBridge
                 updateAvailable = variant.UpdateAvailable,
                 canInstall = variant.CanInstall,
                 primaryAction = variant.PrimaryAction,
-                path = variant.Path,
-                launchTarget = variant.LaunchTarget,
+                // Paths stay in native code (AGENTS.md): a store id goes to the page, a program's path does not.
+                path = (string?)null,
+                launchTarget = PageTarget(variant.LaunchTarget),
                 playtimeMinutes = variant.PlaytimeMinutes ?? 0,
                 lastPlayedUtc = variant.LastPlayedUtc?.ToString("O"),
                 status = variant.Status,
@@ -2520,7 +2549,7 @@ public sealed partial class WebHostBridge
         updateAvailable = g.UpdateAvailable,
         canInstall = g.CanInstall,
         primaryAction = g.PrimaryAction,
-        path = g.Path,
+        path = (string?)null,
         coverUrl = g.CoverUrl,
         coverSource = g.CoverSource,
         artRevision = g.ArtRevision,

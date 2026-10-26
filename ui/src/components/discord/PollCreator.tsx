@@ -7,6 +7,7 @@ import { Close } from '../../brand/icons'
 import { Icons } from './icons'
 import { ModalBack } from './SettingsLayer'
 import { useDismiss } from '../../lib/dismiss'
+import { useLayer } from './admin'
 
 const LENGTHS = [
   { hours: 1, label: '1 hour' }, { hours: 4, label: '4 hours' }, { hours: 8, label: '8 hours' }, { hours: 24, label: '24 hours' },
@@ -24,11 +25,8 @@ export function PollCreator({ channelId, onClose }: { channelId: string; onClose
   const [multiple, setMultiple] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  useEffect(() => {
-    const escape = (event: KeyboardEvent) => { if (event.key === 'Escape') { event.stopPropagation(); onClose() } }
-    window.addEventListener('keydown', escape, true)
-    return () => window.removeEventListener('keydown', escape, true)
-  }, [onClose])
+  const box = useRef<HTMLDivElement>(null)
+  useLayer(box, onClose)
   const filled = answers.map(a => a.trim()).filter(Boolean)
   const ready = question.trim().length > 0 && filled.length >= 2 && !busy
 
@@ -44,7 +42,7 @@ export function PollCreator({ channelId, onClose }: { channelId: string; onClose
 
   return (
     <ModalBack onClose={onClose}>
-      <div className="exo-dc-modal exo-dc-poll-new" role="dialog" aria-label="Create a poll" onClick={event => event.stopPropagation()}>
+      <div ref={box} className="exo-dc-modal exo-dc-poll-new" role="dialog" aria-modal="true" aria-label="Create a poll" tabIndex={-1} onClick={event => event.stopPropagation()}>
         <header className="exo-dc-poll-new-head">
           <h2>Create a poll</h2>
           <button type="button" className="exo-dc-icon-btn" aria-label="Close" onClick={onClose}><Close size={16} /></button>

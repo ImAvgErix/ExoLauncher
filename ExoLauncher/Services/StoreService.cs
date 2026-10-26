@@ -10,11 +10,10 @@ namespace ExoLauncher.Services;
 /// <summary>
 /// The Store room, built like a launcher's storefront: the big games, top
 /// sellers, popular new releases, the most wishlisted and popular upcoming
-/// games, Steam's specials and Epic's free games, with search, a wishlist and
+/// games and Steam's specials, made for this person (StoreService.ForYou), with search, a wishlist and
 /// a page per game. The catalog is Steam's public storefront (ranked lists,
 /// item facts, app details); where else a game is sold comes from CheapShark,
-/// limited to the official launchers (Steam, Epic, GOG, Ubisoft); Epic's free
-/// games come from Epic's own list. Exo sells nothing: Get
+/// limited to the official launchers (Steam, Epic, GOG, Ubisoft). Exo sells nothing: Get
 /// opens the launcher's own page. Everything is cached on disk, so the room
 /// opens at once with the last answer and refreshes behind it.
 /// </summary>
@@ -38,14 +37,15 @@ internal sealed partial class StoreService : IDisposable
         /// <summary>Not out yet; <see cref="When"/> says when ("Oct 23", "Feb 2027").</summary>
         public bool Soon { get; init; }
         public string? When { get; init; }
+        /// <summary>On this person's wishlist; set only on the home page's own picks and banner.</summary>
+        public bool Wished { get; init; }
+        /// <summary>The library games (their ids, closest first, up to three) this pick is like; set only on the home page's own picks and banner.</summary>
+        public IReadOnlyList<string>? SimilarTo { get; init; }
     }
 
     internal sealed record Shelf(string Id, string Title, IReadOnlyList<Tile> Items);
 
-    /// <summary>Epic's free game; <see cref="Images"/> in the order to try them (wide, thumbnail, tall).</summary>
-    internal sealed record FreeGame(string Title, string Url, IReadOnlyList<string> Images, DateTimeOffset? From, DateTimeOffset? Until, bool Now);
-
-    internal sealed record Home(DateTimeOffset At, IReadOnlyList<Tile> Hero, IReadOnlyList<Shelf> Shelves, IReadOnlyList<FreeGame> Free)
+    internal sealed record Home(DateTimeOffset At, IReadOnlyList<Tile> Hero, IReadOnlyList<Shelf> Shelves)
     {
         /// <summary>The region the prices are for; a home saved for another region is fetched again.</summary>
         public string? Country { get; init; }
@@ -169,8 +169,8 @@ internal sealed partial class StoreService : IDisposable
         lock (_gate)
             _timer ??= new Timer(_ => _ = Task.Run(async () =>
             {
-                // The home page before cards carried scores and Steam's price text; card facts before they carried release dates.
-                foreach (var old in new[] { "home-v4.json", "items-v1.json" })
+                // The home page before cards carried scores and Steam's price text; card facts before they carried release dates, then adult marks.
+                foreach (var old in new[] { "home-v4.json", "items-v1.json", "items-v2.json" })
                     try { File.Delete(Path.Combine(Dir, old)); } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
                 if (File.Exists(HomeFile))
                     try { await HomeAsync(false, CancellationToken.None).ConfigureAwait(false); } catch (Exception ex) { AppLog.Debug("Store: home warm failed: " + ex.Message); }
@@ -219,10 +219,9 @@ internal sealed partial class StoreService : IDisposable
             var upcoming = Timed(() => QueryAsync("upcoming", ComingSoon, 80, ct));
             var specials = Timed(() => QueryAsync("on sale", OnSale, 60, ct));
             var wished = Timed(async () => await WithItemsAsync(await ListAsync("filter=popularwishlist", 80, ct).ConfigureAwait(false), ct).ConfigureAwait(false));
-            var free = Timed(() => FreeGamesAsync(ct));
-            await Task.WhenAll(sellers, upcoming, specials, wished, free).ConfigureAwait(false);
-            var home = BuildHome(sellers.Result.Value, upcoming.Result.Value, wished.Result.Value, specials.Result.Value, free.Result.Value) with { Country = Country };
-            AppLog.Info($"PERF store home sellersMs={sellers.Result.Ms} upcomingMs={upcoming.Result.Ms} saleMs={specials.Result.Ms} wishedMs={wished.Result.Ms} freeMs={free.Result.Ms} totalMs={total.ElapsedMilliseconds}");
+            await Task.WhenAll(sellers, upcoming, specials, wished).ConfigureAwait(false);
+            var home = BuildHome(sellers.Result.Value, upcoming.Result.Value, wished.Result.Value, specials.Result.Value) with { Country = Country };
+            AppLog.Info($"PERF store home sellersMs={sellers.Result.Ms} upcomingMs={upcoming.Result.Ms} saleMs={specials.Result.Ms} wishedMs={wished.Result.Ms} totalMs={total.ElapsedMilliseconds}");
             if (home.Hero.Count == 0 && home.Shelves.All(s => s.Items.Count == 0)) return null;
             Write(HomeFile, home);
             lock (_gate) _home = home;
@@ -286,75 +285,6 @@ internal sealed partial class StoreService : IDisposable
     private static SteamPrice ReadPriceOverview(JsonElement p) =>
         new((int)Num(p, "final"), (int)Num(p, "initial"), (int)Num(p, "discount_percent"), Blank(Str(p, "currency")), Blank(Str(p, "final_formatted")), Blank(Str(p, "initial_formatted")));
 
-    /// <summary>Epic's free games: those free now, and those free next.</summary>
-    private async Task<IReadOnlyList<FreeGame>> FreeGamesAsync(CancellationToken ct)
-    {
-        try
-        {
-            using var doc = await GetJsonAsync($"https://store-site-backend-static-ipv4.ak.epicgames.com/freeGamesPromotions?locale=en-US&country={Country}&allowCountries={Country}", ct).ConfigureAwait(false);
-            var list = new List<FreeGame>();
-            var elements = doc.RootElement.GetProperty("data").GetProperty("Catalog").GetProperty("searchStore").GetProperty("elements");
-            foreach (var e in elements.EnumerateArray())
-            {
-                if (Str(e, "title") is not { } title || !e.TryGetProperty("promotions", out var promos) || promos.ValueKind != JsonValueKind.Object) continue;
-                var now = FreeOffer(promos, "promotionalOffers");
-                var next = now is null ? FreeOffer(promos, "upcomingPromotionalOffers") : null;
-                if ((now ?? next) is not { } offer) continue;
-                var slug = Blank(Str(e, "productSlug"))?.Replace("/home", "", StringComparison.Ordinal) ?? FirstSlug(e, "offerMappings") ?? FirstSlug(e, "catalogNs");
-                if (slug is null) continue;
-                list.Add(new FreeGame(title, "https://store.epicgames.com/p/" + slug, EpicImages(e), offer.From, offer.Until, now is not null));
-            }
-            return list.OrderByDescending(f => f.Now).ThenBy(f => f.From).ToList();
-        }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or KeyNotFoundException or InvalidOperationException)
-        {
-            AppLog.Info("Store: Epic free games failed: " + ex.Message);
-            return [];
-        }
-    }
-
-    /// <summary>
-    /// The free games as they stand at <paramref name="now"/>: the saved home page can be older than
-    /// a week's turn (offline, or minutes after Epic's switch), so one whose free days ended is left
-    /// out and one whose free days began is free now.
-    /// </summary>
-    internal static IReadOnlyList<FreeGame> FreeAt(IReadOnlyList<FreeGame> free, DateTimeOffset now) =>
-        free.Where(f => f.Until is not { } until || until > now)
-            .Select(f => !f.Now && f.From is { } from && from <= now ? f with { Now = true } : f)
-            .OrderByDescending(f => f.Now).ThenBy(f => f.From)
-            .ToList();
-
-    private static (DateTimeOffset? From, DateTimeOffset? Until)? FreeOffer(JsonElement promos, string name)
-    {
-        if (!promos.TryGetProperty(name, out var groups) || groups.ValueKind != JsonValueKind.Array) return null;
-        foreach (var group in groups.EnumerateArray())
-            if (group.TryGetProperty("promotionalOffers", out var offers) && offers.ValueKind == JsonValueKind.Array)
-                foreach (var offer in offers.EnumerateArray())
-                    if (offer.TryGetProperty("discountSetting", out var discount) && Num(discount, "discountPercentage") == 0)
-                        return (Date(Str(offer, "startDate")), Date(Str(offer, "endDate")));
-        return null;
-    }
-
-    private static string? FirstSlug(JsonElement e, string name)
-    {
-        if (!e.TryGetProperty(name, out var v)) return null;
-        if (name == "catalogNs" && !v.TryGetProperty("mappings", out v)) return null;
-        if (v.ValueKind != JsonValueKind.Array) return null;
-        foreach (var m in v.EnumerateArray()) if (Blank(Str(m, "pageSlug")) is { } slug) return slug;
-        return null;
-    }
-
-    /// <summary>The free game's art in the order a wide card wants it; the card tries the next when one fails.</summary>
-    private static List<string> EpicImages(JsonElement e)
-    {
-        var urls = new List<string>();
-        if (!e.TryGetProperty("keyImages", out var images) || images.ValueKind != JsonValueKind.Array) return urls;
-        foreach (var type in new[] { "OfferImageWide", "DieselStoreFrontWide", "Thumbnail", "OfferImageTall" })
-            foreach (var image in images.EnumerateArray())
-                if (Str(image, "type") == type && Blank(Str(image, "url")) is { } url && !urls.Contains(url)) urls.Add(url);
-        return urls;
-    }
-
     // ------------------------------------------------------------------ wishlist
 
     /// <summary>The wishlist, or null while wishlist.json cannot be read (busy), so the room never shows it as empty.</summary>
@@ -388,6 +318,9 @@ internal sealed partial class StoreService : IDisposable
         }
     }
 
+    /// <summary>More than a person wishes for: a list past this drops its oldest, so each price check stays a few requests.</summary>
+    internal const int MaxWishlist = 1000;
+
     /// <summary>
     /// Adds or removes a game and answers the new list; the caller shows it, so
     /// nothing is raised here. A new game's price is checked behind it, which
@@ -401,6 +334,7 @@ internal sealed partial class StoreService : IDisposable
             if (LoadWishlistLocked() is not { } list) return null;
             list.RemoveAll(w => w.AppId == appId);
             if (add) list.Insert(0, new WishItem(appId, name, DateTimeOffset.UtcNow));
+            if (list.Count > MaxWishlist) list.RemoveRange(MaxWishlist, list.Count - MaxWishlist);
             Write(WishFile, list);
         }
         if (add) _ = Task.Run(async () =>

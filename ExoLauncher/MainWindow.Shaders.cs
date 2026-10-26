@@ -4,11 +4,12 @@ namespace ExoLauncher;
 
 /// <summary>
 /// System > Shaders is Exo Shaders, Exo's own shader add-on: a headless
-/// engine (<see cref="Services.ShadersAddon"/>) and its page framed in the
-/// Shaders sheet. Exo hosts no shader app's window; without the add-on the
-/// sheet says so. Game sheets read the engine's records
-/// (<see cref="Services.ScsKillerStatus"/>). The engine starts with Exo, like
-/// Exo Capture and Exo Mouse, so its page opens at once and it sees every play session.
+/// engine (<see cref="Services.ShadersAddon"/>) driven by Exo's own Shaders page.
+/// Exo hosts no shader app's window; without the add-on the page says so. Game
+/// sheets read the engine's records (<see cref="Services.ScsKillerStatus"/>). The
+/// engine runs only while something needs it: the page on screen, a compile, or a
+/// check Exo starts it for (<see cref="Services.ShadersAddon.WakeReason"/>); the page
+/// shows the last state it left meanwhile.
 /// </summary>
 public sealed partial class MainWindow
 {
@@ -31,6 +32,9 @@ public sealed partial class MainWindow
             {
                 _bridge?.PostShadersEvent(name, data);
                 if (name != "ready") return;
+                // It exits by itself once nothing needs it (an engine without exitWhenIdle stays, as before).
+                _ = addon.CallAsync("exitWhenIdle", new System.Text.Json.Nodes.JsonObject { ["seconds"] = Services.ShadersAddon.IdleExitSeconds }, CancellationToken.None)
+                    .ContinueWith(t => { _ = t.Exception; }, TaskContinuationOptions.OnlyOnFaulted);
                 // The engine treats its page as shown until told otherwise and
                 // sends full state snapshots nobody reads. A page that opened
                 // before the engine was ready has already said visible.
@@ -42,26 +46,35 @@ public sealed partial class MainWindow
                 addon.SyncLibrary(App.Services.Library.PeekCachedLibrary, force: true);
             };
             App.Services.Library.LibraryUpdated += () => addon.SyncLibrary(App.Services.Library.PeekCachedLibrary);
+            App.Services.Launcher.GameRunStateChanged += (gameId, state) => _ = Task.Run(() =>
+            {
+                if (App.Services.Library.Find(gameId) is { } game) addon.GameRunStateChanged(game, state.IsRunning);
+            });
             return _shadersAddon = addon;
         }
     }
 
-    /// With the connected rooms: the engine, which queues any rebuild a driver update needs for when the PC is idle.
-    private Task PrewarmShaders() => Task.Run(() => ShadersAddon?.Start());
+    /// With the connected rooms: the engine isn't started, only checked for what needs it (a new driver, a game update,
+    /// Exo's games changed, work that waits for the PC to be idle), now and every minute.
+    private Task PrewarmShaders() => Task.Run(() =>
+    {
+        if (ShadersAddon is not { } addon) return;
+        addon.Watch();
+        addon.SyncLibrary(App.Services.Library.PeekCachedLibrary);
+    });
 
-    /// <summary>shaders.addon: whether the add-on is installed, its engine's state, and the page to frame.</summary>
+    /// <summary>shaders.addon: whether the add-on is installed, its engine's state, and the last state it left when it exited (shown until it runs). Never starts it.</summary>
     internal object ShadersAddonStatus()
     {
         if (ShadersAddon is not { } addon) return new { ok = true, present = false };
-        addon.Start();
-        return new { ok = true, present = true, state = addon.State, message = addon.Message, url = "https://" + Services.ShadersAddon.VirtualHost + "/index.html" };
+        return new { ok = true, present = true, state = addon.State, message = addon.Message, snapshot = Services.ShadersAddon.AtRest() };
     }
 
     /// <summary>shaders.call: one request from the add-on's page to its engine.</summary>
     internal async Task<object> ShadersAddonCallAsync(string? method, System.Text.Json.Nodes.JsonNode? parameters, CancellationToken ct)
     {
         if (ShadersAddon is not { } addon) return new { ok = false, message = "Exo Shaders is not installed." };
-        if (string.IsNullOrWhiteSpace(method) || method.Length > 64) return new { ok = false, message = "Unknown request." };
+        if (string.IsNullOrWhiteSpace(method) || !Services.ShadersAddon.PageMethods.Contains(method)) return new { ok = false, message = "Unknown request." };
         if (method == "ui.visible")
         {
             var visible = parameters?["visible"] is System.Text.Json.Nodes.JsonValue value && value.TryGetValue<bool>(out var on) && on;
@@ -71,6 +84,11 @@ public sealed partial class MainWindow
         }
         try { return new { ok = true, result = await addon.CallAsync(method, parameters, ct).ConfigureAwait(true) }; }
         catch (OperationCanceledException) { throw; }
-        catch (Exception ex) { return new { ok = false, message = ex.Message }; }
+        catch (Exception ex)
+        {
+            // The engine's words reach the page unless they name a path.
+            AppLog.Warn("Exo Shaders call " + method + ": " + ex.Message);
+            return new { ok = false, message = System.Text.RegularExpressions.Regex.IsMatch(ex.Message, @"[A-Za-z]:\\|\\\\") ? "Exo Shaders could not do that." : ex.Message };
+        }
     }
 }

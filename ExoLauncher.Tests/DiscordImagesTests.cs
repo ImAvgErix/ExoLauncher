@@ -7,7 +7,8 @@ namespace ExoLauncher.Tests;
 /// - the host fetches a page-supplied address that is not Discord's (any site, plain http, another port);
 /// - a saved picture gets a name Windows refuses or that escapes the Downloads folder ("..\", "/", ":");
 /// - the media proxy's format= is ignored, so a WebP is saved as .png (or the reverse);
-/// - a name with no extension is saved without one and opens in nothing.
+/// - a name with no extension is saved without one and opens in nothing;
+/// - a link named payload.exe (or ?format=exe), or a non-picture answer, is saved to Downloads as a program.
 /// </summary>
 public sealed class DiscordImagesTests
 {
@@ -34,6 +35,20 @@ public sealed class DiscordImagesTests
     [InlineData("https://images-ext-1.discordapp.net/external/x/https/pbs.twimg.com/media/G8E@png", null, "G8E.png")]
     [InlineData("https://cdn.discordapp.com/attachments/1/2/a%3Cb%3E%7C%3F.png", null, "a_b___.png")]
     [InlineData("https://cdn.discordapp.com/attachments/1/2/..%5C..%5Cx.png", null, ".._.._x.png")]
+    [InlineData("https://cdn.discordapp.com/attachments/1/2/payload.exe", "image/png", "payload.exe.png")]
+    [InlineData("https://media.discordapp.net/attachments/1/2/shot.png?format=exe", "image/png", "shot.exe.png")]
+    [InlineData("https://cdn.discordapp.com/attachments/1/2/run.bat", null, "run.bat.png")]
+    [InlineData("https://cdn.discordapp.com/attachments/1/2/SHOT.PNG", null, "SHOT.PNG")]
     public void SavedNamesFollowDiscordsApp(string url, string? contentType, string expected) =>
         Assert.Equal(expected, DiscordImages.FileName(new Uri(url), contentType));
+
+    [Theory]
+    [InlineData("image/png", true)]
+    [InlineData("IMAGE/WEBP", true)]
+    [InlineData("application/octet-stream", false)]
+    [InlineData("text/html", false)]
+    [InlineData("", false)]
+    [InlineData(null, false)]
+    public void OnlyWhatDiscordCallsAPictureIsSaved(string? contentType, bool expected) =>
+        Assert.Equal(expected, DiscordImages.IsImageType(contentType));
 }

@@ -29,6 +29,9 @@ internal sealed unsafe class DaveSession : IDisposable
     private nint _selfRatchet;
     private readonly Dictionary<string, nint> _ratchets = [];
     private ushort _latestVersion;
+    // Set under _gate by Dispose. The handles above are zero from then on, so a late call from the gateway or the frame
+    // sender (a stream stopping while a frame is being sealed) does nothing instead of handing libdave a null handle.
+    private bool _disposed;
 
     internal DaveSession(string selfUserId, ulong groupId, Action<byte, byte[]> sendBinary, Action<int, object> sendJson)
     {
@@ -67,13 +70,14 @@ internal sealed unsafe class DaveSession : IDisposable
 
     internal void AssignSsrc(uint ssrc, int codec = Dave.CodecOpus)
     {
-        lock (_gate) Dave.EncryptorAssignSsrc(_encryptor, ssrc, codec);
+        lock (_gate) { if (!_disposed) Dave.EncryptorAssignSsrc(_encryptor, ssrc, codec); }
     }
 
     internal void AddUser(string userId)
     {
         lock (_gate)
         {
+            if (_disposed) return;
             _users.Add(userId);
             SetupRatchet(userId, _latestVersion);
         }
@@ -94,7 +98,7 @@ internal sealed unsafe class DaveSession : IDisposable
     /// <summary>op 4: the call's starting protocol version.</summary>
     internal void OnSessionDescription(ushort version)
     {
-        lock (_gate) Init(version);
+        lock (_gate) { if (!_disposed) Init(version); }
     }
 
     /// <summary>op 21: a downgrade (or reinit when the id is 0) is coming.</summary>
@@ -102,6 +106,7 @@ internal sealed unsafe class DaveSession : IDisposable
     {
         lock (_gate)
         {
+            if (_disposed) return;
             PrepareRatchets(transitionId, version);
             ReadyFor(transitionId);
         }
@@ -110,7 +115,7 @@ internal sealed unsafe class DaveSession : IDisposable
     /// <summary>op 22.</summary>
     internal void OnExecuteTransition(ushort transitionId)
     {
-        lock (_gate) Execute(transitionId);
+        lock (_gate) { if (!_disposed) Execute(transitionId); }
     }
 
     /// <summary>op 24: epoch 1 is a new group.</summary>
@@ -118,7 +123,7 @@ internal sealed unsafe class DaveSession : IDisposable
     {
         lock (_gate)
         {
-            if (epoch != 1) return;
+            if (_disposed || epoch != 1) return;
             Dave.SessionInit(_session, version, _group, _self);
             SendKeyPackage();
         }
@@ -128,7 +133,10 @@ internal sealed unsafe class DaveSession : IDisposable
     internal void OnExternalSender(ReadOnlySpan<byte> payload)
     {
         lock (_gate)
+        {
+            if (_disposed) return;
             fixed (byte* p = payload) Dave.SessionSetExternalSender(_session, p, (nuint)payload.Length);
+        }
     }
 
     /// <summary>op 27 (payload after the opcode: operation type, then the proposals).</summary>
@@ -136,6 +144,7 @@ internal sealed unsafe class DaveSession : IDisposable
     {
         lock (_gate)
         {
+            if (_disposed) return;
             byte[] commit;
             using (var ids = new UserIds(_users.Append(_self)))
             fixed (byte* p = payload)
@@ -153,6 +162,7 @@ internal sealed unsafe class DaveSession : IDisposable
     {
         lock (_gate)
         {
+            if (_disposed) return;
             nint result;
             fixed (byte* p = commit) result = Dave.SessionProcessCommit(_session, p, (nuint)commit.Length);
             Note($"commit {(Dave.CommitIgnored(result) ? "ignored" : Dave.CommitFailed(result) ? "failed" : "taken")} (transition {transitionId})");
@@ -179,6 +189,7 @@ internal sealed unsafe class DaveSession : IDisposable
     {
         lock (_gate)
         {
+            if (_disposed) return;
             nint result;
             using (var ids = new UserIds(_users.Append(_self)))
             fixed (byte* p = welcome)
@@ -205,6 +216,7 @@ internal sealed unsafe class DaveSession : IDisposable
     {
         lock (_gate)
         {
+            if (_disposed) return -1;
             fixed (byte* f = frame)
             fixed (byte* o = output)
             {
@@ -327,6 +339,8 @@ internal sealed unsafe class DaveSession : IDisposable
     {
         lock (_gate)
         {
+            if (_disposed) return;
+            _disposed = true;
             foreach (var decryptor in _decryptors.Values) Dave.DecryptorDestroy(decryptor);
             _decryptors.Clear();
             foreach (var ratchet in _ratchets.Values) Dave.KeyRatchetDestroy(ratchet);

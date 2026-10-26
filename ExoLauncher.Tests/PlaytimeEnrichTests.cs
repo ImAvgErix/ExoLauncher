@@ -64,6 +64,23 @@ public sealed class PlaytimeEnrichTests : IDisposable
     }
 
     [Fact]
+    public void ALifetimeTotalCorrectsAnEarlierOverCountButAPartialReadingOnlyRaises()
+    {
+        var riot = new GameEntry { Id = "riot:exo-fixture-lifetime", Title = "Exo Riot Lifetime Fixture Qx", Store = StoreKind.Riot };
+        int? Minutes() => Assert.Single(PlaytimeService.Enrich([riot])).PlaytimeMinutes;
+        var lifetime = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { riot.Id };
+
+        Assert.True(PlaytimeService.TryImportRiotLifetime("PlayerC#EUW", new Dictionary<string, int> { [riot.Id] = 9000 }));
+        // The same Riot ID read again, and tracker.gg now gives the real total: the old, higher figure goes.
+        Assert.True(PlaytimeService.TryImportRiotLifetime("PlayerC#EUW", new Dictionary<string, int> { [riot.Id] = 6000 }, lifetime));
+        Assert.Equal(6000, Minutes());
+        // Queues added up, or one season, can be less than the player has: that never lowers what is shown.
+        Assert.True(PlaytimeService.TryImportRiotLifetime("PlayerC#EUW", new Dictionary<string, int> { [riot.Id] = 1200 }));
+        Assert.Equal(6000, Minutes());
+        PlaytimeService.ForgetRiotImportUnlessFor(null);
+    }
+
+    [Fact]
     public void RiotImportBelongsToOneRiotId()
     {
         var riot = new GameEntry { Id = "riot:exo-fixture", Title = "Exo Riot Fixture Qx", Store = StoreKind.Riot };

@@ -113,7 +113,9 @@ public sealed class DependencyService
         }
         catch (Exception ex)
         {
-            return new { ok = false, message = ex.Message };
+            // A file or Windows error names the temp installer's path: the log has it, the page does not.
+            AppLog.Warn("Dependency install: " + ex.GetType().Name + ": " + ex.Message);
+            return new { ok = false, message = ex is IOException or UnauthorizedAccessException or System.ComponentModel.Win32Exception ? "Exo could not finish that. The details are in the log." : ex.Message };
         }
         finally
         {

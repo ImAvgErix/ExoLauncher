@@ -94,6 +94,7 @@ public sealed partial class MainWindow : Window
         {
             ApplyWindowChrome();
             StartHdrForGames();
+            StartGpuPreference();
             StartDlssCheck();
             _ = Task.Run(() => NvidiaColor.ApplySaved(App.Services.Settings));
             _foregroundWatcher = ForegroundWatcher.Start(WindowNative.GetWindowHandle(this), inFront =>
@@ -605,11 +606,14 @@ public sealed partial class MainWindow : Window
                     // Shown once the page says its first frame is drawn (shell.painted), so the
                     // runtime's own surface never flashes; a page that never says so shows anyway.
                     _revealPending = true;
-                    _ = Task.Delay(RevealFallback).ContinueWith(_ => DispatcherQueue.TryEnqueue(RevealPainted), TaskScheduler.Default);
+                    // Window.DispatcherQueue is null once the window has closed; the queue itself just refuses the work.
+                    var queue = DispatcherQueue;
+                    _ = Task.Delay(RevealFallback).ContinueWith(_ => queue.TryEnqueue(RevealPainted), TaskScheduler.Default);
                     if (UpdateStartupHealth.Requested) _ = VerifyUpdateStartupAsync(core);
                     if (PackagedSmoke.Enabled) _ = PackagedSmoke.RunAsync(core, this);
                 }
-                else ShowWebFallback();
+                // A navigation Exo itself blocked (an untrusted main-frame address) ends here as cancelled; the page is still alive.
+                else if (args.WebErrorStatus != CoreWebView2WebErrorStatus.OperationCanceled) ShowWebFallback();
             };
 
             var www = ResolveWwwRoot();
@@ -1045,9 +1049,11 @@ public sealed partial class MainWindow : Window
         var environment = sender.Environment;
         var name = Uri.UnescapeDataString(u.AbsolutePath.TrimStart('/'));
         var width = 0;
+        var dim = false;
         foreach (var pair in u.Query.TrimStart('?').Split('&'))
         {
             if (pair.StartsWith("w=", StringComparison.Ordinal) && int.TryParse(pair.AsSpan(2), out var w)) width = w;
+            else if (pair is "dim=1" or "dim") dim = true;
         }
         if (u.Port != 443 || !string.IsNullOrEmpty(u.UserInfo) || name.Contains('/') || name.Contains('\\') ||
             !Services.CoverArtService.IsThumbnailWidth(width))
@@ -1057,7 +1063,7 @@ public sealed partial class MainWindow : Window
         }
 
         var deferral = e.GetDeferral();
-        _ = Task.Run(() => Services.CoverArtService.ReadThumbnailAsync(name, width)).ContinueWith(task =>
+        _ = Task.Run(() => Services.CoverArtService.ReadThumbnailAsync(name, width, dim)).ContinueWith(task =>
         {
             var body = task.IsCompletedSuccessfully ? task.Result : null;
             if (DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.High, () =>

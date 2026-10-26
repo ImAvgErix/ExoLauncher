@@ -28,10 +28,14 @@ internal sealed partial class StoreService
         /// <summary>Not out yet; <see cref="When"/> says when ("Oct 23", "Q1 2027", "To be announced").</summary>
         public bool Soon { get; init; }
         public string? When { get; init; }
+        /// <summary>The release is a real day (not "Q1 2027" or "Feb 2027"), so it can sit on a calendar.</summary>
+        public bool Exact { get; init; }
         public SteamPrice? Price { get; init; }
         public bool Free { get; init; }
         /// <summary>Tag ids, the most voted first.</summary>
         public IReadOnlyList<int> Tags { get; init; } = [];
+        /// <summary>Steam marks it Adult Only Sexual Content or Frequent Nudity or Sexual Content (content descriptors 3 and 4), which Steam's own store hides unless you opt in; Exo's lists leave it out.</summary>
+        public bool Adult { get; init; }
     }
 
     private sealed record ItemFile(string Country, Dictionary<string, Item> Items);
@@ -49,7 +53,7 @@ internal sealed partial class StoreService
     private readonly object _itemsSave = new();
     private TagFile? _tags;
 
-    private static string ItemsFile => Path.Combine(Dir, "items-v2.json");
+    private static string ItemsFile => Path.Combine(Dir, "items-v3.json");
 
     private static string TagsFile => Path.Combine(Dir, "tags-v1.json");
 
@@ -101,7 +105,8 @@ internal sealed partial class StoreService
     {
         var input = JsonSerializer.Serialize(new
         {
-            ids = appIds.Select(id => new { appid = long.Parse(id, CultureInfo.InvariantCulture) }),
+            // An id that is not a number (a bad entry in a saved list) is left out, not thrown over the whole chunk.
+            ids = appIds.Where(id => long.TryParse(id, NumberStyles.None, CultureInfo.InvariantCulture, out _)).Select(id => new { appid = long.Parse(id, CultureInfo.InvariantCulture) }),
             context = new { language = "english", country_code = Country },
             data_request = ItemRequest,
         });
@@ -155,7 +160,9 @@ internal sealed partial class StoreService
             var unix = Num(rel, "steam_release_date");
             DateTimeOffset? released = unix > 0 ? DateTimeOffset.FromUnixTimeSeconds(unix) : null;
             var soon = rel.TryGetProperty("is_coming_soon", out var cs) && cs.ValueKind == JsonValueKind.True;
-            item = item with { Released = released, Soon = soon, When = soon ? WhenText(released, Str(rel, "coming_soon_display"), Blank(Str(rel, "custom_release_date_message"))) : null };
+            // Out: the date is a day. Coming: only when the developer gave a full date (Steam's "date_full"), with no custom message in its place.
+            var exact = released is not null && (!soon || (Str(rel, "coming_soon_display") == "date_full" && Blank(Str(rel, "custom_release_date_message")) is null));
+            item = item with { Released = released, Soon = soon, Exact = exact, When = soon ? WhenText(released, Str(rel, "coming_soon_display"), Blank(Str(rel, "custom_release_date_message"))) : null };
         }
         if (e.TryGetProperty("best_purchase_option", out var buy) && buy.ValueKind == JsonValueKind.Object && Str(buy, "final_price_in_cents") is not null)
         {
@@ -164,6 +171,9 @@ internal sealed partial class StoreService
             item = item with { Price = new SteamPrice(final, initial, (int)Num(buy, "discount_pct"), null, Blank(Str(buy, "formatted_final_price")), Blank(Str(buy, "formatted_original_price"))) };
         }
         if (e.TryGetProperty("is_free", out var free) && free.ValueKind == JsonValueKind.True) item = item with { Free = true };
+        if (e.TryGetProperty("content_descriptorids", out var descriptors) && descriptors.ValueKind == JsonValueKind.Array
+            && descriptors.EnumerateArray().Any(d => d.ValueKind == JsonValueKind.Number && d.GetInt32() is 3 or 4))
+            item = item with { Adult = true };
         if (e.TryGetProperty("tags", out var tags) && tags.ValueKind == JsonValueKind.Array)
             item = item with { Tags = tags.EnumerateArray().OrderByDescending(t => Num(t, "weight")).Select(t => (int)Num(t, "tagid")).Where(id => id > 0).ToList() };
         return item;
@@ -189,11 +199,11 @@ internal sealed partial class StoreService
         return t;
     }
 
-    /// <summary>The same tiles with Steam's facts filled in.</summary>
+    /// <summary>The same tiles with Steam's facts filled in; adult games (<see cref="Item.Adult"/>) left out.</summary>
     private async Task<IReadOnlyList<Tile>> WithItemsAsync(IReadOnlyList<Tile> tiles, CancellationToken ct)
     {
         var items = await ItemsAsync(tiles.Select(t => t.AppId), ct).ConfigureAwait(false);
-        return tiles.Select(t => items.TryGetValue(t.AppId, out var i) ? WithItem(t, i) : t).ToList();
+        return tiles.Where(t => !(items.TryGetValue(t.AppId, out var i) && i.Adult)).Select(t => items.TryGetValue(t.AppId, out var i) ? WithItem(t, i) : t).ToList();
     }
 
     /// <summary>Steam's tag names by id (English), from disk when under a week old.</summary>

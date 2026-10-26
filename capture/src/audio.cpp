@@ -64,6 +64,9 @@ namespace
 std::mutex g_micLock;
 AudioSource* g_mic = nullptr;
 std::atomic<int64_t> g_fedAt{ 0 };
+// Set when Exo's voice feed ends: the microphone starts again that moment.
+HANDLE g_feedEnded = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+bool Fed() { return Now100ns() - g_fedAt.load() < FedFresh; }
 }
 
 class AudioSource
@@ -169,6 +172,18 @@ private:
                 Check(client->Start(), "sound start");
                 while (!m_stop)
                 {
+                    if (m_kind == Kind::Microphone && Fed())
+                    {
+                        // Exo feeds this track its cleaned voice from the same microphone: this stream stops (Windows then
+                        // shows Exo alone using the microphone) and starts again the moment the feed stops, in under a
+                        // millisecond, as the stream stays set up. What it held from before is dropped, not written late.
+                        client->Stop();
+                        client->Reset();
+                        while (!m_stop && Fed())
+                            WaitForSingleObject(g_feedEnded, static_cast<DWORD>(std::clamp<int64_t>((g_fedAt.load() + FedFresh - Now100ns()) / 10'000 + 1, 1, 50)));
+                        if (m_stop) break;
+                        Check(client->Start(), "sound start");
+                    }
                     WaitForSingleObject(ready, 20);
                     // Discord closed (an update restarts it): find the new one.
                     if (m_process && WaitForSingleObject(m_process.get(), 0) == WAIT_OBJECT_0) throw Failure(S_FALSE, "Discord closed");
@@ -182,8 +197,8 @@ private:
                         UINT64 position = 0, qpc = 0;
                         Check(capture->GetBuffer(&data, &frames, &flags, &position, &qpc), "sound buffer");
                         int64_t at = qpc ? static_cast<int64_t>(qpc) : Now100ns() - static_cast<int64_t>(frames) * 10'000'000 / Rate;
-                        // While Exo feeds its cleaned voice, the raw microphone is only read and let go.
-                        if (m_kind != Kind::Microphone || Now100ns() - g_fedAt.load() > FedFresh)
+                        // Exo's feed just began: the raw microphone is read and let go until the stream stops.
+                        if (m_kind != Kind::Microphone || !Fed())
                             Write(at, (flags & AUDCLNT_BUFFERFLAGS_SILENT) ? nullptr : reinterpret_cast<const int16_t*>(data), frames);
                         capture->ReleaseBuffer(frames);
                         Check(capture->GetNextPacketSize(&packet), "sound read");
@@ -440,6 +455,7 @@ void StartVoiceFeed(HANDLE pipe)
         }
         // Exo stopped feeding (the capture stopped, or Exo closed): the raw microphone comes back at once.
         g_fedAt = 0;
+        SetEvent(g_feedEnded);
         CloseHandle(pipe);
         Log("Sound: Exo's voice feed ended");
     }).detach();

@@ -1,3 +1,5 @@
+using ExoLauncher.Helpers;
+
 namespace ExoLauncher.Services.DiscordClient.Voice;
 
 /// <summary>
@@ -18,6 +20,30 @@ internal static class MicTest
     private static Timer? _watchdog;
     private static long _renewedAt;
     private static volatile bool _onHead;
+    private static bool _monitor;
+
+    // The meter's own voice in the speaker mix while Hear Your Voice is on: never a call's SSRC.
+    private const uint MonitorSsrc = 0x45584F;
+
+    /// <summary>Whether the speakers play back the voice as the call sends it (Hear Your Voice), and whether they are headphones.</summary>
+    internal static (bool On, bool OnHead) Monitoring => (_monitor, _onHead);
+
+    /// <summary>
+    /// Hear Your Voice: the mic's frames, processed exactly as a call sends them, mixed onto the speakers. With the
+    /// speakers not on the head the echo canceller is up too (it only exists when both sides run), so the played-back
+    /// voice doesn't come straight back through the mic; a real howl is still possible on loud speakers.
+    /// </summary>
+    internal static void Monitor(bool on)
+    {
+        lock (Gate)
+        {
+            if (_monitor == on) return;
+            _monitor = on;
+            AppLog.Info($"Discord voice: hear your voice {(on ? "on" : "off")}.");
+        }
+        // The render side (and its echo canceller) can't join a capture already running: the meter restarts.
+        if (on || _audio is not null) { StopAudio(); Start(); }
+    }
 
     internal static void Start()
     {
@@ -33,13 +59,29 @@ internal static class MicTest
             var voiced = false;
             (VoiceStages, string) shown = default;
             object? stages = null;
+            // The last 8 s as the chain cleaned it, kept so Teach Exo My Voice learns from live talking, not a recording.
+            var take = new float[400][];
+            var takeVoiced = new bool[400];
+            var takeAt = 0;
+            for (var i = 0; i < take.Length; i++) take[i] = new float[Opus.FrameSamples];
             audio.Captured += frame =>
             {
                 var processing = VoiceProcessing.Current;
                 before = MathF.Max(before, Level(frame));
                 var open = chain.Process(frame, processing, audio.MicId, audio.SystemGain);
                 judged = MathF.Max(judged, chain.GateLevel);
+                for (var i = 0; i < Opus.FrameSamples; i++) take[takeAt][i] = (frame[2 * i] + frame[2 * i + 1]) * 0.5f;
+                takeVoiced[takeAt] = open;
+                takeAt = (takeAt + 1) % take.Length;
+                lock (Gate) _take = (take, takeVoiced, takeAt, Math.Min(frames + 1, take.Length));
                 if (open) after = MathF.Max(after, Level(frame));
+                if (_monitor && open)
+                {
+                    // What the call sends: the lead-in ahead of the opening, then the frame itself; held-back sound
+                    // queues nothing, so the speakers go quiet exactly as the call does.
+                    foreach (var lead in chain.TakeLead()) Play(audio, lead);
+                    Play(audio, frame);
+                }
                 voiced |= open;
                 if (++frames % 3 != 0) return;
                 // The stages go as they are, rebuilt only when they change.
@@ -52,14 +94,41 @@ internal static class MicTest
                 DiscordSession.Publish("discord.micLevel", new { level = MathF.Round(before, 1), gateLevel = MathF.Round(judged, 1), after = MathF.Round(after, 1), voiced, stages });
                 (before, judged, after, voiced) = (-100f, -100f, -100f, false);
             };
-            audio.Start(capture: true, render: false);
+            audio.Start(capture: true, render: _monitor);
             _audio = audio;
             _chain = chain;
-            _watchdog = new Timer(_ => { if (Environment.TickCount64 - _renewedAt > 15_000) Stop(); }, null, 5000, 5000);
+            // The page renews every 5 s but a throttled WebView can drop several: outlast 45 s of misses, not 15.
+            _watchdog = new Timer(_ => { if (Environment.TickCount64 - _renewedAt > 45_000) Stop(); }, null, 5000, 5000);
         }
     }
 
     internal static void Stop()
+    {
+        _monitor = false; // the page left: hear your voice ends with the meter
+        StopAudio();
+    }
+
+    private static (float[][] Ring, bool[] Voiced, int At, int Count)? _take;
+
+    /// <summary>The meter's last seconds as cleaned frames and the gate's verdicts, oldest first; null before any frame.</summary>
+    internal static (float[] Cleaned, bool[] Voiced)? Take()
+    {
+        lock (Gate)
+        {
+            if (_take is not { Count: > 0 } t) return null;
+            var cleaned = new float[t.Count * Opus.FrameSamples];
+            var voiced = new bool[t.Count];
+            for (var i = 0; i < t.Count; i++)
+            {
+                var at = (t.At - t.Count + i + t.Ring.Length) % t.Ring.Length;
+                Array.Copy(t.Ring[at], 0, cleaned, i * Opus.FrameSamples, Opus.FrameSamples);
+                voiced[i] = t.Voiced[at];
+            }
+            return (cleaned, voiced);
+        }
+    }
+
+    private static void StopAudio()
     {
         VoiceAudio? audio;
         VoiceChain? chain;
@@ -67,12 +136,20 @@ internal static class MicTest
         {
             (audio, chain) = (_audio, _chain);
             (_audio, _chain) = (null, null);
+            _take = null;
             _watchdog?.Dispose();
             _watchdog = null;
         }
         audio?.Dispose();
         // After the capture thread stopped: it is the chain's only user.
         chain?.Dispose();
+    }
+
+    private static void Play(VoiceAudio audio, float[] frame)
+    {
+        var copy = audio.Rent();
+        frame.CopyTo(copy, 0);
+        audio.Play(MonitorSsrc, copy, level: false);
     }
 
     /// <summary>Speakers were chosen (or the page opened): whether they are on your head, read off the audio thread.</summary>

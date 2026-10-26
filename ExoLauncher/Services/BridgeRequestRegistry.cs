@@ -21,8 +21,11 @@ internal sealed class BridgeRequestRegistry
         var lease = new Lease(this, id, lifetime, deadline);
         if (_requests.TryAdd(id, lease)) return lease;
         lease.Dispose();
-        throw new InvalidOperationException("A request with this identifier is already active.");
+        throw new DuplicateRequestException();
     }
+
+    /// <summary>A request that reuses the id of one still running: dropped without an answer, which would settle the live request's promise.</summary>
+    internal sealed class DuplicateRequestException() : InvalidOperationException("A request with this identifier is already active.");
 
     internal bool Cancel(string id) => _requests.TryGetValue(id, out var lease) && lease.Cancel();
     internal void CancelAll() { foreach (var lease in _requests.Values) lease.Cancel(); }

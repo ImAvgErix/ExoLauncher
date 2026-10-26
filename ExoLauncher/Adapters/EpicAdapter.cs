@@ -840,20 +840,22 @@ public sealed class EpicAdapter : IStoreAdapter, IStoreClientPresence, IStoreAcc
             return HandOffToOtherStore(game, appName, ThirdPartyStoreName(elsewhere.ThirdPartyStore));
 
         Report(game.Id, progress, InstallPhase.Preparing, null, "Preparing…");
-        var legendary = ResolveLegendary() ?? await EnsureLegendaryAsync(ct).ConfigureAwait(false);
-
-        if (legendary is null)
-            return await WatchEpicLauncherJobAsync(game, appName, progress, uninstall: false, ct).ConfigureAwait(false);
-
         var basePath = installPath ?? Path.Combine(PathHelper.AppDataDir, "Epic");
-        Directory.CreateDirectory(basePath);
         // Legendary names the game's folder itself; the one that appears during this install is the partial one.
-        var before = Directory.GetDirectories(basePath).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        HashSet<string>? before = null;
 
-        Report(game.Id, progress, InstallPhase.Preparing, null, "Starting download…");
-
+        // Everything after the first report is inside the try: a cancel or an error while Legendary is fetched, or while
+        // the folder is made, must end the job too, or it stays "Preparing" and blocks DLSS updates and resumed downloads.
         try
         {
+            var legendary = ResolveLegendary() ?? await EnsureLegendaryAsync(ct).ConfigureAwait(false);
+            if (legendary is null)
+                return await WatchEpicLauncherJobAsync(game, appName, progress, uninstall: false, ct).ConfigureAwait(false);
+
+            Directory.CreateDirectory(basePath);
+            before = Directory.GetDirectories(basePath).ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            Report(game.Id, progress, InstallPhase.Preparing, null, "Starting download…");
             var args = LegendaryCli.InstallArgs(appName, basePath);
             var (code, _, err) = await CliRunner.RunAsync(
                 legendary,
@@ -892,8 +894,7 @@ public sealed class EpicAdapter : IStoreAdapter, IStoreClientPresence, IStoreAcc
         catch (OperationCanceledException)
         {
             Report(game.Id, progress, InstallPhase.Cancelled, null, "Canceled.");
-            var created = Directory.GetDirectories(basePath).Where(dir => !before.Contains(dir)).ToList();
-            return new InstallResult { Ok = false, Message = "Canceled.", PartialPath = created.Count == 1 ? created[0] : null };
+            return new InstallResult { Ok = false, Message = "Canceled.", PartialPath = PartialInstallFolder(basePath, before) };
         }
         catch (Exception ex)
         {
@@ -903,7 +904,43 @@ public sealed class EpicAdapter : IStoreAdapter, IStoreClientPresence, IStoreAcc
         }
     }
 
+    /// <summary>
+    /// The one folder this install made under <paramref name="basePath"/>, for cleanup after a cancel: only a new folder
+    /// that carries Legendary's own marker (.egstore). The base is shared with other programs and other installs, so a
+    /// lone new folder is not proof it is ours, and the orchestrator deletes this one recursively. Null when unsure.
+    /// </summary>
+    internal static string? PartialInstallFolder(string basePath, IReadOnlySet<string>? before)
+    {
+        try
+        {
+            if (before is null || !Directory.Exists(basePath)) return null;
+            var ours = Directory.GetDirectories(basePath)
+                .Where(dir => !before.Contains(dir) && Directory.Exists(Path.Combine(dir, ".egstore")))
+                .ToList();
+            return ours.Count == 1 ? ours[0] : null;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return null; }
+    }
+
     public async Task<InstallResult> UpdateAsync(GameEntry game, IProgress<InstallProgress>? progress, CancellationToken ct = default)
+    {
+        // Every way the update can end reports it: the launcher's watch (up to hours) and its start sit outside Legendary's own
+        // handling, and a cancel or an error there left the game "busy" (no upscaler change, no resume) until Exo restarted.
+        try { return await UpdateCoreAsync(game, progress, ct).ConfigureAwait(false); }
+        catch (OperationCanceledException)
+        {
+            Report(game.Id, progress, InstallPhase.Cancelled, null, "Canceled.");
+            return new InstallResult { Ok = false, Message = "Canceled." };
+        }
+        catch (Exception ex)
+        {
+            var failed = CliFailure.Describe("Epic", "update", game.Title, ex);
+            Report(game.Id, progress, InstallPhase.Failed, null, failed);
+            return new InstallResult { Ok = false, Message = failed };
+        }
+    }
+
+    private async Task<InstallResult> UpdateCoreAsync(GameEntry game, IProgress<InstallProgress>? progress, CancellationToken ct)
     {
         var appName = game.LaunchTarget;
         if (string.IsNullOrWhiteSpace(appName))

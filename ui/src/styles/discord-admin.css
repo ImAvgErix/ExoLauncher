@@ -1,8 +1,11 @@
 /* Discord's Server Settings, Edit Channel and the person menu, in Exo's rows, capsules and menus. */
 
-/* The section list: Discord's groups, each with its quiet heading. */
+/* The section list: Discord's groups, each with its quiet heading over a hairline, so a heading never reads as a
+   row to press. */
 .exo-dc-settings-nav section + section {
   margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--exo-float-line);
 }
 
 .exo-dc-settings-nav button.is-danger {
@@ -407,46 +410,73 @@ button.exo-dc-grip:hover {
   margin: 4px 0 8px;
 }
 
-.exo-dc-swatches {
+/* Role color: a saturation/brightness field over a hue strip. The gradients are inline (they carry the picked hue);
+   only the geometry lives here. Cursors are plain rings — crisp at any color, no glass on a control this small. */
+.exo-dc-colorfield {
   display: grid;
-  grid-template-columns: repeat(12, 28px);
+  gap: 10px;
+  max-width: 340px;
+}
+
+.exo-dc-colorfield-sv {
+  position: relative;
+  height: 132px;
+  border-radius: 10px;
+  box-shadow: var(--exo-rim);
+  cursor: crosshair;
+  touch-action: none;
+}
+
+.exo-dc-colorfield-hue {
+  position: relative;
+  height: 12px;
+  border-radius: 6px;
+  box-shadow: var(--exo-rim);
+  cursor: pointer;
+  touch-action: none;
+}
+
+.exo-dc-colorfield-sv > i,
+.exo-dc-colorfield-hue > i {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 40%);
+  translate: -50% -50%;
+  pointer-events: none;
+}
+
+.exo-dc-colorfield-hue > i {
+  top: 50%;
+}
+
+.exo-dc-colorfield-row {
+  display: flex;
+  align-items: center;
   gap: 8px;
 }
 
-.exo-dc-swatch {
-  position: relative;
+.exo-dc-colorfield-chip {
   width: 28px;
   height: 28px;
-  padding: 0;
-  border: 0;
+  flex: none;
   border-radius: 8px;
-  background: var(--exo-fill);
   box-shadow: var(--exo-rim);
-  cursor: pointer;
 }
 
-.exo-dc-swatch.is-default,
-.exo-dc-swatch.is-custom {
-  grid-row: span 2;
-  height: 64px;
+.exo-dc-colorfield-hex {
+  width: 10ch;
 }
 
-.exo-dc-swatch[aria-checked="true"] {
-  box-shadow: 0 0 0 2px var(--color-bg), 0 0 0 4px var(--color-fg);
+.exo-dc-colorfield-row .exo-dc-tab {
+  margin-left: auto;
 }
 
-.exo-dc-swatch.is-custom {
-  overflow: hidden;
-  box-shadow: inset 0 0 0 1px var(--dc-control);
-}
-
-.exo-dc-swatch.is-custom input {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  opacity: 0;
-  cursor: pointer;
+.exo-dc-colorfield.is-disabled .exo-dc-colorfield-sv,
+.exo-dc-colorfield.is-disabled .exo-dc-colorfield-hue {
+  pointer-events: none;
 }
 
 .exo-dc-perm-group {
@@ -667,7 +697,7 @@ button.exo-dc-grip:hover {
 
 .exo-dc-tri .is-deny.is-on {
   background: var(--dc-bad);
-  color: #000;
+  color: var(--color-on-bad);
 }
 
 .exo-dc-tri .is-neutral.is-on {
@@ -677,7 +707,7 @@ button.exo-dc-grip:hover {
 
 .exo-dc-tri .is-allow.is-on {
   background: var(--dc-good);
-  color: #000;
+  color: var(--color-on-good);
 }
 
 .exo-dc-role-side .exo-dc-menu.is-start {
@@ -1003,7 +1033,6 @@ button.exo-dc-member {
   max-width: 360px;
   font-weight: 600;
 }
-
 
 /* Server tag colors: Discord's pairs, each a split swatch. */
 .exo-dc-swatches {

@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { useGlide } from '../../lib/glide'
 import { ChevronDown, ChevronUp, Close } from '../../brand/icons'
 import { host } from '../../lib/host'
@@ -394,7 +394,10 @@ export function Rail({ home, place, onGo, onOpenDm, onPeek, onAdd, homeIcon }: {
     void host.discordUserSettings({ guildFolders: next }).catch(() => null).finally(() => setMoved(current => current === next ? null : current))
   })
   const dragging = drag.state?.moving === true
-  const guilds = new Map(home?.guilds.map(g => [g.id, g]))
+  const guilds = useMemo(() => new Map(home?.guilds.map(g => [g.id, g])), [home?.guilds])
+  // Hovering a server fetches its channels for the voice peek: a sweep of the rail would be one request each
+  // without a cache; a tooltip can be ten seconds stale.
+  const peeks = useRef(new Map<string, { at: number; talking: DiscordVoiceMember[]; streaming: DiscordVoiceMember[] }>())
   return (
     <nav className={`exo-dc-rail${dragging ? ' is-dragging' : ''}`} aria-label="Servers" onScroll={() => setTip(null)} {...drag.handlers}
       onPointerOver={event => {
@@ -406,9 +409,13 @@ export function Rail({ home, place, onGo, onOpenDm, onPeek, onAdd, homeIcon }: {
         const at = button.dataset.dcPlace && button.dataset.dcPlace !== '@me' ? button.dataset.dcPlace : undefined
         setTip({ label: (button.getAttribute('aria-label') ?? '').replace(/, \d+ mentions$/, ''), left: box.right + 14, top: box.top + box.height / 2, place: at })
         if (at && at !== tip?.place) {
-          host.discordChannels(at).then(list => {
+          const hit = peeks.current.get(at)
+          if (hit && Date.now() - hit.at < 10_000) setInVoice({ place: at, talking: hit.talking, streaming: hit.streaming })
+          else host.discordChannels(at).then(list => {
             const people = list.channels.filter(c => c.kind === 'voice' && !c.afk && !c.muted).flatMap(c => c.members ?? [])
-            setInVoice({ place: at, talking: people.filter(m => !m.stream), streaming: people.filter(m => m.stream) })
+            const talking = people.filter(m => !m.stream), streaming = people.filter(m => m.stream)
+            peeks.current.set(at, { at: Date.now(), talking, streaming })
+            setInVoice({ place: at, talking, streaming })
           }).catch(() => { })
         }
       }}
@@ -752,7 +759,7 @@ function ChannelList({ channels, open, collapsed, onPick, onToggle, onJoin, onCr
     }
     if (category && collapsed.has(category) && !(c.unread && !c.muted) && c.id !== open) return null
     const inCategory = category !== null
-    if (c.kind === 'voice') return <VoiceChannel key={c.id} channel={c} voice={voice} onJoin={onJoin} onMenu={(channel, x, y) => onMenu(channel, x, y, inCategory)} />
+    if (c.kind === 'voice') return <VoiceChannel key={c.id} channel={c} voice={voice} open={open === c.id} onPreview={onPick} onJoin={onJoin} onMenu={(channel, x, y) => onMenu(channel, x, y, inCategory)} />
     // Any text channel listed opens, as in Discord: one without Read Message History shows only what arrives while open.
     const readable = c.kind === 'text' || c.kind === 'forum'
     return (
@@ -771,13 +778,25 @@ function ChannelList({ channels, open, collapsed, onPick, onToggle, onJoin, onCr
   })
 }
 
-/** A voice channel: click to join; who is in it underneath, ringed while they speak. */
-function VoiceChannel({ channel, voice, onJoin, onMenu }: { channel: DiscordChannel; voice: VoiceControls; onJoin: (id: string) => void; onMenu: (channel: DiscordChannel, x: number, y: number) => void }) {
+/**
+ * A voice channel: a click opens it without joining, as Discord's voice channel preview does (who is in it, their
+ * cameras and streams marked, and Join voice); a double click joins at once. Who is in it shows underneath, ringed
+ * while they speak. A channel you can't connect to still opens, so you can see who is there.
+ */
+function VoiceChannel({ channel, voice, open, onPreview, onJoin, onMenu }: {
+  channel: DiscordChannel
+  voice: VoiceControls
+  open: boolean
+  onPreview: (id: string) => void
+  onJoin: (id: string) => void
+  onMenu: (channel: DiscordChannel, x: number, y: number) => void
+}) {
   const here = voice.voice.channelId === channel.id && voice.voice.state !== 'off'
   return (
     <div className="exo-dc-voice-channel" onContextMenu={event => { if ((event.target as Element).closest('[data-dc-user]')) return; event.preventDefault(); onMenu(channel, event.clientX, event.clientY) }}>
-      <button type="button" className={`exo-dc-item${here ? ' is-here' : ''}`} disabled={channel.canConnect === false && !here}
-        aria-label={here ? `${channel.name}, you're here` : `Join ${channel.name}`} aria-current={here} onClick={() => onJoin(channel.id)}>
+      <button type="button" className={`exo-dc-item${here ? ' is-here' : ''}`}
+        aria-label={here ? `${channel.name}, you're here` : channel.name} aria-current={here || open}
+        onClick={() => onPreview(channel.id)} onDoubleClick={() => { if (!here && channel.canConnect !== false) onJoin(channel.id) }}>
         <span className="exo-dc-hash" aria-hidden="true"><ChannelIcon channel={channel} /></span>
         <span className="exo-dc-item-name">{channel.name}</span>
         {channel.userLimit ? <span className="exo-dc-voice-limit" aria-label={`${channel.members?.length ?? 0} of ${channel.userLimit} users`}>

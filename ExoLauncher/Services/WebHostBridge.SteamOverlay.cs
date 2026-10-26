@@ -83,6 +83,7 @@ public sealed partial class WebHostBridge
             var quiet = settings.QuietStoreApps ? StoreQuiet.SteamEdits(root).Count : 0;
             if (writes.Count == 0 && eulas.Count == 0 && quiet == 0)
             {
+                if (choices is not null) AppLog.Info("Steam overlay: already as asked for " + string.Join(", ", choices.Keys) + "; nothing to write.");
                 SaveOverlayRecord(record);
                 return null;
             }
@@ -97,6 +98,8 @@ public sealed partial class WebHostBridge
                 : null;
             if (wait is not null)
             {
+                // Said in the log too: a switch that waits looks, from the page, like one that did nothing.
+                AppLog.Info($"Steam overlay: {writes.Count} change(s) wait. {wait}");
                 SaveOverlayRecord(record);
                 return wait;
             }

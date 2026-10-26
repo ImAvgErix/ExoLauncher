@@ -740,18 +740,15 @@ public sealed class GogAdapter : IStoreAdapter, IStoreClientPresence, IStoreAcco
         }
         catch (OperationCanceledException)
         {
-            if (stagingPath is not null)
-                TryDeleteGogInstallDirectory(
-                    location.ManagedRoot,
-                    stagingPath,
-                    requireStagingName: true);
-            else if (promotedNewInstall)
+            // Pause and Hold stop the download this way too, and Resume starts the install again into the same staging
+            // folder. It is kept and handed back: the orchestrator throws it away only for a Cancel.
+            if (stagingPath is null && promotedNewInstall)
                 TryDeleteGogInstallDirectory(
                     location.ManagedRoot,
                     location.InstallPath,
                     requireStagingName: false);
             Report(game.Id, progress, InstallPhase.Cancelled, null, "Canceled.");
-            return new InstallResult { Ok = false, Message = "Canceled." };
+            return new InstallResult { Ok = false, Message = "Canceled.", PartialPath = stagingPath };
         }
         catch (Exception ex)
         {
@@ -771,16 +768,12 @@ public sealed class GogAdapter : IStoreAdapter, IStoreClientPresence, IStoreAcco
         }
     }
 
-    private static string CreateManagedInstallStagingPath(string managedRoot, string safeProductDirectoryName)
-    {
-        while (true)
-        {
-            var candidate = Path.Combine(
-                managedRoot,
-                $"{ManagedInstallStagingPrefix}{safeProductDirectoryName}-{Guid.NewGuid():N}");
-            if (!Path.Exists(candidate)) return candidate;
-        }
-    }
+    /// <summary>
+    /// The folder a new install downloads into before it is promoted: one per product, the same every time, so a paused or
+    /// interrupted download is found and carried on instead of starting over (a 40 GB game restarted from zero on every Pause).
+    /// </summary>
+    internal static string CreateManagedInstallStagingPath(string managedRoot, string safeProductDirectoryName) =>
+        Path.Combine(managedRoot, ManagedInstallStagingPrefix + safeProductDirectoryName);
 
     private static void TryDeleteGogInstallDirectory(
         string managedRoot,

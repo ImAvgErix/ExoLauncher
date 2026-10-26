@@ -23,6 +23,21 @@
   height: clamp(200px, 28vh, 300px);
 }
 
+/* A narrow window (a portrait screen): two banners a row, one at the narrowest, each wide enough for its name, Play
+   and More (three across left a name a few pixels wide). */
+@media (max-width: 900px) {
+  .exo-continue-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-auto-rows: clamp(160px, 18vh, 220px);
+    height: auto;
+  }
+}
+
+@media (max-width: 640px) {
+  .exo-continue-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
 
 .exo-continue-card {
   position: relative;
@@ -377,13 +392,34 @@
 /* One grid: not installed is a mark, not a place. Its art sits darker and partly drained of color under
    a small download mark, so what you can play now stands out; hovering brings it back. One filter on the
    art (it already had one), not a dark layer over it: that layer's antialiased corner let the art through as a light rim. */
-.exo-library-pane .exo-tile.is-dim .exo-tile-media img {
+/* The dim itself is baked into the thumbnail the host serves (&dim=1): the card
+   paints plain, and the plain copy mounts on the first hover and fades in over it
+   (the same 160ms the filter used). The filter survives only for a card whose dim
+   thumbnail failed, so it is never undimmed by mistake. */
+.exo-library-pane .exo-tile.is-dim .exo-tile-media img.is-dim-fallback {
   filter: saturate(0.45) brightness(0.42);
   transition: filter 160ms var(--ease-out);
 }
 
-.exo-library-pane .exo-tile.is-dim .exo-tile-hit:hover .exo-tile-media img {
+.exo-library-pane .exo-tile.is-dim .exo-tile-hit:hover .exo-tile-media img.is-dim-fallback {
   filter: none;
+}
+
+.exo-cover-undim {
+  opacity: 0;
+  pointer-events: none;
+  /* On mount the keyframe covers the fade in (a class alone has nothing to leave);
+     later hovers are the transition. */
+  animation: exo-cover-undim-in 160ms var(--ease-out) backwards;
+  transition: opacity 160ms var(--ease-out);
+}
+
+.exo-cover-undim.is-on {
+  opacity: 1;
+}
+
+@keyframes exo-cover-undim-in {
+  from { opacity: 0; }
 }
 
 /* In a folder the art stays whole (a folder is a place you chose, often all of one kind), the mark alone tells. */
@@ -402,7 +438,6 @@
     rgb(0 0 0 / 0.72);
   pointer-events: none;
 }
-
 
 /* Select mode (LibraryPane.tsx): a ring on each cover's corner, filled with a check on the picked ones, which also take
    the ring outside their art that focus does. Folders sit back: they can't be picked. */

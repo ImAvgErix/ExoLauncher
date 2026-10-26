@@ -53,7 +53,7 @@ internal static class StoreLinks
         catch { return false; }
     }
 
-    private static bool IsRedirect(Uri uri) => uri.Host.EndsWith("cheapshark.com", StringComparison.OrdinalIgnoreCase);
+    private static bool IsRedirect(Uri uri) => uri.Host.Equals("cheapshark.com", StringComparison.OrdinalIgnoreCase) || uri.Host.EndsWith(".cheapshark.com", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// Follows a CheapShark redirect to the store page it leads to. Must run on
@@ -84,7 +84,7 @@ internal static class StoreLinks
             {
                 if (!Uri.TryCreate(e.Uri, UriKind.Absolute, out var next) || IsRedirect(next)) return;
                 e.Cancel = true;
-                landed.TrySetResult(next.Scheme is "https" or "http" ? next : null);
+                landed.TrySetResult(next.Scheme == Uri.UriSchemeHttps ? next : null);
             };
             core.NewWindowRequested += (_, e) => e.Handled = true;
             core.Navigate(url.AbsoluteUri);

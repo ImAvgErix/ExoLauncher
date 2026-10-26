@@ -26,7 +26,23 @@ public sealed partial class MainWindow
             AppWindow.MoveAndResize(new RectInt32(restored.X, restored.Y, restored.Width, restored.Height));
             _normalPlacement = restored;
             _persistedPlacement = saved;
-            if (restored.Maximized && AppWindow.Presenter is OverlappedPresenter presenter) presenter.Maximize();
+            if (restored.Maximized && AppWindow.Presenter is OverlappedPresenter presenter)
+            {
+                // Maximize activates the window. Started not to take the focus (EXO_NO_ACTIVATE, a restart during a game), it
+                // fills the screen's work area instead and maximizes the first time it is activated.
+                if (Environment.GetEnvironmentVariable("EXO_NO_ACTIVATE") == "1")
+                {
+                    AppWindow.MoveAndResize(new RectInt32(work.X, work.Y, work.Width, work.Height));
+                    void Once(object sender, Microsoft.UI.Xaml.WindowActivatedEventArgs args)
+                    {
+                        if (args.WindowActivationState == Microsoft.UI.Xaml.WindowActivationState.Deactivated) return;
+                        Activated -= Once;
+                        presenter.Maximize();
+                    }
+                    Activated += Once;
+                }
+                else presenter.Maximize();
+            }
         }
         catch { TryCenterOnScreen(); RememberWindowPlacement(); }
     }

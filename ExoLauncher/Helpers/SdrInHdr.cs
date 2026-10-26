@@ -82,8 +82,9 @@ internal static class SdrInHdr
         BinaryPrimitives.WriteUInt32BigEndian(span, (uint)file.Length);
         BinaryPrimitives.WriteUInt32BigEndian(span[8..], 0x02100000);                 // ICC 2.1
         Ascii(span[12..], "mntr"); Ascii(span[16..], "RGB "); Ascii(span[20..], "XYZ ");
-        var now = DateTime.UtcNow;
-        foreach (var (i, v) in new[] { now.Year, now.Month, now.Day, now.Hour, now.Minute, now.Second }.Select((v, i) => (i, v)))
+        // A fixed creation date: the file's name is a hash of its content, so a clock in the header would give every
+        // look a new name and Apply would install and re-associate the profile again every few seconds.
+        foreach (var (i, v) in new[] { 2026, 1, 1, 0, 0, 0 }.Select((v, i) => (i, v)))
             BinaryPrimitives.WriteUInt16BigEndian(span[(24 + i * 2)..], (ushort)v);
         Ascii(span[36..], "acsp"); Ascii(span[40..], "MSFT");
         WriteS15(span[68..], 0.9642); WriteS15(span[72..], 1.0); WriteS15(span[76..], 0.8249); // D50

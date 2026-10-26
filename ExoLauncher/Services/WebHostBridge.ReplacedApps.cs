@@ -20,6 +20,11 @@ public sealed partial class WebHostBridge
         if (!await ReplacedGate.WaitAsync(0, ct).ConfigureAwait(false)) return new { ok = false, message = "Another app is being removed." };
         try
         {
+            // Uninstalling an app and deleting its data is asked in Exo's own window, not on the page's word.
+            var name = ReplacedApps.ForThisPc().Scan().FirstOrDefault(app => app.Id == id)?.Name ?? "this app";
+            if (App.MainAppWindow is not { } asker ||
+                !await asker.ConfirmNativeAsync("Remove " + name, $"Exo will uninstall {name} and delete everything it left on this PC. This can't be undone.", "Remove").ConfigureAwait(true))
+                return new { ok = false, message = "Nothing was removed.", removed = 0, left = 0, apps = ReplacedApps.ForThisPc().Scan() };
             var result = await Task.Run(() => ReplacedApps.ForThisPc().RemoveAsync(id, ct), ct).ConfigureAwait(true);
             // Print Screen opened Windows' snip; with it gone, Exo's snip takes the key.
             if (result.Ok && id == "snipping" && App.MainAppWindow is { } window)

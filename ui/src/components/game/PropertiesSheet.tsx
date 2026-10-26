@@ -124,6 +124,8 @@ export function PropertiesSheet({ game, artwork, upscalers: upscalerStatus, onUp
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return
+      // A dropdown open in the panel (language, beta, folder) takes the key first.
+      if (document.querySelector('[popover]:popover-open')) return
       // Escape closes this panel, not the game page under it; an armed row stands down first.
       event.preventDefault()
       event.stopPropagation()

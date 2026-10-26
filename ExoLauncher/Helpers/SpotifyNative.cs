@@ -61,6 +61,9 @@ internal sealed class SpotifyNative : IDisposable
         await _page.EvaluateAsync("(function(){var b=document.querySelector('[data-testid=\"login-button\"]');if(!b)return false;b.click();return true})()",
             CallTimeout, cancellation) is { ValueKind: JsonValueKind.True };
 
+    /// <summary>Whether the page answers at all: the wake-up before an action, which is then sent once and never repeated.</summary>
+    internal Task<JsonElement?> PingAsync(CancellationToken cancellation) => _page.EvaluateAsync("1", TimeSpan.FromSeconds(2), cancellation);
+
     private async Task<JsonElement?> CallAsync(string call, CancellationToken cancellation)
     {
         // The first read unzips the 12 MB xpui.spa: off the UI thread.

@@ -165,6 +165,34 @@ function TrimBar({ duration, start, end, time, onChange, onSeek }: {
   )
 }
 
+/** Make smaller: Exo Capture re-saves the recording at a third of the size (it checks the result first). The press starts it; Exo says how it went. */
+function MakeSmaller({ item, disabled, onChanged, setNote }: {
+  item: CaptureItem
+  disabled: boolean
+  onChanged: (item: CaptureItem) => void
+  setNote: (note: { text: string; bad?: boolean }) => void
+}) {
+  const [shrinking, setShrinking] = useState(false)
+  useEffect(() => onHostEvent('capture.shrunk', ({ id, item: next, before, after, message }) => {
+    if (id !== item.id) return
+    setShrinking(false)
+    if (next) {
+      onChanged(next)
+      setNote({ text: `Smaller now: ${size(before)} to ${size(after)}.` })
+    } else setNote({ text: message ?? 'Left as it was.' })
+  }), [item.id, onChanged, setNote])
+  const start = async () => {
+    setNote({ text: '' })
+    try {
+      const result = await host.captureItem(item.id, 'shrink')
+      if (!result.ok) { setNote({ text: result.message ?? 'That did not work.', bad: true }); return }
+      setShrinking(true)
+      setNote({ text: result.message ?? 'Making it smaller.' })
+    } catch (error) { setNote({ text: error instanceof Error ? error.message : 'That did not work.', bad: true }) }
+  }
+  return <button type="button" className="exo-set-btn" disabled={disabled || shrinking} onClick={() => void start()}>{shrinking ? 'Making smaller' : 'Make smaller'}</button>
+}
+
 function Detail({ item, edit, onBack, onFavourite, onChanged, onDeleted, onAdded, onDiscord }: {
   item: CaptureItem
   edit: boolean
@@ -183,6 +211,7 @@ function Detail({ item, edit, onBack, onFavourite, onChanged, onDeleted, onAdded
   const [note, setNote] = useState<{ text: string; bad?: boolean } | null>(null)
   const [editing, setEditing] = useState(edit && item.kind === 'image')
   const trimmed = duration > 0 && (range[0] > 250 || range[1] < duration - 250)
+
 
   async function act(action: 'delete' | 'reveal' | 'copy' | 'discord') {
     setNote(null)
@@ -254,6 +283,7 @@ function Detail({ item, edit, onBack, onFavourite, onChanged, onDeleted, onAdded
             <button type="button" className="exo-set-btn" disabled={!!busy} onClick={() => void save('discord')}>{busy === 'discord' ? 'Exporting' : 'For Discord'}</button>
             <button type="button" className="exo-set-btn" disabled={!!busy} onClick={() => void save('youtube')}>{busy === 'youtube' ? 'Exporting' : 'Full quality'}</button>
             <button type="button" className="exo-set-btn" disabled={!!busy} onClick={() => void save('vertical')}>{busy === 'vertical' ? 'Exporting' : 'Vertical'}</button>
+            <MakeSmaller item={item} disabled={!!busy} onChanged={onChanged} setNote={setNote} />
           </>
         ) : (
           <button type="button" className="exo-set-btn is-primary" onClick={() => setEditing(true)}>Edit</button>

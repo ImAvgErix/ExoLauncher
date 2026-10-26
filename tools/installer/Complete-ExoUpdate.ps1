@@ -40,13 +40,31 @@ function Restore-ExoUpdateBackup([string]$Root, [string]$Previous) {
     if (-not [IO.File]::Exists((Join-Path $paths.previous 'ExoLauncher.exe'))) { throw 'The previous app payload is unavailable.' }
     # Resolve and verify both whole-tree moves beneath the explicitly named managed root.
     $failed = Join-Path $paths.root ('app.failed-' + [guid]::NewGuid().ToString('N'))
-    if ([IO.Directory]::Exists($paths.app)) { Move-Item -LiteralPath $paths.app -Destination $failed }
-    Move-Item -LiteralPath $paths.previous -Destination $paths.app
+    $hadApp = [IO.Directory]::Exists($paths.app)
+    if ($hadApp) { Move-Item -LiteralPath $paths.app -Destination $failed }
+    try {
+        # A plain rename (Move-Item moves *into* an existing folder and leaves an empty one behind when it fails, so a
+        # retry would nest the payload). A scanner holding the just-renamed tree usually lets go within a second or two.
+        for ($attempt = 1; ; $attempt++) {
+            try { [IO.Directory]::Move($paths.previous, $paths.app); break }
+            catch { if ($attempt -ge 5) { throw }; Start-Sleep -Milliseconds 500 }
+        }
+    } catch {
+        # Never leave the install with no app folder: put the replacement back so the shortcut still opens something.
+        if ($hadApp -and -not [IO.Directory]::Exists($paths.app)) { [IO.Directory]::Move($failed, $paths.app) }
+        throw
+    }
     return $failed
 }
 
 if ($updateDefinitionsOnly) { return }
-$paths = Get-ExoManagedUpdatePaths $InstallRoot $PreviousDirectory
+try { $paths = Get-ExoManagedUpdatePaths $InstallRoot $PreviousDirectory }
+catch {
+    # The swap is done but this can't check it: said where the app looks (update-error.log), never a silent exit.
+    try { [IO.File]::WriteAllText((Join-Path $InstallRoot 'update-error.log'), $_.Exception.Message) } catch { }
+    Write-Error $_.Exception.Message -ErrorAction Continue
+    exit 1
+}
 $exe = Join-Path $paths.app 'ExoLauncher.exe'
 $nonce = [guid]::NewGuid().ToString('N')
 $pending = Join-Path $paths.root 'update-pending.json'
@@ -63,13 +81,14 @@ try {
     $start.WorkingDirectory = $paths.app; $start.EnvironmentVariables['EXO_UPDATE_HEALTH_NONCE'] = $nonce
     $child = [Diagnostics.Process]::Start($start)
     if ($null -eq $child) { throw 'Windows did not start the replacement app.' }
-    $deadline = [DateTime]::UtcNow.AddSeconds(60)
+    # Longer than the app's own 45 s after its page loads: a cold first start of a new build on a slow disk takes a while.
+    $deadline = [DateTime]::UtcNow.AddSeconds(180)
     $healthy = $false
     while (-not $child.HasExited -and [DateTime]::UtcNow -lt $deadline) {
         if (Test-ExoStartupReceipt $receipt $nonce $Version $exe $child.Id) { $healthy = $true; break }
         Start-Sleep -Milliseconds 200
     }
-    if (-not $healthy) { throw 'The replacement did not reach a usable startup within sixty seconds.' }
+    if (-not $healthy) { throw 'The replacement did not reach a usable startup within three minutes.' }
     Write-ExoUpdateJson $outcome @{ schema=1; version=$Version; status='succeeded'; atUtc=[DateTimeOffset]::UtcNow.ToString('o'); processId=$child.Id }
     # Only this setup's validated previous payload can be removed. A link or a
     # locked file leaves the backup for inspection without undoing a healthy update.
