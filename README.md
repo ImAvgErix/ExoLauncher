@@ -158,4 +158,4 @@ Appearance (Match Windows, Light, Dark or Void), Glass, text size and reduce mot
 
 [Report an issue](https://github.com/ImAvgErix/ExoLauncher/issues) · [Support development](https://www.buymeacoffee.com/UhhErix)
 
-© 2026 Erix ([ImAvgErix](https://github.com/ImAvgErix)).
+© 2026 Erix ([UhhErix](https://github.com/UhhErix)).
