@@ -157,7 +157,7 @@ internal sealed class VoiceChain : IDisposable
                 Voiced = open;
                 if ((processing.OnlyMyVoice || Voiceprint.Learned) && Mine() is { } mine)
                 {
-                    mine.Feed(frame, open);
+                    mine.Feed(frame, open, processing.OnlyMyVoice);
                     if (processing.OnlyMyVoice && open && mine.HoldingBack) open = false;
                 }
             }

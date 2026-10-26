@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.15.3 — October 26, 2026
+
+- **The voice meter and Teach Exo my voice work again.** 3.15.2 kept 20 seconds of the meter for teaching, but only eight seconds of which moments were speech: past the eighth second every meter frame failed, so the meter froze and teaching your voice failed. _Checked in code only; needs a meter left on past eight seconds._
+- **Only my voice off holds nobody back, not even on paper.** With it off, Exo still listens to learn your voice, but it said it was holding voices back and could show the panel's "kept holding back your own voice" note; it doesn't now. _Checked in code only._
+
 ## 3.15.2 — October 26, 2026
 
 - **Only my voice never keeps you muted.** A voiceprint taught from a few seconds could judge your own voice in a game not yours and hold you back for the rest of the call: Discord stopped showing you talking and nothing was sent. If it holds back more than half of 20 seconds of your speech, it stops holding back for that call and the voice panel says so. Teaching now takes at least eight seconds of speech (three before), out of the last 20 seconds the meter heard. _Checked in code only; needs a call where it misjudges your voice._

@@ -22,6 +22,9 @@ internal static class MicTest
     private static volatile bool _onHead;
     private static bool _monitor;
 
+    /// <summary>The frames the meter keeps for Teach Exo My Voice: 20 s.</summary>
+    internal const int TakeFrames = 1000;
+
     // The meter's own voice in the speaker mix while Hear Your Voice is on: never a call's SSRC.
     private const uint MonitorSsrc = 0x45584F;
 
@@ -59,9 +62,11 @@ internal static class MicTest
             var voiced = false;
             (VoiceStages, string) shown = default;
             object? stages = null;
-            // The last 8 s as the chain cleaned it, kept so Teach Exo My Voice learns from live talking, not a recording.
-            var take = new float[1000][]; // 20 s: a teach takes eight seconds of speech out of what the meter heard
-            var takeVoiced = new bool[400];
+            // The last 20 s as the chain cleaned it, kept so Teach Exo My Voice learns from live talking, not a recording
+            // (a teach takes eight seconds of speech out of it). One length for both: 3.15.2 grew the frames alone, and
+            // every frame past the eighth second failed, the meter froze and a teach couldn't read the take.
+            var take = new float[TakeFrames][];
+            var takeVoiced = new bool[TakeFrames];
             var takeAt = 0;
             for (var i = 0; i < take.Length; i++) take[i] = new float[Opus.FrameSamples];
             audio.Captured += frame =>

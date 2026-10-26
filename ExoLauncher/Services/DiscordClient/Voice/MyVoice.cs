@@ -34,6 +34,7 @@ internal sealed class MyVoice : IThreadPoolWorkItem
     // The safety stop: how much of the last 20 s of speech (20 buckets of a second's voiced frames) was held back.
     private readonly int[] _heldPerSecond = new int[StopSeconds];
     private int _bucket, _inBucket, _seconds, _stopped;
+    private bool _holding;
 
     private MyVoice(float[] mine) => _mine = mine;
 
@@ -61,8 +62,10 @@ internal sealed class MyVoice : IThreadPoolWorkItem
     /// frames are kept at 16 kHz, and every half second (once a second of voice is in) the last 1.5 s is judged off
     /// the audio thread. Nothing is allocated here.
     /// </summary>
-    internal void Feed(float[] stereo, bool voiced)
+    internal void Feed(float[] stereo, bool voiced, bool holding)
     {
+        // Off (Only My Voice not on), it still judges, to learn, but holds nobody back: no safety stop, no log of it.
+        Volatile.Write(ref _holding, holding);
         for (var i = 0; i < Opus.FrameSamples; i++) _mono[i] = (stereo[2 * i] + stereo[2 * i + 1]) * 0.5f;
         _decimator.Run(_mono, _down);
         if (!voiced)
@@ -76,7 +79,7 @@ internal sealed class MyVoice : IThreadPoolWorkItem
             return;
         }
         _quiet = 0;
-        CountHeld();
+        if (holding) CountHeld();
         foreach (var sample in _down) { _ring[_write] = sample; _write = (_write + 1) % Window; }
         _filled = Math.Min(_filled + Down, Window);
         _sinceCheck += Down;
@@ -125,7 +128,7 @@ internal sealed class MyVoice : IThreadPoolWorkItem
             if (_workGeneration != Volatile.Read(ref _generation)) return; // a pause came: a new voice is judged afresh
             var before = _verdict.Held;
             _verdict = Judge(_verdict, similarity);
-            if (_verdict.Held != before)
+            if (_verdict.Held != before && Volatile.Read(ref _holding))
                 AppLog.Info(_verdict.Held
                     ? $"Discord voice: holding back a voice that isn't yours (similarity {similarity:0.00})."
                     : $"Discord voice: your voice again (similarity {similarity:0.00}).");
