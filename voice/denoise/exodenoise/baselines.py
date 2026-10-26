@@ -72,8 +72,9 @@ def dfn3(atten: float | None):
     return run
 
 
-def dfn3_ll(atten: float | None):
-    """The ONNX graphs of DeepFilterNet3_ll with DeepFilterNet's own STFT, features, mask and deep filter."""
+def dfn3_ll(atten: float | None, folder: Path | None = None):
+    """The ONNX graphs of DeepFilterNet3_ll with DeepFilterNet's own STFT, features, mask and deep filter.
+    ``folder`` holds enc/erb_dec/df_dec.onnx and config.ini (a fine-tuned export); default: the published model."""
     import tarfile
 
     import onnxruntime as ort
@@ -84,8 +85,9 @@ def dfn3_ll(atten: float | None):
     from df.multiframe import DF as DeepFilter
     from libdf import DF
 
-    folder = CACHE / "dfn3_ll"
-    if not (folder / "enc.onnx").exists():
+    published = folder is None
+    folder = folder or CACHE / "dfn3_ll"
+    if published and not (folder / "enc.onnx").exists():
         with tarfile.open(_fetch(DFN_MODELS + "DeepFilterNet3_ll_onnx.tar.gz", "DeepFilterNet3_ll_onnx.tar.gz")) as t:
             for m in t.getmembers():
                 if m.isfile() and Path(m.name).suffix in (".onnx", ".ini"):
@@ -211,6 +213,7 @@ def main() -> None:
     ap.add_argument("out_dir")
     ap.add_argument("--atten", type=float, default=None, help="attenuation limit in dB (dfn3, dfn3_ll, exo)")
     ap.add_argument("--limit", type=int)
+    ap.add_argument("--onnx-dir", help="dfn3_ll: a folder of fine-tuned graphs (export.py's tmp/export) instead of the published ones")
     a = ap.parse_args()
     files = sorted(Path(a.noisy_dir).glob("*.wav"))[: a.limit]
     out = Path(a.out_dir)
@@ -222,7 +225,7 @@ def main() -> None:
                 run_file(f, out / f.name)
         return
     run = {
-        "dfn3": lambda: dfn3(a.atten), "dfn3_ll": lambda: dfn3_ll(a.atten), "rnnoise": rnnoise,
+        "dfn3": lambda: dfn3(a.atten), "dfn3_ll": lambda: dfn3_ll(a.atten, Path(a.onnx_dir) if a.onnx_dir else None), "rnnoise": rnnoise,
         "demucs": demucs, "dtln": dtln,
     }.get(a.name, lambda: exo(a.name[4:], a.atten) if a.name.startswith("exo:") else sys.exit(f"unknown baseline {a.name}"))()
     for i, f in enumerate(files):
