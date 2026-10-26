@@ -1,0 +1,13 @@
+# Exo's current model fine-tuned as dfn3_ll_ft.yaml, with less weight on over-suppression (0.25) and more on SI-SDR
+# (0.1): the first run gained PESQ and STOI everywhere but gave up SI-SDR and DNSMOS background on VoiceBank-DEMAND.
+run: runs/dfn3-ll-ft2
+model: {kind: dfn3, variant: dfn3_ll}
+loss: {spectral: 1.0, asym: 0.25, sisdr: 0.1, lsnr: 0.0005}
+mix: {seconds: 2.0, snr_db: [-5, 30], p_rir: 0.3, p_babble: 0.15}
+data:
+  speech: [data/manifests/speech_vb.jsonl, data/manifests/speech_emotional.jsonl]
+  noise: [data/manifests/noise_demand.jsonl, data/manifests/noise_freesound.jsonl]
+  rir: [data/manifests/rir_dns.jsonl]
+  val_mix: 64
+  val_pairs: {noisy: data/vb_test/noisy_testset_wav, clean: data/vb_test/clean_testset_wav, limit: 100}
+train: {batch: 16, lr: 0.00005, steps: 1400, warmup: 50, workers: 2, threads: 3, ema: 0.995, log_every: 25, val_every: 200}
