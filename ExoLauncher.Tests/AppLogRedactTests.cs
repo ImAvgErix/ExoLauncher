@@ -23,7 +23,7 @@ public sealed class AppLogRedactTests
 
     [Theory]
     [InlineData("sha256 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08 matched")]
-    [InlineData("Downloaded https://github.com/ImAvgErix/ExoLauncher/releases/download/v3.5.0/ExoLauncher-Setup.exe")]
+    [InlineData("Downloaded https://github.com/UhhErix/ExoLauncher/releases/download/v3.5.0/ExoLauncher-Setup.exe")]
     [InlineData(@"Scanned C:\Program Files (x86)\Steam\steamapps\common\Counter-Strike Global Offensive\game\bin\win64")]
     [InlineData("Spotify 1.3.5.3058, Chrome/151.0.7922.138, nvngx_dlss.dll 310.9.16.0")]
     [InlineData("dlss-swapper-downloads.beeradmoore.com answered 200")]

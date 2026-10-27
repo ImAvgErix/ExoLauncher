@@ -8,9 +8,9 @@ import { Row, Section, State } from './parts'
 
 /** What's new opens the sheet of this version's notes (LauncherApp); the rest open in the browser. */
 const LINKS = [
-  { label: 'Report a problem', url: 'https://github.com/ImAvgErix/ExoLauncher/issues' },
+  { label: 'Report a problem', url: 'https://github.com/UhhErix/ExoLauncher/issues' },
   { label: "What's new", url: null },
-  { label: 'Privacy', url: 'https://github.com/ImAvgErix/ExoLauncher/blob/main/PRIVACY.md' },
+  { label: 'Privacy', url: 'https://github.com/UhhErix/ExoLauncher/blob/main/PRIVACY.md' },
   { label: 'Support Exo', url: 'https://www.buymeacoffee.com/UhhErix' },
 ] as const
 

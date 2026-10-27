@@ -28,14 +28,14 @@ public sealed class AppUpdateServiceTests
         Assert.Equal(expected, AppUpdateService.IsUpdateAssetName(name));
 
     [Theory]
-    [InlineData("https://github.com/ImAvgErix/ExoLauncher/releases/download/v3.5.0/ExoLauncher-Setup.exe", "v3.5.0", "ExoLauncher-Setup.exe", true)]
-    [InlineData("https://github.com/ImAvgErix/ExoLauncher/releases/download/v3.5.0/ExoLauncher-Setup.exe", "v3.4.0", "ExoLauncher-Setup.exe", false)]
+    [InlineData("https://github.com/UhhErix/ExoLauncher/releases/download/v3.5.0/ExoLauncher-Setup.exe", "v3.5.0", "ExoLauncher-Setup.exe", true)]
+    [InlineData("https://github.com/UhhErix/ExoLauncher/releases/download/v3.5.0/ExoLauncher-Setup.exe", "v3.4.0", "ExoLauncher-Setup.exe", false)]
     [InlineData("https://github.com/Someone/ExoLauncher/releases/download/v3.5.0/ExoLauncher-Setup.exe", "v3.5.0", "ExoLauncher-Setup.exe", false)]
-    [InlineData("https://github.com:8443/ImAvgErix/ExoLauncher/releases/download/v3.5.0/ExoLauncher-Setup.exe", "v3.5.0", "ExoLauncher-Setup.exe", false)]
-    [InlineData("https://user@github.com/ImAvgErix/ExoLauncher/releases/download/v3.5.0/ExoLauncher-Setup.exe", "v3.5.0", "ExoLauncher-Setup.exe", false)]
-    [InlineData("http://github.com/ImAvgErix/ExoLauncher/releases/download/v3.5.0/ExoLauncher-Setup.exe", "v3.5.0", "ExoLauncher-Setup.exe", false)]
-    [InlineData("https://github.com.evil.example/ImAvgErix/ExoLauncher/releases/download/v3.5.0/ExoLauncher-Setup.exe", "v3.5.0", "ExoLauncher-Setup.exe", false)]
-    [InlineData("https://github.com/ImAvgErix/ExoLauncher/releases/download/v3.5.0/Other.exe", "v3.5.0", "Other.exe", false)]
+    [InlineData("https://github.com:8443/UhhErix/ExoLauncher/releases/download/v3.5.0/ExoLauncher-Setup.exe", "v3.5.0", "ExoLauncher-Setup.exe", false)]
+    [InlineData("https://user@github.com/UhhErix/ExoLauncher/releases/download/v3.5.0/ExoLauncher-Setup.exe", "v3.5.0", "ExoLauncher-Setup.exe", false)]
+    [InlineData("http://github.com/UhhErix/ExoLauncher/releases/download/v3.5.0/ExoLauncher-Setup.exe", "v3.5.0", "ExoLauncher-Setup.exe", false)]
+    [InlineData("https://github.com.evil.example/UhhErix/ExoLauncher/releases/download/v3.5.0/ExoLauncher-Setup.exe", "v3.5.0", "ExoLauncher-Setup.exe", false)]
+    [InlineData("https://github.com/UhhErix/ExoLauncher/releases/download/v3.5.0/Other.exe", "v3.5.0", "Other.exe", false)]
     [InlineData("not a url", "v3.5.0", "ExoLauncher-Setup.exe", false)]
     public void ReleaseAssetUrls(string url, string tag, string name, bool expected) =>
         Assert.Equal(expected, AppUpdateService.IsReleaseAssetUri(url, tag, name));
@@ -81,9 +81,9 @@ public sealed class AppUpdateServiceTests
         {
           "tag_name": "v3.5.0",
           "assets": [
-            { "name": "notes.txt", "browser_download_url": "https://github.com/ImAvgErix/ExoLauncher/releases/download/v3.5.0/notes.txt", "size": 5 },
-            { "name": "ExoLauncher.exe", "browser_download_url": "https://github.com/ImAvgErix/ExoLauncher/releases/download/v3.5.0/ExoLauncher.exe", "size": 10 },
-            { "name": "ExoLauncher-Setup.exe", "browser_download_url": "https://github.com/ImAvgErix/ExoLauncher/releases/download/v3.5.0/ExoLauncher-Setup.exe", "size": 2048, "digest": "sha256:{{Hash}}" }
+            { "name": "notes.txt", "browser_download_url": "https://github.com/UhhErix/ExoLauncher/releases/download/v3.5.0/notes.txt", "size": 5 },
+            { "name": "ExoLauncher.exe", "browser_download_url": "https://github.com/UhhErix/ExoLauncher/releases/download/v3.5.0/ExoLauncher.exe", "size": 10 },
+            { "name": "ExoLauncher-Setup.exe", "browser_download_url": "https://github.com/UhhErix/ExoLauncher/releases/download/v3.5.0/ExoLauncher-Setup.exe", "size": 2048, "digest": "sha256:{{Hash}}" }
           ]
         }
         """;
@@ -99,7 +99,7 @@ public sealed class AppUpdateServiceTests
     {
         const string json = """
         { "tag_name": "v3.5.0", "assets": [
-          { "name": "ExoLauncher-Setup.exe", "browser_download_url": "https://github.com/ImAvgErix/ExoLauncher/releases/download/v3.5.0/ExoLauncher-Setup.exe", "size": 2048, "digest": "md5:abc" } ] }
+          { "name": "ExoLauncher-Setup.exe", "browser_download_url": "https://github.com/UhhErix/ExoLauncher/releases/download/v3.5.0/ExoLauncher-Setup.exe", "size": 2048, "digest": "md5:abc" } ] }
         """;
         Assert.True(AppUpdateService.TryParseReleaseJson(json, out var release));
         Assert.Equal("ExoLauncher-Setup.exe", release.AssetName);
@@ -115,11 +115,11 @@ public sealed class AppUpdateServiceTests
         Assert.False(AppUpdateService.TryParseReleaseJson(json, out _));
 
     [Theory]
-    [InlineData("https://github.com/ImAvgErix/ExoLauncher/releases/tag/v3.5.0", "v3.5.0")]
-    [InlineData("https://github.com/imavgerix/exolauncher/releases/tag/v3.5.0", "v3.5.0")]
+    [InlineData("https://github.com/UhhErix/ExoLauncher/releases/tag/v3.5.0", "v3.5.0")]
+    [InlineData("https://github.com/uhherix/exolauncher/releases/tag/v3.5.0", "v3.5.0")]
     [InlineData("https://github.com/Other/ExoLauncher/releases/tag/v3.5.0", null)]
-    [InlineData("https://github.com/ImAvgErix/ExoLauncher/releases/latest", null)]
-    [InlineData("https://example.com/ImAvgErix/ExoLauncher/releases/tag/v3.5.0", null)]
+    [InlineData("https://github.com/UhhErix/ExoLauncher/releases/latest", null)]
+    [InlineData("https://example.com/UhhErix/ExoLauncher/releases/tag/v3.5.0", null)]
     public void TagFromReleasesRedirect(string url, string? expected) =>
         Assert.Equal(expected, AppUpdateService.TagFromReleasesUrl(new Uri(url)));
 }

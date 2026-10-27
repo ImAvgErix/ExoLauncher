@@ -1,6 +1,6 @@
 # Exo Mouse
 
-The mouse software in [Exo Launcher](https://github.com/ImAvgErix/ExoLauncher)'s
+The mouse software in [Exo Launcher](https://github.com/UhhErix/ExoLauncher)'s
 Devices room. It talks to your mouse directly over USB, with no vendor app,
 driver or account, for every mouse
 [OpenMouse](https://github.com/OpenMouse-Project)'s protocol library supports.

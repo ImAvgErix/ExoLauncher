@@ -132,7 +132,7 @@ internal sealed partial class StoreService : IDisposable
             ConnectTimeout = TimeSpan.FromSeconds(6),
         });
         // CheapShark asks every client to name itself; Steam and Epic are fine with it too.
-        _http.DefaultRequestHeaders.UserAgent.ParseAdd($"ExoLauncher/{version} (+https://github.com/ImAvgErix/ExoLauncher)");
+        _http.DefaultRequestHeaders.UserAgent.ParseAdd($"ExoLauncher/{version} (+https://github.com/UhhErix/ExoLauncher)");
         _http.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
     }
 

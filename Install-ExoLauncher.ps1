@@ -2,14 +2,14 @@
 # Downloads the latest release asset from GitHub when available, verifies SHA-256,
 # and launches it. Prefer building from source until a release is published.
 #
-# One-liner: irm https://raw.githubusercontent.com/ImAvgErix/ExoLauncher/main/Install-ExoLauncher.ps1 | iex
+# One-liner: irm https://raw.githubusercontent.com/UhhErix/ExoLauncher/main/Install-ExoLauncher.ps1 | iex
 param([switch]$Force)
 
 $ErrorActionPreference = 'Stop'
 if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) { throw 'Windows only.' }
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
-$Repo = 'ImAvgErix/ExoLauncher'
+$Repo = 'UhhErix/ExoLauncher'
 Write-Host ''
 Write-Host '  Exo Launcher - checking GitHub releases...' -ForegroundColor Cyan
 Write-Host ''
@@ -25,7 +25,7 @@ try {
 catch {
     Write-Host '  No release published yet (or network error).' -ForegroundColor Yellow
     Write-Host '  Clone and run from source:' -ForegroundColor Yellow
-    Write-Host '    git clone https://github.com/ImAvgErix/ExoLauncher.git' -ForegroundColor DarkGray
+    Write-Host '    git clone https://github.com/UhhErix/ExoLauncher.git' -ForegroundColor DarkGray
     Write-Host '    cd ExoLauncher' -ForegroundColor DarkGray
     Write-Host '    pwsh -File Run-ExoLauncher.ps1' -ForegroundColor DarkGray
     Write-Host ''

@@ -229,8 +229,8 @@ public class UpdateIntegrityAttacks
     // ---- app updater host + version gates ----
 
     [Theory]
-    [InlineData("https://github.com/ImAvgErix/ExoLauncher/releases/tag/3.6.0", "3.6.0")]
-    [InlineData("https://evil.com/ImAvgErix/ExoLauncher/releases/tag/3.6.0", null)]
+    [InlineData("https://github.com/UhhErix/ExoLauncher/releases/tag/3.6.0", "3.6.0")]
+    [InlineData("https://evil.com/UhhErix/ExoLauncher/releases/tag/3.6.0", null)]
     [InlineData("https://github.com/someoneelse/ExoLauncher/releases/tag/3.6.0", null)]
     public void TagFromReleasesUrl_only_trusts_official_repo(string url, string? expected) =>
         Assert.Equal(expected, AppUpdateService.TagFromReleasesUrl(new Uri(url)));

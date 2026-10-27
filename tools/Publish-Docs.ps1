@@ -1,4 +1,4 @@
-# Release docs (github.com/ImAvgErix/ExoLauncher).
+# Release docs (github.com/UhhErix/ExoLauncher).
 #   pwsh -File tools\Publish-Docs.ps1
 # 1. Writes docs\RELEASE_<v>.md, the release page: date and download, no notes (What's New carries them).
 # 2. Checks: VERSION == README title == top CHANGELOG heading == release file
@@ -42,7 +42,7 @@ foreach ($line in $body -split "`n" | Where-Object { $_ -match '^\s*- ' }) {
     }
 }
 
-$base = 'https://github.com/ImAvgErix/ExoLauncher'
+$base = 'https://github.com/UhhErix/ExoLauncher'
 # The release page carries no notes: what changed is Exo's own What's New sheet (ui/src/lib/whatsNew.ts).
 $release = @(
     "# Exo Launcher $version", '',

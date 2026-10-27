@@ -10,12 +10,12 @@ By sending a pull request, patch or any other contribution you confirm that:
 2. it does not include code from a project whose license forbids that (copy-left code belongs in the add-ons, not in Exo Launcher), and it adds no dependency without saying so;
 3. you grant the copyright holder a perpetual, worldwide, royalty-free and irrevocable license to use, change and distribute it as part of Exo Launcher under any terms, which is the clause in [LICENSE](LICENSE). You keep your own copyright.
 
-Add a `Signed-off-by: Your Name <email>` line to each commit (`git commit -s`) to say you agree. The add-ons are different: a contribution to [Exo Capture](https://github.com/ImAvgErix/ExoLauncher/blob/main/capture), [Exo Mouse](https://github.com/ImAvgErix/ExoLauncher/blob/main/mouse) or Exo Shaders is under that program's own license (GPL-3.0-or-later or AGPL-3.0-or-later), as its README says.
+Add a `Signed-off-by: Your Name <email>` line to each commit (`git commit -s`) to say you agree. The add-ons are different: a contribution to [Exo Capture](https://github.com/UhhErix/ExoLauncher/blob/main/capture), [Exo Mouse](https://github.com/UhhErix/ExoLauncher/blob/main/mouse) or Exo Shaders is under that program's own license (GPL-3.0-or-later or AGPL-3.0-or-later), as its README says.
 
 ## Before you start
 
-- A small fix: open the pull request. A new feature, a new store, or anything that changes what Exo sends over the network: open an [issue](https://github.com/ImAvgErix/ExoLauncher/issues) first so you do not build something that cannot ship.
-- Read [BUILDING.md](BUILDING.md) to build it and [ARCHITECTURE.md](https://github.com/ImAvgErix/ExoLauncher/blob/main/ARCHITECTURE.md) for the shape. [DESIGN.md](https://github.com/ImAvgErix/ExoLauncher/blob/main/DESIGN.md) is the brief for anything visual.
+- A small fix: open the pull request. A new feature, a new store, or anything that changes what Exo sends over the network: open an [issue](https://github.com/UhhErix/ExoLauncher/issues) first so you do not build something that cannot ship.
+- Read [BUILDING.md](BUILDING.md) to build it and [ARCHITECTURE.md](https://github.com/UhhErix/ExoLauncher/blob/main/ARCHITECTURE.md) for the shape. [DESIGN.md](https://github.com/UhhErix/ExoLauncher/blob/main/DESIGN.md) is the brief for anything visual.
 
 ## What a change needs
 
@@ -36,7 +36,7 @@ These are not up for discussion; a change that crosses one is closed.
 
 ## Security problems
 
-See [SECURITY.md](https://github.com/ImAvgErix/ExoLauncher/blob/main/SECURITY.md). Do not put tokens, account exports or personal paths in a public issue.
+See [SECURITY.md](https://github.com/UhhErix/ExoLauncher/blob/main/SECURITY.md). Do not put tokens, account exports or personal paths in a public issue.
 
 ## Names and logos
 

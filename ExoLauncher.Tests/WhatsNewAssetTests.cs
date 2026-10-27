@@ -100,12 +100,12 @@ public sealed class WhatsNewAssetTests
     }
 
     [Theory]
-    [InlineData("https://github.com/ImAvgErix/ExoLauncher/releases/download/v3.15.0/whats-new.json", true)]
-    [InlineData("https://github.com/ImAvgErix/ExoLauncher/releases/download/v3.14.1/whats-new.json", false)]
+    [InlineData("https://github.com/UhhErix/ExoLauncher/releases/download/v3.15.0/whats-new.json", true)]
+    [InlineData("https://github.com/UhhErix/ExoLauncher/releases/download/v3.14.1/whats-new.json", false)]
     [InlineData("https://github.com/Someone/ExoLauncher/releases/download/v3.15.0/whats-new.json", false)]
-    [InlineData("http://github.com/ImAvgErix/ExoLauncher/releases/download/v3.15.0/whats-new.json", false)]
-    [InlineData("https://raw.githubusercontent.com/ImAvgErix/ExoLauncher/releases/download/v3.15.0/whats-new.json", false)]
-    [InlineData("https://github.com/ImAvgErix/ExoLauncher/releases/download/v3.15.0/other.json", false)]
+    [InlineData("http://github.com/UhhErix/ExoLauncher/releases/download/v3.15.0/whats-new.json", false)]
+    [InlineData("https://raw.githubusercontent.com/UhhErix/ExoLauncher/releases/download/v3.15.0/whats-new.json", false)]
+    [InlineData("https://github.com/UhhErix/ExoLauncher/releases/download/v3.15.0/other.json", false)]
     public void TakesTheNotesOnlyFromTheSameRelease(string url, bool expected)
     {
         var json = $$"""
@@ -113,7 +113,7 @@ public sealed class WhatsNewAssetTests
               "tag_name": "v3.15.0",
               "assets": [
                 { "name": "whats-new.json", "browser_download_url": "{{url}}", "size": 900 },
-                { "name": "ExoLauncher-Setup.exe", "browser_download_url": "https://github.com/ImAvgErix/ExoLauncher/releases/download/v3.15.0/ExoLauncher-Setup.exe", "size": 1234, "digest": "sha256:{{Hash}}" }
+                { "name": "ExoLauncher-Setup.exe", "browser_download_url": "https://github.com/UhhErix/ExoLauncher/releases/download/v3.15.0/ExoLauncher-Setup.exe", "size": 1234, "digest": "sha256:{{Hash}}" }
               ]
             }
             """;

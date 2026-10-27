@@ -2,7 +2,7 @@
 
 ## Install and update
 
-1. Download **ExoLauncher-Setup.exe** from the [latest release](https://github.com/ImAvgErix/ExoLauncher/releases/latest).
+1. Download **ExoLauncher-Setup.exe** from the [latest release](https://github.com/UhhErix/ExoLauncher/releases/latest).
 2. Run it, choose Install, then Launch Exo. First run asks for your game stores, your music service, Discord, your capture keys, Lucid and your PC's graphics settings, then offers to remove the apps Exo replaces (PC > Apps lists them first later). The installer fetches what Exo needs beside itself, the dictation model among it, so everything is ready on first run.
 3. Exo finds your games. It checks for a new version each time it starts; **Settings > About** shows it, and **Install update** downloads and installs it. Your settings, library and sign-ins stay.
 
@@ -91,4 +91,4 @@ Everything Exo keeps is in `%LocalAppData%\ExoLauncher`, and your captures in yo
 
 ## Report a problem
 
-Check [existing issues](https://github.com/ImAvgErix/ExoLauncher/issues) first, then [open a report](https://github.com/ImAvgErix/ExoLauncher/issues/new/choose). Include your Exo version (Settings > About) and, if you can, the log at `%LocalAppData%\ExoLauncher\logs\app.log`. Exo removes passwords, keys and account ids from it, but read it before you post.
+Check [existing issues](https://github.com/UhhErix/ExoLauncher/issues) first, then [open a report](https://github.com/UhhErix/ExoLauncher/issues/new/choose). Include your Exo version (Settings > About) and, if you can, the log at `%LocalAppData%\ExoLauncher\logs\app.log`. Exo removes passwords, keys and account ids from it, but read it before you post.
