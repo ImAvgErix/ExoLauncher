@@ -18,8 +18,8 @@
 !system 'powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "${__FILEDIR__}\installer\New-PayloadManifest.ps1" -PayloadRoot "${PAYLOAD_DIR}" -Version "${PRODUCT_VERSION}"' = 0
 
 !define PRODUCT_NAME "Exo Launcher"
-!define PRODUCT_PUBLISHER "Erix (ImAvgErix)"
-!define PRODUCT_WEB "https://github.com/ImAvgErix/ExoLauncher"
+!define PRODUCT_PUBLISHER "Erix (UhhErix)"
+!define PRODUCT_WEB "https://github.com/UhhErix/ExoLauncher"
 !ifdef EXO_TEST_ROOT
   ; A walk-through build (/DEXO_TEST_ROOT=<folder>): installs under that folder
   ; with its own registry entries and shortcut names, never over the real Exo.

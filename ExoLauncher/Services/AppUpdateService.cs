@@ -48,8 +48,8 @@ public sealed class AppUpdateService
         CleanupUpdateArtifacts();
     }
 
-    private const string LatestApiUrl = "https://api.github.com/repos/ImAvgErix/ExoLauncher/releases/latest";
-    private const string LatestPageUrl = "https://github.com/ImAvgErix/ExoLauncher/releases/latest";
+    private const string LatestApiUrl = "https://api.github.com/repos/UhhErix/ExoLauncher/releases/latest";
+    private const string LatestPageUrl = "https://github.com/UhhErix/ExoLauncher/releases/latest";
     private static HttpClient CreateClient()
     {
         var handler = new SocketsHttpHandler
@@ -574,12 +574,12 @@ public sealed class AppUpdateService
     internal static bool IsReleaseAssetUri(string? url, string tag, string? name) =>
         name is not null && IsUpdateAssetName(name) && IsAssetOfRelease(url, tag, name);
 
-    /// <summary>github.com/ImAvgErix/ExoLauncher/releases/download/&lt;tag&gt;/&lt;name&gt; over plain HTTPS, nothing else.</summary>
+    /// <summary>github.com/UhhErix/ExoLauncher/releases/download/&lt;tag&gt;/&lt;name&gt; over plain HTTPS, nothing else.</summary>
     internal static bool IsAssetOfRelease(string? url, string tag, string name) =>
         Uri.TryCreate(url, UriKind.Absolute, out var uri) &&
         uri.Scheme == Uri.UriSchemeHttps && uri.IsDefaultPort && string.IsNullOrEmpty(uri.UserInfo) &&
         uri.Host.Equals("github.com", StringComparison.OrdinalIgnoreCase) &&
-        uri.AbsolutePath.Equals("/ImAvgErix/ExoLauncher/releases/download/" + Uri.EscapeDataString(tag) + "/" + name, StringComparison.Ordinal);
+        uri.AbsolutePath.Equals("/UhhErix/ExoLauncher/releases/download/" + Uri.EscapeDataString(tag) + "/" + name, StringComparison.Ordinal);
 
     private async Task<ParsedRelease?> LoadLatestReleaseAsync(CancellationToken ct, bool fresh = false)
     {
@@ -607,7 +607,7 @@ public sealed class AppUpdateService
         if (!string.IsNullOrWhiteSpace(tag))
         {
             responded = true;
-            var tagApi = "https://api.github.com/repos/ImAvgErix/ExoLauncher/releases/tags/" + Uri.EscapeDataString(tag);
+            var tagApi = "https://api.github.com/repos/UhhErix/ExoLauncher/releases/tags/" + Uri.EscapeDataString(tag);
             (json, _) = await GetApiJsonAsync(tagApi, ct).ConfigureAwait(false);
             if (json is not null && TryParseReleaseJson(json, out parsed) && parsed.Tag == tag)
             {
@@ -793,7 +793,7 @@ public sealed class AppUpdateService
             !uri.Host.Equals("github.com", StringComparison.OrdinalIgnoreCase)) return null;
         var parts = uri.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
         if (parts.Length != 5 || !parts[3].Equals("tag", StringComparison.OrdinalIgnoreCase)) return null;
-        if (!parts[0].Equals("ImAvgErix", StringComparison.OrdinalIgnoreCase) ||
+        if (!parts[0].Equals("UhhErix", StringComparison.OrdinalIgnoreCase) ||
             !parts[1].Equals("ExoLauncher", StringComparison.OrdinalIgnoreCase) ||
             !parts[2].Equals("releases", StringComparison.OrdinalIgnoreCase))
             return null;

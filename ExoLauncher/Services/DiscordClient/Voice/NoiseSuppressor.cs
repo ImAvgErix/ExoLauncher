@@ -98,7 +98,7 @@ internal sealed unsafe class NoiseSuppressor : IDisposable
     private const int Hop = 480, WarmSamples = Opus.SampleRate / 2;
 
     internal static readonly GitHubReleaseAsset Plugin = new(
-        "ImAvgErix", "ExoLauncher", "v3.13.3", "exo-deepfilter-0.5.6.dll",
+        "UhhErix", "ExoLauncher", "v3.13.3", "exo-deepfilter-0.5.6.dll",
         53095936, "dc392076a100a4742b0e7d051bf0e630c9b6d7ceb29a35567acb65e3c7ee3b49");
 
     internal static string PluginPath { get; set; } = Path.Combine(PathHelper.AppDataDir, "voice", "exo-deepfilter.dll");

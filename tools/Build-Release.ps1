@@ -42,7 +42,7 @@ if (-not $publish) { throw 'No publish folder.' }
 $noVoice = @('dave.dll', 'opus.dll', 'exo_apm.dll') | Where-Object { -not (Test-Path (Join-Path $publish.FullName $_)) }
 if ($noVoice) { throw "The app folder lacks Discord voice's $($noVoice -join ', ')." }
 
-# Exo Shaders (GPL-3.0-or-later, github.com/ImAvgErix/exo-shaders): the built engine and page.
+# Exo Shaders (GPL-3.0-or-later, github.com/UhhErix/exo-shaders): the built engine and page.
 $engine = Join-Path $ShadersWork 'engine\out\service'
 $page = Join-Path $ShadersWork 'ui\dist'
 if (-not (Test-Path (Join-Path $engine 'ExoShaders.Service.exe'))) { throw "No built Exo Shaders engine in $engine (engine\build\publish-service.ps1)." }

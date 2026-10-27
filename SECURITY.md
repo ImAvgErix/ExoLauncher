@@ -30,4 +30,4 @@ Attacks on the bridge, URLs, files, downloads and the local surface are kept as 
 
 ## Reporting
 
-Open a GitHub issue on [ImAvgErix/ExoLauncher](https://github.com/ImAvgErix/ExoLauncher) for security-relevant bugs. Do not include tokens, account exports, store ids, local paths, or other personal data in a report. Bypass requests will be closed.
+Open a GitHub issue on [UhhErix/ExoLauncher](https://github.com/UhhErix/ExoLauncher) for security-relevant bugs. Do not include tokens, account exports, store ids, local paths, or other personal data in a report. Bypass requests will be closed.

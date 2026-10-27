@@ -41,7 +41,7 @@
     <AssemblyName>ExoLauncher</AssemblyName>
     <Product>Exo Launcher</Product>
     <AssemblyTitle>Exo Launcher</AssemblyTitle>
-    <Company>ImAvgErix</Company>
+    <Company>UhhErix</Company>
     <Description>One calm Windows library UI. Other store clients become invisible backends.</Description>
     <DefineConstants>DISABLE_XAML_GENERATED_MAIN</DefineConstants>
   </PropertyGroup>

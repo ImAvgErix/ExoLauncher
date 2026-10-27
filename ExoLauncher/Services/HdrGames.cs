@@ -24,7 +24,7 @@ internal static partial class HdrGames
     private static HttpClient CreateClient()
     {
         var http = ExoHttp.Create(TimeSpan.FromSeconds(12), new HttpClientHandler { AllowAutoRedirect = false });
-        http.DefaultRequestHeaders.UserAgent.ParseAdd("ExoLauncher (+https://github.com/ImAvgErix/ExoLauncher)");
+        http.DefaultRequestHeaders.UserAgent.ParseAdd("ExoLauncher (+https://github.com/UhhErix/ExoLauncher)");
         return http;
     }
 

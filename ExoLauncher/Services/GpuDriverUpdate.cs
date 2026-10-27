@@ -166,7 +166,7 @@ internal static partial class GpuDriverUpdate
             request.Headers.TryAddWithoutValidation("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) ExoLauncher");
             request.Headers.Referrer = new Uri("https://www.amd.com/");
         }
-        else request.Headers.TryAddWithoutValidation("User-Agent", "ExoLauncher/1.0 (+https://github.com/ImAvgErix/ExoLauncher)");
+        else request.Headers.TryAddWithoutValidation("User-Agent", "ExoLauncher/1.0 (+https://github.com/UhhErix/ExoLauncher)");
         return request;
     }
 

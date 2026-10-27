@@ -9,7 +9,7 @@ export type ShaderPrecompileProps = {
   onOpenShaders: (gameId: string) => void
 }
 
-const SHADERS_RELEASES = 'https://github.com/ImAvgErix/exo-shaders/releases/latest'
+const SHADERS_RELEASES = 'https://github.com/UhhErix/exo-shaders/releases/latest'
 
 /**
  * The game page's Shaders: one row from the Exo Shaders engine that opens PC › Graphics at Shaders, where

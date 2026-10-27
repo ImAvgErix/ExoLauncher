@@ -996,7 +996,7 @@ This update makes Music Exo's own player for Spotify, Apple Music and YouTube Mu
 ### Library and games
 - **Library > Upscalers.** Every installed game with older DLSS, FSR or XeSS than Exo has, as posters with their version jumps, and Update all. Exo reads DLSS Swapper's public list of builds once a day and uses a build only after it passes Exo's own checks (the vendor's signature, exact version, size and checksum); Restore puts the game's own files back. A running game waits until it closes, an anti-cheat game changes only once you allow it on its page, and Riot games never appear. _Verified: on screen._
 - **DLSS presets.** On an NVIDIA PC, set the driver's forced preset for DLSS Super Resolution, Ray Reconstruction and Frame Generation, with what each model is good at and the best one for your card marked, and turn on NVIDIA's own DLSS overlay (Windows asks for administrator permission). _Verified: on screen._
-- **Exo Shaders ships with Exo.** Library > Shaders is Exo Shaders, Exo's shader precompiler (a fork of SCSKiller, GPL-3.0-or-later, source at github.com/ImAvgErix/exo-shaders), now inside the installer. Each game shows one word of state; the queue, cache and About are one list each. _Verified: on screen._
+- **Exo Shaders ships with Exo.** Library > Shaders is Exo Shaders, Exo's shader precompiler (a fork of SCSKiller, GPL-3.0-or-later, source at github.com/UhhErix/exo-shaders), now inside the installer. Each game shows one word of state; the queue, cache and About are one list each. _Verified: on screen._
 - **Refresh the library.** A round button next to + reads every game again: sizes, every store's games, time played, last launched, Riot hours, achievements and art. A shine crosses the cards while it works. _Verified: on screen._
 - **A cleaner game page.** The store sits centred above the cover, Time played, Last launched, Size and Achievements sit in one row, and buttons never make the page jump. Double-click an installed game to play it, and Ctrl+1 to Ctrl+5 open the rooms. _Verified: on screen._
 - **Riot and Xbox.** Riot games installed anywhere are found, show Update when Riot needs to patch them and exact sizes; Teamfight Tactics is in the Library. Xbox games use their real names, Microsoft Store art and sizes. _Checked in code only._
@@ -1020,7 +1020,7 @@ This update adds a Store, brings Exo Mouse to the Devices room, hosts SCSKiller'
 - **Your old sign-in is cleaned off this PC.** The first time this version starts, it deletes the sign-in an earlier Exo saved (`auth.bin`) and its cache of account responses. It does this on your PC only and sends nothing to the account service. If you made an account before, the [privacy policy](PRIVACY.md) says what the service still holds and how to delete it.
 - **Exo Mouse in the Devices room.** Devices now shows Exo's own mouse settings, in Exo's look. The top line is your mouse: name, brand, connection and signal, and battery. Below it, only what your mouse has: DPI and DPI stages, polling rate, lift-off distance, motion sync, angle snapping, ripple control, click debounce, power mode, onboard profile, button remapping, lighting and the sleep timer. A setting your mouse fixes shows as its value. Every change is written to the mouse and read back. With more than one mouse plugged in, a pill switches between them.
 - **No other app needed.** Exo Mouse talks to your mouse directly and works with every mouse OpenMouse supports, dozens of brands. It needs no OpenMouse app, no vendor software and no driver.
-- **Built on OpenMouse, open source.** Exo Mouse is built on OpenMouse's open-source protocol library (AGPL) and is its own open-source program under the same license, at [github.com/ImAvgErix/exo-mouse](https://github.com/ImAvgErix/exo-mouse). Exo Launcher keeps its own license.
+- **Built on OpenMouse, open source.** Exo Mouse is built on OpenMouse's open-source protocol library (AGPL) and is its own open-source program under the same license, at [github.com/UhhErix/exo-mouse](https://github.com/UhhErix/exo-mouse). Exo Launcher keeps its own license.
 - **The Finalmouse Starlight X works.** OpenMouse's library could not read a Starlight X at all: it ignored how the receiver reports DPI and polling rate. Exo Mouse fixes that and adds the Starlight X's own controls: mechanical or TMR analog main switches per side, actuation from 0.01 to 0.40 mm, rapid trigger from 150 to 250 µm, release point and its onboard profiles (only the ones turned on), plus the receiver light, tournament scroll and passthrough window. Polling shows as 1000 Hz with no choice, since PerfectPolling fixes it; lift-off offers the 1 mm and 2 mm presets, and a custom lift-off set in xpanel shows as its value. Exo reads the mouse no more often than its driver asks, every 10 seconds.
 - **Your mouse, pictured.** Devices shows your mouse's own render beside its settings (from OpenMouse's image library, for the models it has), with its name, link and battery under it.
 - **Your mouse, looked after.** When its battery drops to 20% Exo says so once (at most every 6 hours) and shows a small battery chip by the gear that opens Devices, until you charge it. A signal that stays weak gets one line saying to move the receiver. Devices shows the signal as bars and a word. A game-linked profile says when it comes on and when your settings go back. All of this works with Devices never opened: the room starts quietly a few seconds after Exo.
@@ -1219,7 +1219,7 @@ This update makes game actions more reliable, reduces repeated background work, 
 
 Requires Windows 11 x64.
 
-[Getting started and help](https://github.com/ImAvgErix/ExoLauncher/blob/main/docs/HELP.md) · [Support on Ko-fi](https://ko-fi.com/uhherix)
+[Getting started and help](https://github.com/UhhErix/ExoLauncher/blob/main/docs/HELP.md) · [Support on Ko-fi](https://ko-fi.com/uhherix)
 
 ### Source maintenance
 
@@ -1242,7 +1242,7 @@ itch.io joins Discover, Discord notifications get a quieter look, and everyday w
 
 Requires Windows 11 x64.
 
-[Getting started and help](https://github.com/ImAvgErix/ExoLauncher/blob/main/docs/HELP.md) · [Support on Ko-fi](https://ko-fi.com/uhherix)
+[Getting started and help](https://github.com/UhhErix/ExoLauncher/blob/main/docs/HELP.md) · [Support on Ko-fi](https://ko-fi.com/uhherix)
 
 ## 3.2.1 — September 7, 2026
 
@@ -1260,7 +1260,7 @@ This update makes everyday controls respond sooner and brings a more consistent 
 
 Requires Windows 11 x64.
 
-[Getting started and help](https://github.com/ImAvgErix/ExoLauncher/blob/main/docs/HELP.md)
+[Getting started and help](https://github.com/UhhErix/ExoLauncher/blob/main/docs/HELP.md)
 
 ## 3.2.0 — September 7, 2026
 
@@ -1315,7 +1315,7 @@ Choose **ExoLauncher-Setup.exe** below. Requires **Windows 11 x64** and installs
 - Mouse controls require supported hardware. Upscaler swaps are explicit, backed up, and limited to supported files; game compatibility is not guaranteed.
 - Exo email/password accounts are optional. Hosted password recovery, email verification, email magic links, and Google sign-in are not currently enabled.
 
-[Supported features](https://github.com/ImAvgErix/ExoLauncher/blob/main/docs/SUPPORT_MATRIX.md) · [Report an issue](https://github.com/ImAvgErix/ExoLauncher/issues)
+[Supported features](https://github.com/UhhErix/ExoLauncher/blob/main/docs/SUPPORT_MATRIX.md) · [Report an issue](https://github.com/UhhErix/ExoLauncher/issues)
 
 ## 2.2.0 — August 26, 2026
 
