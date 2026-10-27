@@ -79,7 +79,9 @@ The Capture button in the top bar, or its keys (set in **Capture settings**, in 
 
 ## Devices
 
-**Devices** shows your mouse, keyboard, what you listen on and your controller, each with its picture; press one to open its page. On your headphones' page, **Pick** the pair you wear (Windows can't tell which pair is on the jack) and set up Lucid, Game Mode and Night Shift. Keyboards and controllers are marked Coming soon.
+**Devices** shows your mouse, keyboard, what you listen on and your controller, each with its picture; press one to open its page. On your headphones' page, **Pick** the pair you wear (Windows can't tell which pair is on the jack) and set up Lucid, Game Mode and Night Shift. Keyboards are marked Coming soon.
+
+For your controller, open its card. **Test** checks its sticks, **Measure** its polling rate. On a DualSense or DualSense Edge connected with a cable, **Calibrate** runs its own center and range routine (leave the sticks alone, then roll both all the way round); **Undo** puts back what it had. An Edge's **Profiles** are its four Fn-button profiles: **Create** or **Edit** one, then **Save** to store it in the controller. **Games read it themselves** turns Steam Input off for every Steam game that supports a PlayStation controller; a game that reads only Xbox controllers keeps it. A Steam game's **Properties** set it per game under **Controller**. Exo never changes a controller while a game runs.
 
 For your mouse, plug in a supported mouse or its receiver and open its card. Only the settings your mouse has are shown; every change is written to the mouse and read back. Save a profile, link it to games, and it switches on by itself when one starts. If the mouse isn't found, wake it, check its battery and connection, then open Devices again.
 

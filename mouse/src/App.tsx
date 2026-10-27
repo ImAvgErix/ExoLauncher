@@ -390,6 +390,20 @@ const POLLING = [125, 250, 500, 1000, 2000, 4000, 8000]
 const PAW_PRESETS = [{ value: 1, label: '1 mm' }, { value: 2, label: '2 mm' }] as const
 const DEBOUNCE = [0, 1, 2, 4, 8, 12, 16]
 
+/**
+ * The debounce times this mouse takes: its driver's own list when it has a short one, else Exo's steps up to the
+ * driver's limit (and the limit itself). Hitscan stops at 8 ms and GearHub at 10, so 12 and 16 would fail there.
+ */
+function debounceChoices(client: Section['client']): number[] {
+  const driver = client as unknown as { getDebounceOptions?: () => readonly number[]; getDebounceMaxMs?: () => number } | null
+  const own = can(client, 'getDebounceOptions') ? [...(driver?.getDebounceOptions?.() ?? [])] : []
+  if (own.length > 0 && own.length <= DEBOUNCE.length) return own
+  const max = can(client, 'getDebounceMaxMs') ? driver?.getDebounceMaxMs?.() : own.length ? Math.max(...own) : undefined
+  if (max == null) return DEBOUNCE
+  const steps = DEBOUNCE.filter(v => v <= max)
+  return steps.includes(max) ? steps : [...steps, max]
+}
+
 function hz(v: number): string {
   return v >= 1000 ? `${v / 1000}K` : String(v)
 }
@@ -446,7 +460,7 @@ function Performance(section: Section) {
     ),
     !brandDebounce && status.debounceMs != null && can(client, 'setDebounceTime') && (
       <Row key="db" label="Click debounce">
-        <Segmented label="Click debounce" options={withCurrent(DEBOUNCE, status.debounceMs).map(v => ({ value: v, label: `${v} ms` }))}
+        <Segmented label="Click debounce" options={withCurrent(debounceChoices(client), status.debounceMs).map(v => ({ value: v, label: `${v} ms` }))}
           value={status.debounceMs} onChange={v => void apply('setDebounceTime', v)} disabled={busy} />
       </Row>
     ),

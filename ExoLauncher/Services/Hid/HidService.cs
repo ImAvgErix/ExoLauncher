@@ -108,12 +108,19 @@ internal sealed class HidService : IDisposable
     // ------------------------------------------------------------------ list
 
     /// <summary>Present devices from these vendors (every vendor when none are given).</summary>
+    /// <summary>
+    /// A game controller's collection (joystick, gamepad, multi-axis). Its whole interface stays out of the list, so the
+    /// mouse module can never open it: it never needs one, and a pad's reports include firmware update, pairing and
+    /// power-off (a DualSense's 0xA0, 0xF4, 0x0A and 0x08), which no mouse command may ever reach.
+    /// </summary>
+    internal static bool IsGameController(Collection caps) => caps.UsagePage == 0x01 && caps.Usage is 0x04 or 0x05 or 0x08;
+
     internal IReadOnlyList<Device> List(IReadOnlyCollection<int>? vendorIds)
     {
         bool Wanted(int vendorId) => vendorIds is not { Count: > 0 } || vendorIds.Contains(vendorId);
         var listing = Interlocked.Increment(ref _listingsStarted);
         var found = Enumerate(Wanted);
-        var groups = found.GroupBy(f => KeyOf(f), StringComparer.Ordinal).ToList();
+        var groups = found.GroupBy(f => KeyOf(f), StringComparer.Ordinal).Where(g => !g.Any(f => IsGameController(f.Caps))).ToList();
         List<Opened> gone = [];
         lock (_gate)
         {

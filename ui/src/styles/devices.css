@@ -147,8 +147,8 @@
    hero is Exo Mouse's hero; the controls stand in two columns as wide as Exo Mouse's (420 to 520px, the room's width
    less the hero's 400 shared out), and the hero takes the rest. A smaller window gives the controls one column that
    scrolls beside the hero; a narrow one stacks them under it. */
-.exo-audio {
-  --exo-audio-column: clamp(calc(420px * var(--exo-scale, 1)), (100vw - 2 * var(--exo-gutter) - 424px) / 2, calc(520px * var(--exo-scale, 1)));
+.exo-device-page {
+  --exo-device-page-column: clamp(calc(420px * var(--exo-scale, 1)), (100vw - 2 * var(--exo-gutter) - 424px) / 2, calc(520px * var(--exo-scale, 1)));
   display: grid;
   grid-template-columns: minmax(240px, 1fr) auto;
   gap: 12px;
@@ -157,7 +157,7 @@
 }
 
 /* The hero: one card, the picture taking all the height its name, readout and credit leave. */
-.exo-audio-hero {
+.exo-device-page-hero {
   display: flex;
   flex-direction: column;
   min-width: 0;
@@ -168,14 +168,14 @@
   box-shadow: inset 0 0 0 1px var(--exo-float-line);
 }
 
-.exo-audio-hero .exo-device-hero-art {
+.exo-device-page-hero .exo-device-hero-art {
   flex: 1 1 auto;
   min-height: 120px;
 }
 
 /* Never larger than the picture itself (1200 x 800, framed alike): its 3:2 frame centred in what the hero leaves. */
-.exo-audio-hero .exo-device-hero-art > .exo-device-render,
-.exo-audio-hero .exo-device-hero-art > .exo-device-art {
+.exo-device-page-hero .exo-device-hero-art > .exo-device-render,
+.exo-device-page-hero .exo-device-hero-art > .exo-device-art {
   inset: 0;
   width: min(calc(100% - 64px), 900px);
   height: min(calc(100% - 64px), 600px);
@@ -193,9 +193,9 @@
   pointer-events: none;
 }
 
-.exo-audio-id { padding: 16px 24px 0; }
+.exo-device-page-id { padding: 16px 24px 0; }
 
-.exo-audio-id h1 {
+.exo-device-page-id h1 {
   margin: 0;
   overflow-wrap: anywhere;
   font-size: calc(20px * var(--exo-scale, 1));
@@ -203,21 +203,21 @@
   line-height: 1.2;
 }
 
-.exo-audio-id p {
+.exo-device-page-id p {
   margin: 4px 0 0;
   color: var(--color-muted);
   font-size: calc(12px * var(--exo-scale, 1));
 }
 
 /* The readout: figures on hairlines, side by side, under one hairline the whole width (Exo Mouse's battery and signal). */
-.exo-audio-stats {
+.exo-device-page-stats {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(calc(132px * var(--exo-scale, 1)), 1fr));
   margin: 16px 0 0 -1px;
   box-shadow: inset 0 1px 0 var(--exo-float-line);
 }
 
-.exo-audio-stats > div {
+.exo-device-page-stats > div {
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -227,12 +227,12 @@
   border-left: 1px solid var(--exo-float-line);
 }
 
-.exo-audio-stats dt {
+.exo-device-page-stats dt {
   color: var(--color-muted);
   font-size: calc(12px * var(--exo-scale, 1));
 }
 
-.exo-audio-stats dd {
+.exo-device-page-stats dd {
   margin: 0;
   overflow: hidden;
   font-size: calc(20px * var(--exo-scale, 1));
@@ -242,7 +242,7 @@
 }
 
 /* The hero's foot: thanks to Lucid's maker, with a red heart, as Exo Mouse thanks OpenMouse's. */
-.exo-audio-credit {
+.exo-device-page-credit {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -253,47 +253,47 @@
   font-size: calc(12px * var(--exo-scale, 1));
 }
 
-.exo-audio-heart {
+.exo-device-page-heart {
   flex: none;
   width: 12px;
   height: 12px;
   fill: var(--color-bad);
 }
 
-.exo-audio-panels {
+.exo-device-page-panels {
   display: grid;
-  grid-template-columns: repeat(2, var(--exo-audio-column));
+  grid-template-columns: repeat(2, var(--exo-device-page-column));
   align-items: start;
   gap: 12px;
   min-height: 0;
   overflow-y: auto;
 }
 
-.exo-audio-column {
+.exo-device-page-column {
   display: flex;
   flex-direction: column;
   gap: 12px;
   min-width: 0;
 }
 
-.exo-audio-panel { padding: 16px 24px 4px; }
+.exo-device-page-panel { padding: 16px 24px 4px; }
 
-.exo-audio-panel > h2 { padding-bottom: 10px; }
-.exo-audio-panel .exo-system-panel-body { padding: 0 0 4px; }
-.exo-audio-panel .exo-set-item { padding: 7px 0; }
+.exo-device-page-panel > h2 { padding-bottom: 10px; }
+.exo-device-page-panel .exo-system-panel-body { padding: 0 0 4px; }
+.exo-device-page-panel .exo-set-item { padding: 7px 0; }
 
 @media (width < 1200px) {
-  .exo-audio-panels { grid-template-columns: var(--exo-audio-column); }
+  .exo-device-page-panels { grid-template-columns: var(--exo-device-page-column); }
 }
 
 @media (width < 860px) {
-  .exo-audio {
+  .exo-device-page {
     grid-template-rows: 420px auto;
     grid-template-columns: minmax(0, 1fr);
     height: auto;
   }
 
-  .exo-audio-panels {
+  .exo-device-page-panels {
     grid-template-columns: minmax(0, 1fr);
     overflow: visible;
   }
@@ -325,6 +325,58 @@
 }
 
 .exo-devices-head .exo-set-btn { gap: 6px; }
+
+.exo-devices-head-end {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-width: 0;
+}
+
+/* The one line about ports: a device that would gain from the processor's own USB, and Find them. */
+.exo-devices-ports {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  margin: 0;
+  color: var(--color-muted);
+  font-size: calc(13px * var(--exo-scale, 1));
+}
+
+/* A controller's sticks live, each a dot in its gate, side by side above the stick test. */
+.exo-sticks {
+  display: flex;
+  justify-content: center;
+  gap: 32px;
+  padding: 4px 0 10px;
+}
+
+.exo-stick {
+  width: calc(112px * var(--exo-scale, 1));
+  height: calc(112px * var(--exo-scale, 1));
+}
+
+.exo-stick-gate { fill: rgb(var(--exo-ink-rgb) / 0.04); stroke: rgb(var(--exo-ink-rgb) / 0.18); stroke-width: 1; }
+.exo-stick-axis { stroke: rgb(var(--exo-ink-rgb) / 0.08); stroke-width: 1; }
+.exo-stick-dot { fill: var(--color-fg); }
+
+/* A trigger's pull: one 4px track, as Exo Mouse's gauges (transform only). */
+.exo-trigger {
+  width: calc(160px * var(--exo-scale, 1));
+  height: 4px;
+  border-radius: 999px;
+  background: var(--exo-fill);
+  overflow: hidden;
+}
+
+.exo-trigger > span {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--color-fg);
+}
 
 /* The cards share the room: two columns, rows of equal height that fill what's left under the heading (never shorter
    than reads well; a long list scrolls). One device takes the whole width. */
@@ -547,4 +599,96 @@
 @media (forced-colors: active) {
   .exo-device-art :is(.is-body, .is-part, .is-key, .is-mod) { fill: Canvas; stroke: CanvasText; }
   .exo-device-art :is(.is-wire, .is-light, .is-line) { stroke: CanvasText; }
+}
+
+/* Calibrating: how far round each stick has gone, then each stick's center before and after. */
+.exo-calibrate-sweep {
+  display: grid;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+.exo-calibrate-stick {
+  display: grid;
+  grid-template-columns: 90px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  color: var(--color-fg);
+}
+
+.exo-calibrate-stick .exo-trigger { width: 100%; }
+
+.exo-calibrate-result {
+  display: grid;
+  gap: 6px;
+  margin: 4px 0 0;
+}
+
+.exo-calibrate-result > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.exo-calibrate-result dt { color: var(--color-muted); }
+.exo-calibrate-result dd { margin: 0; color: var(--color-fg); font-variant-numeric: tabular-nums; }
+
+/* An Edge profile's editor: its name, then the sticks beside the triggers and buttons. */
+.exo-dialog.exo-profile-dialog { width: min(820px, 100%); }
+
+.exo-profile-name { width: 100%; height: 36px; padding: 0 12px; }
+
+.exo-profile-name input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--color-fg);
+  font: inherit;
+  font-size: calc(13px * var(--exo-scale, 1));
+}
+
+.exo-profile-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 24px;
+}
+
+.exo-profile-grid .exo-set-item { padding: 6px 0; }
+
+.exo-profile-stick {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  align-items: start;
+  gap: 14px;
+}
+
+.exo-profile-curve {
+  width: 72px;
+  height: 72px;
+  margin-top: 8px;
+  border-radius: 8px;
+  background: rgb(var(--exo-ink-rgb) / 0.04);
+  overflow: visible;
+}
+
+.exo-profile-curve polyline {
+  fill: none;
+  stroke: var(--color-fg);
+  stroke-width: 2.5;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.exo-profile-curve .exo-stick-axis { stroke-dasharray: 3 3; vector-effect: non-scaling-stroke; }
+
+.exo-profile-range {
+  display: grid;
+  gap: 6px;
+  width: calc(160px * var(--exo-scale, 1));
+}
+
+@media (width < 860px) {
+  .exo-profile-grid { grid-template-columns: minmax(0, 1fr); }
 }

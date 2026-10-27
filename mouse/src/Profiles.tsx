@@ -13,7 +13,9 @@ type Client = ReturnType<typeof useMouse>['client']
  * mouse goes back to whenever no linked game is running. It is never renamed,
  * deleted or linked to games; Update saves the mouse's current settings into it.
  */
-type Profile = { id: string; name: string; steps: Step[]; savedAt: string; games?: string[]; isDefault?: boolean }
+type Profile = { id: string; name: string; steps: Step[]; savedAt: string; games?: string[]; isDefault?: boolean; polling?: Polling }
+/** A profile's polling rate on each connection, as saved on it: a wireless mouse often allows less on its cable, or the other way round. */
+type Polling = Partial<Record<'Wired' | 'Wireless', number>>
 
 const KEY = 'exo-mouse.profiles.v1'
 
@@ -66,6 +68,13 @@ export function snapshot(status: MouseStatus, client: Client): Step[] {
   if (!ui.hideAngleSnapping && !ui.hideProcessingCard) add('setAngleSnapping', status.angleSnapping)
   if (!ui.hideRippleControl && !ui.hideProcessingCard) add('setRippleControl', status.rippleControl)
   add('setDebounceTime', status.debounceMs)
+  // HITS (Logitech's hall-effect buttons): the live tuning for each button, never the onboard copy, so switching
+  // profiles doesn't wear the mouse's memory. The rapid trigger switch only where the mouse reports it.
+  const hits = status.analogButtonTuning
+  if (hits?.buttons.length === 2 && can(client, 'setAnalogButtonTuning'))
+    hits.buttons.forEach((b, i) => add('setAnalogButtonTuning', i, b.rapidTriggerEnabled === undefined
+      ? { actuation: b.actuation, rapidTrigger: b.rapidTrigger, haptics: b.haptics }
+      : { actuation: b.actuation, rapidTrigger: b.rapidTrigger, haptics: b.haptics, rapidTriggerEnabled: b.rapidTriggerEnabled }))
   if (!ui.hideSleepCard) add('setSleepTimeout', status.sleepTimeout)
   if (status.powerModes?.length) add('setPowerMode', status.powerMode)
   if (slx) {
@@ -87,6 +96,25 @@ export function snapshot(status: MouseStatus, client: Client): Step[] {
   }
   return steps
 }
+
+/**
+ * A profile's settings as the connection the mouse is on takes them: its polling rate saved for this connection, else
+ * the nearest rate this connection allows, never one it would refuse (which would leave the profile retrying).
+ */
+function fit(profile: Pick<Profile, 'steps' | 'polling'>, status: MouseStatus): Step[] {
+  const on = status.connectionType ?? 'Wired'
+  const allowed = status.supportedPollingRates ?? []
+  return profile.steps.map(step => {
+    if (step[0] !== 'setPollingRate') return step
+    const wanted = profile.polling?.[on] ?? (step[1][0] as number)
+    if (!allowed.length || allowed.includes(wanted)) return ['setPollingRate', [wanted]] as Step
+    const below = allowed.filter(rate => rate <= wanted)
+    return ['setPollingRate', [below.length ? Math.max(...below) : Math.min(...allowed)]] as Step
+  })
+}
+
+/** What a save keeps of the polling rate: this connection's rate now, the other connection's as it was. */
+const pollingNow = (status: MouseStatus, before?: Polling): Polling => ({ ...before, [status.connectionType ?? 'Wired']: status.pollingRateHz })
 
 /**
  * The mouse has a profile when every setting the profile holds is what the
@@ -173,17 +201,17 @@ export function Profiles({ device, status, client, applyAll, busy }: {
   const [applied, setApplied] = useState<string | null>(null)
   const apply = async (p: Profile) => {
     setApplying(p.id)
-    const took = await applyAll(changes(p.steps, now))
+    const took = await applyAll(changes(fit(p, status), now))
     setApplying(a => a === p.id ? null : a)
     if (!took) return
     setApplied(p.id)
     window.setTimeout(() => setApplied(a => a === p.id ? null : a), 3000)
   }
-  const active = (p: Profile) => same(p.steps, now) || applied === p.id
+  const active = (p: Profile) => same(fit(p, status), now) || applied === p.id
   const list = all[device] ?? []
   const now = snapshot(status, client)
   // The saved profile the mouse has now, for Exo's title bar (none when its settings match none).
-  const current = list.find(p => same(p.steps, now))?.name ?? null
+  const current = list.find(p => same(fit(p, status), now))?.name ?? null
   useEffect(() => { tell({ profile: current }) }, [current])
   useEffect(() => () => tell({ profile: null }), [])
 
@@ -204,8 +232,8 @@ export function Profiles({ device, status, client, applyAll, busy }: {
   titlesNow.current = titles
 
   // The newest list, settings and writer, for the game events below.
-  const live = useRef({ list, now, applyAll })
-  live.current = { list, now, applyAll }
+  const live = useRef({ list, now, status, applyAll })
+  live.current = { list, now, status, applyAll }
   /**
    * Writes a profile and keeps at it until the mouse has it. A sleeping wireless
    * mouse drops writes while its receiver still answers reads, so a switch made
@@ -242,13 +270,13 @@ export function Profiles({ device, status, client, applyAll, busy }: {
         const profile = profiles.find(p => p.games?.includes(id))
         if (!profile) return
         // The room may be closed and the last read a minute old: write the whole profile.
-        land(profile.steps, `${profile.name} mouse profile on for ${titlesNow.current.get(id) ?? 'your game'}.`)
+        land(fit(profile, live.current.status), `${profile.name} mouse profile on for ${titlesNow.current.get(id) ?? 'your game'}.`)
         return
       }
       if (!profiles.some(p => p.games?.includes(id))) return
       // Another linked game still running keeps its profile; otherwise Desktop (always there once loaded).
       const next = runningProfile(profiles) ?? profiles.find(p => p.isDefault)
-      if (next) land(next.steps, `${next.name} mouse profile on.`)
+      if (next) land(fit(next, live.current.status), `${next.name} mouse profile on.`)
     }
     return () => {
       games.switchFor = null
@@ -267,7 +295,8 @@ export function Profiles({ device, status, client, applyAll, busy }: {
     const fixed = withDesktop(list, now)
     if (JSON.stringify(fixed) !== JSON.stringify(list)) save(fixed)
     const target = runningProfile(fixed) ?? fixed[0]
-    if (!same(target.steps, now)) land(target.steps, null)
+    const steps = fit(target, status)
+    if (!same(steps, now)) land(steps, null)
   }, [loaded, list, now, applyAll])
 
   /** A game is linked to one profile at most (never Desktop): linking it here unlinks it elsewhere. */
@@ -292,11 +321,11 @@ export function Profiles({ device, status, client, applyAll, busy }: {
     if (!clean) return
     const existing = list.find(p => p.name.toLowerCase() === clean.toLowerCase())
     save(existing
-      ? list.map(p => p.id === existing.id ? { ...p, steps: now, savedAt: new Date().toISOString() } : p)
-      : [...list, { id: crypto.randomUUID(), name: clean, steps: now, savedAt: new Date().toISOString() }])
+      ? list.map(p => p.id === existing.id ? { ...p, steps: now, polling: pollingNow(status, p.polling), savedAt: new Date().toISOString() } : p)
+      : [...list, { id: crypto.randomUUID(), name: clean, steps: now, polling: pollingNow(status), savedAt: new Date().toISOString() }])
     setName('')
   }
-  const update = (id: string) => save(list.map(p => p.id === id ? { ...p, steps: now, savedAt: new Date().toISOString() } : p))
+  const update = (id: string) => save(list.map(p => p.id === id ? { ...p, steps: now, polling: pollingNow(status, p.polling), savedAt: new Date().toISOString() } : p))
   const rename = (id: string) => {
     const clean = draft.trim().slice(0, 40)
     // Desktop's name is taken: another profile cannot become it.

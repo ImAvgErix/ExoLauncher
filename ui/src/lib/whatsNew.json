@@ -1,5 +1,40 @@
 [
   {
+    "version": "3.16.0",
+    "items": [
+      {
+        "icon": "Gamepad",
+        "title": "Your controller's own page",
+        "detail": "Live sticks and triggers, a stick test, its polling rate and the USB port it's on, for DualSense, Xbox and more."
+      },
+      {
+        "icon": "Sliders",
+        "title": "Calibrate your sticks",
+        "detail": "Your DualSense recenters and maps its sticks with its own routine, and Undo puts it back."
+      },
+      {
+        "icon": "Gamepad",
+        "title": "Edge profiles in Exo",
+        "detail": "Edit your DualSense Edge's four profiles, stick curves, triggers and back buttons, stored in the controller."
+      },
+      {
+        "icon": "Devices",
+        "title": "Games read your controller",
+        "detail": "One switch turns Steam Input off for every game that supports your PlayStation controller."
+      },
+      {
+        "icon": "Mouse",
+        "title": "The right USB port",
+        "detail": "Exo shows which devices go through the chipset and helps you find the processor's own ports."
+      },
+      {
+        "icon": "Shaders",
+        "title": "Steadier shader compiles",
+        "detail": "Exo Shaders takes SCSKiller 1.3.3's fixes: no compile stuck at 100%, and stopped ones pick up where they were."
+      }
+    ]
+  },
+  {
     "version": "3.15.5",
     "items": [
       {

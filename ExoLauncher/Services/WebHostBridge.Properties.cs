@@ -106,6 +106,7 @@ public sealed partial class WebHostBridge
         {
             await Task.Run(() => FillSteamAsync(common, game.LaunchTarget!, ct), ct).ConfigureAwait(true);
             common.Overlay = SteamOverlayFor(game.LaunchTarget!);
+            if (SteamInputFor(game.LaunchTarget!) is { } input) (common.Controller, common.ReadsPlayStation) = (input.Mode, input.ReadsPlayStation);
         }
         else if (game.Store == StoreKind.Epic && LegendaryProperties.IsAppName(game.LaunchTarget))
             await Task.Run(() => FillEpicAsync(common, game.LaunchTarget!, ct), ct).ConfigureAwait(true);
@@ -286,6 +287,14 @@ public sealed partial class WebHostBridge
                 throw new InvalidDataException("Steam does not take that change.");
             return await ApplySteamOverlayAsync(new Dictionary<string, bool> { [game.LaunchTarget!] = value == "on" }, userAsked: true, ct)
                 .ConfigureAwait(true);
+        }
+        if (key == "controller")
+        {
+            if (game.Store != StoreKind.Steam || !SteamProtocol.IsValidAppId(game.LaunchTarget) || value is not ("native" or "steam" or "default"))
+                throw new InvalidDataException("Steam does not take that change.");
+            var appId = game.LaunchTarget!;
+            _services.Settings.UpdateProfile(s => { if (value == "default") s.SteamInputChoices.Remove(appId); else s.SteamInputChoices[appId] = value; });
+            return await ApplySteamOverlayAsync(null, userAsked: true, ct, new HashSet<string> { appId }).ConfigureAwait(true);
         }
         var touchesFiles = key is "content" or "beta" or "betaCode" or "language" or "folder";
         if (touchesFiles && _services.Launcher.GetGameRunState(game).IsRunning)
@@ -539,6 +548,10 @@ public sealed partial class WebHostBridge
         public string? StoreProperties { get; set; }
         /// <summary>The Steam overlay for this game; null for other stores.</summary>
         public bool? Overlay { get; set; }
+        /// <summary>Steam Input for this game: native, steam or default; null for other stores.</summary>
+        public string? Controller { get; set; }
+        /// <summary>Whether the game reads a PlayStation controller itself (its store page says so).</summary>
+        public bool ReadsPlayStation { get; set; }
 
         public object ToDto() => new
         {
@@ -567,6 +580,8 @@ public sealed partial class WebHostBridge
             moving = Moving is { } moving ? new { done = moving.Done, total = moving.Total } : null,
             storeProperties = StoreProperties,
             overlay = Overlay,
+            controller = Controller,
+            readsPlayStation = ReadsPlayStation,
         };
 
         private static object Choice(PropertyChoice choice) =>

@@ -3495,6 +3495,9 @@ video.exo-dc-media {
   white-space: nowrap;
 }
 
+/* Over a nameplate's art the second line is a step lighter, so it still reads at 4.5:1 where the art is brightest. */
+.has-nameplate .exo-dc-item-sub { color: color-mix(in srgb, var(--dc-muted), var(--dc-text) 30%); }
+
 .exo-dc-side-label.is-row {
   display: flex;
   align-items: center;

@@ -180,33 +180,16 @@ internal static partial class Peripherals
 
     /// <summary>
     /// A DualSense's serial on USB: its firmware info (feature report 0x20) says whether it reads it; then the test
-    /// command for it (feature report 0x80: device 0x01 system, action 0x13 read serial) and the answer (feature report
-    /// 0x81), polled every 50 ms, at most 20 times. Null when it can't or doesn't say.
+    /// command for it (device 0x01 system, action 0x13 read serial) through the Controller Lab's pad, which sends only
+    /// what its list allows. Null when it can't or doesn't say.
     /// </summary>
     internal static string? DualSenseSerial(Peripheral card)
     {
-        if (card.Collections.FirstOrDefault(c => c is { Page: 0x01, Usage: 0x05 }) is not { } pad || InterfacePath(pad.Id) is not { } path) return null;
-        using var handle = CreateFile(path, GenericRead | GenericWrite, FileShareRead | FileShareWrite, 0, OpenExisting, 0, 0);
-        var length = handle.IsInvalid ? 0 : Caps(handle)?.FeatureReportByteLength ?? 0;
-        if (length < 64) return null;
-        var info = new byte[length];
-        info[0] = 0x20;
+        using var pad = ControllerLab.Pad.Open(card);
         // The gate is the DualSense's; a DualSense Edge numbers its hardware and firmware its own way (this PC's: 534 and
         // 0x0100008B, from 2025) and answers the same command.
-        if (!HidD_GetFeature(handle, info, length) || card.ProductId == 0x0CE6 && !ReadsSerial(info)) return null;
-        var ask = new byte[length];
-        ask[0] = 0x80;
-        ask[1] = 0x01; // system
-        ask[2] = 0x13; // read the serial
-        if (!HidD_SetFeature(handle, ask, length)) return null;
-        for (var i = 0; i < 20; i++)
-        {
-            Thread.Sleep(50);
-            var reply = new byte[length];
-            reply[0] = 0x81;
-            if (HidD_GetFeature(handle, reply, length) && SerialOf(reply) is { } serial) return serial;
-        }
-        return null;
+        if (pad?.Get(0x20) is not { } info || card.ProductId == 0x0CE6 && !ReadsSerial(info)) return null;
+        return pad.Command(ControllerLab.ReadSerial) is { } reply ? SerialOf(reply) : null;
     }
 
     /// <summary>
@@ -244,7 +227,7 @@ internal static partial class Peripherals
         return [.. answer];
     }
 
-    private static string? InterfacePath(string instanceId)
+    internal static string? InterfacePath(string instanceId)
     {
         var guid = HidInterface;
         if (CM_Get_Device_Interface_List_Size(out var length, ref guid, instanceId, 0) != 0 || length <= 1) return null;

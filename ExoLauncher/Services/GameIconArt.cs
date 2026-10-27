@@ -550,7 +550,7 @@ public static class GameIconArt
         Buffer.BlockCopy(typeBytes, 0, crcSrc, 0, typeBytes.Length);
         if (data.Length > 0) Buffer.BlockCopy(data, 0, crcSrc, typeBytes.Length, data.Length);
         var crc = new byte[4];
-        WriteBe32(crc, 0, Crc32(crcSrc));
+        WriteBe32(crc, 0, Helpers.Crc32.Of(crcSrc));
         stream.Write(crc);
     }
 
@@ -564,18 +564,6 @@ public static class GameIconArt
 
     private static void WriteBe32(byte[] dest, int offset, int value) =>
         WriteBe32(dest, offset, unchecked((uint)value));
-
-    private static uint Crc32(byte[] data)
-    {
-        uint crc = 0xFFFFFFFF;
-        foreach (var b in data)
-        {
-            crc ^= b;
-            for (var i = 0; i < 8; i++)
-                crc = (crc & 1) != 0 ? (crc >> 1) ^ 0xEDB88320u : crc >> 1;
-        }
-        return crc ^ 0xFFFFFFFF;
-    }
 
     [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
     private static extern int SHDefExtractIconW(

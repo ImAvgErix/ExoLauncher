@@ -476,6 +476,15 @@ public sealed class AppSettings
     /// Steam has it (<see cref="ExoLauncher.Adapters.SteamOverlayConfig.Plan"/>).
     /// </summary>
     public Dictionary<string, string> SteamOverlay { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>
+    /// Devices > controller > Games read it themselves: Steam Input off for every Steam game with its own PlayStation
+    /// controller support, and Steam's desktop layout off (<see cref="ExoLauncher.Adapters.SteamInputConfig"/>).
+    /// </summary>
+    public bool NativeControllers { get; set; }
+    /// <summary>A game's Steam Input as picked in Exo, by app id: "native" (off) or "steam" (on); absent: Exo's default.</summary>
+    public Dictionary<string, string> SteamInputChoices { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>Steam Input values Exo wrote, by app id: "prior>set", so turning it off puts the prior value back exactly.</summary>
+    public Dictionary<string, string> SteamInput { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 }
 
 /// <summary>User-supplied launch extras for one library id.</summary>

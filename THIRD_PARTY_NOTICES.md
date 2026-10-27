@@ -49,6 +49,10 @@ The source for every build of these programs that Exo ships is published at the 
 
 The WebView2 Runtime itself is Microsoft's, installed and updated by Windows.
 
+The Controller Lab's stick calibration follows the sequences of [dualshock-tools](https://github.com/dualshock-tools/dualshock-tools.github.io) (the_al, MIT), and its DualSense Edge profiles the open format and stick presets of [dualsense-tester](https://github.com/daidr/dualsense-tester) (daidr, MIT), checked against a real Edge's stored profile. Exo's code is its own; nothing comes from Sony's software.
+
+Devices' USB port line follows the idea of [CPU Direct USB](https://github.com/MariusHeier/cpu-direct-usb) by Marius Heier (MIT): tell a device's USB controller by its PCI id and count the chips between it and the processor. Exo's reader is its own code; the controller ids it knows are facts from [The PCI ID Repository](https://pci-ids.ucw.cz/) and Linux's xHCI driver.
+
 ## Downloaded by Exo
 
 Exo does not ship these in its installer file; it downloads a fixed release and checks its size and SHA-256 first. Exo's setup fetches the store tools, DeepFilterNet and the two NVIDIA models while it installs; the upscaler files come only for a game that ships them. The store tools run as their own programs.

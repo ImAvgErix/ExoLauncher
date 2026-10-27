@@ -125,6 +125,17 @@ internal static class SteamOverlayConfig
         throw new InvalidDataException("localconfig.vdf did not take the section.");
     }
 
+    /// <summary>The VDF text without <paramref name="key"/>'s line under <paramref name="path"/> (unchanged when it isn't there).</summary>
+    internal static string RemoveValue(string text, string[] path, string key)
+    {
+        var scan = Scan(text, path, key);
+        if (scan.ValueStart < 0) return text;
+        var start = text.LastIndexOf('\n', scan.ValueStart) + 1;
+        var end = text.IndexOf('\n', scan.ValueEnd);
+        end = end < 0 ? text.Length : end + 1;
+        return text.Remove(start, end - start);
+    }
+
     /// <summary>
     /// Where <paramref name="key"/> sits under <paramref name="path"/>: its value's
     /// span, or how deep the path exists and where the next line goes in it (just

@@ -41,6 +41,10 @@ internal static partial class Peripherals
         [JsonIgnore] public int? ProductId { get; init; }
         /// <summary>Its HID collections' device instances and usages (native only).</summary>
         [JsonIgnore] public IReadOnlyList<Collection> Collections { get; init; } = [];
+        /// <summary>Where it meets the PC (<see cref="UsbPorts"/>); null off USB or where Exo can't tell.</summary>
+        [JsonIgnore(Condition = JsonIgnoreCondition.Never)] public UsbPorts.Port? Port { get; init; }
+        /// <summary>A controller the Controller Lab reads (<see cref="ControllerLab.FamilyOf"/>): its card opens a page.</summary>
+        public bool Lab { get; init; }
     }
 
     internal sealed record Collection(string Id, int Page, int Usage);

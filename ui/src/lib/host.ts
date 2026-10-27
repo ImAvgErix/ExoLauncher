@@ -125,8 +125,96 @@ export type Peripheral = {
   battery: number | null
   /** A controller's body color as it reports it ("Midnight Black"). */
   color: string | null
+  /** Where it meets the PC; null off USB or where Exo can't tell. */
+  port?: PeripheralPort | null
+  /** A controller the Controller Lab reads: its card opens a page. */
+  lab?: boolean
   /** A keyboard's layout as it reports it; -split: a split spacebar. */
   layout: 'ansi' | 'iso' | 'jis' | 'ansi-split' | 'iso-split' | null
+}
+
+/**
+ * Where a device meets the PC (UsbPorts): the processor's own USB, the chipset, an extra USB chip, a dock or Bluetooth;
+ * the chips between it and the processor; MSI or line interrupts on its controller; and what would help: a free port on
+ * the processor's own USB, or no hub in between.
+ */
+export type PeripheralPort = {
+  where: 'cpu' | 'chipset' | 'addin' | 'dock' | 'bluetooth' | 'unknown'
+  chips: number | null
+  hubs: number
+  interrupts: 'msi' | 'line' | null
+  better: 'free' | 'hub' | null
+}
+
+/** The processor's own USB connectors: how many are free of how many, and whether a free one is USB-C. */
+export type CpuPorts = { free: number; total: number; freeTypeC: boolean }
+
+/** The Controller Lab (DualSense and DualSense Edge): what sits between the controller and games. */
+export type ControllerLayers = {
+  /** Steam's PlayStation Controller Support for the signed-in account; null without Steam. */
+  steamPlayStation: 'off' | 'unsupported' | 'on' | null
+  tools: { name: string; running: boolean }[]
+  pollingDriver: boolean
+  memoryIntegrity: boolean | null
+}
+
+export type ControllerRead = {
+  ok: boolean
+  message?: string
+  link?: Peripheral['connection']
+  edge?: boolean
+  /** Over USB only: its version and build day, Sony's newest (null offline) and whether it's current. */
+  firmware?: { version: string; built: string; latest: string | null; current: boolean | null } | null
+  layers?: ControllerLayers
+  calibration?: ControllerCalibration | null
+}
+
+/** Exo's stick calibration on this controller: done, kept after unplugging (a DualSense), put back on connect (an Edge), undoable. */
+export type ControllerCalibration = { calibrated: boolean; kept: boolean; reapply: boolean; canUndo: boolean }
+export type CalibrationStep = 'center' | 'range-begin' | 'range-end' | 'range-cancel' | 'keep' | 'undo' | 'reapply-on' | 'reapply-off'
+
+/** One stick in an Edge profile: its preset (0 Default .. 5 Dynamic, 255 custom) and curve (four x,y points, 0-255). */
+export type EdgeStick = { preset: number; points: number[]; deadzone: number; adjustment: number }
+/** An Edge profile slot (1 the controller's default; 2-4 Fn + Square, Cross, Circle). */
+export type EdgeProfile = {
+  slot: number
+  assigned: boolean
+  /** Its CRC matches its bytes. */
+  intact: boolean
+  /** Exo kept what the slot held before its last change. */
+  canUndo: boolean
+  name: string
+  id: string
+  left: EdgeStick
+  right: EdgeStick
+  /** Trigger ranges, % (start, full). */
+  l2: number[]
+  r2: number[]
+  unifiedTriggers: boolean
+  vibration: 'strong' | 'medium' | 'weak' | 'off'
+  triggerEffects: 'strong' | 'medium' | 'weak' | 'off'
+  /** What each source button sends (Up, Left, Down, Right, Circle, Cross, Square, Triangle, R1, R2, R3, L1, L2, L3, left and right back buttons). */
+  buttons: number[]
+  /** Disabled-button bits; bit 31 swaps the sticks. */
+  disabled: number
+  updated: number
+}
+export type EdgeProfiles = { ok: boolean; message?: string; profiles?: EdgeProfile[] }
+
+/** How a controller reports: reports a second, fresh readings a second, the 99th percentile gap and jitter (ms), repeats (%). */
+export type ControllerPolling = { rate: number; fresh: number | null; p99: number; jitter: number; repeats: number | null; reports: number }
+
+/** One stick at rest: center offset (% of half its travel) and how much it wanders (steps). */
+export type StickRest = { offsetX: number; offsetY: number; noise: number }
+/** One stick rolled around its edge: its shortest reach (%), circularity error (%) and how much of the circle was covered (0..1). */
+export type StickEdge = { reach: number; circularity: number; covered: number }
+
+export type ControllerState = {
+  id: string
+  lx: number; ly: number; rx: number; ry: number; l2: number; r2: number
+  /** An Edge's active profile (1 the default, 2-4 its Fn slots) and trigger stops (0-2). */
+  profile: number | null; stopL: number | null; stopR: number | null
+  battery: number | null; charging: boolean
 }
 
 export type LucidSettings = {
@@ -1009,6 +1097,10 @@ export interface GameProperties {
   storeProperties: string | null
   /** Steam overlay for this game; null for other stores. */
   overlay: boolean | null
+  /** Steam Input for this game: native (it reads the controller itself), steam (Steam translates), or default (Steam decides). */
+  controller?: 'native' | 'steam' | 'default' | null
+  /** The game reads a PlayStation controller itself (its store page says so). */
+  readsPlayStation?: boolean
 }
 
 /** The host leaves empty values out: each one a store does not have reads as null here, so its row stays hidden. */
@@ -1022,7 +1114,7 @@ function withNulls(properties: GameProperties): GameProperties {
 
 export type GamePropertyKey =
   | 'launchOptions' | 'autoUpdate' | 'background' | 'cloud' | 'cloudSync' | 'language'
-  | 'beta' | 'betaCode' | 'content' | 'folder' | 'storeProperties' | 'overlay'
+  | 'beta' | 'betaCode' | 'content' | 'folder' | 'storeProperties' | 'overlay' | 'controller'
 
 /** Desktop app install (Spotify). */
 export interface DesktopInstallResponse {
@@ -1160,6 +1252,8 @@ export interface HostEventMap {
   'hid.changed': Record<string, never>
   /** A device arrived or left, or Windows' default speakers or microphone changed (once things settle): list devices again. */
   'devices.changed': Record<string, never>
+  /** The controller page's live view, at most 60 a second while it's on. */
+  'controller.state': ControllerState
   /** Exo Capture's state changed: buffering, recording, hotkeys, or it stopped. */
   'capture.state': CaptureState
   /** A clip, recording, snip, trim or export was saved; a snip ("snip") opens in the editor, Exo in front. */
@@ -1871,7 +1965,25 @@ export const host = {
   /** The headphones Lucid has tunings for, read from this PC's Lucid. */
   lucidHeadphones: () => rawCall<{ ok: boolean; headphones: LucidHeadphone[] }>('lucid.headphones'),
   /** Devices: the mouse, keyboards, audio and controllers on this PC (devices.changed says when one comes or goes). */
-  devicesList: () => rawCall<{ ok: boolean; devices: Peripheral[] }>('devices.list', {}, 15_000),
+  devicesList: () => rawCall<{ ok: boolean; devices: Peripheral[]; cpuPorts?: CpuPorts | null }>('devices.list', {}, 15_000),
+  controllerRead: (id: string) => rawCall<ControllerRead>('controller.read', { id }, 30_000),
+  controllerMeasure: (id: string, seconds = 3) => rawCall<{ ok: boolean; message?: string; polling?: ControllerPolling }>('controller.measure', { id, seconds }, 20_000),
+  controllerTest: (id: string, kind: 'rest' | 'edge', seconds?: number) =>
+    rawCall<{ ok: boolean; message?: string; left?: StickRest | StickEdge | null; right?: StickRest | StickEdge | null }>('controller.test', { id, kind, seconds }, 25_000),
+  controllerWatch: (id: string, on: boolean) => rawCall<{ ok: boolean; message?: string }>('controller.watch', { id, on }, 15_000),
+  /** One step of the controller's own stick calibration; range-end answers more: true until both sticks went all the way round. */
+  controllerCalibrate: (id: string, step: CalibrationStep) =>
+    rawCall<{ ok: boolean; message?: string; more?: boolean; left?: number; right?: number }>('controller.calibrate', { id, step }, 30_000),
+  /** A preset's curve (four x,y points) for a deadzone (0-1) and adjustment (-5..5): the editor's picture. */
+  controllerCurve: (preset: number, deadzone: number, adjustment: number) =>
+    rawCall<{ ok: boolean; points?: number[] }>('controller.curve', { preset, deadzone, adjustment }),
+  controllerProfiles: (id: string) => rawCall<EdgeProfiles>('controller.profiles', { id }, 30_000),
+  controllerProfileSave: (id: string, profile: EdgeProfile) => rawCall<EdgeProfiles>('controller.profileSave', { id, profile }, 30_000),
+  controllerProfileClear: (id: string, slot: number) => rawCall<EdgeProfiles>('controller.profileClear', { id, slot }, 30_000),
+  controllerProfileUndo: (id: string, slot: number) => rawCall<EdgeProfiles>('controller.profileUndo', { id, slot }, 30_000),
+  /** Games read the controller themselves: Steam Input off for every Steam game with PlayStation controller support. */
+  steamInputState: () => rawCall<{ ok: boolean; steam: boolean; on: boolean; native: number; translated: number }>('steamInput.state'),
+  steamInputSet: (on: boolean) => rawCall<{ ok: boolean; message?: string | null }>('steamInput.set', { on }, 120_000),
   /** A newer Lucid its own feed offers (null: none, or offline). Lucid's window installs it. */
   lucidUpdate: () => rawCall<{ version: string | null }>('lucid.update', {}, 30_000),
   /** Dictation: on, whether this PC runs it, whether its speech model is here (lib/dictation.ts). */

@@ -95,7 +95,9 @@ export async function run(t) {
     const lines = await t.exo.logSince(t.logMark)
     const byMethod = {}
     for (const l of lines) { const m = /PERF rpc method=(\S+) elapsedMs=(\d+)/.exec(l.text); if (m) (byMethod[m[1]] ??= []).push(+m[2]) }
-    const slow = Object.entries(byMethod).map(([m, list]) => [m, Math.max(...list), list.length]).filter(([, max]) => max > 1000).sort((x, y) => y[1] - x[1])
+    // A measurement takes as long as it was asked to measure (the controller's three seconds); it isn't slow.
+    const timed = new Set(['controller.measure', 'controller.test'])
+    const slow = Object.entries(byMethod).filter(([m]) => !timed.has(m)).map(([m, list]) => [m, Math.max(...list), list.length]).filter(([, max]) => max > 1000).sort((x, y) => y[1] - x[1])
     c.evidence.slowest = Object.entries(byMethod).map(([m, list]) => [m, Math.max(...list), list.length]).sort((x, y) => y[1] - x[1]).slice(0, 8)
     if (!Object.keys(byMethod).length) c.skip('app.log has no timed host calls in this run')
     if (slow.length) c.warn(`slow host calls: ${slow.slice(0, 4).map(([m, max, n]) => `${m} ${max} ms (x${n})`).join(', ')}`)

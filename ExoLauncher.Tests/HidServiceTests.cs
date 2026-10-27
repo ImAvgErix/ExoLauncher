@@ -8,7 +8,9 @@ namespace ExoLauncher.Tests;
 /// - a Razer mouse (settings as feature reports on its mouse collection) is skipped and never shows;
 /// - a keyboard collection is opened, reaching hardware Exo Mouse has no business with;
 /// - a mouse collection with no feature reports (a Finalmouse receiver) is opened for nothing;
-/// - a vendor collection is treated as Windows' own.
+/// - a vendor collection is treated as Windows' own;
+/// - a game controller is listed, so the mouse module could send a mouse command to a pad's firmware-update or pairing
+///   report (a DualSense Edge's 0xA0 or 0x0A).
 /// </summary>
 public sealed class HidServiceTests
 {
@@ -62,6 +64,21 @@ public sealed class HidListingTests
         Assert.Equal(("StarlightX Dongle", ""), HidService.Remember(strings, Path, () => "StarlightX Dongle", () => null));
         Assert.Equal(("StarlightX Dongle", "937AEB5354AAB2ED"), HidService.Remember(strings, Path, () => "other", () => "937AEB5354AAB2ED"));
     }
+
+    [Theory]
+    [InlineData(0x01, 0x04)]         // joystick
+    [InlineData(0x01, 0x05)]         // gamepad (a DualSense)
+    [InlineData(0x01, 0x08)]         // multi-axis controller
+    public void GameControllersStayOutOfReach(int page, int usage) =>
+        Assert.True(HidService.IsGameController(new HidService.Collection(page, usage, [0], [], [0], 8, 0, 64)));
+
+    [Theory]
+    [InlineData(0x01, 0x02)]         // mouse
+    [InlineData(0x01, 0x06)]         // keyboard
+    [InlineData(0xFF00, 0x01)]       // a mouse's vendor collection
+    [InlineData(0x0C, 0x01)]         // consumer control
+    public void MiceAndTheirCollectionsStayListed(int page, int usage) =>
+        Assert.False(HidService.IsGameController(new HidService.Collection(page, usage, [0], [], [0], 8, 0, 64)));
 
     [Fact]
     public void AnOlderListingThatAnswersLastIsNotApplied()

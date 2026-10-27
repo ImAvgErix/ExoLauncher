@@ -4,6 +4,7 @@ import { host, type LucidHeadphone, type Peripheral } from '../../lib/host'
 import { report } from '../../lib/report'
 import { LucidAlertRows, LucidAppRows, LucidGameRows, LucidMissingRow, useLucid } from '../settings/LucidSection'
 import { Row } from '../settings/parts'
+import { DeviceColumn, DevicePage, DevicePanel as Panel } from './DevicePage'
 import { NightShiftRows } from './NightShiftRows'
 
 export type AudioLook = 'headphones' | 'iem' | 'headset'
@@ -32,42 +33,18 @@ export function AudioPage({ name, status, art, output, mic, wearing, onWearing }
   const found = lucid.state?.found === true
   const worn = output && output.model !== 'speakers' && output.model !== 'monitor'
   return (
-    <section className="exo-audio" aria-label={name}>
-      <aside className="exo-audio-hero">
-        <div className="exo-device-hero-art">{art}</div>
-        <div className="exo-audio-id">
-          <h1>{name}</h1>
-          <p>{status}</p>
-        </div>
-        <dl className="exo-audio-stats">
-          {output ? <div><dt>Playing on</dt><dd>{output.name}</dd></div> : null}
-          {mic ? <div><dt>Microphone</dt><dd>{mic.name}</dd></div> : null}
-        </dl>
-        <p className="exo-audio-credit">
-          Built on Lucid by tekkusai
-          <svg className="exo-audio-heart" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20.5 4.2 12.9A4.9 4.9 0 0 1 11.3 6.1l.7.7.7-.7a4.9 4.9 0 0 1 7.1 6.8z" /></svg>
-        </p>
-      </aside>
-      <div className="exo-audio-panels">
-        <div className="exo-audio-column">
-          {worn ? <Panel title="Headphones"><HeadphonePicker wearing={wearing} onWearing={onWearing} /></Panel> : null}
-          <Panel title="Lucid">{found ? <LucidAppRows lucid={lucid} /> : lucid.state ? <LucidMissingRow lucid={lucid} /> : null}</Panel>
-        </div>
-        <div className="exo-audio-column">
-          {found ? <Panel title="Modes"><LucidGameRows lucid={lucid} /><NightShiftRows active /></Panel> : null}
-          {found ? <Panel title="Sounds and notifications"><LucidAlertRows lucid={lucid} /></Panel> : null}
-        </div>
-      </div>
-    </section>
-  )
-}
-
-function Panel({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <section className="exo-system-panel exo-audio-panel" aria-label={title}>
-      <h2>{title}</h2>
-      <div className="exo-system-panel-body">{children}</div>
-    </section>
+    <DevicePage name={name} status={status} art={art}
+      stats={[{ label: 'Playing on', value: output?.name ?? null }, { label: 'Microphone', value: mic?.name ?? null }]}
+      credit="Built on Lucid by tekkusai">
+      <DeviceColumn>
+        {worn ? <Panel title="Headphones"><HeadphonePicker wearing={wearing} onWearing={onWearing} /></Panel> : null}
+        <Panel title="Lucid">{found ? <LucidAppRows lucid={lucid} /> : lucid.state ? <LucidMissingRow lucid={lucid} /> : null}</Panel>
+      </DeviceColumn>
+      <DeviceColumn>
+        {found ? <Panel title="Modes"><LucidGameRows lucid={lucid} /><NightShiftRows active /></Panel> : null}
+        {found ? <Panel title="Sounds and notifications"><LucidAlertRows lucid={lucid} /></Panel> : null}
+      </DeviceColumn>
+    </DevicePage>
   )
 }
 

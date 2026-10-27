@@ -65,6 +65,13 @@ function rowOf(pending: Pending): string {
 }
 
 /** A change going through: the ring beside the row's control, or before the words of the button that made it. */
+/** Steam Input for a Steam game: the game reads the controller, Steam translates it, or Steam's own setting decides. */
+const CONTROLLER = [
+  { value: 'native', label: 'Game reads it' },
+  { value: 'steam', label: 'Steam Input' },
+  { value: 'default', label: 'Steam decides' },
+] as const
+
 function Working({ on, label }: { on: boolean; label: string }) {
   return on ? <Spinner label={label} /> : null
 }
@@ -333,6 +340,15 @@ function GeneralSection({ props, locked, busy, arm, apply, line }: Rows) {
         <PropRow label="Steam overlay" detail="Off saves frames. Steam closes for a moment to change it." line={line('overlay')}>
           <Working on={busy === 'overlay'} label="Changing the Steam overlay" />
           <Switch checked={props.overlay} label="Steam overlay" disabled={busy !== null} onChange={on => void apply('overlay', on ? 'on' : 'off')} />
+        </PropRow>
+      )}
+      {props.controller != null && (
+        <PropRow label="Controller" line={line('controller')} detail={props.readsPlayStation
+          ? 'It reads a PlayStation controller itself. Steam closes for a moment to change it.'
+          : 'It reads Xbox controllers only: a PlayStation controller needs Steam Input here.'}>
+          <Working on={busy === 'controller'} label="Changing Steam Input" />
+          <Choice label="Controller" value={props.controller} choices={CONTROLLER} disabled={busy !== null}
+            onChange={value => void apply('controller', value)} />
         </PropRow>
       )}
       {props.storeProperties && (

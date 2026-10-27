@@ -66,6 +66,8 @@ public sealed partial class WebHostBridge
         ExoComponents.Fetched += OnComponentFetched;
         ExoComponents.FailedTwice += OnComponentFailed;
         _runStatePoll = new System.Threading.Timer(_ => PollRunStates(), null, TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(5));
+        _services.Launcher.GameSessionCompleted += ReapplyCalibrationsAfter;
+        WatchDevices();
     }
 
     /// <summary>
@@ -140,6 +142,7 @@ public sealed partial class WebHostBridge
         _services.Launcher.ProgressChanged -= OnProgress;
         _services.Launcher.DownloadQueueChanged -= OnDownloadQueueChanged;
         _services.Launcher.GameSessionCompleted -= OnGameSessionCompleted;
+        _services.Launcher.GameSessionCompleted -= ReapplyCalibrationsAfter;
         _services.Launcher.GameLaunched -= OnGameLaunched;
         _services.Launcher.GameRunStateChanged -= OnGameRunStateChanged;
         _services.Shaders.Changed -= OnShadersChanged;
@@ -672,6 +675,18 @@ public sealed partial class WebHostBridge
                 "lucid.headphones" => await Task.Run(LucidHeadphones).ConfigureAwait(true),
                 "lucid.update" => await Task.Run(LucidUpdateAsync).ConfigureAwait(true),
                 "devices.image" => await Task.Run(() => DevicesImageAsync(paramsEl, hasParams, requestToken)).ConfigureAwait(true),
+                "controller.read" => await Task.Run(() => ControllerReadAsync(paramsEl, hasParams)).ConfigureAwait(true),
+                "controller.measure" => await Task.Run(() => ControllerMeasureAsync(paramsEl, hasParams, requestToken)).ConfigureAwait(true),
+                "controller.test" => await Task.Run(() => ControllerTestAsync(paramsEl, hasParams, requestToken)).ConfigureAwait(true),
+                "controller.watch" => await Task.Run(() => ControllerWatch(paramsEl, hasParams)).ConfigureAwait(true),
+                "steamInput.state" => await Task.Run(SteamInputState).ConfigureAwait(true),
+                "steamInput.set" => await Task.Run(() => SteamInputSetAsync(paramsEl, hasParams, requestToken)).ConfigureAwait(true),
+                "controller.calibrate" => await Task.Run(() => ControllerCalibrateAsync(paramsEl, hasParams, requestToken)).ConfigureAwait(true),
+                "controller.curve" => ControllerCurve(paramsEl, hasParams),
+                "controller.profiles" => await Task.Run(() => ControllerProfilesAsync(paramsEl, hasParams, requestToken)).ConfigureAwait(true),
+                "controller.profileSave" => await Task.Run(() => ControllerProfileSaveAsync(paramsEl, hasParams, requestToken)).ConfigureAwait(true),
+                "controller.profileClear" => await Task.Run(() => ControllerProfileClearAsync(paramsEl, hasParams, requestToken)).ConfigureAwait(true),
+                "controller.profileUndo" => await Task.Run(() => ControllerProfileUndoAsync(paramsEl, hasParams, requestToken)).ConfigureAwait(true),
                 "dictation.state" => await Task.Run(DictationState).ConfigureAwait(true),
                 "dictation.prepare" => await DictationPrepareAsync(requestToken).ConfigureAwait(true),
                 "dictation.start" => await Task.Run(DictationStart).ConfigureAwait(true),

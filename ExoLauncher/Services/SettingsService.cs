@@ -891,6 +891,9 @@ public sealed class SettingsService
         LibraryFolders = NormalizeLibraryFolders(source.LibraryFolders),
         HiddenGames = NormalizeHiddenGames(source.HiddenGames),
         SteamOverlay = CopyStrings(source.SteamOverlay),
+        NativeControllers = source.NativeControllers,
+        SteamInputChoices = CopyStrings(source.SteamInputChoices),
+        SteamInput = CopyStrings(source.SteamInput),
         StartupHandedToExo = [.. (source.StartupHandedToExo ?? []).Where(id => StartupApps.Known.Any(app => app.Id == id)).Distinct()],
         LucidPath = source.LucidPath is { Length: > 0 and <= 1024 } lucid ? lucid : null,
     };

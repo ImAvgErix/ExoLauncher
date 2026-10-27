@@ -52,6 +52,7 @@ internal static class NetworkDestinations
     internal const string StripeCards = "Stripe's card form in Exo's Discord Shop (js.stripe.com, api.stripe.com, m.stripe.network, hooks.stripe.com), only while you add a card or your bank confirms a payment";
     internal const string DiscordGifs = "GIF hosts Discord points to (klipy.com, tenor.com, giphy.com)";
     internal const string LucidUpdates = "Lucid's version feed (raw.githubusercontent.com/tekkusai/Lucid)";
+    internal const string ControllerFirmware = "Sony's controller firmware versions (fwupdater.dl.playstation.net)";
     internal const string SpotifyShareLinks = "Spotify share links (spotify.link, spotify.app.link)";
     internal const string Installers = "Game runtimes and app installers: Microsoft (Visual C++, DirectX, .NET and its release list, XNA, WebView2; GameInput from NuGet's `globalcdn.nuget.org`), Creative (OpenAL, `openal.org`), NVIDIA (PhysX, `us.download.nvidia.com`), Spotify";
     internal const string DevicePictures = "Device pictures (the makers' own image servers: gmedia.playstation.com, cdn-dynmedia-1.microsoft.com, assets.nintendo.com, cdn.shopify.com, hyperx.com, ca.sennheiser-hearing.com, api.beyerdynamic.de, images.ctfassets.net, resource.logitechg.com, cdn.prod.website-files.com; for IEMs whose maker publishes no large picture, the stores of Linsoul (`www.linsoul.com`) and Bloom Audio (on cdn.shopify.com); OpenMouse's img.openmouse.app)";
@@ -193,6 +194,7 @@ internal static class NetworkDestinations
 
         // LucidCompanion.AvailableUpdateAsync: the version Lucid's own updater reads.
         new("raw.githubusercontent.com", LucidUpdates),
+        new("fwupdater.dl.playstation.net", ControllerFirmware),
 
         // DeviceImages: one product picture per device model, from the links in Assets/device-images.json (exact hosts only).
         new("gmedia.playstation.com", DevicePictures),

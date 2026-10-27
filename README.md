@@ -1,8 +1,8 @@
 <p align="center"><img src="docs/media/logo.png" alt="Exo" width="88"></p>
-<h1 align="center">Exo Launcher 3.15</h1>
+<h1 align="center">Exo Launcher 3.16</h1>
 <p align="center"><strong>Your games, your music, your friends and your mouse. One app.</strong></p>
 <p align="center">Exo brings every game store, Discord, Spotify, Apple Music, YouTube Music, your captures and your mouse software into one fast, quiet window for Windows 11.</p>
-<p align="center"><a href="https://github.com/ImAvgErix/ExoLauncher/releases/latest/download/ExoLauncher-Setup.exe"><strong>Download for Windows 11</strong></a> · <a href="https://github.com/ImAvgErix/ExoLauncher/releases/tag/v3.15.5">What's new in 3.15</a> · <a href="CHANGELOG.md">Changelog</a> · <a href="PRIVACY.md">Privacy</a></p>
+<p align="center"><a href="https://github.com/ImAvgErix/ExoLauncher/releases/latest/download/ExoLauncher-Setup.exe"><strong>Download for Windows 11</strong></a> · <a href="https://github.com/ImAvgErix/ExoLauncher/releases/tag/v3.16.0">What's new in 3.16</a> · <a href="CHANGELOG.md">Changelog</a> · <a href="PRIVACY.md">Privacy</a></p>
 
 ![The Exo Library: every game from every store in one grid](docs/media/library.jpg)
 
@@ -114,7 +114,9 @@ The Capture button in the top bar, or its keys, saves an instant replay of the l
 
 Devices shows what you plug in, each as itself: your mouse, keyboard, what you listen on and your controller, each with the maker's own picture of that model. Press one to open its page.
 - **Headphones:** Windows can't tell which pair is on the jack, so you pick yours from the hundreds Lucid knows. Its page holds Lucid (it switches your headphones' EQ when your device or game changes, starts with Exo and stays out of sight), Game Mode and Night Shift, all on one screen. Lucid is made by [tekkusai](https://github.com/tekkusai/Lucid).
-- **Keyboards and controllers** show what they are, marked Coming soon, until Exo sets them up.
+- **Controllers:** a DualSense, DualSense Edge, DualShock 4, Xbox controller or other gamepad opens the Controller Lab: live sticks and triggers, a stick test and its measured polling rate. A DualSense or Edge calibrates its sticks with its own routine, an Edge's four profiles (stick curves, trigger ranges, back buttons) are edited here and stored in the controller, and one switch lets games that support a PlayStation controller read it themselves instead of through Steam Input.
+- **USB ports:** each device's page says which USB it's on, and Devices says when your mouse, keyboard or controller would gain from one of the processor's own ports.
+- **Keyboards** show what they are, marked Coming soon, until Exo sets them up.
 
 Your mouse's page is Exo Mouse, which talks to your mouse directly, with no vendor app, driver or account:
 - **Status:** your mouse's battery, signal and firmware, with its battery and profile in the top bar.
