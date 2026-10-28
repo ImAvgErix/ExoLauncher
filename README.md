@@ -204,6 +204,11 @@ Every bundled library and tool is listed in [Third-party notices](THIRD_PARTY_NO
 
 **Not affiliated.** Exo Launcher is independent and not affiliated with or endorsed by Valve, Epic Games, GOG, Riot Games, Microsoft, EA, Ubisoft, Blizzard, Amazon, Discord, Spotify, Apple, Google, NVIDIA, AMD, Intel, OBS Studio or any other company it works with. Their names, logos and game art belong to their owners. Your use of each service stays under that service's own terms.
 
+## Also from Exo
+
+- **[Exo Browser](https://github.com/UhhErix/ExoBrowser)** — private browser with Exo Shield and Exo Vault built in
+- **[Exo Cinema](https://github.com/UhhErix/ExoCinema)** — Jellyfin library with a native mpv player (HDR / Dolby Vision)
+
 ---
 
 [Help](docs/HELP.md) · [Report an issue](https://github.com/UhhErix/ExoLauncher/issues) · [Support development](https://www.buymeacoffee.com/UhhErix)
