@@ -25,7 +25,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  PRODUCT: ExoLauncher
+  PRODUCT: "Exo Launcher"
   AVATAR_FILE: exo-launcher-avatar.png
   ASSET_DIR: .github/discord
   STATE_ARTIFACT: discord-last-release-message
