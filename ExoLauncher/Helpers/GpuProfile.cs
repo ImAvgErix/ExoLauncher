@@ -73,8 +73,7 @@ internal static partial class GpuProfile
 
     private static Rule Set(uint id, uint? value) => new(id, _ => value);
     private static Rule Default(uint id) => new(id, _ => null);
-    // Frame generation stays the player's: Exo never turns driver frame generation (Smooth
-    // Motion) or a forced multi-frame count on or off.
+    // Never written nor reset: the value stays the player's (or what NVIDIA's app set).
     private static Rule Leave(uint id) => new(id, _ => null, _ => false);
 
     // Every setting Exo writes. docs/architecture/gpu-profiles.md gives each one's reason and source.
@@ -145,7 +144,8 @@ internal static partial class GpuProfile
         new(0x10E41DF1, v => PresetC, v => v.Rtx),                         // Frame Generation preset
         new(0x10E41E03, v => 1u, v => v.Rtx),                              // Frame Generation: newest DLL
         Default(0x10E41E04), Default(0x10AFB768), Default(0x10BD9423), Default(0x10E41DF5), Default(0x10C7D4A2),
-        Leave(0x104D6667), Default(0x10308298), Default(0x10E41DF6),
+        Leave(0x104D6667), Default(0x10308298), Default(0x10E41DF6),       // multi frame count: the player's
+        Leave(0x10E41E06), Leave(0x10E41E05), // Streamline overrides (616.56+): the overrides above work without them; NVIDIA's app sets them only per tested game
     ];
 
     /// <summary>

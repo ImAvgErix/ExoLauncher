@@ -31,6 +31,12 @@ export async function run(t) {
     c.evidence.hero = hero
     await c.shot('overview', t.shell)
     const failures = hero ? [] : ["the About card shows no card name or what it runs"]
+    // What the PC is made of comes from Windows' own records on every PC: the processor, the memory, a drive and Windows.
+    const made = await t.shell.waitFor(() => {
+      const facts = [...document.querySelectorAll('.exo-pc-hero-facts dt')].map(d => d.textContent.trim())
+      return ['Processor', 'Memory', 'Windows'].every(f => facts.includes(f)) && facts.some(f => f.startsWith('Drive ')) ? facts : null
+    }, { timeoutMs: 15000 })
+    if (!made) failures.push('the About card lacks the processor, memory, a drive or Windows')
     failures.push(...await k.look(c, 'overview'))
     const rows = await t.shell.eval(`[...document.querySelectorAll('.exo-pc-link .exo-pc-link-label')].map(l => l.textContent)`)
     c.evidence.rows = rows

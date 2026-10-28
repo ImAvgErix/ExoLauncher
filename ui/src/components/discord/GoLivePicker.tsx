@@ -13,6 +13,7 @@ import { ModalBack } from './SettingsLayer'
 import { useDismiss } from '../../lib/dismiss'
 import { Spinner } from '../ui/Spinner'
 import { Skeleton } from '../ui/Skeleton'
+import { ErrorNote } from '../ui/ErrorNote'
 
 type Quality = { height: number; fps: number; sound: boolean }
 type Option = { key: number; label: string; note: string }
@@ -293,7 +294,7 @@ function GoLiveSettings({ source, onBack, onClose, onLive }: { source: GoLiveSou
             </span>
             <Switch checked={quality.sound} labelledBy="exo-dc-golive-sound" onChange={on => setQuality(q => ({ ...q, sound: on }))} />
           </div>
-          {error ? <p className="exo-dc-golive-error" role="alert">{error}</p> : null}
+          {error ? <ErrorNote className="exo-dc-golive-error" message={error} /> : null}
           <button type="button" className="exo-dc-tab is-add exo-dc-golive-go" disabled={starting} onClick={() => void go()}>
             {starting ? <Spinner label="Starting your stream" /> : null}Go Live
           </button>

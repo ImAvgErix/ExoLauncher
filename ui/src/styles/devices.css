@@ -47,14 +47,14 @@
 
 .exo-room-nav-item:hover { background: var(--hover-fill); }
 .exo-room-nav-item:active { background: var(--exo-pressed); }
-.exo-room-nav-item[aria-current="page"] { background: var(--exo-selected); }
+.exo-room-nav-item[aria-current="page"] { box-shadow: var(--glassy-ring); }
 
 .exo-room-nav-item:focus-visible {
   outline: 2px solid var(--color-fg);
   outline-offset: -2px;
 }
 
-/* Each page's glyph on a small tile of the ink, so a long list reads as a column of places. */
+/* Each page's glyph in a small clear tile with the glass's line, so a long list reads as a column of places. */
 .exo-room-nav-icon {
   display: grid;
   flex: none;
@@ -62,8 +62,7 @@
   width: 32px;
   height: 32px;
   border-radius: 10px;
-  background: rgb(var(--exo-ink-rgb) / 0.06);
-  box-shadow: inset 0 0 0 1px rgb(var(--exo-ink-rgb) / 0.08);
+  box-shadow: var(--glassy-ring);
   color: var(--color-muted);
 }
 
@@ -142,6 +141,9 @@
   min-height: 600px;
   padding: 12px var(--exo-gutter) var(--exo-gutter);
 }
+
+/* Kept while a device's page shows (DevicesRoom), hidden. */
+.exo-devices-overview[hidden] { display: none; }
 
 /* Your audio's page, laid out as Exo Mouse lays out a mouse (mouse/src/mouse.css › room): one screen, no scroll. The
    hero is Exo Mouse's hero; the controls stand in two columns as wide as Exo Mouse's (420 to 520px, the room's width
@@ -263,6 +265,8 @@
 .exo-device-page-panels {
   display: grid;
   grid-template-columns: repeat(2, var(--exo-device-page-column));
+  /* Rows stack from the top: stretched, a second row (the keyboard's Settings) sat far below the first. */
+  align-content: start;
   align-items: start;
   gap: 12px;
   min-height: 0;
@@ -333,17 +337,6 @@
   min-width: 0;
 }
 
-/* The one line about ports: a device that would gain from the processor's own USB, and Find them. */
-.exo-devices-ports {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  min-width: 0;
-  margin: 0;
-  color: var(--color-muted);
-  font-size: calc(13px * var(--exo-scale, 1));
-}
-
 /* A controller's sticks live, each a dot in its gate, side by side above the stick test. */
 .exo-sticks {
   display: flex;
@@ -366,7 +359,7 @@
   width: calc(160px * var(--exo-scale, 1));
   height: 4px;
   border-radius: 999px;
-  background: var(--exo-fill);
+  background: var(--exo-track);
   overflow: hidden;
 }
 
@@ -417,23 +410,40 @@
   outline-offset: -2px;
 }
 
+/* The card's name, large, at its left; its USB at the card's right (green where it's best for the device, red where
+   it isn't). How it's linked, its battery and the jack aren't said: the picture and the page do. */
 .exo-device-card-text {
-  display: grid;
-  gap: 2px;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
   min-width: 0;
+  /* One height whether the card is a button or (coming soon) not: a div kept the page's looser line height. */
+  line-height: 1.25;
 }
 
 .exo-device-card-text strong {
+  min-width: 0;
   overflow: hidden;
-  font-size: calc(13px * var(--exo-scale, 1));
+  font-size: calc(20px * var(--exo-scale, 1));
   font-weight: 600;
   white-space: nowrap;
   text-overflow: ellipsis;
 }
 
-.exo-device-card-text span {
-  color: var(--color-muted);
-  font-size: calc(12px * var(--exo-scale, 1));
+.exo-device-port {
+  flex: none;
+  font-size: calc(13px * var(--exo-scale, 1));
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.exo-device-port.is-good {
+  color: var(--color-good);
+}
+
+.exo-device-port.is-bad {
+  color: var(--color-bad);
 }
 
 /* The picture: in what the card has left, never sizing the card (a picture's own height made each card 800px tall).
@@ -463,10 +473,12 @@
   cursor: default;
 }
 
+/* Coming soon at the foot, centered under the picture: the top row is the name's and its USB's. */
 .exo-device-soon {
   position: absolute;
-  top: 14px;
-  right: 14px;
+  bottom: 16px;
+  left: 50%;
+  translate: -50% 0;
   z-index: 5;
   padding: 5px 12px;
   border-radius: 999px;
@@ -633,9 +645,7 @@
 .exo-calibrate-result dt { color: var(--color-muted); }
 .exo-calibrate-result dd { margin: 0; color: var(--color-fg); font-variant-numeric: tabular-nums; }
 
-/* An Edge profile's editor: its name, then the sticks beside the triggers and buttons. */
-.exo-dialog.exo-profile-dialog { width: min(820px, 100%); }
-
+/* A game profile's name field (GameProfiles.tsx). */
 .exo-profile-name { width: 100%; height: 36px; padding: 0 12px; }
 
 .exo-profile-name input {
@@ -649,46 +659,14 @@
   font-size: calc(13px * var(--exo-scale, 1));
 }
 
-.exo-profile-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 24px;
+/* A game profile's games (GameProfiles.tsx): every installed game by title, a switch each, in one scrolling list. */
+.exo-game-pick-list {
+  max-height: 50vh;
+  margin-top: 12px;
+  overflow-y: auto;
 }
 
-.exo-profile-grid .exo-set-item { padding: 6px 0; }
-
-.exo-profile-stick {
-  display: grid;
-  grid-template-columns: 72px minmax(0, 1fr);
-  align-items: start;
-  gap: 14px;
-}
-
-.exo-profile-curve {
-  width: 72px;
-  height: 72px;
-  margin-top: 8px;
-  border-radius: 8px;
-  background: rgb(var(--exo-ink-rgb) / 0.04);
-  overflow: visible;
-}
-
-.exo-profile-curve polyline {
-  fill: none;
-  stroke: var(--color-fg);
-  stroke-width: 2.5;
-  stroke-linejoin: round;
-  vector-effect: non-scaling-stroke;
-}
-
-.exo-profile-curve .exo-stick-axis { stroke-dasharray: 3 3; vector-effect: non-scaling-stroke; }
-
-.exo-profile-range {
-  display: grid;
-  gap: 6px;
-  width: calc(160px * var(--exo-scale, 1));
-}
-
-@media (width < 860px) {
-  .exo-profile-grid { grid-template-columns: minmax(0, 1fr); }
+.exo-game-pick-empty {
+  color: var(--color-muted);
+  font-size: calc(13px * var(--exo-scale, 1));
 }

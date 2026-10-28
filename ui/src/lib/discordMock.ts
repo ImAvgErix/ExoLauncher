@@ -136,7 +136,9 @@ export const mockApps = {
 
 export const mockFriends: DiscordFriend[] = [
   { id: ada.id, name: 'Ada', username: 'ada', avatar: null, kind: 'friend', status: 'online', activity: 'Playing VALORANT', dmId: '200000000000000001' },
-  { id: kai.id, name: 'Kai', username: 'kai', avatar: null, kind: 'friend', status: 'idle', activity: null },
+  { id: kai.id, name: 'Kai', username: 'kai', avatar: null, kind: 'friend', status: 'idle', activity: 'Daft Punk', activityType: 2,
+    rich: { type: 2, name: 'Spotify', details: 'Get Lucky', state: 'Daft Punk; Pharrell Williams; Nile Rodgers', start: Date.now() - 60_000, end: Date.now() + 309_000,
+      syncId: '69kOkLUCkxIZYexIgSG8rq', album: 'Random Access Memories' } },
   { id: '100000000000000005', name: 'Mira', username: 'mira', avatar: null, kind: 'friend', status: 'offline' },
   { id: '100000000000000006', name: 'Theo', username: 'theo', avatar: null, kind: 'incoming', status: 'online' },
 ]

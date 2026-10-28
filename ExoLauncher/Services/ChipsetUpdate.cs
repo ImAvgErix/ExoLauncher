@@ -98,14 +98,11 @@ internal sealed class ChipsetUpdate(string vendor, ChipsetUpdate.IHost host, str
     private Status? _status;
     private bool _loaded;
     private Task? _running;
-    private Task<Package?>? _fetch;
-    private SavedLatest? _latest;
-    private bool _latestLoaded;
+    /// <summary>The newest package from the maker's page, kept 12 hours (beside the update's state) and retried as every version check is (<see cref="LatestCache{T}"/>).</summary>
+    private readonly LatestCache<Package> _newest = new($"{GpuDriverUpdate.Maker(vendor)}'s chipset page", TimeSpan.FromHours(12), folder + "-newest.json");
 
-    private sealed record SavedLatest(DateTime At, Package? Latest);
 
     private string StatePath => Path.Combine(folder, "update.json");
-    private string LatestPath => folder + ".json";
 
     internal string? Installed() => host.Installed();
 
@@ -124,7 +121,7 @@ internal sealed class ChipsetUpdate(string vendor, ChipsetUpdate.IHost host, str
     internal static Status? Outcome(string maker, int exitCode, string? after, string latest, string marksBefore, string marksAfter, DateTime at)
     {
         var restart = exitCode is RestartNeeded or RestartStarted || (marksAfter.Length > 0 && marksAfter != marksBefore);
-        var updated = Version.TryParse(after, out var have) && Version.TryParse(latest, out var want) && have >= want;
+        var updated = VersionNumber.AtLeast(after, latest);
         if (updated || ((exitCode is 0 or RestartNeeded or RestartStarted) && restart)) return restart ? new Status(Phase.Restart, latest, null, at) : null;
         return new Status(Phase.Failed, latest, exitCode == 0 ? $"{maker}'s installer finished, but the driver is still {after ?? "not installed"}." : Stopped(maker, exitCode), at);
     }
@@ -264,50 +261,14 @@ internal sealed class ChipsetUpdate(string vendor, ChipsetUpdate.IHost host, str
 
     // ---- The newest package: the maker's page read at most every 12 hours, kept across runs ----
 
-    internal Task<Package?> LatestAsync()
+    internal Task<Package?> LatestAsync() => _newest.GetAsync("package", async ct =>
     {
-        lock (_gate)
-        {
-            if (!_latestLoaded)
-            {
-                _latestLoaded = true;
-                try { _latest = File.Exists(LatestPath) ? JsonSerializer.Deserialize<SavedLatest>(File.ReadAllText(LatestPath)) : null; }
-                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException or NotSupportedException) { _latest = null; }
-            }
-            if (_latest is { } saved && DateTime.UtcNow - saved.At < TimeSpan.FromHours(12)) return Task.FromResult(saved.Latest);
-            return _fetch ??= Task.Run(() => FetchLatestAsync(_latest?.Latest));
-        }
-    }
-
-    /// <summary>Reads the maker's page once for everyone waiting. A failure keeps the last answer and waits the same 12 hours to try again.</summary>
-    private async Task<Package?> FetchLatestAsync(Package? previous)
-    {
-        var latest = previous;
-        try
-        {
-            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
-            var found = await host.ReadLatestAsync(timeout.Token).ConfigureAwait(false);
-            if (found is null) AppLog.Info($"{Maker} chipset: {Maker}'s page names no driver version.");
-            latest = found ?? previous;
-        }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
-        {
-            AppLog.Info($"{Maker} chipset: {Maker}'s page couldn't be read: {ex.Message}");
-        }
-        lock (_gate)
-        {
-            _latest = new SavedLatest(DateTime.UtcNow, latest);
-            _fetch = null;
-            try
-            {
-                var temp = LatestPath + ".tmp";
-                File.WriteAllText(temp, JsonSerializer.Serialize(_latest));
-                File.Move(temp, LatestPath, overwrite: true);
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { AppLog.Debug($"{Maker} chipset: the newest version wasn't saved: " + ex.Message); }
-        }
-        return latest;
-    }
+        var found = await host.ReadLatestAsync(ct).ConfigureAwait(false);
+        if (found is not null) return found;
+        // A page that names none for now keeps the last one it named.
+        AppLog.Info($"{Maker} chipset: {Maker}'s page names no driver version.");
+        return _newest.Kept("package");
+    }, CancellationToken.None);
 
     /// <summary>When Windows last started (UTC).</summary>
     internal static DateTime BootedAt() => DateTime.UtcNow - TimeSpan.FromMilliseconds(Environment.TickCount64);
@@ -397,7 +358,7 @@ internal sealed class ChipsetUpdate(string vendor, ChipsetUpdate.IHost host, str
         public bool Verified(string path, Package package)
         {
             if (!AuthenticodeVerifier.HasPublisher(path, vendor == "amd" ? GpuDriverUpdate.AmdPublisher : GpuDriverUpdate.IntelPublisher)) return false;
-            if (!Version.TryParse(FileVersionInfo.GetVersionInfo(path).FileVersion, out var own) || !Version.TryParse(package.Version, out var want) || own != want) return false;
+            if (!VersionNumber.Same(FileVersionInfo.GetVersionInfo(path).FileVersion, package.Version)) return false;
             if (package.Sha256 is null) return true;
             using var stream = File.OpenRead(path);
             return Convert.ToHexString(SHA256.HashData(stream)).Equals(package.Sha256, StringComparison.OrdinalIgnoreCase);
@@ -438,7 +399,7 @@ internal sealed class ChipsetUpdate(string vendor, ChipsetUpdate.IHost host, str
             string? found = null;
             void Keep(object? value)
             {
-                if (value is string text && Version.TryParse(text.Trim(), out var version) && (found is null || version > Version.Parse(found))) found = text.Trim();
+                if (value is string text && VersionNumber.Parse(text) is not null && (found is null || VersionNumber.Compare(text, found) > 0)) found = text.Trim();
             }
             foreach (var view in (RegistryView[])[RegistryView.Registry64, RegistryView.Registry32])
             {

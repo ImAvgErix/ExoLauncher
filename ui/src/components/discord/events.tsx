@@ -3,6 +3,7 @@ import { Close } from '../../brand/icons'
 import { host } from '../../lib/host'
 import type { DiscordChannels, DiscordEvent } from '../../lib/discord'
 import { Icons } from './icons'
+import { showReport } from './Report'
 import { open } from './markdown'
 import { useServer } from './serverPages'
 import { useAccountSettings } from '../../lib/discordPrefs'
@@ -13,6 +14,7 @@ import { useDismiss } from '../../lib/dismiss'
 import { notify } from '../../lib/notify'
 import { confirm } from '../ui/Dialog'
 import { Skeleton } from '../ui/Skeleton'
+import { ErrorNote } from '../ui/ErrorNote'
 
 type Item = { event: DiscordEvent; interested: boolean }
 
@@ -35,7 +37,7 @@ export function EventsDialog({ guildId, list, create = false, onClose }: { guild
           {list?.canManageEvents ? <button type="button" className="exo-set-btn is-primary" onClick={() => setEditing('new')}>Create event</button> : null}
           <button type="button" className="exo-dc-icon-btn exo-dc-events-close" aria-label="Close" onClick={onClose}><Close size={16} /></button>
         </div>
-        {error ? <p className="exo-dc-note" role="alert">{error}</p> : null}
+        {error ? <ErrorNote className="exo-dc-note" message={error} /> : null}
         {!events && !error ? <Skeleton label="Loading events" /> : null}
         {events?.length === 0 ? <p className="exo-dc-note">There are no upcoming events.</p> : null}
         {events?.map(item => <EventCard key={item.event.id} item={item} guildId={guildId} list={list} onChanged={again} onEdit={() => setEditing(item.event)} />)}
@@ -72,7 +74,7 @@ function EventCard({ item, guildId, list, onChanged, onEdit }: { item: Item; gui
       </div>
       <strong className="exo-dc-event-name">{event.name}</strong>
       {event.description ? <p className="exo-dc-event-about">{event.description}</p> : null}
-      {note ? <p className="exo-dc-note" role="alert">{note}</p> : null}
+      {note ? <ErrorNote className="exo-dc-note" message={note} /> : null}
       <div className="exo-dc-event-foot">
         <span className="exo-dc-event-where">{channel ? <><Icons.Voice size={16} />{channel.name}</> : event.entity_metadata?.location}</span>
         <EventMenu event={event} guildId={guildId} canManage={list?.canManageEvents === true} run={run} onEdit={onEdit} />
@@ -121,6 +123,12 @@ function EventMenu({ event, guildId, canManage, run, onEdit }: {
             <button type="button" role="menuitem" className="is-danger" onClick={() => void cancel()}>Cancel event</button>
           ) : null}
           <button type="button" role="menuitem" onClick={() => copy(link(guildId, event))}>Copy event link</button>
+          {canManage ? null : (
+            <button type="button" role="menuitem" className="is-danger" onClick={() => {
+              close()
+              showReport({ kind: 'guild_scheduled_event', ids: { guild_id: guildId, guild_scheduled_event_id: event.id }, preview: { name: event.name, text: event.description ?? null } })
+            }}><Icons.Report size={16} />Report event</button>
+          )}
           {developer ? <button type="button" role="menuitem" onClick={() => copy(event.id)}><Icons.CopyId size={16} />Copy event ID</button> : null}
         </div>
         </SubContext.Provider>
@@ -192,7 +200,7 @@ function EventEditor({ guildId, list, event, onClose, onSaved }: { guildId: stri
         <input id="exo-dc-event-start" className="exo-dc-modal-input" type="datetime-local" value={start} onChange={e => setStart(e.target.value)} />
         <label className="exo-dc-side-label" htmlFor="exo-dc-event-about">Description</label>
         <textarea id="exo-dc-event-about" className="exo-dc-modal-input" rows={3} placeholder="Tell people a little more about your event." value={description} onChange={e => setDescription(e.target.value)} />
-        {error ? <p className="is-bad" role="alert">{error}</p> : null}
+        {error ? <ErrorNote className="is-bad" message={error} /> : null}
         <div className="exo-dc-modal-row">
           <button type="button" className="exo-dc-tab" onClick={onClose}>Cancel</button>
           <button type="button" className="exo-set-btn is-primary" disabled={!ready || busy} onClick={() => void save()}>{event ? 'Save event' : 'Create event'}</button>

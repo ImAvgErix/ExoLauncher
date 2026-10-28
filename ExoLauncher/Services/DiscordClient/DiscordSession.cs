@@ -102,6 +102,7 @@ internal sealed partial class DiscordSession
             _reminders.Clear();
         }
         Interlocked.Exchange(ref _customExpiry, null)?.Cancel();
+        Interlocked.Exchange(ref _statusExpiry, null)?.Cancel();
     }
 
     /// <summary>Disconnects; the sign-in stays saved until <see cref="SignOutAsync"/> clears it.</summary>
@@ -142,6 +143,8 @@ internal sealed partial class DiscordSession
             }
             AppLog.Info("Discord client: signed in by QR code.");
             Event?.Invoke("discord.signin", new DiscordRemoteAuth.Step("done"));
+            // Added beside an account already connected: that one stays remembered, the new one connects.
+            Stop();
             Start();
         });
     }
@@ -151,12 +154,32 @@ internal sealed partial class DiscordSession
         lock (StartGate) _signIn?.Cancel();
     }
 
+    /// <summary>The accounts signed in on this PC, the connected one marked; never their sign-ins.</summary>
+    internal static object Accounts()
+    {
+        var current = _current?.Cache.Me?.Id;
+        return DiscordAccounts.List().Select(a => new { id = a.Id, name = a.Name, avatar = a.Avatar, current = a.Id == current }).ToList();
+    }
+
+    /// <summary>Connects as another account signed in on this PC, as Discord's Switch accounts does; null when it did.</summary>
+    internal static string? SwitchTo(string id)
+    {
+        if (_current?.Cache.Me?.Id == id) return null;
+        if (DiscordAccounts.TokenOf(id) is not { } token) return "That account isn't signed in on this PC any more.";
+        Stop();
+        if (!DiscordToken.Save(token)) return "Exo couldn't switch accounts.";
+        AppLog.Info("Discord client: switched account.");
+        Start();
+        return null;
+    }
+
     /// <summary>Signs out: tells Discord to end this sign-in, then forgets it.</summary>
     internal static async Task SignOutAsync()
     {
         var token = DiscordToken.Read();
         Stop();
         DiscordToken.Clear();
+        if (token is not null) DiscordAccounts.ForgetToken(token);
         SetState("signedOut");
         if (token is null) return;
         try
@@ -227,7 +250,9 @@ internal sealed partial class DiscordSession
                 [guildId] = new JsonObject
                 {
                     ["typing"] = true,
-                    ["threads"] = false,
+                    // The server's open threads and which you're in (THREAD_LIST_SYNC), as Discord's client asks: the
+                    // sidebar lists the joined ones under their channel.
+                    ["threads"] = true,
                     ["activities"] = false,
                     ["member_updates"] = false,
                     ["channels"] = new JsonObject { [channelId] = new JsonArray([.. ranges.Select(r => (JsonNode)new JsonArray(r.From, r.To))]) },
@@ -247,12 +272,7 @@ internal sealed partial class DiscordSession
         Event?.Invoke("discord.state", new { state, message });
     }
 
-    private async Task RunAsync()
-    {
-        App.Services.Launcher.GameRunStateChanged += OnGameRunState;
-        try { await LoopAsync().ConfigureAwait(false); }
-        finally { App.Services.Launcher.GameRunStateChanged -= OnGameRunState; }
-    }
+    private Task RunAsync() => LoopAsync();
 
     private async Task LoopAsync()
     {
@@ -266,7 +286,7 @@ internal sealed partial class DiscordSession
             if (fatal is not null)
             {
                 lock (StartGate) if (_current == this) _current = null;
-                if (fatal == "signedOut") DiscordToken.Clear();
+                if (fatal == "signedOut") { DiscordToken.Clear(); DiscordAccounts.ForgetToken(_token); }
                 SetState(fatal == "signedOut" ? "signedOut" : "error",
                     fatal == "signedOut" ? "Discord signed you out. Sign in again." : fatal);
                 return;
@@ -374,12 +394,14 @@ internal sealed partial class DiscordSession
             Cache.LoadReady(data);
             AskForMyRoles();
             AppLog.Info("Discord client: ready.");
+            if (Cache.MeCard is { } me) DiscordAccounts.Remember(me.Id, me.Name, me.Avatar, _token);
             SetState("ready");
             Event?.Invoke("discord.changed", new { guildId = (string?)null });
             PublishBadge();
             Resubscribe();
-            _ = Task.Run(RefreshPlayingAsync);
             _ = Task.Run(LoadRemindersAsync);
+            _ = Task.Run(KeepPrivacyAsync);
+            _ = Task.Run(ResumeStatusExpiryAsync);
             return;
         }
         if (type == "RESUMED")
@@ -527,40 +549,59 @@ internal sealed partial class DiscordSession
         if (Viewing is { } viewing) ClearNotices(viewing);
     }
 
-    /// <summary>Online, idle, do not disturb or invisible: this session's presence and the account setting.</summary>
-    internal async Task<string?> SetStatusAsync(string status, CancellationToken ct)
+    /// <summary>
+    /// Online, idle, do not disturb or invisible: this session's presence and the account setting, until a time (ms since
+    /// 1970) or for good. The time is kept on the account as Discord's apps keep it, so every device goes back to Online.
+    /// </summary>
+    internal async Task<string?> SetStatusAsync(string status, CancellationToken ct, long? until = null)
     {
         if (status is not ("online" or "idle" or "dnd" or "invisible")) return "Not a status.";
+        if (status == "online") until = null;
         Cache.SetMyStatus(status);
         await SendPresenceAsync().ConfigureAwait(false);
         var reply = await Rest.SetStatusAsync(status, ct).ConfigureAwait(false);
-        Event?.Invoke("discord.presence", new { userId = Cache.Me?.Id, status, activity = (string?)null });
-        return reply.Error;
+        Event?.Invoke("discord.presence", new { userId = Cache.Me?.Id, status, activity = (string?)null, until });
+        if (reply.Error is not null) return reply.Error;
+        var (_, error) = await UserSettingsAsync(new Dictionary<string, JsonElement> { ["statusExpiresAtMs"] = JsonSerializer.SerializeToElement(until) }, ct).ConfigureAwait(false);
+        ExpireStatusAt(until);
+        return error;
     }
 
-    // The library game running now, shared as Playing when the account's Share my activity (showCurrentGame) is on.
-    private string? _playing;
+    private CancellationTokenSource? _statusExpiry;
 
-    private void OnGameRunState(string gameId, GameRunState state) => _ = Task.Run(RefreshPlayingAsync);
+    /// <summary>Back to Online when a status chosen for a while runs out.</summary>
+    private void ExpireStatusAt(long? until)
+    {
+        var next = until is null ? null : new CancellationTokenSource();
+        Interlocked.Exchange(ref _statusExpiry, next)?.Cancel();
+        if (next is null || until is not { } at) return;
+        var wait = Math.Max(0, at - DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+        _ = Task.Delay(TimeSpan.FromMilliseconds(Math.Min(wait, int.MaxValue)), next.Token).ContinueWith(_ =>
+        {
+            AppLog.Info("Discord client: the status chosen for a while ran out; back to Online.");
+            return SetStatusAsync("online", _stop.Token);
+        }, next.Token, TaskContinuationOptions.OnlyOnRanToCompletion, TaskScheduler.Default);
+    }
 
-    private async Task RefreshPlayingAsync()
+    /// <summary>On connect: a status chosen for a while that ran out while Exo was closed ends now; one still running ends on time.</summary>
+    private async Task ResumeStatusExpiryAsync()
     {
         try
         {
-            var game = MainWindow.RunningLibraryGames().Keys.Select(App.Services.Library.Find).FirstOrDefault(g => g is not null)?.Title;
-            if (game == _playing) return;
-            _playing = game;
-            await SendPresenceAsync().ConfigureAwait(false);
+            var (values, _) = await UserSettingsAsync(null, _stop.Token).ConfigureAwait(false);
+            if (values?["statusExpiresAtMs"] is not JsonValue at || !at.TryGetValue(out long until) || Cache.MyStatus == "online") return;
+            ExpireStatusAt(until);
         }
-        catch (Exception ex) when (ex is not OutOfMemoryException) { AppLog.Debug("Discord client: activity not sent (" + ex.GetType().Name + ")."); }
+        catch (OperationCanceledException) { }
     }
 
     // Sends the presence again when the custom status clears itself (its Clear after), as Discord's client drops it then.
     private CancellationTokenSource? _customExpiry;
 
     /// <summary>
-    /// This session's presence (op 3): the status, the account's custom status (as Discord's client always sends it, so
-    /// Exo being the active app never hides it), and the game being played when the account shares it.
+    /// This session's presence (op 3): the status and the account's custom status (as Discord's client always sends it,
+    /// so Exo being the active app never hides it). Never what you play or listen to: Exo keeps that to itself, whatever
+    /// the account's Share my activity says; your song shows in the room's own dock instead.
     /// </summary>
     private async Task SendPresenceAsync()
     {
@@ -569,9 +610,8 @@ internal sealed partial class DiscordSession
         var settings = _userSettings ?? (await UserSettingsAsync(null, _stop.Token).ConfigureAwait(false)).Values;
         var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         if (CustomActivity(settings?["customStatus"], now) is { } custom) activities.Add(custom);
-        if (_playing is { } game && settings?["showCurrentGame"] is JsonValue share && share.TryGetValue(out bool on) && on)
-            activities.Add(new JsonObject { ["name"] = game, ["type"] = 0 });
-        await SendAsync(3, new JsonObject { ["status"] = Cache.MyStatus, ["since"] = 0, ["activities"] = activities, ["afk"] = false }).ConfigureAwait(false);
+        await SendAsync(3, new JsonObject { ["status"] = Cache.MyStatus, ["since"] = 0, ["activities"] = activities.DeepClone(), ["afk"] = false }).ConfigureAwait(false);
+        foreach (var (name, payload) in Cache.SetMyActivities(activities)) Event?.Invoke(name, payload);
         var expiry = new CancellationTokenSource();
         Interlocked.Exchange(ref _customExpiry, expiry)?.Cancel();
         if (settings?["customStatus"]?["expiresAtMs"] is JsonValue end && end.TryGetValue(out long until) && until > now)

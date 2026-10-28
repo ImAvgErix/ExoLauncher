@@ -9,6 +9,8 @@ namespace ExoLauncher.Tests;
 ///   DLSS settings it cannot run or the wrong model;
 /// - a forced DLSS letter is written under the "Recommended" model profile,
 ///   where the driver ignores it;
+/// - the Streamline overrides are forced on (or reset) for every game, which
+///   swaps plug-ins NVIDIA's app replaces only per tested game;
 /// - a setting in a real global profile is not decided (neither written nor
 ///   deliberately left alone);
 /// - the frame cap is not under the refresh rate, or not Reflex's;
@@ -38,9 +40,10 @@ public sealed class GpuProfileTests
     ];
 
     // A driver that lists every id (newer drivers); tests that need a shorter list pass their own.
-    private static readonly HashSet<uint> Every = [.. Rtx3070Global, 0xB0D384C0, 0x10308298, 0x000BFA21];
+    private static readonly HashSet<uint> Every = [.. Rtx3070Global, 0xB0D384C0, 0x10308298, 0x000BFA21, StreamlineOverride, 0x10E41E05];
 
     private const uint SrPreset = 0x10E41DF3, RrPreset = 0x10E41DF7, FgPreset = 0x10E41DF1, SrOverride = 0x10E41E01, FgOverride = 0x10E41E03;
+    private const uint StreamlineOverride = 0x10E41E06;
     private const uint LowLatency = 0x0005F543, UltraLowLatency = 0x10835000, PreRendered = 0x007BA09E;
 
     private static readonly Dictionary<uint, uint?> Nothing = [];
@@ -165,6 +168,10 @@ public sealed class GpuProfileTests
             Assert.Equal(3u, rtx[FgPreset]);                      // C, the performance preset
             Assert.Equal(1u, rtx[SrOverride]);                    // newest DLLs
             Assert.Equal(1u, rtx[FgOverride]);
+            // Streamline overrides are never written or reset: NVIDIA's app sets them per game.
+            Assert.False(rtx.ContainsKey(StreamlineOverride));
+            Assert.False(rtx.ContainsKey(0x10E41E05));
+            Assert.True(GpuProfile.Decides(StreamlineOverride));
         }
         foreach (var gtx in new[] { 10, 16, 0 })
         {

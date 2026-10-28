@@ -65,7 +65,6 @@ internal sealed partial class DiscordSession
 
     private void RememberSettings(JsonObject values)
     {
-        var sharedBefore = _userSettings?["showCurrentGame"]?.ToJsonString();
         var customBefore = _userSettings?["customStatus"]?.ToJsonString();
         // A person's volume or mute changed here and not saved yet stays as chosen over what Discord had.
         lock (_audioGate)
@@ -79,9 +78,8 @@ internal sealed partial class DiscordSession
         }
         _userSettings = (JsonObject)values.DeepClone();
         Event?.Invoke("discord.userSettings", values.DeepClone());
-        // Share my activity turned on or off (the game playing now shows or goes), or the custom status changed here or in
-        // another Discord app: this session's presence says so.
-        if ((_playing is not null && sharedBefore != _userSettings["showCurrentGame"]?.ToJsonString()) || customBefore != _userSettings["customStatus"]?.ToJsonString())
+        // The custom status changed here or in another Discord app: this session's presence says so.
+        if (customBefore != _userSettings["customStatus"]?.ToJsonString())
             _ = SendPresenceAsync();
     }
 

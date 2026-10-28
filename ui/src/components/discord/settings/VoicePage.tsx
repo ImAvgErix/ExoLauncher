@@ -12,6 +12,7 @@ import { cameraError } from '../../../lib/goLive'
 import { usePageActive } from '../../../lib/pageActivity'
 import { Skeleton } from '../../ui/Skeleton'
 import { Spinner } from '../../ui/Spinner'
+import { CopyLogs, ErrorNote } from '../../ui/ErrorNote'
 
 type Audio = Awaited<ReturnType<typeof host.discordAudio>>
 type Save = (change: Partial<DiscordClientSettings>) => Promise<string | null>
@@ -66,7 +67,7 @@ function Devices() {
   }
   return (
     <Category title="Voice">
-      {error ? <p className="exo-dc-settings-note" role="alert">{error}</p> : null}
+      {error ? <ErrorNote className="exo-dc-settings-note" message={error} /> : null}
       <Row label="Microphone">{device('input')}</Row>
       <SliderRow label="Microphone volume" min={0} max={200} value={audio.inputVolume} render={v => `${v}%`} onCommit={v => save({ inputVolume: v })} />
       <Row label="Speaker">{device('output')}</Row>
@@ -333,7 +334,7 @@ function Camera() {
       <div className="exo-dc-settings-preview">
         {testing ? <video ref={video} autoPlay muted playsInline /> : null}
         <button type="button" className="exo-set-btn" onClick={() => { setError(null); setTesting(t => !t) }}>{testing ? 'Stop video' : 'Test video'}</button>
-        {error ? <em role="alert">{error}</em> : null}
+        {error ? <em role="alert">{error} <CopyLogs error={error} /></em> : null}
       </div>
       <Row label="Camera" detail={cameras.length > 0 && named.length === 0 ? 'Test video once to choose among your cameras.' : undefined}>
         {cameras.length === 0 ? <span className="exo-dc-settings-value">No camera found</span> : (

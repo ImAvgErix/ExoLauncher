@@ -52,8 +52,8 @@ function copiesOf(games: readonly Game[]): Copy[] {
 
 const FAMILIES = ['DLSS', 'FSR', 'XeSS'] as const
 
-/** A scan older than this reads again when the panel shows. */
-const STALE_MS = 5 * 60_000
+/** A scan older than this reads again when the panel shows (every game's files read at each PC visit was 23 calls). */
+const STALE_MS = 30 * 60_000
 
 /** "DLSS Ray Reconstruction" → DLSS; files of one family fold into one line. */
 function familyOf(label: string): string {
@@ -118,7 +118,7 @@ export function UpscalersTab({ active, games }: { active: boolean; games: readon
     setPass(value => value + 1)
   }, [active, key, updating])
 
-  // Read every installed copy's status (cached for 30 s, so reopening is instant), four at a time.
+  // Read every installed copy's status (kept 30 min, so reopening is instant), four at a time.
   useEffect(() => {
     if (pass === 0) return
     scanned.current = { key, at: Date.now() }

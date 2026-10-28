@@ -1,10 +1,11 @@
 import type { Cutout } from './hostedCutouts'
 import type { AppUpdateResponse } from './hostWire'
 import { report } from './report'
-import type { MusicPlayback, MusicService, MusicAction } from './music'
+import type { MatchSong, MusicPlayback, MusicService, MusicAction } from './music'
 import type { PlayerAction, PlayerActOptions, PlayerRoomState, PlayerView, PlayerViewData, PlayerViewOptions } from './player'
-import type { DiscordChannel, DiscordChannels, DiscordPlace, DiscordEvent, DiscordGuide, DiscordInvite, DiscordMemberSearch, DiscordResource, DiscordRole, DiscordUser, DiscordEmojis, DiscordFriend, DiscordRestricted, DiscordRoleIcon, DiscordSavedMessage, DiscordGif, DiscordFavoriteGif, DiscordMemberList, DiscordProfile, DiscordProfileExtras, DiscordGuildProfile, DiscordStickerGroup, DiscordThread, DiscordPresence, DiscordHome, DiscordReactionEvent, DiscordVoice, DiscordMessage, DiscordMessageEvent, DiscordSignInStep, DiscordState, DiscordStatus, DiscordUnread, DiscordNotice, DiscordForumTag, DiscordForYouItem, DiscordUnreadChannel, DiscordSearchFilters, DiscordShopCatalog, DiscordShopProduct, DiscordPaymentChoice, DiscordShopPrice, DiscordRailItem } from './discord'
+import type { DiscordChannel, DiscordChannels, DiscordPlace, DiscordEvent, DiscordGuide, DiscordInvite, DiscordMemberSearch, DiscordResource, DiscordRole, DiscordUser, DiscordEmojis, DiscordFriend, DiscordRestricted, DiscordRoleIcon, DiscordSavedMessage, DiscordGif, DiscordFavoriteGif, DiscordMemberList, DiscordProfile, DiscordProfileExtras, DiscordGuildProfile, DiscordStickerGroup, DiscordThread, DiscordPresence, DiscordHome, DiscordReactionEvent, DiscordVoice, DiscordMessage, DiscordMessageEvent, DiscordSignInStep, DiscordState, DiscordStatus, DiscordUnread, DiscordNotice, DiscordForumTag, DiscordForYouItem, DiscordUnreadChannel, DiscordSearchFilters, DiscordShopCatalog, DiscordShopProduct, DiscordPaymentChoice, DiscordShopPrice, DiscordRailItem, DiscordThreadState } from './discord'
 import type { CaptureExport, CaptureItem, CaptureSettings, CaptureState } from './capture'
+import type { NoteInfo } from './notes'
 import type { AccountSettings, DiscordAccount, DiscordAccountAction, DiscordClientSettings } from './discordPrefs'
 import type { AppCommand, AppInfo, InteractionEvent } from './discordApps'
 import { HOST_PROTOCOL_VERSION, validHostEvent, validateHostResult } from './hostContract'
@@ -131,6 +132,8 @@ export type Peripheral = {
   lab?: boolean
   /** A keyboard's layout as it reports it; -split: a split spacebar. */
   layout: 'ansi' | 'iso' | 'jis' | 'ansi-split' | 'iso-split' | null
+  /** A keyboard's own settings app: web runs in the browser, a maker's app is installed or has its download page. */
+  app?: { id: string; name: string; where: 'web' | 'installed' | 'download' }
 }
 
 /**
@@ -167,39 +170,27 @@ export type ControllerRead = {
   firmware?: { version: string; built: string; latest: string | null; current: boolean | null } | null
   layers?: ControllerLayers
   calibration?: ControllerCalibration | null
+  /** A DualSense's or Edge's light, sound and vibration as Exo sets them (the controller's own until changed). */
+  settings?: PadSettings | null
+  /** Controllers' speakers and microphones in Windows (off by default). */
+  sound?: boolean
 }
 
-/** Exo's stick calibration on this controller: done, kept after unplugging (a DualSense), put back on connect (an Edge), undoable. */
-export type ControllerCalibration = { calibrated: boolean; kept: boolean; reapply: boolean; canUndo: boolean }
-export type CalibrationStep = 'center' | 'range-begin' | 'range-end' | 'range-cancel' | 'keep' | 'undo' | 'reapply-on' | 'reapply-off'
-
-/** One stick in an Edge profile: its preset (0 Default .. 5 Dynamic, 255 custom) and curve (four x,y points, 0-255). */
-export type EdgeStick = { preset: number; points: number[]; deadzone: number; adjustment: number }
-/** An Edge profile slot (1 the controller's default; 2-4 Fn + Square, Cross, Circle). */
-export type EdgeProfile = {
-  slot: number
-  assigned: boolean
-  /** Its CRC matches its bytes. */
-  intact: boolean
-  /** Exo kept what the slot held before its last change. */
-  canUndo: boolean
-  name: string
-  id: string
-  left: EdgeStick
-  right: EdgeStick
-  /** Trigger ranges, % (start, full). */
-  l2: number[]
-  r2: number[]
-  unifiedTriggers: boolean
-  vibration: 'strong' | 'medium' | 'weak' | 'off'
-  triggerEffects: 'strong' | 'medium' | 'weak' | 'off'
-  /** What each source button sends (Up, Left, Down, Right, Circle, Cross, Square, Triangle, R1, R2, R3, L1, L2, L3, left and right back buttons). */
-  buttons: number[]
-  /** Disabled-button bits; bit 31 swaps the sticks. */
-  disabled: number
-  updated: number
+/** How strongly a motor works: the controller's own, or held back. */
+export type PadStrength = 'full' | 'medium' | 'low' | 'off'
+/** A controller's own settings, sent each time it connects. light: "#RRGGBB", "off", or null for games' own. */
+export type PadSettings = { light: string | null; playerLight: boolean; micOff: boolean; speakerOff: boolean; vibration: PadStrength; triggerEffects: PadStrength }
+/** What a game profile changes; each null keeps the controller's usual setting. light: "#RRGGBB", "off" or "games" (the game's own). */
+export type PadOverrides = {
+  light?: string | null; playerLight?: boolean | null; micOff?: boolean | null; speakerOff?: boolean | null
+  vibration?: PadStrength | null; triggerEffects?: PadStrength | null
 }
-export type EdgeProfiles = { ok: boolean; message?: string; profiles?: EdgeProfile[] }
+/** A game profile for a DualSense or Edge: sent just before a linked game starts, the usual settings back when it ends. */
+export type ControllerGameProfile = { id: string; name: string; settings: PadOverrides; games: string[] }
+
+/** Exo's stick calibration on this controller: done, kept after unplugging (a DualSense), undoable. An Edge always gets it back on connect. */
+export type ControllerCalibration = { calibrated: boolean; kept: boolean; canUndo: boolean }
+export type CalibrationStep = 'center' | 'range-begin' | 'range-end' | 'range-cancel' | 'keep' | 'undo'
 
 /** How a controller reports: reports a second, fresh readings a second, the 99th percentile gap and jitter (ms), repeats (%). */
 export type ControllerPolling = { rate: number; fresh: number | null; p99: number; jitter: number; repeats: number | null; reports: number }
@@ -232,14 +223,24 @@ export type LucidSettings = {
   /** Lucid's cue sounds, 0 (off) to 100: switching on or off, and a game detected. */
   toggleSound: number
   detectSound: number
+  /** Lucid's on/off hotkey: Windows' virtual key (0: none) and its modifiers (Alt 1, Ctrl 2, Shift 4, Win 8). */
+  hotkey: { modifiers: number; key: number }
+  /** Lucid's EQ switched on (its hotkey and Only while gaming turn it off). */
+  eqOn: boolean
 }
 /** Lucid on this PC: found or not, its version, running, Start with Exo, Equalizer APO's device picker, and its settings (null until Lucid has saved some). */
 export type LucidState = {
   ok: boolean; message?: string | null; found: boolean; version: string | null; running: boolean; voiceOn: boolean; startWithExo: boolean; devices: boolean
   settings: LucidSettings | null
+  /** The output Lucid's EQ is on (null: none yet), the one Windows plays on, and whether that one has it; null without Equalizer APO. */
+  eq: { on: string | null; playing: string | null; covered: boolean } | null
+  /** A change waiting for the game to end (Lucid starts again to take one); the settings already show it. */
+  held?: boolean
+  /** The USB or wireless headset Windows plays on, by its name, when Lucid has its tuning and isn't on it. */
+  guess?: { id: string; name: string } | null
 }
 /** One change to Lucid's settings; favorites by headphone id. */
-export type LucidChange = Partial<Omit<LucidSettings, 'headphone' | 'favorites'>> & {
+export type LucidChange = Partial<Omit<LucidSettings, 'headphone' | 'favorites' | 'eqOn'>> & {
   headphone?: string
   favorites?: Record<string, boolean>
 }
@@ -301,6 +302,12 @@ export type StoreCalendar = {
 /** An official launcher that sells the game (Steam, Epic Games Store, GOG, Ubisoft Store), price in cents of currency; outside the US CheapShark's rows carry none. Steam's row has Steam's text. */
 export type StoreOffer = { store: string; name: string; final?: number | null; initial?: number | null; discount: number; currency?: string | null; priceText?: string | null; wasText?: string | null; url: string }
 
+/** The other official launchers for a game page; lowest is the lowest price CheapShark has seen on any store it follows (US cents, and when), only in the US. */
+export type StoreOtherOffers = { ok: boolean; offers: StoreOffer[]; lowest?: { final: number; at: string } | null }
+
+/** Steam's Recent reviews (the last 30 days): Steam's words, null under ten reviews (Steam gives no score then); ok false when Steam did not answer. */
+export type StoreRecentReviews = { ok: boolean; word?: string | null; percent?: number; count?: number }
+
 export type StoreFit = 'recommended' | 'minimum' | 'below'
 
 export type StoreGame = {
@@ -321,6 +328,15 @@ export type StoreGame = {
   reviewCount: number
   /** Steam's most voted tags. */
   tags: string[]
+  /** The developer's DRM notice in one line ("Denuvo Anti-tamper, 5 a day machine activation limit"); null when it names none. */
+  drm?: string | null
+  /** The account the game needs besides Steam ("Ubisoft Account"); null when it needs none. */
+  account?: string | null
+  /** Controller support as Steam lists it; playStation: DualShock or DualSense support is listed too. */
+  controller?: 'full' | 'partial' | null
+  playStation?: boolean
+  /** The languages Steam lists, by English name. */
+  languages?: string[]
   free: boolean
   /** Steam's own offer; the other launchers come from storeGameOffers. */
   offers: StoreOffer[]
@@ -435,6 +451,20 @@ export type DisplayChange = {
   nvidia?: boolean; key?: string; value?: number; reset?: boolean
 }
 
+/** A game's best settings for this PC (game.settings), by group: on when every value it sets is in place, exo when Exo set some. */
+export type GameSettingsGroup = { id: string; label: string; on: boolean; exo: boolean }
+export type GameSettingsState = {
+  ok: boolean
+  message?: string | null
+  /** False: Exo has no best settings for this game. */
+  supported?: boolean
+  title?: string
+  /** The game runs, so nothing can change until it closes. */
+  running?: boolean
+  /** False until the game has written its settings file. */
+  found?: boolean
+  groups?: GameSettingsGroup[] | null
+}
 export type HdrGame = {
   ok: boolean
   message?: string | null
@@ -542,6 +572,41 @@ export type PcHealthItem = {
   current?: boolean
 }
 export type PcHealth = { ok: boolean; message?: string | null; items: PcHealthItem[] }
+
+/**
+ * PC › Overview's About card (PcAbout.cs): what this PC is, null where Windows can't say. name: its maker's model, else
+ * the name Windows gives it. Memory speeds in MT/s (rated above speed: EXPO/XMP off), drive sizes in GB as Explorer counts
+ * them, networkMbps the link speed. tpm: "2.0", "1.2" or "None".
+ */
+export type PcAbout = {
+  name?: string | null
+  processor?: string | null
+  cores?: number | null
+  threads: number
+  graphics?: string | null
+  videoMemoryGb?: number | null
+  directX: string
+  resizableBar?: boolean | null
+  memoryGb?: number | null
+  memoryType?: string | null
+  memorySpeed?: number | null
+  memoryRated?: number | null
+  memorySlotsUsed?: number | null
+  memorySlots?: number | null
+  motherboard?: string | null
+  bios?: string | null
+  /** yyyy-MM-dd */
+  biosDate?: string | null
+  windows?: string | null
+  windowsVersion?: string | null
+  build?: string | null
+  secureBoot?: boolean | null
+  tpm?: string | null
+  memoryIntegrity?: boolean | null
+  drives: { letter: string; model?: string | null; kind: string; totalGb: number; freeGb: number }[]
+  network?: string | null
+  networkMbps?: number | null
+}
 
 /** System > This PC > Interrupts: one PCI device, its interrupt now (msi, line, or none when it isn't running) and what Optimize does to it. */
 export type InterruptDevice = {
@@ -681,13 +746,28 @@ export interface InstalledApp {
   installedOn: string | null
   bytes: number | null
   store: boolean
-  /** False for Exo itself, anti-cheat and the graphics driver (care says why). */
+  /** False for Exo itself, anti-cheat and the graphics driver (care says why), and for what kept says stays. */
   removable: boolean
+  /** Why it stays: Exo, the games here or Windows need it ("Your 12 Steam games need it"); null when it can go. */
+  kept?: string | null
+  /** Why it's bloatware ("Windows installed it as an ad"); null when it isn't. */
+  bloat?: string | null
+  /** yyyy-MM-dd, when Windows last saw it opened; null when it has no record (a launcher started it, or never). */
+  lastOpened?: string | null
   /** False when its uninstaller is gone: only what is left of it can go. */
   uninstaller: boolean
   care: 'exo' | 'anticheat' | 'driver' | 'hardware' | 'runtime' | 'store' | 'uses' | null
   /** The replaced app it is (Discord, Game Bar…), removed with Exo's own clean-up. */
   replaces: string | null
+}
+
+/** One kind of junk on this PC (junk.scan): its size and how many files. */
+export interface JunkItem {
+  id: 'temp' | 'crash' | 'thumbs' | 'bin'
+  name: string
+  detail: string
+  bytes: number
+  files: number
 }
 
 /** One thing an app left, as the deep clean found it; likely: matched by its name alone. */
@@ -819,6 +899,8 @@ export interface StoreAccounts {
     launcherDiffers: boolean
     /** Legendary can import the Epic Games Launcher's sign-in. */
     canImport: boolean
+    /** The old Epic Games Launcher is this PC's: Epic's new one can replace it (Account > Switch to Epic's new launcher). */
+    canSwitchLauncher?: boolean
     /** Accounts added for their hours only. */
     added: Array<{ key: string; name: string }>
   }
@@ -863,7 +945,6 @@ export interface LauncherSettings {
   framelessPinSide?: boolean
   showLibraryTools?: boolean
   /** Hours sum every Steam account and every Epic account on this PC. Off keeps a shared PC separate. */
-  countHoursAcrossAccounts?: boolean
   /** HDR on for the main screen while a game that supports it runs, back off after. */
   hdrForGames?: boolean
   /** SDR content drawn with gamma 2.2 while a screen is in HDR (default on). */
@@ -884,9 +965,7 @@ export interface LauncherSettings {
   /** Whose chipset driver this PC has and Exo updates: AMD's on a Ryzen, Intel's on an Intel processor (read-only: shows Keep the AMD or Intel chipset driver up to date). */
   chipset?: 'amd' | 'intel' | null
   /** Steam overlay for a Steam game Exo has not set yet (default off); Properties sets one game. */
-  steamOverlayDefaultOn?: boolean
   /** Steam's and Epic's own pop-ups and sounds kept off (Settings > Game stores > Notifications and sounds). */
-  quietStoreApps?: boolean
   /** The Library's folders, in their order on the grid. */
   libraryFolders?: LibraryFolder[]
   /** Games hidden from the Library (card ids); its Hidden view lists them. */
@@ -1101,6 +1180,10 @@ export interface GameProperties {
   controller?: 'native' | 'steam' | 'default' | null
   /** The game reads a PlayStation controller itself (its store page says so). */
   readsPlayStation?: boolean
+  /** A game that isn't Steam's, started through Steam for Steam Input (it reads Xbox controllers only); null where not offered. */
+  throughSteam?: boolean | null
+  /** The game's own shader caches together (0 once cleared); null for a game Exo can't rebuild them for (Call of Duty only for now). */
+  shaderCacheBytes?: number | null
 }
 
 /** The host leaves empty values out: each one a store does not have reads as null here, so its row stays hidden. */
@@ -1114,7 +1197,7 @@ function withNulls(properties: GameProperties): GameProperties {
 
 export type GamePropertyKey =
   | 'launchOptions' | 'autoUpdate' | 'background' | 'cloud' | 'cloudSync' | 'language'
-  | 'beta' | 'betaCode' | 'content' | 'folder' | 'storeProperties' | 'overlay' | 'controller'
+  | 'beta' | 'betaCode' | 'content' | 'folder' | 'storeProperties' | 'overlay' | 'controller' | 'throughSteam' | 'shaders'
 
 /** Desktop app install (Spotify). */
 export interface DesktopInstallResponse {
@@ -1246,6 +1329,10 @@ export interface HostEventMap {
   'gifts.changed': StoreGifts
   /** A wishlisted game went on sale on Steam (or got cheaper); price is Steam's text for final in the region's currency ("19,99€"). */
   'store.sale': { appId: string; name: string; final?: number | null; discount: number; currency?: string | null; price?: string | null }
+  /** A newer version of something this PC runs (its graphics driver, chipset driver, Lucid), found once; page is where its update is. */
+  /** A newer Exo came out while it runs (the version watch); the update banner offers it. */
+  'app.updateFound': { version: string }
+  'versions.new': { id: string; name: string; version: string; installed?: string | null; page: 'graphics' | 'overview' | 'devices' }
   /** An input report from an open HID device; data is base64 without the ID byte. */
   'hid.input': { device: string; reportId: number; data: string }
   /** A HID device arrived or left. */
@@ -1256,10 +1343,12 @@ export interface HostEventMap {
   'controller.state': ControllerState
   /** Exo Capture's state changed: buffering, recording, hotkeys, or it stopped. */
   'capture.state': CaptureState
-  /** A clip, recording, snip, trim or export was saved; a snip ("snip") opens in the editor, Exo in front. */
-  'capture.saved': { item: CaptureItem; kind?: string }
+  /** A clip, recording, snip, trim or export was saved; edit: a snip to open in the editor, Exo in front (not one taken over a game). */
+  'capture.saved': { item: CaptureItem; edit?: boolean }
   /** A recording Exo was asked to make smaller (or found smaller by itself) finished: the new item and the sizes, or message when it was left as it was. */
   'capture.shrunk': { id: string; item?: CaptureItem | null; before: number; after: number; message?: string | null }
+  /** A text file Windows opened with Exo (Exo Notes): its note's id, or why it could not open. */
+  'notes.open': { id?: string | null; message?: string | null }
   /** An event from the shader add-on's engine (or "addon" for its engine's own state), for its page. */
   'shaders.event': { name: string; data?: unknown }
   /** System > Display: a change nobody kept was put back when its countdown ran out. */
@@ -1489,8 +1578,15 @@ export function primaryCtaLabel(game: Game, action = resolvePrimaryAction(game))
   if (action === 'play') return 'Play'
   if (action === 'install') return 'Install'
   if (game.installed) return 'Unavailable'
+  if (isPreloaded(game)) return 'Preloaded'
   return 'Not installed'
 }
+
+/**
+ * Downloaded ahead of its release (a Steam preload): on this PC, not installed. Steam installs it on release day by
+ * itself and refuses before, so it offers no Install; the library keeps it with what's on the PC.
+ */
+export const isPreloaded = (game: Pick<Game, 'installed' | 'status'>) => !game.installed && game.status === 'Preloaded'
 
 /**
  * Play or Install as a shortcut beside a card (Continue, Friends are playing,
@@ -1524,6 +1620,33 @@ export type WebClientOptions = {
   notifications: 'ask' | 'allow' | 'block'
 }
 
+
+/** What Discord reports: a message, a first message from a stranger, a person, a server, an event or an app. */
+export type DiscordReportKind = 'message' | 'first_dm' | 'user' | 'guild' | 'guild_scheduled_event' | 'application'
+export type DiscordReportElement = { name: string; type: string; data: unknown; should_submit_data: boolean }
+/** One step of a report: its words, choices that lead on ([name, step]), questions, and its button. */
+export type DiscordReportNode = {
+  id: number
+  key: string
+  header: string
+  subheader?: string | null
+  info?: string | null
+  children: [string, number][]
+  elements: DiscordReportElement[]
+  button?: { type: 'next' | 'submit' | 'done' | 'cancel'; target: number | null } | null
+  is_multi_select_required: boolean
+  is_auto_submit: boolean
+}
+export type DiscordReportMenu = {
+  name: string
+  version: string
+  variant: string
+  language?: string | null
+  root_node_id: number
+  success_node_id: number
+  fail_node_id: number
+  nodes: Record<string, DiscordReportNode>
+}
 
 export const host = {
   webClientPreferences: () => rawCall<WebClientOptions>('web.preferences.get'),
@@ -1607,6 +1730,9 @@ export const host = {
   musicPlayback: () => rawCall<{ ok: boolean; playback: MusicPlayback | null }>('music.playback'),
   musicControl: (action: MusicAction, options?: { positionMs?: number }) =>
     rawCall<{ ok: boolean; message?: string }>('music.control', { action, ...options }),
+  /** Listen along: which of the listener's own search results is a friend's song (MusicMatch.cs); index -1 when none is. */
+  musicMatch: (song: MatchSong, candidates: MatchSong[]) =>
+    rawCall<{ ok: boolean; index?: number; message?: string }>('music.match', { song, candidates }),
   /** The music app's own volume (`source: 'app'`, Spotify, YouTube Music and Apple Music) or its
       Windows session volume (`'session'`). The slider is
       0–100, the wire level is 0–1. `music.volume` events push changes made in the app. */
@@ -1667,6 +1793,28 @@ export const host = {
   /** The snip editor's PNG (base64) over the snip, then copied. */
   captureSaveImage: (id: string, png: string) =>
     rawCall<{ ok: boolean; message?: string; item?: CaptureItem }>('capture.saveImage', { id, png }, 60_000),
+  /** Exo Notes (Captures › Notes): every note, pinned first then the latest (query: only those holding it), the open tabs and the one in front. */
+  notesList: (query?: string) =>
+    rawCall<{ ok: boolean; notes?: NoteInfo[]; tabs?: string[]; active?: string | null; message?: string }>('notes.list', { query: query ?? null }, 30_000),
+  notesRead: (id: string) => rawCall<{ ok: boolean; text?: string; note?: NoteInfo; message?: string | null }>('notes.read', { id }, 30_000),
+  /** No id: a new note (Markdown when asked), linked to the game running. toFile: Save, for a file from elsewhere (else its edits are kept here). */
+  notesSave: (id: string | null, text: string, options: { markdown?: boolean; toFile?: boolean } = {}) =>
+    rawCall<{ ok: boolean; note?: NoteInfo | null; message?: string | null }>('notes.save', { id, text, ...options }, 30_000),
+  notesAct: (id: string, action: 'pin' | 'unpin' | 'markdown' | 'text' | 'rename' | 'discard' | 'reveal' | 'folder' | 'delete', name?: string) =>
+    rawCall<{ ok: boolean; note?: NoteInfo | null; message?: string | null }>('notes.act', { id, action, name: name ?? null }),
+  notesSession: (tabs: string[], active: string | null) => rawCall<{ ok: boolean }>('notes.session', { tabs, active }),
+  /** Any text file from Windows' picker, as a tab. */
+  notesOpen: () => rawCall<{ ok: boolean; id?: string | null; cancelled?: boolean; message?: string | null }>('notes.open', {}, 10 * 60_000),
+  /** The words to a file picked in Windows' save dialog; its id (in the tab's place for a file from elsewhere). */
+  notesSaveAs: (id: string, text: string) =>
+    rawCall<{ ok: boolean; id?: string | null; cancelled?: boolean; message?: string | null }>('notes.saveAs', { id, text }, 10 * 60_000),
+  /** A text file Windows opened with Exo before the page was up. */
+  notesPending: () => rawCall<{ id?: string | null }>('notes.pending'),
+  /** Windows' spell checker on one word: wrong, with its suggestions; add: into Windows' own word list. */
+  notesSpell: (word: string, add = false) => rawCall<{ ok: boolean; wrong?: boolean; suggestions?: string[] }>('notes.spell', { word, add }),
+  /** Exo for text files: state; offer (asked first, then Windows' Default apps); settings (Default apps again); withdraw (asked first). */
+  notesTextFiles: (action: 'state' | 'offer' | 'settings' | 'withdraw') =>
+    rawCall<{ ok: boolean; declined?: boolean; offered: boolean; isDefault: boolean; message?: string | null }>('notes.textFiles', { action }, 10 * 60_000),
   /** The shader add-on: whether it is installed, its engine's state, and the last state the engine left when it exited (never starts it). */
   shadersAddon: () => rawCall<{ ok: boolean; present: boolean; state?: string; message?: string | null; snapshot?: unknown }>('shaders.addon'),
   /** One request from the add-on's page to its engine. */
@@ -1690,9 +1838,17 @@ export const host = {
   appsList: () => rawCall<{ ok: boolean; programs: InstalledApp[]; cleared: { name: string; summary: LeftoverSummary }[]; edgeRemoved?: boolean }>('apps.list', {}, 60_000),
   /** Their icons as data URLs (null: none). */
   appsIcons: (ids: string[]) => rawCall<{ ok: boolean; icons: Record<string, string | null> }>('apps.icons', { ids }, 60_000),
-  /** One uninstalled with its own uninstaller (asked in Exo's window), then what it left found. */
-  appsUninstall: (id: string) =>
-    rawCall<AppFind | { ok: false; still?: boolean; declined?: boolean; message?: string | null }>('apps.uninstall', { id }, 65 * 60_000),
+  /** Junk on this PC by kind (temp files, crash reports, thumbnails, the Recycle Bin), with sizes. */
+  junkScan: () => rawCall<{ ok: boolean; items: JunkItem[] }>('junk.scan', {}, 2 * 60_000),
+  /** The chosen kinds deleted, asked in Exo's window: what went. */
+  junkClean: (ids: string[]) =>
+    rawCall<{ ok: true; bytes: number; files: number } | { ok: false; declined?: boolean; message?: string | null; bytes?: undefined; files?: undefined }>('junk.clean', { ids }, 10 * 60_000),
+  /** Several to uninstall one after another, asked once in Exo's window: the ones that can go, and a pass for them. */
+  appsConfirm: (ids: string[]) =>
+    rawCall<{ ok: true; token: string; ids: string[] } | { ok: false; declined?: boolean; message?: string | null }>('apps.confirm', { ids }, 5 * 60_000),
+  /** One uninstalled with its own uninstaller (asked in Exo's window, unless apps.confirm's pass covers it), then what it left found. */
+  appsUninstall: (id: string, pass?: string) =>
+    rawCall<AppFind | { ok: false; still?: boolean; declined?: boolean; message?: string | null }>('apps.uninstall', pass ? { id, pass } : { id }, 65 * 60_000),
   /** What is left of a program whose uninstaller is gone. */
   appsScan: (id: string) => rawCall<AppFind | { ok: false; message?: string | null }>('apps.scan', { id }, 5 * 60_000),
   /** The chosen items of a find deleted (asked in Exo's window). */
@@ -1735,6 +1891,7 @@ export const host = {
     rawCall<{ ok: boolean; message?: string | null }>('accounts.signOut', { store }, 120_000),
   /** Exo takes the Epic Games Launcher's sign-in; the launcher signs out. */
   accountsEpicImport: () => rawCall<{ ok: boolean; message?: string | null }>('accounts.epicImport', {}, 120_000),
+  accountsEpicNewLauncher: () => rawCall<{ ok: boolean; message?: string | null }>('accounts.epicNewLauncher', {}, 600_000),
   /** Signs another Epic account in for its hours. */
   accountsEpicAdd: () => rawCall<{ ok: boolean; message?: string | null }>('accounts.epicAdd', {}, 15 * 60_000),
   accountsEpicRemove: (key: string) => rawCall<{ ok: boolean; message?: string | null }>('accounts.epicRemove', { key }, 120_000),
@@ -1779,6 +1936,8 @@ export const host = {
   installUpdate: () => rawCall<AppUpdateResponse>('app.installUpdate', {}, 30 * 60_000),
   log: (entry: AppLogEntry) => rawCall<{ ok: boolean }>('app.log', entry, 10_000),
   openLogs: () => rawCall<{ ok: boolean; message?: string }>('app.openLogs'),
+  /** What an error's Copy logs copies: Exo's version, the error, where (a room's name) and the log entries behind it. */
+  logsFor: (error: string, area: string) => rawCall<{ ok: boolean; text?: string }>('app.logsFor', { error, area }, 15_000),
   repairCache: (scope: 'sizes' | 'upscalers') => rawCall<{ ok: boolean; message?: string }>('app.repairCache', { scope }),
   dlssStatus: (id: string, refresh = false) =>
     rawCall<DlssStatus>('dlss.status', { id, ...(refresh ? { refresh: true } : {}) }, refresh ? 120_000 : 60_000),
@@ -1796,14 +1955,19 @@ export const host = {
   shadersStatus: (id: string) => rawCall<ShaderStatus>('shaders.status', { id }),
   hdrState: () => rawCall<HdrState>('hdr.state', {}),
   /** Steam's and Epic's own notifications and sounds off, kept off; message says when a store takes it later. */
-  quietStores: () => rawCall<{ ok: boolean; message?: string | null }>('stores.quiet', {}, 60_000),
   /** A game's HDR support (asks PCGamingWiki the first time); with a mode, sets its Auto/Always/Never. */
   hdrGame: (id: string, mode?: string) => rawCall<HdrGame>('hdr.game', { id, ...(mode ? { mode } : {}) }, 30_000),
+  gameSettings: (id: string, change?: { group?: string; all?: boolean; on: boolean }) =>
+    rawCall<GameSettingsState>('game.settings', { id, ...change }, 30_000),
   /** Every screen's refresh rate and output color; set starts a 15 s countdown that keep ends and revert (or the host, when it runs out) undoes. */
   /** The client's state; connect starts it again after it stopped. */
   discordStatus: (connect = false) => rawCall<DiscordStatus>('discord.status', { connect }),
   /** Starts a QR sign-in (steps arrive as discord.signin), or cancels it. */
   discordSignIn: (cancel = false) => rawCall<{ ok: boolean }>('discord.signIn', { cancel }),
+  /** The Discord accounts signed in on this PC (never their sign-ins); switch connects as one, forget drops another. */
+  discordAccounts: (action: 'list' | 'switch' | 'forget' = 'list', id?: string) =>
+    rawCall<{ ok: boolean; message?: string | null; accounts?: { id: string; name: string; avatar: string | null; current: boolean }[] }>(
+      'discord.accounts', id ? { action, id } : { action }, 30_000),
   discordSignOut: () => rawCall<{ ok: boolean }>('discord.signOut', {}),
   /** A Windows notification from Exo while it is in the background. */
   appNotify: (title: string, body: string) => rawCall<{ ok: boolean }>('app.notify', { title, body }),
@@ -1878,6 +2042,9 @@ export const host = {
    */
   discordFriend: (action: 'accept' | 'remove' | 'add' | 'dm' | 'block' | 'ignore' | 'unignore' | 'state', params: { userId?: string; userIds?: string[]; username?: string; confirm?: boolean }) =>
     rawCall<{ ok: boolean; message?: string | null; channelId?: string | null; relationship?: number; ignored?: boolean; bot?: boolean; stranger?: boolean }>('discord.friend', { action, ...params }, 30_000),
+  /** Discord's in-app report: menu reads the steps for a kind; send sends the steps taken, the answers and what's reported. */
+  discordReport: (kind: DiscordReportKind, action: 'menu' | 'send', report?: { version: string; variant: string; language: string; breadcrumbs: number[]; elements: Record<string, string[]>; ids: Record<string, string> }) =>
+    rawCall<{ ok: boolean; message?: string | null; menu?: DiscordReportMenu | null }>('discord.report', { kind, action, ...report }, 30_000),
   /** The member list; at asks Discord for the rows from that one on (they arrive as discord.members). */
   discordMembers: (guildId: string, at?: number) => rawCall<DiscordMemberList>('discord.members', at === undefined ? { guildId } : { guildId, at }),
   /** People to @mention whose names match; ask also asks Discord for more (they arrive as discord.colors). */
@@ -1903,7 +2070,7 @@ export const host = {
     rawCall<{ ok: boolean; favorites?: string[] | null; frequent?: string[] | null; reactions?: string[] | null }>('discord.emojiFavorites', { action, ...(emoji ? { emoji } : {}), ...(reaction ? { reaction } : {}) }, 30_000),
   discordGifs: (query?: string) => rawCall<{ ok: boolean; gifs?: DiscordGif[] | null }>('discord.gifs', query ? { query } : {}, 30_000),
   /** Join or leave a server, read an invite (a message's invite card), its Server Guide or events, or create a channel. */
-  discordServer: (action: 'join' | 'invite' | 'leave' | 'profile' | 'guide' | 'events' | 'members' | 'createChannel' | 'prune' | 'createEvent' | 'eventStatus' | 'ics' | 'rsvp' | 'showAll' | 'mute' | 'notify' | 'voiceStatus', params: { text?: string; muted?: boolean; minutes?: number; level?: number; suppressEveryone?: boolean; suppressRoles?: boolean; hideMuted?: boolean; invite?: string; guildId?: string; parentId?: string; name?: string; kind?: 'text' | 'voice' | 'category'; sort?: number; days?: number; countOnly?: boolean; eventId?: string; interested?: boolean; on?: boolean; status?: 2 | 3 | 4; description?: string; start?: string; channelId?: string; location?: string; end?: string; query?: string; afterJoined?: number; afterUser?: string }) =>
+  discordServer: (action: 'join' | 'invite' | 'leave' | 'profile' | 'guide' | 'events' | 'members' | 'createChannel' | 'prune' | 'createEvent' | 'eventStatus' | 'ics' | 'rsvp' | 'showAll' | 'mute' | 'notify' | 'voiceStatus', params: { text?: string; muted?: boolean; minutes?: number; level?: number; suppressEveryone?: boolean; suppressRoles?: boolean; suppressHighlights?: boolean; muteEvents?: boolean; mobilePush?: boolean; hideMuted?: boolean; invite?: string; guildId?: string; parentId?: string; name?: string; kind?: 'text' | 'voice' | 'category'; sort?: number; days?: number; countOnly?: boolean; eventId?: string; interested?: boolean; on?: boolean; status?: 2 | 3 | 4; description?: string; start?: string; channelId?: string; location?: string; end?: string; query?: string; afterJoined?: number; afterUser?: string }) =>
     rawCall<{ ok: boolean; message?: string | null; guildId?: string | null; channelId?: string | null; invite?: DiscordInvite | null; invalid?: boolean; guide?: DiscordGuide | null; events?: { event: DiscordEvent; interested: boolean }[] | null; members?: DiscordMemberSearch | null; roles?: Record<string, DiscordRole>; online?: number | null; total?: number | null; resources?: DiscordResource[]; pruned?: number | null; indexing?: boolean; profile?: DiscordGuildProfile | null }>('discord.server', { action, ...params }, 30_000),
   /**
    * Server Settings, Edit Channel and the person menu: a server's (guildId) or channel's (channelId) settings and the
@@ -1966,7 +2133,19 @@ export const host = {
   lucidHeadphones: () => rawCall<{ ok: boolean; headphones: LucidHeadphone[] }>('lucid.headphones'),
   /** Devices: the mouse, keyboards, audio and controllers on this PC (devices.changed says when one comes or goes). */
   devicesList: () => rawCall<{ ok: boolean; devices: Peripheral[]; cpuPorts?: CpuPorts | null }>('devices.list', {}, 15_000),
+  /** Opens a keyboard's own settings app by the id its card carries: in the browser, installed, or its download page. */
+  devicesOpenApp: (app: string) => rawCall<{ ok: boolean; message?: string }>('devices.openApp', { app }, 15_000),
   controllerRead: (id: string) => rawCall<ControllerRead>('controller.read', { id }, 30_000),
+  /** Sets a DualSense's or Edge's light, sound and vibration now (over USB, no game running), and each time it connects. */
+  controllerSettings: (id: string, settings: PadSettings) =>
+    rawCall<{ ok: boolean; message?: string; settings?: PadSettings }>('controller.settings', { id, settings }, 30_000),
+  /** Every controller's speaker and microphone in Windows on, or off (Exo's default): how many changed. */
+  controllerSound: (on: boolean) => rawCall<{ ok: boolean; on: boolean; changed: number }>('controller.sound', { on }, 30_000),
+  /** The controllers' game profiles. */
+  controllerGameProfiles: () => rawCall<{ ok: boolean; profiles?: ControllerGameProfile[] }>('controller.gameProfiles'),
+  /** Saves every game profile as the page has them (a game belongs to one): the list as kept. */
+  controllerGameProfilesSave: (profiles: ControllerGameProfile[]) =>
+    rawCall<{ ok: boolean; message?: string; profiles?: ControllerGameProfile[] }>('controller.gameProfilesSave', { profiles }, 30_000),
   controllerMeasure: (id: string, seconds = 3) => rawCall<{ ok: boolean; message?: string; polling?: ControllerPolling }>('controller.measure', { id, seconds }, 20_000),
   controllerTest: (id: string, kind: 'rest' | 'edge', seconds?: number) =>
     rawCall<{ ok: boolean; message?: string; left?: StickRest | StickEdge | null; right?: StickRest | StickEdge | null }>('controller.test', { id, kind, seconds }, 25_000),
@@ -1974,16 +2153,8 @@ export const host = {
   /** One step of the controller's own stick calibration; range-end answers more: true until both sticks went all the way round. */
   controllerCalibrate: (id: string, step: CalibrationStep) =>
     rawCall<{ ok: boolean; message?: string; more?: boolean; left?: number; right?: number }>('controller.calibrate', { id, step }, 30_000),
-  /** A preset's curve (four x,y points) for a deadzone (0-1) and adjustment (-5..5): the editor's picture. */
-  controllerCurve: (preset: number, deadzone: number, adjustment: number) =>
-    rawCall<{ ok: boolean; points?: number[] }>('controller.curve', { preset, deadzone, adjustment }),
-  controllerProfiles: (id: string) => rawCall<EdgeProfiles>('controller.profiles', { id }, 30_000),
-  controllerProfileSave: (id: string, profile: EdgeProfile) => rawCall<EdgeProfiles>('controller.profileSave', { id, profile }, 30_000),
-  controllerProfileClear: (id: string, slot: number) => rawCall<EdgeProfiles>('controller.profileClear', { id, slot }, 30_000),
-  controllerProfileUndo: (id: string, slot: number) => rawCall<EdgeProfiles>('controller.profileUndo', { id, slot }, 30_000),
-  /** Games read the controller themselves: Steam Input off for every Steam game with PlayStation controller support. */
-  steamInputState: () => rawCall<{ ok: boolean; steam: boolean; on: boolean; native: number; translated: number }>('steamInput.state'),
-  steamInputSet: (on: boolean) => rawCall<{ ok: boolean; message?: string | null }>('steamInput.set', { on }, 120_000),
+  /** Games read the controller themselves, always: how many installed Steam games do, and how many keep Steam Input. */
+  steamInputState: () => rawCall<{ ok: boolean; steam: boolean; native: number; translated: number }>('steamInput.state'),
   /** A newer Lucid its own feed offers (null: none, or offline). Lucid's window installs it. */
   lucidUpdate: () => rawCall<{ version: string | null }>('lucid.update', {}, 30_000),
   /** Dictation: on, whether this PC runs it, whether its speech model is here (lib/dictation.ts). */
@@ -2035,6 +2206,10 @@ export const host = {
   /** A server channel's bell (mute or unmute) or Invite People (a 7-day invite link). */
   discordChannel: (channelId: string, action: 'mute' | 'invite' | 'collapse' | 'read' | 'delete' | 'optin' | 'close' | 'add' | 'accept' | 'ignore', value?: boolean, userId?: string) =>
     rawCall<{ ok: boolean; message?: string | null; muted?: boolean; collapsed?: boolean; url?: string | null; channelId?: string | null }>('discord.channel', { channelId, action, ...(userId ? { userId } : {}), ...(value === undefined ? {} : action === 'collapse' ? { collapsed: value } : action === 'optin' ? { optedIn: value } : { muted: value }) }, 30_000),
+  /** A thread's or forum post's menu: its state (thread), Join or Leave, Close or Open (archived), Lock, Pin, its tags, notifications (level), mute (minutes) and Delete. */
+  discordThreadAction: (threadId: string, action: 'thread' | 'join' | 'leave' | 'archive' | 'lock' | 'pin' | 'tags' | 'threadNotify' | 'threadMute' | 'delete',
+    params: { archived?: boolean; locked?: boolean; pinned?: boolean; tags?: string[]; level?: 0 | 1 | 2; muted?: boolean; minutes?: number } = {}) =>
+    rawCall<{ ok: boolean; message?: string | null; thread?: DiscordThreadState | null }>('discord.channel', { channelId: threadId, action, ...params }, 30_000),
   /** Bookmarks and reminders: what's saved (state), a page of bookmarks (before: the last saved_at), saving (dueAt, ms: a reminder) and removing. */
   discordSaved: (action: 'state' | 'bookmarks' | 'save' | 'remove', params: { channelId?: string; messageId?: string; dueAt?: number; before?: string } = {}) =>
     rawCall<{ ok: boolean; message?: string | null; reminders?: DiscordSavedMessage[] | null; bookmarkIds?: string[] | null; results?: DiscordSavedMessage[] | null; hasMore?: boolean; places?: Record<string, DiscordPlace | null> }>('discord.saved', { action, ...params }),
@@ -2048,7 +2223,9 @@ export const host = {
   discordChannelNotify: (channelId: string, change: { muted: boolean; minutes?: number } | { level: 0 | 1 | 2 | 3 }) =>
     rawCall<{ ok: boolean; message?: string | null; muted?: boolean }>('discord.channel', { channelId, action: 'level' in change ? 'notify' : 'mute', ...change }, 30_000),
   discordMarkRead: (guildId: string) => rawCall<{ ok: boolean }>('discord.markRead', { guildId }),
-  discordSetStatus: (status: 'online' | 'idle' | 'dnd' | 'invisible') => rawCall<{ ok: boolean; message?: string | null }>('discord.setStatus', { status }),
+  /** A status for good, or for minutes (Discord's 15 minutes to 3 days); it goes back to Online on every device after. */
+  discordSetStatus: (status: 'online' | 'idle' | 'dnd' | 'invisible', minutes = 0) =>
+    rawCall<{ ok: boolean; message?: string | null }>('discord.setStatus', minutes > 0 ? { status, minutes } : { status }),
   discordTyping: (channelId: string) => rawCall<{ ok: boolean }>('discord.typing', { channelId }),
   /**
    * Apps: the commands here (commands), or what the user just did: run a command, ask an option's autocomplete, press a
@@ -2074,6 +2251,8 @@ export const host = {
     rawCall<GpuImportAnswer>('gpu.import', { action }, action === 'pick' ? 10 * 60_000 : 30_000),
   /** System > This PC: the checks; apply or undo AMD's power plan tuning; gamemode and gpusched open Windows' Game Mode and Graphics settings. */
   systemHealth: (action?: 'apply' | 'undo' | 'chipset' | 'gamemode' | 'gpusched' | 'gpupref' | 'gpupref-undo') => rawCall<PcHealth>('system.health', action ? { action } : {}, 35_000),
+  /** PC › Overview: what this PC is (processor, memory, drives, board, BIOS, Windows, security, connection). */
+  systemAbout: () => rawCall<PcAbout>('system.about', {}, 15_000),
   /** System > This PC > Interrupts: the devices; apply switches every one that can to MSI mode, undo puts all back, revert one. Waits on Windows' permission prompt. */
   systemInterrupts: (action?: 'apply' | 'undo' | 'revert', device?: string) =>
     rawCall<Interrupts>('system.interrupts', action ? { action, ...(device ? { device } : {}) } : {}, 120_000),
@@ -2087,13 +2266,19 @@ export const host = {
   storeHome: (refresh = false) => rawCall<StoreHome>('store.home', refresh ? { refresh: true } : {}, 45_000),
   /** Games by release day, ordered by the wishlist and the tags of what is played; ok false when Steam's lists could not be read. */
   storeCalendar: () => rawCall<StoreCalendar>('store.calendar', {}, 45_000),
-  /** superseded: a newer search replaced this one. */
-  storeSearch: (query: string) => rawCall<{ ok: boolean; message?: string; items: StoreTile[] }>('store.search', { query }, 20_000),
+  /**
+   * typed: the Store room's search as you type; a newer typed search replaces it (ok false, no message). Without it a
+   * lookup (does the Store sell this title?) that never replaces the search you typed.
+   */
+  storeSearch: (query: string, typed = false) =>
+    rawCall<{ ok: boolean; message?: string; items: StoreTile[] }>('store.search', typed ? { query, typed } : { query }, 20_000),
   /** A store page or CheapShark deal: opens in that store's launcher when installed, else the browser. */
   storeOpen: (url: string) => rawCall<{ ok: boolean; message?: string }>('store.open', { url }, 20_000),
   storeGame: (appId: string) => rawCall<StoreGame>('store.game', { appId }, 30_000),
-  /** The other official launchers for a game page, Epic first; ok false when CheapShark did not answer. */
-  storeGameOffers: (appId: string) => rawCall<{ ok: boolean; offers: StoreOffer[] }>('store.gameOffers', { appId }, 15_000),
+  /** The other official launchers for a game page, Epic first, and the lowest price ever; ok false when CheapShark did not answer. */
+  storeGameOffers: (appId: string) => rawCall<StoreOtherOffers>('store.gameOffers', { appId }, 15_000),
+  /** Steam's Recent reviews for a game page; asked only once the page opens, never to warm it. */
+  storeGameReviews: (appId: string) => rawCall<StoreRecentReviews>('store.gameReviews', { appId }, 10_000),
   storeWishlist: (action: 'get' | 'add' | 'remove' | 'check', item?: { appId: string; name?: string }) =>
     rawCall<{ ok: boolean; message?: string; items: WishItem[] }>('store.wishlist', { action, ...(item ?? {}) }, 60_000),
   /** HID for the Devices room's mouse module: devices by opaque key, report bytes as base64. */

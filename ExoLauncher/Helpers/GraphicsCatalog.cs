@@ -19,7 +19,17 @@ namespace ExoLauncher.Helpers;
 ///   0x10E41E01 / 0x10E41E02 / 0x10E41E03 (the NVIDIA app sets both); SR mode
 ///   0x10AFB768 (0 Performance, 1 Balanced, 2 Quality, 4 DLAA, 5 Ultra
 ///   Performance); multi frame count 0x104D6667 (1 = 2x … 5 = 6x) with FG
-///   mode 0x10308298 = 2 (fixed).
+///   mode 0x10308298 = 2 (fixed). DLSS Neural Rendering (DLSS 5): preset
+///   0x10E41DF8, newest DLL 0x10E41E04. Streamline overrides (driver 616.56+):
+///   0x10E41E06 for DLSS, 0x10E41E05 for Neural Rendering; the NVIDIA app turns
+///   0x10E41E06 on with its DLSS override, per game.
+/// - Preset letters (1 = A): Super Resolution A-F CNN, J/K DLSS 4 transformer,
+///   L/M DLSS 4.5 transformer; Ray Reconstruction A-C CNN, D/E DLSS 4
+///   transformer, F DLSS 4.5 transformer; Frame Generation A default, B UI
+///   focus, C performance focus. Later letters have no model name yet.
+/// - Resizable BAR mode 0x000BFA21 (616.56+): 0 off, 1 auto (NVIDIA's per-game
+///   list), 2 on. The size limit 0x000F00FF (up to 32 GB) is an 8-byte binary
+///   value, so an import leaves it out and it has no name here.
 /// - Smooth Motion 0xB0D384C0 (0/1): RTX 50 from driver 571.86, RTX 40 from the 590 branch.
 /// - Low latency mode: CPL state 0x0005F543 (0 Off, 1 On, 2 Ultra), Ultra Low
 ///   Latency 0x10835000 (0/1), maximum pre-rendered frames 0x007BA09E (0 = the
@@ -28,7 +38,7 @@ namespace ExoLauncher.Helpers;
 /// </summary>
 internal static class GraphicsCatalog
 {
-    internal const uint SrPreset = 0x10E41DF3, RrPreset = 0x10E41DF7, FgPreset = 0x10E41DF1;
+    internal const uint SrPreset = 0x10E41DF3, RrPreset = 0x10E41DF7, FgPreset = 0x10E41DF1, NrPreset = 0x10E41DF8;
     internal const uint SrOverride = 0x10E41E01, RrOverride = 0x10E41E02, FgOverride = 0x10E41E03;
     internal const uint SrMode = 0x10AFB768, MfgCount = 0x104D6667, FgMode = 0x10308298;
     internal const uint SmoothMotion = 0xB0D384C0;
@@ -45,19 +55,31 @@ internal static class GraphicsCatalog
         var known = Names.GetValueOrDefault(id);
         if (known?.Values?.TryGetValue(value, out var word) == true) return word;
         if (id is FrameRateLimit) return value == 0 ? "Off" : $"{value} fps";
-        if (id is SrPreset or RrPreset or FgPreset)
+        if (id is SrPreset or RrPreset or FgPreset or NrPreset)
             return value switch
             {
                 0 => "Driver default",
                 0x00FFFFFF => id == FgPreset ? "Latest" : "Recommended",
                 0x00FFFFFE when id == FgPreset => "Recommended",
-                >= 1 and <= 26 => $"Preset {(char)('A' + value - 1)}",
+                >= 1 and <= 26 => $"Preset {(char)('A' + value - 1)}{Model(id, value)}",
                 _ => value.ToString(),
             };
         if (id is MfgCount) return value is >= 1 and <= 5 ? $"{value + 1}x" : "Driver default";
         if (id is PreRenderedFrames) return value == 0 ? "Game decides" : value.ToString();
         return value <= 0xFFFF ? value.ToString() : $"0x{value:X8}";
     }
+
+    // The model behind a preset letter, where Profile Inspector 3.0.2.3 and NVIDIA's DLSS guides name one.
+    private static string Model(uint id, uint letter) => (id, letter) switch
+    {
+        (SrPreset, <= 6) or (RrPreset, <= 3) => " (CNN)",
+        (SrPreset, 10 or 11) or (RrPreset, 4 or 5) => " (DLSS 4 transformer)",
+        (SrPreset, 12 or 13) or (RrPreset, 6) => " (DLSS 4.5 transformer)",
+        (FgPreset, 1) => " (default model)",
+        (FgPreset, 2) => " (UI focus)",
+        (FgPreset, 3) => " (performance focus)",
+        _ => "",
+    };
 
     private sealed record Known(string Name, IReadOnlyDictionary<uint, string>? Values = null);
 
@@ -71,7 +93,10 @@ internal static class GraphicsCatalog
         [SrOverride] = new("Use the newest DLSS Super Resolution", OnOff),
         [RrOverride] = new("Use the newest DLSS Ray Reconstruction", OnOff),
         [FgOverride] = new("Use the newest DLSS Frame Generation", OnOff),
-        [0x10E41E06] = new("DLSS Streamline override", OnOff),
+        [NrPreset] = new("DLSS Neural Rendering preset"),
+        [0x10E41E04] = new("Use the newest DLSS Neural Rendering", OnOff),
+        [0x10E41E06] = new("Use the newest Streamline for DLSS", OnOff),
+        [0x10E41E05] = new("Use the newest Streamline for DLSS Neural Rendering", OnOff),
         [0x00634291] = new("DLSS model preset profile", new Dictionary<uint, string> { [0] = "Driver default", [1] = "Recommended", [2] = "Custom" }),
         [SrMode] = new("DLSS mode", new Dictionary<uint, string> { [0] = "Performance", [1] = "Balanced", [2] = "Quality", [3] = "Driver default", [4] = "DLAA", [5] = "Ultra Performance", [6] = "Custom" }),
         [0x10BD9423] = new("DLSS Ray Reconstruction mode", new Dictionary<uint, string> { [0] = "Performance", [1] = "Balanced", [2] = "Quality", [3] = "Driver default", [4] = "DLAA", [5] = "Ultra Performance", [6] = "Custom" }),
@@ -112,7 +137,7 @@ internal static class GraphicsCatalog
         [0x00AC8497] = new("Shader cache size"),
         [0x00198FFF] = new("Shader cache", OnOff),
         [0x000F00BA] = new("Resizable BAR", OnOff),
-        [0x000BFA21] = new("Resizable BAR", new Dictionary<uint, string> { [0] = "Off", [1] = "Auto", [2] = "On" }),
+        [0x000BFA21] = new("Resizable BAR mode", new Dictionary<uint, string> { [0] = "Off", [1] = "Auto", [2] = "On" }),
         [0x000F00BB] = new("Resizable BAR options"),
     };
 }

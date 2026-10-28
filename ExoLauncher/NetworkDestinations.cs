@@ -41,7 +41,7 @@ internal static class NetworkDestinations
     internal const string Igdb = "IGDB (Twitch)";
     internal const string Upscalers = "Vendor upscaler files (NVIDIA DLSS, AMD FidelityFX SDK and Intel XeSS repositories on GitHub, raw.githubusercontent.com at pinned commits and at each newer release's commit, found through api.github.com; other DLSS, FSR 3.1 and XeSS builds from DLSS Swapper's archive, dlss-swapper-downloads.beeradmoore.com)";
     internal const string UpscalerList = "DLSS Swapper's release list (beeradmoore.github.io/dlss-swapper/manifest.json)";
-    internal const string StoreRoom = "Store room: Steam store and Steam Web API (store search, ranked lists, game pages), CheapShark (prices from official stores only)";
+    internal const string StoreRoom = "Store room: Steam store and Steam Web API (store search, ranked lists, game pages), CheapShark (prices from official stores only, and a game's lowest price ever)";
     internal const string StoreTags = "Store room: Steam tag names (IStoreService/GetTagList)";
     internal const string MusicArtwork = "Music artwork (Spotify, YouTube Music and Apple Music image servers)";
     internal const string Shaders = "Exo Shaders (SCSKiller's servers api.scskiller.com and api.scskiller.io; GitHub: Oodle and zlib-ng codec libraries, and some games' public archive keys)";
@@ -54,8 +54,8 @@ internal static class NetworkDestinations
     internal const string LucidUpdates = "Lucid's version feed (raw.githubusercontent.com/tekkusai/Lucid)";
     internal const string ControllerFirmware = "Sony's controller firmware versions (fwupdater.dl.playstation.net)";
     internal const string SpotifyShareLinks = "Spotify share links (spotify.link, spotify.app.link)";
-    internal const string Installers = "Game runtimes and app installers: Microsoft (Visual C++, DirectX, .NET and its release list, XNA, WebView2; GameInput from NuGet's `globalcdn.nuget.org`), Creative (OpenAL, `openal.org`), NVIDIA (PhysX, `us.download.nvidia.com`), Spotify";
-    internal const string DevicePictures = "Device pictures (the makers' own image servers: gmedia.playstation.com, cdn-dynmedia-1.microsoft.com, assets.nintendo.com, cdn.shopify.com, hyperx.com, ca.sennheiser-hearing.com, api.beyerdynamic.de, images.ctfassets.net, resource.logitechg.com, cdn.prod.website-files.com; for IEMs whose maker publishes no large picture, the stores of Linsoul (`www.linsoul.com`) and Bloom Audio (on cdn.shopify.com); OpenMouse's img.openmouse.app)";
+    internal const string Installers = "Game runtimes and app installers: Microsoft (Visual C++, DirectX, .NET and its release list, XNA, WebView2; GameInput from NuGet's `globalcdn.nuget.org`), Creative (OpenAL, `openal.org`), NVIDIA (PhysX, `us.download.nvidia.com`), Spotify, Epic Games (its new launcher, `launcher-public-service-prod06.ol.epicgames.com` and `content-download-egs.distro.on.epicgames.com`)";
+    internal const string DevicePictures = "Device pictures (the makers' own image servers: gmedia.playstation.com, cdn-dynmedia-1.microsoft.com, assets.nintendo.com, store.storeimages.cdn-apple.com, wooting-website.ams3.cdn.digitaloceanspaces.com, resource.logitechg.com, resource.logitech.com, images.ctfassets.net (SteelSeries), assets.corsair.com, dlcdnwebimgs.asus.com, `www.asus.com`, hyperx.com, a.storyblok.com (Cooler Master), `www.deluxworld.com`, ca.sennheiser-hearing.com, assets.sennheiser.com, api.beyerdynamic.de, `www.audio-technica.com`, images.philips.com, sony.scene7.com, assets.fractal-design.com, massdrop-s3.imgix.net (Drop), cdn.prod.website-files.com (Truthear), static.wixstatic.com (Dunu), tanchjim.com, intuaura.net, `www.cherry.de`, motospeed.cc, `www.vaxee.co`, and makers' stores on cdn.shopify.com; where a maker publishes no large or clean picture, an authorized store's copy of its official shot: Best Buy (`pisces.bbystatic.com`, `multimedia.bbycastatic.ca`), MaxGaming (`us.maxgaming.com`) and headphone and IEM stores on cdn.shopify.com; OpenMouse's img.openmouse.app)";
 
     internal static readonly Destination[] Hosts =
     [
@@ -75,6 +75,11 @@ internal static class NetworkDestinations
         new("library-service.live.use1a.on.epicgames.com", EpicServices),
         // StoreGifts: a one-time exchange code that signs the hidden gifts page in to Epic's store.
         new("account-public-service-prod.ol.epicgames.com", EpicServices),
+
+        // WebHostBridge.Accounts: Epic's new launcher's installer, for Settings > Epic > Switch to Epic's new launcher (the
+        // link sends the download on to Epic's download host).
+        new("launcher-public-service-prod06.ol.epicgames.com", Installers),
+        new("content-download-egs.distro.on.epicgames.com", Installers),
 
         // WebHostBridge.Properties: an installed Epic game's optional content (selective download) list.
         new("api.legendary.gl", LegendaryApi),
@@ -200,15 +205,37 @@ internal static class NetworkDestinations
         new("gmedia.playstation.com", DevicePictures),
         new("cdn-dynmedia-1.microsoft.com", DevicePictures),
         new("assets.nintendo.com", DevicePictures),
-        new("cdn.shopify.com", DevicePictures), // Wooting's and Bloom Audio's stores
+        new("cdn.shopify.com", DevicePictures), // makers' own stores, and headphone and IEM stores' copies
         new("hyperx.com", DevicePictures),
         new("ca.sennheiser-hearing.com", DevicePictures),
         new("api.beyerdynamic.de", DevicePictures),
         new("images.ctfassets.net", DevicePictures), // SteelSeries' image server
         new("resource.logitechg.com", DevicePictures),
         new("cdn.prod.website-files.com", DevicePictures), // Truthear's site
-        new("www.linsoul.com", DevicePictures),
         new("img.openmouse.app", DevicePictures),
+        new("wooting-website.ams3.cdn.digitaloceanspaces.com", DevicePictures), // Wooting's site
+        new("assets.sennheiser.com", DevicePictures), // Sennheiser's pro site
+        new("www.audio-technica.com", DevicePictures),
+        new("images.philips.com", DevicePictures),
+        new("resource.logitech.com", DevicePictures),
+        new("dlcdnwebimgs.asus.com", DevicePictures),
+        new("www.asus.com", DevicePictures), // ASUS's own gallery files (TUF Gaming mice)
+        new("a.storyblok.com", DevicePictures), // Cooler Master's site
+        new("assets.corsair.com", DevicePictures),
+        new("www.deluxworld.com", DevicePictures),
+        new("us.maxgaming.com", DevicePictures), // makers' official shots it carries larger than the makers publish (IPI, G-Wolves, RAWM)
+        new("pisces.bbystatic.com", DevicePictures), // Best Buy's copies of makers' official shots (Razer's own are 500 px)
+        new("multimedia.bbycastatic.ca", DevicePictures),
+        new("store.storeimages.cdn-apple.com", DevicePictures),
+        new("static.wixstatic.com", DevicePictures), // Dunu's site
+        new("intuaura.net", DevicePictures),
+        new("massdrop-s3.imgix.net", DevicePictures), // Drop's
+        new("assets.fractal-design.com", DevicePictures),
+        new("sony.scene7.com", DevicePictures),
+        new("tanchjim.com", DevicePictures),
+        new("www.cherry.de", DevicePictures), // Cherry's own site
+        new("motospeed.cc", DevicePictures), // Motospeed's own site
+        new("www.vaxee.co", DevicePictures), // VAXEE's own site
 
         // DependencyService, DesktopClientHost: installers you chose, and their download redirects; .NET's release list
         // (builds.dotnet.microsoft.com) when Game runtimes shows.

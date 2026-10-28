@@ -204,7 +204,10 @@ public sealed partial class WebHostBridge
         var card = NvidiaDriverService.Card();
         var workstation = card is not null && NvidiaDriverService.Workstation(card);
         var update = ReadString(p, hasParams, "action") == "update";
-        var latest = await NvidiaDriverService.LatestAsync(ReadString(p, hasParams, "branch") == "studio" ? "studio" : "game", ct, fresh: update).ConfigureAwait(false);
+        var studio = ReadString(p, hasParams, "branch") == "studio";
+        // The version watch tells of the branch the row shows.
+        if (studio != (_services.Settings.Current.NvidiaDriverBranch == "studio")) _services.Settings.UpdateProfile(s => s.NvidiaDriverBranch = studio ? "studio" : null);
+        var latest = await NvidiaDriverService.LatestAsync(studio ? "studio" : "game", ct, fresh: update).ConfigureAwait(false);
         string? message = null;
         if (update)
             message = latest is null ? "NVIDIA's driver list couldn't be reached." : NvidiaDriverService.Start(latest);

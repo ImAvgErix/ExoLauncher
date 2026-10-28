@@ -1,6 +1,7 @@
 # Builds Exo Capture (capture\out\ExoCapture.exe) with the Visual Studio C++ tools, CMake and Ninja.
 #   pwsh -File capture\build.ps1 [-Configuration Release|Debug] [-Test [test options]]
-# -Test also builds and runs the self-test of Shrink (build\<configuration>\ExoCaptureShrinkTest.exe); options after it go to the test.
+# -Test also builds and runs the self-test of Shrink (build\<configuration>\ExoCaptureShrinkTest.exe; options after it go to it),
+# then the self-test of a clip's frame pacing (ExoCapturePaceTest.exe).
 [CmdletBinding()]
 param([ValidateSet('Release', 'Debug')][string]$Configuration = 'Release', [switch]$Test, [Parameter(ValueFromRemainingArguments)][string[]]$TestArgs)
 $ErrorActionPreference = 'Stop'
@@ -29,4 +30,9 @@ if ($Test) {
     if ($LASTEXITCODE) { throw "The Shrink self-test did not build ($LASTEXITCODE)." }
     & (Join-Path $build 'ExoCaptureShrinkTest.exe') @TestArgs
     if ($LASTEXITCODE) { throw "The Shrink self-test failed ($LASTEXITCODE)." }
+    # The pacing self-test opens a small window of its own (behind everything, never focused) and records it as a clip.
+    cmd /c "`"$devCmd`" -arch=x64 -host_arch=x64 -no_logo && cmake --build `"$build`" --target ExoCapturePaceTest"
+    if ($LASTEXITCODE) { throw "The pacing self-test did not build ($LASTEXITCODE)." }
+    & (Join-Path $build 'ExoCapturePaceTest.exe')
+    if ($LASTEXITCODE) { throw "The pacing self-test failed ($LASTEXITCODE)." }
 }

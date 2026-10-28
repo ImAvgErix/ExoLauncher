@@ -20,8 +20,10 @@ internal static partial class ControllerLab
         private readonly SafeFileHandle _handle;
         private readonly int _length;
         internal bool Edge { get; }
+        /// <summary>Its output report's length: 48 on a DualSense, 64 on an Edge.</summary>
+        internal int OutputLength { get; }
 
-        private Pad(SafeFileHandle handle, int length, bool edge) => (_handle, _length, Edge) = (handle, length, edge);
+        private Pad(SafeFileHandle handle, int length, int output, bool edge) => (_handle, _length, OutputLength, Edge) = (handle, length, output, edge);
 
         /// <summary>The controller's gamepad interface, opened for feature reports; null off USB or when it won't open.</summary>
         internal static Pad? Open(Peripherals.Peripheral card)
@@ -29,17 +31,27 @@ internal static partial class ControllerLab
             if (card.Connection != "usb" || !Supported(card.VendorId, card.ProductId)
                 || card.Collections.FirstOrDefault(c => c is { Page: 0x01, Usage: 0x05 }) is not { } pad || Peripherals.InterfacePath(pad.Id) is not { } path) return null;
             var handle = CreateFile(path, GenericRead | GenericWrite, FileShareRead | FileShareWrite, 0, OpenExisting, 0, 0);
-            var length = handle.IsInvalid ? 0 : FeatureLength(handle);
+            var (length, output) = handle.IsInvalid ? (0, 0) : Lengths(handle);
             if (length < 64) { handle.Dispose(); return null; }
-            return new Pad(handle, length, card.ProductId == DualSenseEdge);
+            return new Pad(handle, length, output, card.ProductId == DualSenseEdge);
         }
 
-        private static int FeatureLength(SafeFileHandle handle)
+        private static (int Feature, int Output) Lengths(SafeFileHandle handle)
         {
-            if (!HidD_GetPreparsedData(handle, out var preparsed)) return 0;
-            try { return HidP_GetCaps(preparsed, out var caps) == HidpStatusSuccess ? caps.FeatureReportByteLength : 0; }
+            if (!HidD_GetPreparsedData(handle, out var preparsed)) return (0, 0);
+            try { return HidP_GetCaps(preparsed, out var caps) == HidpStatusSuccess ? (caps.FeatureReportByteLength, caps.OutputReportByteLength) : (0, 0); }
             finally { HidD_FreePreparsedData(preparsed); }
         }
+
+        /// <summary>Sends an output report on the interrupt pipe, as games do; only one <see cref="OnlySettings"/> passes.</summary>
+        internal bool Output(byte[] report)
+        {
+            if (!OnlySettings(report) || report.Length != OutputLength) throw new InvalidOperationException("Exo sends a controller no output report but its settings.");
+            return WriteFile(_handle, report, report.Length, out var written, 0) && written == report.Length;
+        }
+
+        [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool WriteFile(SafeFileHandle file, byte[] buffer, int length, out int written, nint overlapped);
 
         /// <summary>A feature report the controller holds (its ID at [0]); null when refused or it doesn't answer.</summary>
         internal byte[]? Get(byte id)
@@ -133,55 +145,97 @@ internal static partial class ControllerLab
         return Lock(pad) == "locked";
     }
 
-    // ------------------------------------------------------------------ an Edge's profiles
-
-    /// <summary>A slot's three chunks as the controller holds them; null when one doesn't come.</summary>
-    internal static byte[][]? ReadSlot(Pad pad, int slot)
-    {
-        var first = EdgeProfiles.ReadId(slot);
-        var chunks = new byte[3][];
-        for (var i = 0; i < 3; i++)
-        {
-            if (pad.Get((byte)(first + i)) is not { } chunk) return null;
-            chunks[i] = chunk;
-            Thread.Sleep(20);
-        }
-        return chunks;
-    }
-
-    /// <summary>Writes three chunks to a slot (2-4) and reads the slot's finishing report, as Sony's own app does.</summary>
-    internal static bool WriteSlot(Pad pad, int slot, byte[][] chunks)
-    {
-        var (write, done) = EdgeProfiles.WriteIds(slot);
-        foreach (var chunk in chunks)
-        {
-            if (!pad.Set(write, chunk.AsSpan(1, 63))) return false;
-            Thread.Sleep(20);
-        }
-        Thread.Sleep(100);
-        return pad.Get(done) is not null;
-    }
-
-    internal static bool ClearSlot(Pad pad, int slot) => pad.Set(0x68, [EdgeProfiles.DeleteIndex(slot)]);
-
     // ------------------------------------------------------------------ what Exo keeps about a controller
 
     /// <summary>
     /// What Exo saved before it first changed this controller, and what it set: the fine-tune values the controller had
-    /// (Original), the ones Exo's calibration left (Calibrated, put back when an Edge reconnects if Reapply), whether a
-    /// DualSense kept it for good (Kept), and each profile slot's bytes before Exo's last change to it (hex, by slot).
+    /// (Original), the ones Exo's calibration left (Calibrated, put back each time an Edge connects), whether a DualSense
+    /// kept it for good (Kept), whether Calibrated's range ends need no margin added (Trimmed: a range calibration's got <see cref="WithMargin"/>'s,
+    /// centers alone keep the factory's; a file from before the margin has false), and the light, sound and vibration
+    /// settings Exo sends it each time it connects (Settings; null: the controller's own).
     /// </summary>
-    internal sealed record Saved(ushort[]? Original, ushort[]? Calibrated, bool Reapply, bool Kept, Dictionary<string, string[]> Slots)
+    internal sealed record Saved(ushort[]? Original, ushort[]? Calibrated, bool Kept, bool Trimmed = false, PadSettings? Settings = null)
     {
-        internal static Saved Empty => new(null, null, false, false, []);
+        internal static Saved Empty => new(null, null, false);
     }
+
+    /// <summary>
+    /// How far in from the edge a range calibration's ends are put, as a share of each half-axis. The controller's own
+    /// routine records the hardest push, so a normal roll stopped a few percent short of full output (an Edge read
+    /// "Needs calibration" right after it); Sony's factory calibration leaves about 2 to 7% the same way.
+    /// </summary>
+    internal const double EdgeMargin = 0.05;
+
+    /// <summary>
+    /// The fine-tune values with each axis's ends brought <paramref name="margin"/> of the way in toward its center. The 12
+    /// values are each axis's low end (left X, left Y, right X, right Y), then their high ends, then their centers; null
+    /// when they aren't (an end on the wrong side of its center), so nothing odd is written.
+    /// </summary>
+    internal static ushort[]? WithMargin(IReadOnlyList<ushort> values, double margin = EdgeMargin)
+    {
+        if (values.Count != 12) return null;
+        var trimmed = values.ToArray();
+        for (var axis = 0; axis < 4; axis++)
+        {
+            int low = values[axis], high = values[axis + 4], center = values[axis + 8];
+            if (low >= center || center >= high) return null;
+            trimmed[axis] = (ushort)Math.Round(low + (center - low) * margin);
+            trimmed[axis + 4] = (ushort)Math.Round(high - (high - center) * margin);
+        }
+        return trimmed;
+    }
+
+    /// <summary>A range calibration's values: its ends moved from <paramref name="original"/>'s (a center calibration leaves them).</summary>
+    internal static bool RangeMoved(IReadOnlyList<ushort> calibrated, IReadOnlyList<ushort>? original) =>
+        original is { Count: 12 } && calibrated.Count == 12 && Enumerable.Range(0, 8).Any(i => calibrated[i] != original[i]);
 
     private static string SavedPath(string id) =>
         Path.Combine(PathHelper.AppDataDir, "controllers", string.Concat(id.Select(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '_' ? c : '_')) + ".json");
 
     private static readonly JsonSerializerOptions SavedJson = new() { WriteIndented = true };
 
-    internal static Saved Load(string id)
+    /// <summary>What Exo saved for this controller: under its unit, which follows it from port to port; under its port's id while its serial isn't known.</summary>
+    internal static Saved Load(Peripherals.Peripheral card) =>
+        card.Unit is { } unit && File.Exists(SavedPath(unit)) ? Load(unit) : Load(card.Id);
+
+    internal static void Store(Peripherals.Peripheral card, Saved saved)
+    {
+        Store(card.Unit ?? card.Id, saved);
+        if (card.Unit is null || !File.Exists(SavedPath(card.Id))) return;
+        try { File.Delete(SavedPath(card.Id)); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { AppLog.Warn($"Controller: its old file stays: {ex.GetType().Name}"); }
+    }
+
+    /// <summary>
+    /// What Exo saved for a controller under a port (Exo before 3.17 keyed it so, and Windows renames the port's device
+    /// when the plug moves), moved to its unit. Only the file whose values the controller holds right now (an Edge's
+    /// own, Exo's put back, a kept calibration) or, with none to compare, its own port's: another controller of the same
+    /// model never takes this one's calibration. Never during a game: reading the values sends a command.
+    /// </summary>
+    internal static void Adopt(Peripherals.Peripheral card)
+    {
+        if (card.Unit is not { } unit || File.Exists(SavedPath(unit))) return;
+        var folder = Path.GetDirectoryName(SavedPath(unit))!;
+        if (!Directory.Exists(folder)) return;
+        var ports = Directory.EnumerateFiles(folder, $"usb-{card.VendorId:x4}-{card.ProductId:x4}-*.json").Select(Path.GetFileNameWithoutExtension).OfType<string>().ToList();
+        if (ports.Count == 0) return;
+        using var pad = Pad.Open(card);
+        var now = pad is null ? null : ReadFinetune(pad);
+        var match = ports.FirstOrDefault(id => Load(id) is var saved && (saved.Original ?? saved.Calibrated) is null ? id == card.Id : now is not null && Holds(now, saved));
+        if (match is null) return;
+        try
+        {
+            File.Move(SavedPath(match), SavedPath(unit));
+            AppLog.Info("Controller: what Exo saved for it follows it from port to port now.");
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { AppLog.Warn($"Controller: its saved settings stay with its old port: {ex.GetType().Name}"); }
+    }
+
+    /// <summary>Whether a controller holding <paramref name="now"/> is the one <paramref name="saved"/> is for: its own values or Exo's.</summary>
+    internal static bool Holds(IReadOnlyList<ushort> now, Saved saved) =>
+        saved.Original?.SequenceEqual(now) == true || saved.Calibrated?.SequenceEqual(now) == true;
+
+    private static Saved Load(string id)
     {
         try { return File.Exists(SavedPath(id)) ? JsonSerializer.Deserialize<Saved>(File.ReadAllText(SavedPath(id)), SavedJson) ?? Saved.Empty : Saved.Empty; }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
@@ -191,7 +245,7 @@ internal static partial class ControllerLab
         }
     }
 
-    internal static void Store(string id, Saved saved)
+    private static void Store(string id, Saved saved)
     {
         var path = SavedPath(id);
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);

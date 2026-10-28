@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text.Json;
+using ExoLauncher.Helpers;
 
 namespace ExoLauncher.Services;
 
@@ -41,6 +42,8 @@ public sealed partial class WebHostBridge
             },
             layers = ControllerLab.ReadLayers(),
             calibration = sony ? CalibrationState(card) : null,
+            settings = sony ? PadSettingsView(ControllerLab.Load(card).Settings) : null,
+            sound = _services.Settings.Current.ControllerSound,
         };
     }
 
@@ -69,9 +72,10 @@ public sealed partial class WebHostBridge
             left.Add((s.LX, s.LY));
             right.Add((s.RX, s.RY));
         }, ct).ConfigureAwait(false);
-        return rolled
-            ? new { ok = true, left = (object?)ControllerLab.Rolled(left), right = (object?)ControllerLab.Rolled(right) }
-            : new { ok = true, left = (object?)ControllerLab.AtRest(left), right = (object?)ControllerLab.AtRest(right) };
+        object? l = rolled ? ControllerLab.Rolled(left) : ControllerLab.AtRest(left), r = rolled ? ControllerLab.Rolled(right) : ControllerLab.AtRest(right);
+        // The numbers behind a verdict, so a "Needs calibration" can be read back from app.log.
+        AppLog.Info($"Controller: stick test ({(rolled ? "edge" : "rest")}): left {l?.ToString() ?? "not measured"}, right {r?.ToString() ?? "not measured"}.");
+        return new { ok = true, left = l, right = r };
     }
 
     /// <summary>Starts (or stops) the live view: at most 60 states a second, for ten minutes at most, one controller at a time.</summary>

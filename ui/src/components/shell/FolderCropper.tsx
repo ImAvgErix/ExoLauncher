@@ -175,7 +175,6 @@ export function FolderCropper({ file, folderId, name, count, onDone, onCancel }:
           role="group"
           tabIndex={0}
           aria-label="Picture position"
-          aria-describedby="exo-folder-crop-hint"
           onKeyDown={keys}
         >
           <canvas
@@ -198,9 +197,7 @@ export function FolderCropper({ file, folderId, name, count, onDone, onCancel }:
         <Cover size={20} />
       </div>
       <footer className="exo-folder-sheet-foot">
-        <span id="exo-folder-crop-hint" className={error ? 'exo-folder-sheet-error' : 'exo-folder-sheet-count'} role={error ? 'alert' : undefined}>
-          {error ?? 'Drag to move it. Scroll or use the slider to zoom.'}
-        </span>
+        {error ? <span className="exo-folder-sheet-error" role="alert">{error}</span> : null}
         <button type="button" className="exo-set-btn" onClick={onCancel}>Cancel</button>
         <button type="button" className="exo-set-btn is-primary" disabled={!image || busy} onClick={() => void done()}>{busy ? 'Saving' : 'Done'}</button>
       </footer>

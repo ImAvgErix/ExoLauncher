@@ -5,6 +5,7 @@ import { report } from '../../lib/report'
 import { type DiscordChannel, type DiscordMessage, type DiscordPlace, type DiscordSearchFilters, type DiscordThread } from '../../lib/discord'
 import { Icons } from './icons'
 import { useLayer } from './admin'
+import { openThreadMenu } from './ThreadMenu'
 import { Markdown, MarkdownLine, type MarkdownContext } from './markdown'
 import { ModalBack } from './SettingsLayer'
 import { Avatar } from './presence'
@@ -14,6 +15,7 @@ import { MessageConfirm } from './MessageConfirm'
 import { Result, useOutside } from './results'
 import { SearchBox, SearchResults } from './SearchBar'
 import { Skeleton } from '../ui/Skeleton'
+import { ErrorNote } from '../ui/ErrorNote'
 
 /** The bar over a conversation, Discord's way: what it is, then calls, pins, the member list and search on the right. */
 export function ChatHeader({ channel, guildId, serverName, ctx, membersShown, onToggleMembers, onCall, inCall, onOpenThread, parent, onBack, onHide }: {
@@ -196,7 +198,7 @@ function Results({ title, found, ctx, empty, box, tools, here, onClose, onRemove
       {tools}
       <div className="exo-dc-popover-list">
         {loading ? <Skeleton label="Loading messages" avatar /> : null}
-        {error ? <p className="exo-dc-note" role="alert">{error}</p> : null}
+        {error ? <ErrorNote className="exo-dc-note" message={error} /> : null}
         {!loading && !error && messages.length === 0 ? <p className="exo-dc-note">{empty}</p> : null}
         {messages.map(message => <Result key={message.id} message={message} place={places[message.channel_id] ?? null} here={here} ctx={ctx} onJumped={onClose}
           onRemove={onRemove ? shift => onRemove(message, shift) : undefined} removeLabel="Unpin" />)}
@@ -252,6 +254,7 @@ function Threads({ channelId, onOpen, onClose }: { channelId: string; onOpen: (t
         {threads?.length === 0 ? <p className="exo-dc-note">{archived ? 'There are no archived threads.' : 'There are no active threads.'}</p> : null}
         {threads?.map(thread => (
           <button key={thread.id} type="button" className="exo-dc-post"
+            onContextMenu={event => { event.preventDefault(); openThreadMenu(thread.id, event.clientX, event.clientY) }}
             onClick={() => onOpen({ id: thread.id, name: thread.name, type: 11, kind: 'text', canRead: true, canSend: thread.thread_metadata?.locked !== true })}>
             <strong>{thread.name}</strong>
             <span><Icons.Chat size={14} /> {thread.message_count ?? 0}</span>

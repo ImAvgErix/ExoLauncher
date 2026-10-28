@@ -15,6 +15,7 @@ import { useDismiss } from '../../lib/dismiss'
 import { openLink } from '../../lib/music'
 import { saveImage } from './ImageMenu'
 import { Skeleton } from '../ui/Skeleton'
+import { ErrorNote } from '../ui/ErrorNote'
 
 // The room's overlays are asked for by event, so any message or list can open them. The person as the
 // message or list shows them stands in when Discord doesn't send their profile.
@@ -135,7 +136,7 @@ function ProfilePopout({ at, meId, onClose, onMessage }: { at: ProfileAt; meId: 
           <div className="exo-dc-pf-head"><ProfileFace data={data} guildId={at.guildId} status={data.extras?.presence?.status ?? null} size={80} onClick={() => full()} /></div>
           <div className="exo-dc-pf-body">
             <ProfileWho data={data} guildId={at.guildId} onName={() => full()} />
-            {friendError ? <p className="exo-dc-note is-bad" role="alert">{friendError}</p> : null}
+            {friendError ? <ErrorNote className="exo-dc-note is-bad" message={friendError} /> : null}
             <MutualLine data={data} mine={user.id === meId} onFriends={() => full('friends')} onServers={() => full('servers')} />
             <ActivityCard data={data} />
             <AboutMe data={data} guildId={at.guildId} />
@@ -148,7 +149,7 @@ function ProfilePopout({ at, meId, onClose, onMessage }: { at: ProfileAt; meId: 
           </div>
           <ProfileEffectOf data={data} guildId={at.guildId} />
         </>
-      ) : failed ? <p className="exo-dc-note exo-dc-pf-wait" role="alert">Discord didn't send this profile. Try again.</p> : <Skeleton label="Loading the profile" />}
+      ) : failed ? <ErrorNote className="exo-dc-note exo-dc-pf-wait" message="Discord didn't send this profile. Try again." /> : <Skeleton label="Loading the profile" />}
     </div>
   )
 }
@@ -257,7 +258,7 @@ export function AddServer({ refused, onJoined, onClose }: { refused: boolean | {
         <label className="exo-dc-side-label" htmlFor="exo-dc-invite">Invite link</label>
         <input id="exo-dc-invite" className="exo-dc-modal-input" placeholder="https://discord.gg/hTKzmak" value={invite} autoFocus
           onChange={event => setInvite(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') void join() }} />
-        {error ? <p className="is-bad" role="alert">{error}</p> : null}
+        {error ? <ErrorNote className="is-bad" message={error} /> : null}
         <div className="exo-dc-modal-row">
           <button type="button" className="exo-dc-tab" onClick={onClose}>Back</button>
           <button type="button" className="exo-set-btn is-primary" disabled={!invite.trim() || busy} onClick={() => void join()}>Join server</button>

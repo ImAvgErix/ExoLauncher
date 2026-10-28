@@ -46,18 +46,14 @@ export function FrameGenRow({ gameId }: { gameId: string }) {
   }
   const frameGen = game.frameGen ?? 'game'
   const on = game.afmf === true
-  const say = error ?? (intel
-    ? frameGen === 'game' ? 'The game’s own setting, in games with XeSS frame generation'
-      : `${frameGen} while it runs: more frames, a little more lag`
-    : !on ? 'Off: no driver frame generation in this game'
-      : game.amdSoftware ? 'On while it runs: more frames, a little more lag'
-        : 'On, but AMD Software isn’t running, so no frames are added until it is')
+  // Only what stops it: an error, or AMD Software not running while it is on.
+  const say = error ?? (!intel && on && !game.amdSoftware ? 'On, but AMD Software isn’t running, so no frames are added until it is' : null)
   const heading = intel ? 'XeSS frame generation' : 'Fluid Motion Frames'
   return (
     <section className="exo-graphics" aria-label={heading}>
       <div className="exo-graphics-head">
         <h3 className="exo-graphics-heading">{heading}</h3>
-        <span className={`exo-graphics-state${error ? ' is-bad' : ''}`} role={error ? 'alert' : undefined}>{say}</span>
+        {say ? <span className={`exo-graphics-state${error ? ' is-bad' : ''}`} role={error ? 'alert' : undefined}>{say}</span> : null}
       </div>
       <ul className="exo-graphics-list">
         <li className="exo-graphics-row">

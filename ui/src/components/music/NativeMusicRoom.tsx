@@ -1,3 +1,4 @@
+import { CopyLogs } from '../ui/ErrorNote'
 import { useEffect, useRef, useState } from 'react'
 import { host, onHostEvent } from '../../lib/host'
 import { rememberSignedIn, wasSignedIn } from '../../lib/music'
@@ -168,6 +169,7 @@ export function NativeMusicRoom({ service, active, shown, nowPlaying }: {
         <div className="exo-hosted-room-state" role="alert">
           <p>{message ?? `${adapter.name} could not open.`}</p>
           <button type="button" className="exo-set-btn" onClick={() => setAttempt(n => n + 1)}>Open again</button>
+          <CopyLogs error={message ?? `${adapter.name} could not open.`} />
         </div>
       </main>
     )

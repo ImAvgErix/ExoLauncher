@@ -155,9 +155,7 @@ export function FolderSheet({ folder, library, folders, onSave, onCancel }: {
                 {art ? 'Change picture' : 'Add picture'}
               </button>
               {art ? <button type="button" className="exo-set-btn" onClick={() => setArt(null)}>Remove picture</button> : null}
-              <span className={pictureError ? 'exo-folder-sheet-error' : 'exo-folder-sheet-count'} role={pictureError ? 'alert' : undefined}>
-                {pictureError ?? (dropping ? 'Drop the picture to crop it.' : 'PNG, JPEG or WebP, or drop one here.')}
-              </span>
+              {pictureError ? <span className="exo-folder-sheet-error" role="alert">{pictureError}</span> : null}
               <input ref={picker} type="file" accept={PICTURE_TYPES.join(',')} hidden
                 onChange={event => { pick(event.currentTarget.files?.[0]); event.currentTarget.value = '' }} />
             </div>

@@ -65,6 +65,13 @@ public sealed partial class LaunchOrchestrator
         string[] ids;
         lock (_gate)
         {
+            // A Steam preload that finished is done: Steam installs it on release day and refuses to before.
+            foreach (var done in _restartTokens.Where(_downloadIntents.ContainsKey).Select(token => _downloadIntents[token])
+                         .Where(intent => intent.GameId.StartsWith("steam:", StringComparison.OrdinalIgnoreCase) && SteamAdapter.Preloaded(intent.GameId[6..])).ToArray())
+            {
+                FinishDownloadIntentLocked(done, pause: false, reason: null);
+                AppLog.Info($"Download done, preloaded until release: gameId={done.GameId}.");
+            }
             ids = _restartTokens
                 .Where(token => _pausedDownloadTokens.Contains(token) && _downloadIntents.ContainsKey(token))
                 .Select(token => _downloadIntents[token])

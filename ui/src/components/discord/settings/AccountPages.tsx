@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { host } from '../../../lib/host'
 import type { DiscordHome } from '../../../lib/discord'
+import { takeServerProfile } from '../../../lib/discord'
 import { changeAccountSettings, useAccountSettings, useStreamerHides, type CustomStatus, type DiscordAccount, type DiscordSession } from '../../../lib/discordPrefs'
 import { Menu } from '../../ui/Menu'
 import { uploadFile } from '../Chat'
@@ -15,6 +16,7 @@ import { Dialog } from '../settingsAccess'
 import { EmojiField } from '../settingsGuide'
 import { Spinner } from '../../ui/Spinner'
 import { Skeleton } from '../../ui/Skeleton'
+import { CopyLogs, ErrorNote } from '../../ui/ErrorNote'
 
 type Status = 'online' | 'idle' | 'dnd' | 'invisible'
 
@@ -217,8 +219,8 @@ export function DevicesPage({ onBack }: { onBack: () => void }) {
       <h1>Logged-in devices</h1>
       <p className="exo-dc-settings-lede">These are all the devices that are currently logged-in with your Discord account. Log out of devices that you don&apos;t recognize.</p>
       {loading ? <Skeleton label="Loading devices" /> : null}
-      {error ? <p className="exo-dc-settings-note" role="alert">{error}</p> : null}
-      {failed ? <p className="exo-dc-settings-note" role="alert">{failed}</p> : null}
+      {error ? <ErrorNote className="exo-dc-settings-note" message={error} /> : null}
+      {failed ? <ErrorNote className="exo-dc-settings-note" message={failed} /> : null}
       {current ? <Category title="Current device"><Device session={current} /></Category> : null}
       {others.length ? (
         <Category title="Other devices">
@@ -278,7 +280,14 @@ async function saveProfile(me: DiscordAccount, draft: Draft): Promise<string | n
 /** Discord settings > Profiles: User Profile and Server Profiles, as Discord's two tabs. */
 export function ProfilesPage({ home, guilds }: { home: DiscordHome['me']; guilds: DiscordHome['guilds'] }) {
   const meId = home?.id ?? null
-  const [tab, setTab] = useState<'user' | 'server'>('user')
+  // Edit Per-server Profile (a server's menu): Per-server profiles, on that server.
+  const [server, setServer] = useState<string | null>(() => takeServerProfile())
+  const [tab, setTab] = useState<'user' | 'server'>(server ? 'server' : 'user')
+  useEffect(() => {
+    const show = (event: Event) => { takeServerProfile(); setServer((event as CustomEvent<string>).detail); setTab('server') }
+    window.addEventListener('exo-dc-server-profile', show)
+    return () => window.removeEventListener('exo-dc-server-profile', show)
+  }, [])
   return (
     <>
       <h1>Profiles</h1>
@@ -286,7 +295,7 @@ export function ProfilesPage({ home, guilds }: { home: DiscordHome['me']; guilds
         <button type="button" role="tab" aria-selected={tab === 'user'} onClick={() => setTab('user')}>Main profile</button>
         <button type="button" role="tab" aria-selected={tab === 'server'} onClick={() => setTab('server')}>Per-server profiles</button>
       </div>
-      {tab === 'user' ? <UserProfile home={home} /> : <ServerProfiles meId={meId} guilds={guilds} />}
+      {tab === 'user' ? <UserProfile home={home} /> : <ServerProfiles key={server ?? ''} meId={meId} guilds={guilds} start={server} />}
     </>
   )
 }
@@ -332,8 +341,8 @@ function Collectibles({ meId }: { meId: string | null }) {
 type ServerNick = { guildId: string; saved: string; text: string; can: boolean }
 
 /** Server Profiles: your nickname on the server you pick (Discord's per-server picture, banner and About Me need Nitro). */
-function ServerProfiles({ meId, guilds }: { meId: string | null; guilds: DiscordHome['guilds'] }) {
-  const [guildId, setGuildId] = useState(guilds[0]?.id ?? null)
+function ServerProfiles({ meId, guilds, start }: { meId: string | null; guilds: DiscordHome['guilds']; start: string | null }) {
+  const [guildId, setGuildId] = useState(start ?? guilds[0]?.id ?? null)
   const [nick, setNick] = useState<ServerNick | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -414,7 +423,7 @@ function UserProfile({ home }: { home: DiscordHome['me'] }) {
       {changed ? (
         <div className="exo-dc-settings-savebar exo-glass" role="region" aria-label="Unsaved changes">
           <span>Careful — you have unsaved changes!</span>
-          {failed ? <em role="alert">{failed}</em> : null}
+          {failed ? <em role="alert">{failed} <CopyLogs error={failed} /></em> : null}
           <button type="button" className="exo-set-btn" disabled={saving} onClick={() => { setFailed(null); setDraft(draftOf(me)) }}>Reset</button>
           <button type="button" className="exo-set-btn is-primary" disabled={saving} onClick={save}>
             {saving ? <Spinner label="Saving your profile" /> : null}Save changes
@@ -510,8 +519,8 @@ function ProfileFields({ draft, me, onChange }: { draft: Draft; me: DiscordAccou
       <div className="exo-dc-settings-row is-stacked">
         <span className="exo-dc-settings-copy"><strong>Bio</strong><span>Markdown and links work, as in messages.</span></span>
         <span className="exo-dc-settings-counted">
-          <textarea className="exo-field exo-dc-settings-textarea" value={draft.bio} maxLength={190} rows={4} aria-label="Bio" onChange={e => onChange({ bio: e.target.value })} />
-          <em>{draft.bio.length}/190</em>
+          <textarea className="exo-field exo-dc-settings-textarea" value={draft.bio} maxLength={300} rows={4} aria-label="Bio" onChange={e => onChange({ bio: e.target.value })} />
+          <em>{draft.bio.length}/300</em>
         </span>
       </div>
     </Category>

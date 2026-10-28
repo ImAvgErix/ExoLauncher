@@ -11,7 +11,9 @@ namespace ExoLauncher.Tests;
 ///   refused, or a DTD / non-nip file is read as one;
 /// - a text, binary or 64-bit setting is written as a Dword, or an id the
 ///   driver does not list is sent (the driver refuses it and the whole apply fails);
-/// - a known id is shown unnamed or with the wrong value word;
+/// - a known id is shown unnamed or with the wrong value word, or a DLSS preset
+///   letter is named with another feature's model (Super Resolution's F is a
+///   CNN, Ray Reconstruction's F the DLSS 4.5 transformer);
 /// - Undo does not put back exactly what was there (a value, or the default);
 /// - a game's profile is imported to every game (the global profile), or a
 ///   file with several global profiles is guessed at;
@@ -98,7 +100,7 @@ public sealed class GraphicsTests
         Assert.Equal([GraphicsCatalog.FrameRateLimit, GraphicsCatalog.SrPreset, 305419896u], plan.Writes.Select(change => change.Id).Order());
         var frame = plan.Writes.Single(change => change.Id == GraphicsCatalog.FrameRateLimit);
         Assert.Equal(("Max frame rate", "141 fps"), (frame.Name, frame.Words));
-        Assert.Equal("Preset M", plan.Writes.Single(change => change.Id == GraphicsCatalog.SrPreset).Words);
+        Assert.Equal("Preset M (DLSS 4.5 transformer)", plan.Writes.Single(change => change.Id == GraphicsCatalog.SrPreset).Words);
         Assert.Equal(1, plan.Unknown);      // 0x12345678
         Assert.Equal(2, plan.LeftOut);      // String and Qword
         Assert.Equal(1, plan.NotInDriver);  // Smooth Motion on a driver that does not list it
@@ -138,6 +140,21 @@ public sealed class GraphicsTests
     [InlineData(GraphicsCatalog.FgPreset, 0x00FFFFFEu, "DLSS Frame Generation preset", "Recommended")]
     [InlineData(GraphicsCatalog.MfgCount, 3u, "Frame Generation multiplier", "4x")]
     [InlineData(GraphicsCatalog.SmoothMotion, 1u, "Smooth Motion", "On")]
+    // Profile Inspector 3.0.2.3: a letter is named by its feature's own model; letters past the named ones stay bare.
+    [InlineData(GraphicsCatalog.SrPreset, 11u, "DLSS Super Resolution preset", "Preset K (DLSS 4 transformer)")]
+    [InlineData(GraphicsCatalog.SrPreset, 13u, "DLSS Super Resolution preset", "Preset M (DLSS 4.5 transformer)")]
+    [InlineData(GraphicsCatalog.SrPreset, 5u, "DLSS Super Resolution preset", "Preset E (CNN)")]
+    [InlineData(GraphicsCatalog.SrPreset, 15u, "DLSS Super Resolution preset", "Preset O")]
+    [InlineData(GraphicsCatalog.RrPreset, 6u, "DLSS Ray Reconstruction preset", "Preset F (DLSS 4.5 transformer)")]
+    [InlineData(GraphicsCatalog.RrPreset, 5u, "DLSS Ray Reconstruction preset", "Preset E (DLSS 4 transformer)")]
+    [InlineData(GraphicsCatalog.RrPreset, 0x00FFFFFFu, "DLSS Ray Reconstruction preset", "Recommended")]
+    [InlineData(GraphicsCatalog.FgPreset, 3u, "DLSS Frame Generation preset", "Preset C (performance focus)")]
+    [InlineData(GraphicsCatalog.FgPreset, 17u, "DLSS Frame Generation preset", "Preset Q")]
+    [InlineData(GraphicsCatalog.NrPreset, 2u, "DLSS Neural Rendering preset", "Preset B")]
+    [InlineData(0x10E41E04u, 1u, "Use the newest DLSS Neural Rendering", "On")]
+    [InlineData(0x10E41E06u, 1u, "Use the newest Streamline for DLSS", "On")]
+    [InlineData(0x10E41E05u, 0u, "Use the newest Streamline for DLSS Neural Rendering", "Off")]
+    [InlineData(0x000BFA21u, 1u, "Resizable BAR mode", "Auto")]
     public void NamesKnownSettings(uint id, uint value, string name, string words)
     {
         Assert.Equal(name, GraphicsCatalog.NameOf(id));
@@ -172,10 +189,13 @@ public sealed class GraphicsTests
         Assert.False(NvidiaProfiles.RunsDlss(none));
         var taken = none with { Sr = created | enabled | selected, Preset = 11, Ratio = 0.5f, Mode = 0 };
         Assert.True(NvidiaProfiles.RunsDlss(taken));
-        Assert.Equal("Super Resolution overridden; Preset K, mode 0, scale 0.5", NvidiaProfiles.Describe(taken));
+        Assert.Equal("Super Resolution overridden; Preset K (DLSS 4 transformer), mode 0, scale 0.5", NvidiaProfiles.Describe(taken));
         var refused = none with { Sr = created | denied, Fg = created, FgPreset = 3, FgCount = 1, FgMode = 2 };
-        Assert.Equal("Super Resolution the game's own (override refused, 0x20200); Frame Generation the game's own; Driver default, mode 0, scale 0; frame generation Preset C, count 1, mode 2",
+        Assert.Equal("Super Resolution the game's own (override refused, 0x20200); Frame Generation the game's own; Driver default, mode 0, scale 0; frame generation Preset C (performance focus), count 1, mode 2",
             NvidiaProfiles.Describe(refused));
+        // With Ray Reconstruction running, the letter is its model: F is DLSS 4.5's, not Super Resolution's old CNN F.
+        var rr = none with { Rr = created | enabled | selected, Preset = 6, Ratio = 0.5f };
+        Assert.Equal("Ray Reconstruction overridden; Preset F (DLSS 4.5 transformer), mode 0, scale 0.5", NvidiaProfiles.Describe(rr));
     }
 
     // The driver answers for a process with no DLSS (this one): asked right (96-byte V2 structure), it has no data (not a refusal), read as nothing running.

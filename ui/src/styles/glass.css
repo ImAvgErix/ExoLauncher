@@ -6,10 +6,10 @@
    Legible by arithmetic: the filters in index.html blur what is behind the glass (lib/glass.ts bends it at
    the edge of small glass), saturate it and keep it within a band of brightness, so whatever passes
    beneath, the words keep their contrast:
-   - small glass is dark by default: 9% to 33%, white words 6.6:1 and secondary 4.8:1 at the worst pixel over
-     pure white art, a gray glass with a bright rim over black;
-   - it stays dark over bright content too (no light flip): a white plate on one card or capsule read as a
-     different control;
+   - small glass is one glass, the controls' (--exo-fill over --exo-control-glass): a button, a Bar capsule and a
+     plate over art alike (a darker glass of its own beside them read as a second, heavier material); badges over
+     cover art take a deeper dim for their small words;
+   - it never flips light over bright content: a white plate on one card or capsule read as a different control;
    - large glass (menus, popovers, Ctrl+K, toasts) stays dark: 7% to 22%, white 10.4:1, secondary 5.5:1; a
      thicker pane that scatters more and casts the deeper shadow.
    Settings › General › Material makes it Solid; Windows' more contrast and forced colors make it solid. Nothing
@@ -44,12 +44,11 @@
   --exo-pressed: rgb(var(--exo-ink-rgb) / 0.12);
   isolation: isolate;
   color: var(--color-fg);
-  /* Glassy's slab: a little tint, the light at its top, and a backdrop dimmed enough that white words keep their
-     contrast over bright art. --exo-lens (Exo's edge bend) is set only once its filter is in the page
-     (lib/glass.ts): a missing filter would void it all. */
-  background-color: var(--glassy-slab);
+  /* The controls' own glass (--exo-fill over --exo-control-glass), frosted evenly to its edge (no bend there: at 1080p
+     a bent edge read as concave and stepped). A darker tint of its own read as a second, heavier glass beside them. */
+  background-color: var(--exo-fill);
   background-image: var(--glassy-sheen);
-  backdrop-filter: var(--exo-lens, blur(12px)) var(--glassy-tone);
+  backdrop-filter: var(--exo-control-glass);
   box-shadow: var(--exo-glass-rim), var(--glassy-shadow);
   text-shadow: var(--glassy-words);
 }
@@ -109,7 +108,6 @@ button.exo-glass:hover {
   .exo-capture-corner-btn,
   .exo-capture-check,
   .exo-snip-text,
-  .exo-trigger,
   .exo-notice-close,
   .exo-dc-inline-input,
   .exo-dc-tri,
@@ -142,6 +140,7 @@ button.exo-glass:hover {
   .exo-dc-pf-note,
   .exo-dc-pf-connection,
   .exo-dc-pf-view,
+  .exo-dc .exo-dc-guild.exo-glass,
   .exo-dc .exo-dc-input-row,
   .exo-dc .exo-dc-compose-bar,
   .exo-dc .exo-dc-files,
@@ -193,6 +192,7 @@ button.exo-glass:hover {
   .exo-dc-search,
   .exo-dc-friend-search,
   .exo-dc :is(.exo-dc-find, .exo-dc-search, .exo-dc-friend-search, .exo-dc-picker-search, .exo-dc-modal-input, .exo-dc-input-row:not(.is-attached)),
+  .exo-play,
   .exo-set-btn,
   .exo-game-tool,
   .exo-shelf-sort-trigger,
@@ -201,23 +201,24 @@ button.exo-glass:hover {
 ) {
   backdrop-filter: var(--exo-control-glass);
 
-  /* Mid view transition (a page opening from its cover) Chromium draws the page from a snapshot that sees nothing
-     behind it, so glass there drew clear and then popped in as the transition ended. Until then a control is a plain
-     dark pane in glass's own band (0.35 of what is under it) and only the blur arrives after. Set on the controls
-     themselves, not on the root: there they reached every element, and the whole Store page's style was worked out
-     again as each transition began and ended (25 to 70 ms each, a stall before the art moved). A control with a
-     fill of its own (a white primary) keeps it. */
+  /* Mid view transition (a room switching, a page opening from its cover) Chromium draws the Bar and what flies from
+     a snapshot that sees nothing behind it. Until it lands a control keeps its own tint and drops only the blur: over
+     the page's black the two look the same (a dark still pane there made the Bar blink black and back on every room
+     switch). Set on the controls themselves, not on the root: there they reached every element, and the whole Store
+     page's style was worked out again as each transition began and ended (25 to 70 ms each, a stall before the art
+     moved). */
   :root[data-exo-vt]:not([data-exo-vt="theme"]) :is(.exo-titlebar, [data-exo-vt-named]) &, :root[data-exo-vt="push"] .exo-music-bar & {
     --exo-control-glass: none;
-    --exo-fill: var(--glassy-still-control);
   }
 }
 
-/* Badges over cover art (Update, In library, a store page's tags, the Store's featured tags, a capture's length and
-   corner buttons, a picture's ALT and spoiler labels) and the labels and controls over a call's video (a tile's name,
+/* Badges over cover art (Update, In library, the wishlist mark, a store page's tags, the Store's featured tags, a
+   capture's length and corner buttons, a picture's ALT and spoiler labels), Continue's title plate, More and Play over
+   its banner (clear glass at a control's dim left a title over white art at 2.5:1), and the labels and controls over a call's video (a tile's name,
    Watch Stream, a stream's name and buttons): a deeper dim than a control on the page, so their small words and glyphs
    keep 4.5:1 over the brightest art or a white page shared. Light's glass is a white frost already. */
-:root:not([data-exo-theme="light"]) :is(.exo-badge, .exo-store-badge, .exo-sgp-pill, .exo-store-hero-tag, .exo-capture-duration,
+:root:not([data-exo-theme="light"]) :is(.exo-badge, .exo-store-badge, .exo-store-mark, .exo-continue-text, .exo-continue-more, .exo-continue-play,
+  .exo-sgp-pill, .exo-store-hero-tag, .exo-capture-duration,
   .exo-capture-corner-btn, .exo-dc-alt-tag, .exo-dc-alt, .exo-dc-hidden-label, .exo-dc-voice-tile-name, .exo-dc-watch,
   .exo-dc-stream-bar :is(.exo-dc-stream-tools > .exo-dc-voice-btn, .exo-dc-stream-name, .exo-dc-stream-sound)) {
   --exo-control-glass: blur(10px) brightness(0.34) contrast(0.9) saturate(1.6);
@@ -261,12 +262,12 @@ button.exo-glass:hover {
   --exo-fill: rgb(var(--exo-ink-rgb) / 0.05);
 }
 
-/* The same for all glass mid transition (a room switching, a page opening): the Bar, Continue's More, menus and
-   panes draw a still tint in their own band (small dark 0.35 of what is under it, light glass over a white 0.72,
-   large glass 0.25), so they never go clear and pop back as the transition ends. */
+/* The same for all glass mid transition (a room switching, a page opening): small glass keeps its own tint without
+   the blur, as a control does, so the Bar never changes as a room slides in; menus and large glass, which dim more,
+   draw their still tint (below). */
 :root[data-exo-vt]:not([data-exo-vt="theme"]) :is(.exo-titlebar, [data-exo-vt-named]) :is(.exo-glass, .exo-shelf-sort-menu, .exo-key-popover),
 :root[data-exo-vt="push"] .exo-music-bar :is(.exo-glass, .exo-shelf-sort-menu, .exo-key-popover) {
-  background-color: var(--glassy-still);
+  background-color: var(--exo-fill);
   backdrop-filter: none !important;
 }
 
@@ -277,11 +278,11 @@ button.exo-glass:hover {
 }
 
 /* Glass hides the page from glass inside it (a backdrop root), so a control on a menu, a dialog or a Bar
-   capsule is a lift of the glass it sits on instead. Panes and sheets keep their glass in a layer under
-   their content, so the controls on them stay glass. */
+   capsule is clear on the glass it sits on, its one line only (an 8% lift there read as fake gray). Panes and
+   sheets keep their glass in a layer under their content, so the controls on them stay glass. */
 :is(.exo-glass, .exo-shelf-sort-menu, .exo-key-popover, .exo-dc :is(.exo-dc-menu, .exo-dc-popover, .exo-dc-picker, .exo-dc-modal, .exo-dc-tip, .exo-dc-suggest, .exo-dc-soundboard-pop)) * {
   --exo-control-glass: none;
-  --exo-fill: rgb(var(--exo-ink-rgb) / 0.08);
+  --exo-fill: transparent;
 }
 
 /* Panes: every surface that holds content and is not the page's background (a room's sidebar and side
@@ -683,6 +684,12 @@ button.exo-glass:hover {
   max-width: 140px;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* A mouse with no battery to show: its glyph, only where the Bar drops the name (system.css). */
+.exo-mouse-pill-mark {
+  display: none;
+  color: var(--color-muted);
 }
 
 .exo-mouse-pill-battery {

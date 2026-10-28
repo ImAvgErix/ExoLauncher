@@ -1,3 +1,4 @@
+import { CopyLogs } from '../ui/ErrorNote'
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent, type RefObject } from 'react'
 import { ContinueRow } from './ContinueRow'
 import { FolderPanel } from './FolderPanel'
@@ -406,11 +407,13 @@ export const LibraryPane = memo(function LibraryPane(props: LibraryPaneProps) {
           <div className="exo-library-refresh-error" role="status">
             <span>Showing saved games. {props.error}</span>
             <button type="button" className="exo-set-btn" onClick={props.onRetry}>Retry</button>
+            <CopyLogs error={props.error} />
           </div>
         ) : !props.empty && refreshError && refresh !== 'working' ? (
           <div className="exo-library-refresh-error" role="alert">
             <span>Could not refresh the library. {refreshError}</span>
             <button type="button" className="exo-set-btn" onClick={runRefresh}>Retry</button>
+            <CopyLogs error={refreshError} />
           </div>
         ) : null}
         {props.empty ? (

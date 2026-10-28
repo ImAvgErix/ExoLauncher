@@ -8,7 +8,9 @@ namespace ExoLauncher.Tests;
 /// - it reads the search's highlighting markup into the title and misses "Hotfix";
 /// - it reads an older topic before the newest one;
 /// - it reads the version from the post's text instead of NVIDIA's download link, or takes a link off NVIDIA's servers;
-/// - with two links in one post it keeps the older driver.
+/// - with two links in one post it keeps the older driver;
+/// - when the forum's search hasn't caught up (621.12's announcement wasn't found the day it came out), the check of
+///   NVIDIA's download server never asks for the name the hotfix took, or asks for an older one than the driver installed.
 /// </summary>
 public sealed class NvidiaHotfixTests
 {
@@ -59,6 +61,36 @@ public sealed class NvidiaHotfixTests
             {"data":{"topic":{"firstComment":{"body":"old: https://us.download.nvidia.com/Windows/616.86hf/616.86-desktop-notebook-win10-win11-64bit-international-dch.hf.exe new: https://international.download.nvidia.com/Windows/617.70hf/617.70-desktop-notebook-win10-win11-64bit-international-dch.hf.exe"}}}}
             """;
         Assert.Equal("617.70", NvidiaDriverService.HotfixIn(topic)?.Version);
+    }
+
+    [Theory]
+    [InlineData("621.01", "621.12")] // 2026-10-27, missed by the forum's search
+    [InlineData("616.64", "616.86")]
+    [InlineData("610.47", "610.82")]
+    [InlineData("595.97", "596.02")] // a hotfix in the next hundred
+    public void TheServerCheckAsksForTheNameAHotfixTook(string gameReady, string hotfix)
+    {
+        var candidates = NvidiaDriverService.HotfixCandidates(gameReady);
+        Assert.Contains(hotfix, candidates);
+        Assert.DoesNotContain(gameReady, candidates);
+        // Newest first, so the first one there is the one to offer.
+        Assert.Equal(candidates.OrderByDescending(v => v, Comparer<string>.Create(NvidiaDriverService.Compare)), candidates);
+        Assert.All(candidates, v => Assert.True(NvidiaDriverService.Compare(v, gameReady) > 0));
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("621")]
+    [InlineData("621.x")]
+    [InlineData("621.100")]
+    public void NotADriverVersionAsksForNothing(string version) => Assert.Empty(NvidiaDriverService.HotfixCandidates(version));
+
+    [Fact]
+    public void TheServerChecksLinkIsOneTheForumReaderTakesAsNvidias()
+    {
+        Assert.Equal("https://international.download.nvidia.com/Windows/621.12hf/621.12-desktop-notebook-win10-win11-64bit-international-dch.hf.exe", NvidiaDriverService.HotfixUrl("621.12"));
+        var topic = "{\"data\":{\"topic\":{\"firstComment\":{\"body\":\"" + NvidiaDriverService.HotfixUrl("621.12") + "\"}}}}";
+        Assert.Equal("621.12", NvidiaDriverService.HotfixIn(topic)?.Version);
     }
 
     [Fact]

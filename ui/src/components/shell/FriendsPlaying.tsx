@@ -2,7 +2,6 @@ import { memo, useEffect, useMemo, useState } from 'react'
 import type { DiscordFriend } from '../../lib/discord'
 import { host, onHostEvent, shelfAction, type Game } from '../../lib/host'
 import { titleIdentity } from '../../lib/utils'
-import { Spinner } from '../ui/Spinner'
 
 /** A game friends are in: one you have (its card), or one you don't (only its name, from their presence). */
 type Group = { key: string; title: string; game: Game | null; friends: DiscordFriend[] }
@@ -47,7 +46,6 @@ export const FriendsPlaying = memo(function FriendsPlaying({ games, startingId, 
               {game && shortcut ? (
                 <button type="button" className="exo-friend-pill-go" disabled={game.id === startingId}
                   aria-label={`${game.id === startingId ? 'Starting' : shortcut.label} ${title}`} onClick={() => onPlay(game)}>
-                  {game.id === startingId ? <Spinner label={`Starting ${title}`} /> : null}
                   {shortcut.label}
                 </button>
               ) : null}
@@ -101,8 +99,8 @@ const titlesOf = (key: string) => JSON.parse(key) as string[]
 const soldTitles = new Map<string, boolean>()
 
 /**
- * Which of these titles the Store sells, by exact name, asked one at a time (a newer search replaces the one in flight,
- * so they are never asked together) and remembered for the session. A search another one replaced is asked again later.
+ * Which of these titles the Store sells, by exact name, asked one at a time and remembered for the session. These
+ * lookups never cancel the search typed in the Store room (only a typed search replaces the one before it).
  */
 function useSoldTitles(titles: string[]): ReadonlySet<string> {
   const sold = () => new Set([...soldTitles].filter(([, yes]) => yes).map(([identity]) => identity))

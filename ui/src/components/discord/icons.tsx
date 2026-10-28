@@ -77,6 +77,7 @@ export const Icons = {
   Objects: Lightbulb,
   Symbols,
   Flags: Flag,
+  Report: Flag,
   Crumb: ChevronRight,
   Spoiler: Eye,
   // A profile's verified connection; a link (a connection without its own mark, Copy Message Link); the message menu's Forward and Mark Unread; the composer's slowmode.

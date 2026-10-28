@@ -265,9 +265,23 @@ export const ZoomOut = icon('zoom-out', 'zoom-out')
 export const Record = icon('record', 'player-record')
 export const Scissors = icon('scissors', 'scissors')
 export const Crop = icon('crop', 'crop')
-export const Blur = icon('blur', 'blur')
 export const Highlighter = icon('highlighter', 'highlight')
 export const TextIcon = icon('text', 'typography')
+
+// ── Exo Notes ───────────────────────────────────────────────────────────────────────────
+export const Notes = icon('notes', 'notes')
+export const FileText = icon('file-text', 'file-text')
+export const SaveFile = icon('save', 'device-floppy')
+export const Bold = icon('bold', 'bold')
+export const Italic = icon('italic', 'italic')
+export const Strike = icon('strike', 'strikethrough')
+export const Heading = icon('heading', 'heading')
+export const BulletList = icon('bullet-list', 'list')
+export const Checklist = icon('checklist', 'checkbox')
+export const CodeIcon = icon('code', 'code')
+export const ReplaceIcon = icon('replace', 'replace')
+export const ArrowUp = icon('arrow-up', 'arrow-up')
+export const ArrowDown = icon('arrow-down', 'arrow-down')
 
 /** A check that draws itself in (tokens.css › .exo-motion-check): Tabler's check, as a line to animate. */
 export const CHECK_PATH = 'M5 12l5 5l10 -10'

@@ -18,8 +18,11 @@ public sealed partial class DependencyService
     internal sealed record DotnetChannel(string Channel, string LatestRelease, bool EndOfSupport);
 
     private const string ReleaseIndex = "https://builds.dotnet.microsoft.com/dotnet/release-metadata/releases-index.json";
-    private static readonly SemaphoreSlim DotnetGate = new(1, 1);
-    private static (IReadOnlyDictionary<string, DotnetRelease> Releases, DateTime At)? _dotnet;
+    /// <summary>Microsoft's .NET release list, read at most every 6 hours and retried as every version check is (<see cref="LatestCache{T}"/>).</summary>
+    private static readonly LatestCache<Dictionary<string, DotnetRelease>> Dotnet = new(".NET's release list", TimeSpan.FromHours(6));
+
+    /// <summary>What was read of .NET's releases last, without asking (null: nothing yet; the catalog's versions stand in).</summary>
+    private static IReadOnlyDictionary<string, DotnetRelease>? DotnetKept() => Dotnet.Kept("releases");
 
     /// <summary>The index's channels Exo offers (6.0, 8.0, 9.0, 10.0): their latest release and support.</summary>
     internal static IReadOnlyList<DotnetChannel> ParseDotnetIndex(string json)
@@ -45,7 +48,23 @@ public sealed partial class DependencyService
     internal static DotnetRelease? ParseDotnetRelease(string json, bool endOfSupport)
     {
         using var doc = JsonDocument.Parse(json);
-        var release = doc.RootElement.TryGetProperty("release", out var r) ? r : doc.RootElement;
+        return ReleaseOf(doc.RootElement.TryGetProperty("release", out var r) ? r : doc.RootElement, endOfSupport);
+    }
+
+    /// <summary>
+    /// The same from a channel's whole list (<c>{channel}/releases.json</c>), for a release Microsoft keeps no record of its
+    /// own for (.NET 6's last, 6.0.36): the entry whose release-version is <paramref name="version"/>.
+    /// </summary>
+    internal static DotnetRelease? ParseDotnetReleases(string json, string version, bool endOfSupport)
+    {
+        using var doc = JsonDocument.Parse(json);
+        foreach (var release in doc.RootElement.GetProperty("releases").EnumerateArray())
+            if (release.TryGetProperty("release-version", out var v) && v.GetString() == version) return ReleaseOf(release, endOfSupport);
+        return null;
+    }
+
+    private static DotnetRelease? ReleaseOf(JsonElement release, bool endOfSupport)
+    {
         if (!release.TryGetProperty("windowsdesktop", out var desktop)) return null;
         var version = desktop.TryGetProperty("version", out var v) ? v.GetString() : null;
         if (version is null || !Regex.IsMatch(version, @"^\d+\.\d+\.\d+$")) return null;
@@ -65,46 +84,44 @@ public sealed partial class DependencyService
     }
 
     /// <summary>
-    /// The newest Desktop Runtime of each channel, keyed "8-x64": read from Microsoft at most every 6 hours (10 minutes
+    /// The newest Desktop Runtime of each channel, keyed "8-x64": read from Microsoft at most every 6 hours (soon again
     /// after a failure), else what was read before, else nothing (the catalog's own versions stand in).
     /// </summary>
-    internal static async Task<IReadOnlyDictionary<string, DotnetRelease>> DotnetReleasesAsync(CancellationToken ct)
+    internal static async Task<IReadOnlyDictionary<string, DotnetRelease>> DotnetReleasesAsync(CancellationToken ct) =>
+        await Dotnet.GetAsync("releases", async lookup =>
+        {
+            var releases = new Dictionary<string, DotnetRelease>(StringComparer.Ordinal);
+            using var http = ExoHttp.Create(TimeSpan.FromSeconds(15));
+            var channels = ParseDotnetIndex(await http.GetStringAsync(ReleaseIndex, lookup).ConfigureAwait(false));
+            var reads = channels.Select(channel => ReadChannelAsync(http, channel, lookup)).ToArray();
+            foreach (var (channel, release) in await Task.WhenAll(reads).ConfigureAwait(false))
+            {
+                if (release is null) continue;
+                var major = channel.Channel.Split('.')[0];
+                foreach (var arch in release.Files.Keys) releases[$"{major}-{arch}"] = release;
+            }
+            return releases;
+        }, ct).ConfigureAwait(false) ?? new Dictionary<string, DotnetRelease>();
+
+    /// <summary>
+    /// One channel's latest release: its own record, else the channel's whole list. A channel that can't be read is left to
+    /// the catalog alone, so one missing file never fails every .NET (6.0.36 has no record of its own and failed them all).
+    /// </summary>
+    private static async Task<(DotnetChannel Channel, DotnetRelease? Release)> ReadChannelAsync(HttpClient http, DotnetChannel channel, CancellationToken ct)
     {
-        if (_dotnet is { } fresh && DateTime.UtcNow - fresh.At < TimeSpan.FromHours(6)) return fresh.Releases;
-        await DotnetGate.WaitAsync(ct).ConfigureAwait(false);
+        const string Metadata = "https://builds.dotnet.microsoft.com/dotnet/release-metadata/";
         try
         {
-            if (_dotnet is { } again && DateTime.UtcNow - again.At < TimeSpan.FromHours(6)) return again.Releases;
-            var releases = new Dictionary<string, DotnetRelease>(StringComparer.Ordinal);
-            try
-            {
-                using var budget = CancellationTokenSource.CreateLinkedTokenSource(ct);
-                budget.CancelAfter(TimeSpan.FromSeconds(6));
-                using var http = ExoHttp.Create(TimeSpan.FromSeconds(6));
-                var channels = ParseDotnetIndex(await http.GetStringAsync(ReleaseIndex, budget.Token).ConfigureAwait(false));
-                var reads = channels.Select(async channel =>
-                {
-                    var json = await http.GetStringAsync(
-                        $"https://builds.dotnet.microsoft.com/dotnet/release-metadata/{channel.Channel}/{channel.LatestRelease}/release.json", budget.Token).ConfigureAwait(false);
-                    return (channel, release: ParseDotnetRelease(json, channel.EndOfSupport));
-                }).ToArray();
-                foreach (var (channel, release) in await Task.WhenAll(reads).ConfigureAwait(false))
-                {
-                    if (release is null) continue;
-                    var major = channel.Channel.Split('.')[0];
-                    foreach (var arch in release.Files.Keys) releases[$"{major}-{arch}"] = release;
-                }
-                _dotnet = (releases, DateTime.UtcNow);
-            }
-            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or OperationCanceledException or JsonException or KeyNotFoundException or InvalidOperationException)
-            {
-                ct.ThrowIfCancellationRequested();
-                AppLog.Info("Runtimes: .NET's release list couldn't be read (" + ex.GetType().Name + "); the catalog's versions stand in.");
-                var kept = _dotnet?.Releases ?? new Dictionary<string, DotnetRelease>();
-                _dotnet = (kept, DateTime.UtcNow - TimeSpan.FromHours(6) + TimeSpan.FromMinutes(10));
-            }
-            return _dotnet?.Releases ?? new Dictionary<string, DotnetRelease>();
+            using var response = await http.GetAsync($"{Metadata}{channel.Channel}/{channel.LatestRelease}/release.json", ct).ConfigureAwait(false);
+            if (response.IsSuccessStatusCode)
+                return (channel, ParseDotnetRelease(await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false), channel.EndOfSupport));
+            var all = await http.GetStringAsync($"{Metadata}{channel.Channel}/releases.json", ct).ConfigureAwait(false);
+            return (channel, ParseDotnetReleases(all, channel.LatestRelease, channel.EndOfSupport));
         }
-        finally { DotnetGate.Release(); }
+        catch (Exception ex) when (ex is HttpRequestException or JsonException or KeyNotFoundException or InvalidOperationException)
+        {
+            AppLog.Info($"Runtimes: .NET {channel.Channel}'s release couldn't be read ({ex.GetType().Name}); the catalog's version stands in.");
+            return (channel, null);
+        }
     }
 }

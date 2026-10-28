@@ -39,5 +39,19 @@ target_link_libraries(ExoCaptureShrinkTest PRIVATE
     d3d11 dxgi d2d1 dwrite windowscodecs
     mfplat mfuuid mfreadwrite mf strmiids
     mmdevapi ole32 oleaut32 shell32 shlwapi user32 gdi32 dwmapi windowsapp)
+# The self-test of a clip's frame pacing (not shipped): a window of its own recorded as a clip, its frames checked.
+add_executable(ExoCapturePaceTest EXCLUDE_FROM_ALL
+    src/pace_selftest.cpp
+    src/common.cpp
+    src/video.cpp
+    src/hook.cpp
+    src/mux.cpp)
+target_compile_definitions(ExoCapturePaceTest PRIVATE UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN _WIN32_WINNT=0x0A00)
+target_compile_options(ExoCapturePaceTest PRIVATE /W3 /EHsc /permissive- /utf-8 /bigobj /await:strict)
+target_link_libraries(ExoCapturePaceTest PRIVATE
+    d3d11 dxgi d2d1 dwrite windowscodecs
+    mfplat mfuuid mfreadwrite mf strmiids
+    mmdevapi ole32 oleaut32 shell32 shlwapi user32 gdi32 dwmapi windowsapp)
 enable_testing()
 add_test(NAME shrink COMMAND ExoCaptureShrinkTest)
+add_test(NAME pace COMMAND ExoCapturePaceTest)

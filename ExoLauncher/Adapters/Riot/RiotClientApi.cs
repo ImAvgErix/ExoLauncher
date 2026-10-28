@@ -164,6 +164,23 @@ internal sealed class RiotClientApi : IDisposable
         }
     }
 
+    /// <summary>
+    /// Whether the Riot Client is signed in: its sign-in service holds an authorization (200), or has none (404, its
+    /// sign-in screen). Null when it doesn't answer, or answers anything else.
+    /// </summary>
+    public async Task<bool?> IsSignedInAsync(CancellationToken ct)
+    {
+        using var probe = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        probe.CancelAfter(TimeSpan.FromMilliseconds(1500));
+        try
+        {
+            using var resp = await _http.GetAsync("/rso-auth/v1/authorization", probe.Token).ConfigureAwait(false);
+            return resp.IsSuccessStatusCode ? true : resp.StatusCode == HttpStatusCode.NotFound ? false : null;
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+        catch { return null; }
+    }
+
     /// <summary>"installed", "not_installed", or null when unknown.</summary>
     public async Task<string?> GetInstallStateAsync(string product, string patchline, CancellationToken ct)
     {

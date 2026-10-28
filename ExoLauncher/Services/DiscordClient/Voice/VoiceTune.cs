@@ -273,7 +273,7 @@ internal static class VoiceTune
     }
 
     // An FxProperties value naming Equalizer APO: a plain effect slot (REG_SZ) or Windows 11's list of them (REG_MULTI_SZ).
-    private static bool NamesEqualizerApo(object? value) => value switch
+    internal static bool NamesEqualizerApo(object? value) => value switch
     {
         string one => EqualizerApo.Contains(one, StringComparer.OrdinalIgnoreCase),
         string[] many => many.Any(one => EqualizerApo.Contains(one, StringComparer.OrdinalIgnoreCase)),

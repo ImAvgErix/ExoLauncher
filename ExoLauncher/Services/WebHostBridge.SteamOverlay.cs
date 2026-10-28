@@ -9,13 +9,13 @@ namespace ExoLauncher.Services;
 
 /// <summary>
 /// The Steam overlay, off by default for every Steam game Exo manages (it costs
-/// frames, and Exo has its own overlay), with a switch per game in Properties and
-/// the default in Settings > Game stores. Steam keeps the switch in the account's
+/// frames, and Exo has its own overlay), with a switch per game in Properties.
+/// Steam keeps the switch in the account's
 /// localconfig.vdf (<see cref="SteamOverlayConfig"/>), which it rewrites as it
 /// exits, so Exo writes it while Steam is closed: at once when Steam is not
 /// running, else through the same close-and-start-hidden handoff as an account
-/// switch, and never while a Steam game runs or Steam downloads. Steam's notifications and sounds
-/// (<see cref="StoreQuiet"/>) and Steam Input per game (<see cref="SteamInputConfig"/>) go through the same handoff.
+/// switch, and never while a Steam game runs or Steam downloads. Steam's notifications and sounds, always
+/// off (<see cref="StoreQuiet"/>), and Steam Input per game (<see cref="SteamInputConfig"/>) go through the same handoff.
 /// </summary>
 public sealed partial class WebHostBridge
 {
@@ -42,14 +42,14 @@ public sealed partial class WebHostBridge
         catch (Exception ex) { AppLog.Warn($"Steam overlay: {ex.GetType().Name}: {ex.Message}"); }
     });
 
-    /// <summary>Settings > Game stores > Steam overlay: the new default for every Steam game, applied now.</summary>
-    private void ApplySteamOverlaySettings(JsonElement p)
+    /// <summary>
+    /// The Steam overlay is off for every Steam game, on only where a game's Properties turn it on. A PC that had
+    /// Settings' old overlay switch on goes back off once: every game takes the default again, as that switch did.
+    /// </summary>
+    private void RetireSteamOverlayDefault()
     {
-        if (!p.TryGetProperty("steamOverlayDefaultOn", out var value) || value.ValueKind is not (JsonValueKind.True or JsonValueKind.False)) return;
-        var on = value.GetBoolean();
-        if (on == _services.Settings.Current.SteamOverlayDefaultOn) return;
-        // A new default is a fresh start: every game takes it; Properties can change one after.
-        _services.Settings.UpdateProfile(s => { s.SteamOverlayDefaultOn = on; s.SteamOverlay.Clear(); });
+        if (!_services.Settings.Current.SteamOverlayDefaultOn) return;
+        _services.Settings.UpdateProfile(s => { s.SteamOverlayDefaultOn = false; s.SteamOverlay.Clear(); });
         _ = Task.Run(async () =>
         {
             try { await ApplySteamOverlayAsync(null, userAsked: true, _bridgeLifetime.Token).ConfigureAwait(false); }
@@ -83,20 +83,26 @@ public sealed partial class WebHostBridge
             var info = InstalledAppInfo(root, installed);
             var eulas = SteamOverlayConfig.PendingEulas(configText, EulasOf(info));
             var native = NativeControllerGames(info);
-            var input = SteamInputConfig.Plan(SteamOverlayConfig.Apps(configText), native, settings.NativeControllers, settings.SteamInputChoices, settings.SteamInput, freshInput);
-            var quiet = settings.QuietStoreApps ? StoreQuiet.SteamEdits(root).Count : 0;
-            if (writes.Count == 0 && eulas.Count == 0 && quiet == 0 && input.Writes.Count == 0)
+            // Games that aren't Steam's, sent through Steam Input: their shortcuts, with Steam Input on for each.
+            var (shortcutRecord, playersInput) = ShortcutRecord();
+            var wantedShortcuts = ShortcutsWanted();
+            var shortcuts = PlanShortcuts(config, wantedShortcuts, shortcutRecord);
+            var inputChoices = InputChoicesWith(shortcuts?.Record ?? shortcutRecord, playersInput);
+            var input = SteamInputConfig.Plan(SteamOverlayConfig.Apps(configText), native, on: true, inputChoices, settings.SteamInput, freshInput);
+            var quiet = StoreQuiet.SteamEdits(root).Count;
+            if (writes.Count == 0 && eulas.Count == 0 && quiet == 0 && input.Writes.Count == 0 && shortcuts?.File is null)
             {
                 if (choices is not null) AppLog.Info("Steam overlay: already as asked for " + string.Join(", ", choices.Keys) + "; nothing to write.");
                 SaveOverlayRecord(record);
-                SaveSteamInput(input.Record, input.Choices);
+                var steamChoices = shortcuts is { } kept ? SaveShortcuts(kept.Record, kept.Dropped, playersInput, input.Choices) : input.Choices;
+                SaveSteamInput(input.Record, steamChoices);
                 return null;
             }
             var running = ProcessHelper.IsProcessRunning("steam");
             // Quiet alone closes Steam only when asked: Steam Cloud can hand back a sharedconfig.vdf that isn't quiet,
             // and closing Steam on its own over and over to fight that would be worse than a toast.
             string? wait = !running ? null
-                : writes.Count == 0 && eulas.Count == 0 && input.Writes.Count == 0 && !userAsked ? "Steam takes it when it next closes."
+                : writes.Count == 0 && eulas.Count == 0 && input.Writes.Count == 0 && shortcuts?.File is null && !userAsked ? "Steam takes it when it next closes."
                 : SteamLoginUsers.IsGameRunning() ? "Steam takes it when the game closes."
                 : SteamDownloading() ? "Steam takes it when its download finishes."
                 : !userAsked && (HiddenStoreRuntime.IsSuspended(StoreKind.Steam) || DateTimeOffset.UtcNow - _overlayRestartedAt < OverlayRestartSpacing) ? "Steam takes it when it next closes."
@@ -111,7 +117,7 @@ public sealed partial class WebHostBridge
             var exe = Path.Combine(root, "steam.exe");
             if (running)
             {
-                AppLog.Info($"Steam overlay: closing Steam to set {writes.Count} game(s), Steam Input for {input.Writes.Count}, accept {eulas.Count} game(s)' EULAs and quiet {quiet} file(s).");
+                AppLog.Info($"Steam overlay: closing Steam to set {writes.Count} game(s), Steam Input for {input.Writes.Count}, accept {eulas.Count} game(s)' EULAs, quiet {quiet} file(s){(shortcuts?.File is null ? "" : " and change Exo's shortcuts")}.");
                 _overlayRestartedAt = DateTimeOffset.UtcNow;
                 if (!await CloseSteamAsync(exe, ct).ConfigureAwait(false))
                 {
@@ -123,20 +129,26 @@ public sealed partial class WebHostBridge
             {
                 // Steam rewrote the file as it closed; the switches go into that copy.
                 var text = SteamPlaytime.ReadSharedText(config) ?? throw new IOException("localconfig.vdf is gone.");
+                // Exo's shortcuts planned again on the file Steam just wrote: one changed in Steam just before it closed is the player's.
+                var shortcutsNow = PlanShortcuts(config, wantedShortcuts, shortcutRecord);
+                if (shortcutsNow?.File is { } shortcutsFile)
+                {
+                    WriteShortcuts(config, shortcutsFile);
+                    AppLog.Info($"Steam shortcuts: {shortcutsNow.Value.Record.Count} game(s) through Steam Input.");
+                }
                 // Steam Input planned again on that copy: a value changed in Steam just before it closed stays Steam's.
-                var inputNow = SteamInputConfig.Plan(SteamOverlayConfig.Apps(text), native, settings.NativeControllers, settings.SteamInputChoices, settings.SteamInput, freshInput);
+                var inputNow = SteamInputConfig.Plan(SteamOverlayConfig.Apps(text), native, on: true,
+                    InputChoicesWith(shortcutsNow?.Record ?? shortcutRecord, playersInput), settings.SteamInput, freshInput);
                 var next = SteamInputConfig.Write(
                     SteamOverlayConfig.AcceptEulas(SteamOverlayConfig.Write(text, writes), SteamOverlayConfig.PendingEulas(text, EulasOf(info))), inputNow.Writes);
                 if (next != text) SteamOverlayConfig.WriteFile(config, next);
-                SaveSteamInput(inputNow.Record, inputNow.Choices);
+                var steamChoicesNow = shortcutsNow is { } keptNow ? SaveShortcuts(keptNow.Record, keptNow.Dropped, playersInput, inputNow.Choices) : inputNow.Choices;
+                SaveSteamInput(inputNow.Record, steamChoicesNow);
                 if (inputNow.Writes.Count > 0) AppLog.Info($"Steam Input: set for {inputNow.Writes.Count} game(s) ({inputNow.Writes.Count(w => w.Value == "0")} reading the controller themselves).");
                 // Every account's notifications and sounds, from the files as Steam rewrote them closing.
-                if (settings.QuietStoreApps)
-                {
-                    var quieted = StoreQuiet.SteamEdits(root);
-                    foreach (var (path, quietText) in quieted) SteamOverlayConfig.WriteFile(path, quietText);
-                    if (quieted.Count > 0) AppLog.Info($"Steam: notifications and sounds off ({quieted.Count} file(s)).");
-                }
+                var quieted = StoreQuiet.SteamEdits(root);
+                foreach (var (path, quietText) in quieted) SteamOverlayConfig.WriteFile(path, quietText);
+                if (quieted.Count > 0) AppLog.Info($"Steam: notifications and sounds off ({quieted.Count} file(s)).");
                 if (eulas.Count > 0) AppLog.Info("Steam: EULAs accepted for " + string.Join(", ", eulas.Keys) + ".");
                 foreach (var appId in writes.Keys) record[appId] = record[appId].TrimEnd('?');
                 SaveOverlayRecord(record);
@@ -152,19 +164,6 @@ public sealed partial class WebHostBridge
         {
             _overlayGate.Release();
         }
-    }
-
-    /// <summary>
-    /// Settings > Game stores > Notifications and sounds > Turn off: Steam's and Epic's own pop-ups and sounds off now
-    /// and kept off. Steam closes and starts again hidden for it, unless a game runs or it downloads; Epic takes it
-    /// now when it's closed, else before Exo next starts it.
-    /// </summary>
-    private async Task<object> QuietStoresAsync(CancellationToken ct)
-    {
-        if (!_services.Settings.Current.QuietStoreApps) _services.Settings.UpdateProfile(s => s.QuietStoreApps = true);
-        EpicQuietSettings.HandToExo();
-        var wait = await ApplySteamOverlayAsync(null, userAsked: true, ct).ConfigureAwait(false);
-        return new { ok = true, message = wait };
     }
 
     /// <summary>Whether this Steam game has a EULA Steam would ask for at launch.</summary>
@@ -220,24 +219,15 @@ public sealed partial class WebHostBridge
         return (picked ?? SteamInputConfig.Mode(current), InstalledAppInfo(root, [appId]).Values.Any(SteamInputConfig.ReadsPlayStation));
     }
 
-    /// <summary>Devices > controller > Games read it themselves: on or off for every Steam game, applied now (Steam closes and starts again hidden).</summary>
-    private async Task<object> SteamInputSetAsync(JsonElement p, bool hasParams, CancellationToken ct)
-    {
-        if (ReadBool(p, hasParams, "on") is not { } on) return new { ok = false, message = "On or off?" };
-        if (on != _services.Settings.Current.NativeControllers) _services.Settings.UpdateProfile(s => s.NativeControllers = on);
-        var wait = await ApplySteamOverlayAsync(null, userAsked: true, ct).ConfigureAwait(false);
-        return new { ok = true, message = wait };
-    }
-
-    /// <summary>The switch, and how many installed Steam games read the controller themselves and how many need Steam Input.</summary>
+    /// <summary>How many installed Steam games read the controller themselves, and how many keep Steam Input.</summary>
     private object SteamInputState()
     {
-        if (SteamInstallation.ResolveRoot() is not { } root) return new { ok = true, steam = false, on = false, native = 0, translated = 0 };
+        if (SteamInstallation.ResolveRoot() is not { } root) return new { ok = true, steam = false, native = 0, translated = 0 };
         var installed = _services.Library.PeekCachedLibrary()
             .Where(game => game.Store == StoreKind.Steam && game.Installed && SteamProtocol.IsValidAppId(game.LaunchTarget))
             .Select(game => game.LaunchTarget!).ToList();
         var native = NativeControllerGames(InstalledAppInfo(root, installed));
-        return new { ok = true, steam = true, on = _services.Settings.Current.NativeControllers, native = native.Count, translated = installed.Count - native.Count };
+        return new { ok = true, steam = true, native = native.Count, translated = installed.Count - native.Count };
     }
 
     private void SaveOverlayRecord(Dictionary<string, string> record)

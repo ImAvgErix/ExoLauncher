@@ -6,7 +6,9 @@
  */
 export type MouseState = {
   name: string; battery: number | null; charging: boolean; low: boolean
-  /** Its product render (OpenMouse's image server only), for its card in Devices; null when there is none. */
+  /** Its maker as Exo Mouse's driver knows it ("Pulsar"), which Windows often doesn't. */
+  maker?: string | null
+  /** Its product render (OpenMouse's image server only), whose file name picks its card's picture in Devices; null when there is none. */
   image?: string | null
   /** Through a receiver (true), on its cable (false), or not known. */
   wireless?: boolean | null
@@ -22,7 +24,7 @@ export function publishMouseNotice(text: string) {
 
 /** Exo Mouse posts its state after every status read; only a change reaches the title bar. */
 export function publishMouseState(state: MouseState | null) {
-  if (state === current || (state && current && state.name === current.name && state.battery === current.battery &&
+  if (state === current || (state && current && state.name === current.name && state.maker === current.maker && state.battery === current.battery &&
     state.charging === current.charging && state.low === current.low && state.image === current.image && state.wireless === current.wireless)) return
   current = state
   for (const listener of stateListeners) listener(state)

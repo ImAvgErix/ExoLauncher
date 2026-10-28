@@ -58,6 +58,15 @@ internal sealed partial class StoreService : IDisposable
         public string? WasText { get; init; }
     }
 
+    /// <summary>The lowest price CheapShark has seen the game at, on any store it follows: US cents, and when.</summary>
+    internal sealed record Lowest(int Final, DateTimeOffset At);
+
+    /// <summary>The other official launchers selling a game, and its lowest price ever (US only; null elsewhere or when CheapShark has none).</summary>
+    internal sealed record OtherStores(IReadOnlyList<Offer> Offers, Lowest? Lowest);
+
+    /// <summary>The last 30 days of Steam reviews: Steam's words ("Very Positive"; null under ten reviews, which Steam does not score), the share positive and how many.</summary>
+    internal sealed record RecentReviews(string? Word, int Percent, int Count);
+
     /// <summary>One Steam price: cents (in <see cref="Currency"/> when Steam named it), and Steam's own text for the final and original price ("19,99€").</summary>
     internal sealed record SteamPrice(int? Final, int? Initial, int Discount, string? Currency, string? Formatted, string? WasFormatted = null);
 
@@ -80,6 +89,16 @@ internal sealed partial class StoreService : IDisposable
         public IReadOnlyList<Spec> Specs { get; init; } = [];
         /// <summary>Steam's most voted tags for the game, by name.</summary>
         public IReadOnlyList<string> Tags { get; init; } = [];
+        /// <summary>The developer's DRM notice in one line ("Denuvo Anti-tamper, 5 a day machine activation limit"); null when it names none.</summary>
+        public string? Drm { get; init; }
+        /// <summary>The account the game needs besides Steam ("Ubisoft Account"); null when it needs none.</summary>
+        public string? Account { get; init; }
+        /// <summary>"full" or "partial" controller support, as Steam lists it; null when it lists none.</summary>
+        public string? Controller { get; init; }
+        /// <summary>Steam lists DualShock or DualSense support as well.</summary>
+        public bool PlayStation { get; init; }
+        /// <summary>The languages Steam lists for the game, by English name.</summary>
+        public IReadOnlyList<string> Languages { get; init; } = [];
     }
 
     internal sealed record WishItem(string AppId, string Name, DateTimeOffset AddedAt)

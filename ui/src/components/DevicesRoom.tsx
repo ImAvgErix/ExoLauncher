@@ -1,6 +1,7 @@
+import { CopyLogs } from './ui/ErrorNote'
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { ChevronLeft, Refresh } from '../brand/icons'
-import { host, onHostEvent, type CpuPorts, type Peripheral } from '../lib/host'
+import { host, onHostEvent, type Peripheral } from '../lib/host'
 import { MOUSE_ORIGIN, postToMouse } from '../lib/mouseRelay'
 import { onMouseState, type MouseState } from '../lib/mouseState'
 import { onPageActivityChanged, pageIsActive, usePageVisible } from '../lib/pageActivity'
@@ -10,7 +11,7 @@ import { transition, visible } from '../lib/viewTransition'
 import { DeviceArt, type ArtKind } from './devices/art'
 import { AudioPage, type Wearing } from './devices/AudioPage'
 import { ControllerPage } from './devices/ControllerPage'
-import { portAdvice, portWords } from './devices/ports'
+import { portShort } from './devices/ports'
 
 /** How long Exo Mouse has to say anything after its frame starts loading before the room says it didn't load. */
 const LOAD_MS = 15_000
@@ -34,9 +35,8 @@ type Card = {
  * Devices at its top folds the page back into its card. The mouse's page is Exo Mouse, a separate program (AGPL, in
  * /mouse) in a frame, kept running behind the grid so its battery stays current; Exo relays its HID calls
  * (lib/mouseRelay.ts). Your audio's page holds your pick and Lucid on one screen; a controller's holds the Controller
- * Lab. Keyboards and controllers the lab can't read show what they are; Exo doesn't set them up yet. Above the cards, one line says
- * when a device would gain from the processor's own USB, and Find them shows where each card is plugged in while you
- * move plugs from port to port.
+ * Lab. Keyboards and controllers the lab can't read show what they are; Exo doesn't set them up yet. Each card says which
+ * USB it's on, green where that's best for it, red with what to do where it isn't.
  */
 export function DevicesRoom({ active }: { active: boolean }) {
   const [foreground, setForeground] = useState(pageIsActive)
@@ -44,7 +44,7 @@ export function DevicesRoom({ active }: { active: boolean }) {
   // On screen, focused or not: the controller's live view is watched beside whatever has focus.
   const onScreen = usePageVisible()
   const [page, setPage] = useState('overview')
-  const { devices, cpuPorts, scanning, rescan } = usePeripherals(active)
+  const { devices, scanning, rescan } = usePeripherals(active)
   const mouse = useMouse()
   const [wearing, setWearing] = useWearing()
   const cards = useMemo(() => cardsFor(devices, mouse, wearing), [devices, mouse, wearing])
@@ -55,11 +55,12 @@ export function DevicesRoom({ active }: { active: boolean }) {
   // Back from a page the cards are simply there, the one you left folding back into place: they rose in once.
   const [returned, setReturned] = useState(false)
   const open = (id: string) => {
-    void transition(() => { setReturned(true); setPage(id) }, { kind: 'morph', morph: { name: MORPH, from: cardOf(id), to: pageShown } })
+    void transition(() => { setReturned(true); setPage(id) }, { kind: 'morph', morph: { name: MORPH, from: artOfCard(id), to: artOfPage } })
   }
   const back = () => {
     const from = page
-    void transition(() => setPage('overview'), { kind: 'morph', back: true, morph: { name: MORPH, from: pageShown(), to: () => cardOf(from) } })
+    const art = artOfPage()
+    void transition(() => setPage('overview'), art ? { kind: 'morph', back: true, morph: { name: MORPH, from: art, to: () => artOfCard(from) } } : { kind: 'fade' })
   }
 
   return (
@@ -70,7 +71,9 @@ export function DevicesRoom({ active }: { active: boolean }) {
         </header>
       ) : null}
       <div className="exo-devices-page">
-        {page === 'overview' ? <Overview cards={cards} pictures={pictures} scanning={scanning} rise={!returned} advice={portAdvice(devices, cpuPorts)} onRescan={rescan} onOpen={open} /> : null}
+        {/* Kept while a device's page shows, hidden, so coming back finds the cards as they were: built again, every card's
+            picture loaded again (and flashed in) each time. */}
+        <Overview hidden={page !== 'overview'} cards={cards} pictures={pictures} scanning={scanning} rise={!returned} onRescan={rescan} onOpen={open} />
         {current?.kind === 'audio' ? (
           <AudioPage name={current.name} status={current.status} art={<Picture card={current} url={pictures[current.id]} wash />}
             output={current.device} mic={current.mic} wearing={wearing} onWearing={setWearing} />
@@ -85,14 +88,15 @@ export function DevicesRoom({ active }: { active: boolean }) {
   )
 }
 
-/** What Exo doesn't set up yet: its card says so and opens nothing. A controller the Controller Lab reads has its page. */
+/** What Exo doesn't set up yet, a keyboard and a controller the Controller Lab can't read: its card says so and opens nothing. */
 const soon = (card: Card) => card.kind === 'keyboard' || (card.kind === 'controller' && card.device?.lab !== true)
 
-/** A card and the page it opens are one thing in two sizes (a view transition's shared element): every card grows into
-    the whole page and folds back out of it alike, Exo Mouse's and your audio's. */
-const MORPH = 'exo-device'
-const cardOf = (id: string) => visible(`[data-device-card="${CSS.escape(id)}"]`)
-const pageShown = () => visible('.exo-devices-page')
+/** A device's picture is one thing in two places (a view transition's shared element): it flies from its card to its
+    page's picture and back, as a game's art does, while the page fades in around it (transitions.css fits it whole in
+    the flying box). A page with no picture of its own (Exo Mouse's) just fades. */
+const MORPH = 'exo-device-art'
+const artOfCard = (id: string) => visible(`[data-device-card="${CSS.escape(id)}"] .exo-device-card-art`)
+const artOfPage = () => visible('.exo-device-hero-art')
 
 const LINK: Record<string, string> = { usb: 'Wired', wireless: 'Wireless', bluetooth: 'Bluetooth', jack: '3.5 mm jack', hdmi: 'HDMI' }
 
@@ -117,15 +121,22 @@ function cardsFor(devices: Peripheral[], mouse: MouseState | null, wearing: Wear
   ]
 }
 
-/** The mouse as Exo Mouse knows it (its own name, battery and link), else as Windows lists it. */
+/**
+ * The mouse as Exo Mouse knows it (its own name, battery and link), else as Windows lists it. Its picture is asked
+ * for by the render Exo Mouse picked for it ("logitech-g502-x-plus"), which Exo's list carries as the model's id, so
+ * the card and Exo Mouse agree on which mouse it is; by its name until Exo Mouse has read it.
+ */
 function mouseCard(devices: Peripheral[], mouse: MouseState | null): Card[] {
   const pointer = devices.find(device => device.kind === 'mouse')
   if (!mouse && !pointer) return []
   const link = mouse?.wireless === true ? 'Wireless' : mouse?.wireless === false ? 'Wired' : pointer?.connection ? LINK[pointer.connection] : null
   const status = [mouse?.battery != null ? `${mouse.battery}%` : null, link].filter(Boolean).join(' · ') || 'Connected'
   const name = mouse?.name ?? pointer?.name ?? 'Mouse'
-  return [{ id: 'mouse', kind: 'mouse', name, status, device: pointer, art: 'mouse', picture: { kind: 'mouse', name, maker: pointer?.maker } }]
+  return [{ id: 'mouse', kind: 'mouse', name, status, device: pointer, art: 'mouse', picture: { kind: 'mouse', model: renderOf(mouse), name, maker: mouse?.maker ?? pointer?.maker } }]
 }
+
+/** The render's file name without its type ("logitech-g502-x-plus"); null before Exo Mouse has one. */
+const renderOf = (mouse: MouseState | null) => mouse?.image?.split('/').pop()?.replace(/\.\w+$/, '') ?? null
 
 /** What you listen on and speak into: the pair you picked names what's on your head; speakers and a monitor stay themselves. */
 function audioCard(devices: Peripheral[], wearing: Wearing): Card | null {
@@ -163,23 +174,26 @@ function Picture({ card, url, wash = false }: { card: Card; url: string | null |
 /** A card's place in the grid, for its turn rising in (DESIGN.md › Motion › Arrive). */
 const turn = (i: number) => ({ '--i': i } as CSSProperties)
 
-function Overview({ cards, pictures, scanning, rise, advice, onRescan, onOpen }: {
-  cards: Card[]; pictures: Record<string, string | null>; scanning: boolean; rise: boolean; advice: string | null; onRescan: () => void; onOpen: (id: string) => void
+function Overview({ hidden, cards, pictures, scanning, rise, onRescan, onOpen }: {
+  hidden: boolean; cards: Card[]; pictures: Record<string, string | null>; scanning: boolean; rise: boolean; onRescan: () => void; onOpen: (id: string) => void
 }) {
-  // Finding the processor's own ports: each card says where it's plugged in, and changes as you move its plug.
-  const [finding, setFinding] = useState(false)
-  const placed = (card: Card) => finding && card.device?.port ? portWords(card.device.port) : card.status
+  // Each card says which USB it's on, green where it's best for the device, red where it isn't. A red one says what to
+  // do when there's something to do: a free port on the processor's own USB, or a hub to take out of the way. Cards
+  // update as plugs move, so nothing needs a mode to watch them.
+  const tagOf = (card: Card) => {
+    const port = card.device?.port
+    const short = port ? portShort(port) : null
+    if (!port || !short) return null
+    // A mouse, keyboard or controller is best on the processor's own USB with no hub; sound doesn't care where.
+    const good = card.kind === 'audio' || port.where === 'cpu' && !port.hubs
+    const text = good ? short : port.better === 'free' ? 'Move to CPU USB' : port.better === 'hub' ? 'Plug in without the hub' : short
+    return { text, good }
+  }
   return (
-    <section className="exo-devices-overview" aria-label="Devices">
+    <section className="exo-devices-overview" aria-label="Devices" hidden={hidden}>
       <header className="exo-devices-head">
         <h1>{cards.length === 0 ? 'No devices found' : 'Devices'}</h1>
         <div className="exo-devices-head-end">
-          {finding || advice ? (
-            <p className="exo-devices-ports" role="status">
-              {finding ? 'Move a plug from port to port: its card says where it is each time.' : advice}
-              <button type="button" className="exo-set-btn" onClick={() => setFinding(on => !on)}>{finding ? 'Done' : 'Find them'}</button>
-            </p>
-          ) : null}
           <button type="button" className="exo-set-btn" disabled={scanning} onClick={onRescan}>
             <Refresh size={16} className={scanning ? 'exo-spin' : undefined} />Rescan
           </button>
@@ -187,23 +201,25 @@ function Overview({ cards, pictures, scanning, rise, advice, onRescan, onOpen }:
       </header>
       <div className="exo-devices-grid" data-count={Math.min(cards.length, 4)}>
         {cards.map((card, i) => {
+          const tag = tagOf(card)
+          const said = tag ? `${card.name}, ${tag.text}` : card.name
           const inside = <>
             <span className="exo-device-card-text">
               <strong>{card.name}</strong>
-              <span>{placed(card)}</span>
+              {tag ? <span className={cn('exo-device-port', tag.good ? 'is-good' : 'is-bad')}>{tag.text}</span> : null}
             </span>
             <span className="exo-device-card-art"><Picture card={card} url={pictures[card.id]} /></span>
           </>
-          // Keyboards and other controllers show what they are until Exo sets them up: no page behind them yet.
+          // Controllers the lab can't read show what they are until Exo sets them up: no page behind them yet.
           return soon(card) ? (
             <div key={card.id} data-device-card={card.id} className={cn('exo-device-card exo-glass is-panel is-soon', rise && 'exo-motion-arrive')} style={turn(i)}
-              role="group" aria-label={`${card.name}, ${placed(card)}. Coming soon.`}>
+              role="group" aria-label={`${said}. Coming soon.`}>
               {inside}
               <span className="exo-device-soon exo-glass" aria-hidden="true">Coming soon</span>
             </div>
           ) : (
             <button key={card.id} type="button" data-device-card={card.id} className={cn('exo-device-card exo-glass is-panel', rise && 'exo-motion-arrive')} style={turn(i)}
-              onClick={() => onOpen(card.id)} aria-label={`${card.name}, ${placed(card)}. Open.`}>
+              onClick={() => onOpen(card.id)} aria-label={`${said}. Open.`}>
               {inside}
             </button>
           )
@@ -216,17 +232,12 @@ function Overview({ cards, pictures, scanning, rise, advice, onRescan, onOpen }:
 /** The devices Windows has (devices.list), read when the room first shows and again when one comes or goes. */
 function usePeripherals(active: boolean) {
   const [devices, setDevices] = useState<Peripheral[]>([])
-  const [cpuPorts, setCpuPorts] = useState<CpuPorts | null>(null)
   const [scanning, setScanning] = useState(false)
   const read = useRef(false)
   const rescan = useCallback(() => {
     setScanning(true)
     host.devicesList()
-      .then(result => {
-        if (!result.ok) return
-        setDevices(result.devices)
-        setCpuPorts(result.cpuPorts ?? null)
-      })
+      .then(result => { if (result.ok) setDevices(result.devices) })
       .catch((error: unknown) => report(error, 'DevicesRoom.list'))
       .finally(() => setScanning(false))
   }, [])
@@ -236,7 +247,7 @@ function usePeripherals(active: boolean) {
     rescan()
   }, [active, rescan])
   useEffect(() => onHostEvent('devices.changed', () => { if (read.current) rescan() }), [rescan])
-  return { devices, cpuPorts, scanning, rescan }
+  return { devices, scanning, rescan }
 }
 
 /** Each card's official picture (devices.image: fetched once, cut out and framed alike, kept on this PC), by what it is. */
@@ -317,6 +328,7 @@ function MouseFrame({ shown, visible }: { shown: boolean; visible: boolean }) {
         <div className="exo-hosted-room-state" role="alert">
           <p>Exo Mouse didn't load.</p>
           <button type="button" className="exo-set-btn" onClick={() => { setFailed(false); setLoad(value => value + 1) }}>Reload</button>
+          <CopyLogs error="Exo Mouse didn't load." />
         </div>
       ) : null}
       <iframe

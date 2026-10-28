@@ -418,22 +418,43 @@ internal static class ProcessHelper
     }
 
     /// <summary>Requests a graceful close for exact PIDs. It never expands into a process tree.</summary>
-    public static void RequestCloseProcesses(IEnumerable<int> processIds)
+    /// <summary>
+    /// Asks a game's processes to close as its window's own close button does: the ones with a main window are asked
+    /// there, and the windowless ones (a bootstrapper waiting on the game, a helper) are left to end with it. Only when
+    /// none has a window, or with <paramref name="everyWindow"/> (the second ask, seconds on), do all their windows get
+    /// WM_CLOSE. Asking a windowless parent at once can take a game down before it cleans up: Call of Duty's
+    /// bootstrapper did, and the game then thought it had crashed and offered safe mode at the next start.
+    /// </summary>
+    public static void RequestCloseProcesses(IEnumerable<int> processIds, bool everyWindow = false)
     {
         var pids = processIds.Where(id => id > 0).ToHashSet();
         if (pids.Count == 0) return;
+        var windowed = new List<int>();
+        var windowless = new HashSet<int>();
         foreach (var pid in pids)
         {
             try
             {
                 using var process = Process.GetProcessById(pid);
-                if (!process.HasExited) process.CloseMainWindow();
+                if (process.HasExited) continue;
+                if (everyWindow || process.MainWindowHandle == IntPtr.Zero) windowless.Add(pid);
+                else windowed.Add(pid);
             }
             catch { /* best effort */ }
         }
+        foreach (var pid in windowed)
+        {
+            try
+            {
+                using var process = Process.GetProcessById(pid);
+                process.CloseMainWindow();
+            }
+            catch { /* best effort */ }
+        }
+        if (windowless.Count == 0 || windowed.Count > 0) return;
         try
         {
-            t_closePids = pids;
+            t_closePids = windowless;
             EnumWindows(EnumCloseProc, IntPtr.Zero);
         }
         catch { /* best effort */ }

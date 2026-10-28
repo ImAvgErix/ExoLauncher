@@ -58,6 +58,13 @@ void Rounded(HWND hwnd)
     DwmSetWindowAttribute(hwnd, DWMWA_BORDER_COLOR, &border, sizeof(border));
 }
 
+/// Out of every capture (a clip, a recording, Go Live, a snip, any other app's): our popups float over the
+/// screen being captured, and "Always" records that screen.
+void Uncaptured(HWND hwnd)
+{
+    if (!SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE)) Log("A popup stays visible to capture: " + std::to_string(GetLastError()));
+}
+
 RECT WorkArea(HMONITOR monitor)
 {
     if (!monitor) monitor = MonitorFromPoint({ 0, 0 }, MONITOR_DEFAULTTOPRIMARY);
@@ -634,6 +641,7 @@ void Ui::Toast(const std::wstring& title, const std::wstring& detail, HMONITOR m
         if (!hwnd) { delete win; return; }
         m->toast = win;
         Rounded(hwnd);
+        Uncaptured(hwnd);
         SetTimer(hwnd, 1, good ? 1500 : 3500, nullptr);
         ShowWindow(hwnd, SW_SHOWNOACTIVATE);
     });
@@ -691,6 +699,8 @@ void Ui::Snip(std::function<void(std::optional<SnipResult>)> done)
             WS_POPUP, vx, vy, vw, vh, nullptr, nullptr, GetModuleHandleW(nullptr), win);
         if (!hwnd) { delete win; done(std::nullopt); return; }
         m->snip = win;
+        // A recording keeps showing the game, not the frozen screen, while you pick.
+        Uncaptured(hwnd);
         POINT p;
         GetCursorPos(&p);
         win->selection = win->WindowAt({ p.x - vx, p.y - vy });

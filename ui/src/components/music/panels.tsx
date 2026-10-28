@@ -1,5 +1,7 @@
-import { useEffect, useId, useRef, useState, type CSSProperties } from 'react'
+import { Fragment, useEffect, useId, useRef, useState, type CSSProperties } from 'react'
 import { host } from '../../lib/host'
+import { cn } from '../../lib/utils'
+import { listenAlong, stopListening, useListenAlong, useListeningFriends } from '../../lib/listenAlong'
 import { notify } from '../../lib/notify'
 import { confirm } from '../ui/Dialog'
 import { report } from '../../lib/report'
@@ -13,11 +15,12 @@ import { Qr } from '../ui/Qr'
 import { Art } from './Art'
 import { Failed, Shelf, TrackList, Waiting } from './pages'
 import { runAction, usePlayer, useView } from './playerContext'
+import { ErrorNote } from '../ui/ErrorNote'
 
 const arrive = (index: number) => ({ '--i': index }) as CSSProperties
 
 function Failure({ error }: { error: string | null }) {
-  return error ? <p className="exo-music-error" role="alert">{error}</p> : null
+  return error ? <ErrorNote className="exo-music-error" message={error} /> : null
 }
 
 export function QueuePanel({ tick }: { tick: number }) {
@@ -238,9 +241,65 @@ function FriendRow({ friend, index, onOpen, onPlay }: {
   )
 }
 
-/** Jam: start one, share its link, see who joined, remove someone, leave or end it. join: a Jam's token
+/** Jam: listen along with a Discord friend on any service and, on Spotify, Spotify's own Jam. join: a Jam's token
     from a link opened elsewhere (Discord), joined as soon as the panel shows; onJoin says it was taken. */
 export function JamPanel({ join, onJoin }: { join?: string | null; onJoin?: () => void }) {
+  const { has } = usePlayer()
+  return (
+    <>
+      <h2 className="exo-music-panel-title">Jam</h2>
+      {has('jam') ? <SpotifyJam join={join} onJoin={onJoin} /> : null}
+      <ListenAlongList />
+    </>
+  )
+}
+
+/** Your Discord friends listening now, on whatever service: Listen plays their song here, on yours, song after song. */
+function ListenAlongList() {
+  const { adapter } = usePlayer()
+  const along = useListenAlong()
+  const { listening, loaded, signedIn } = useListeningFriends()
+  const following = along.status === 'off' ? null : along
+  const others = listening.filter(({ friend }) => friend.id !== following?.friend.id)
+
+  return (
+    <section className="exo-music-along">
+      <h3>Listen along</h3>
+      {following ? (
+        <div className="exo-music-friend">
+          <Art src={following.friend.avatar ?? ''} round />
+          <span className="exo-music-row-text">
+            <span className="exo-music-row-title">{following.friend.name}</span>
+            <span className="exo-music-row-sub">{following.status === 'finding' ? `Finding ${following.title}`
+              : following.status === 'missing' ? `${following.title} isn't on ${adapter.name}`
+                : following.status === 'paused' ? 'Paused' : [following.title, following.artist].filter(Boolean).join(' · ')}</span>
+          </span>
+          <button type="button" className="exo-set-btn is-compact" onClick={() => stopListening()}>Stop</button>
+        </div>
+      ) : null}
+      {!signedIn ? <p className="exo-music-empty">Sign in to Discord in Exo to listen along with friends</p>
+        : loaded && !listening.length ? <p className="exo-music-empty">No friends are listening right now</p> : null}
+      {others.length ? (
+        <ul className="exo-music-list">
+          {others.map(({ friend, rich }, index) => (
+            <li key={friend.id} className="exo-music-friend exo-motion-arrive" style={arrive(index)}>
+              <Art src={friend.avatar ?? ''} round />
+              <span className="exo-music-row-text">
+                <span className="exo-music-row-title">{friend.name}</span>
+                <span className="exo-music-row-sub">{[rich.details, rich.state, rich.name].filter(Boolean).join(' · ')}</span>
+              </span>
+              <button type="button" className="exo-set-btn is-compact"
+                onClick={() => listenAlong({ id: friend.id, name: friend.name, avatar: friend.avatar }, rich)}>Listen</button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </section>
+  )
+}
+
+/** Spotify's Jam: start one, share its link, see who joined, remove someone, leave or end it. */
+function SpotifyJam({ join, onJoin }: { join?: string | null; onJoin?: () => void }) {
   const { adapter } = usePlayer()
   const [tick, setTick] = usePoll(5_000)
   const [busy, setBusy] = useState(false)
@@ -283,7 +342,6 @@ export function JamPanel({ join, onJoin }: { join?: string | null; onJoin?: () =
 
   return (
     <>
-      <h2 className="exo-music-panel-title">Jam</h2>
       <Failure error={error ?? failed} />
       {!data && !error ? <Waiting label="Loading Jam" /> : null}
       {data && !session ? (
@@ -374,7 +432,7 @@ function JamJoin({ busy, onJoin }: { busy: boolean; onJoin: (token: string) => v
         <input value={link} placeholder="Paste a Jam link" aria-label="Jam link" onChange={event => { setLink(event.target.value); setWrong(false) }} />
       </label>
       <button type="submit" className="exo-set-btn" disabled={busy || reading || !link.trim()}>Join</button>
-      {wrong ? <p className="exo-music-error" role="alert">That is not a Jam link. Paste the whole link someone shared.</p> : null}
+      {wrong ? <ErrorNote className="exo-music-error" message="That is not a Jam link. Paste the whole link someone shared." /> : null}
     </form>
   )
 }
@@ -484,32 +542,85 @@ function Lyrics({ uri, playback, receivedAt }: { uri: string; playback: MusicPla
   const position = playback ? musicPosition(playback, playbackAnchor(playback, receivedAt), now) : null
   let active = -1
   if (synced && position !== null) for (let i = 0; i < lines.length && lines[i].start <= position; i++) active = i
+  // A long wait with no one singing (word-timed lyrics): three dots that fill until the next line, which stand in for
+  // the line as the one in the middle while it runs.
+  const gaps = timed ? gapsOf(lines) : []
+  const gap = position !== null ? gaps[active + 1] : undefined
+  const waiting = gap && position !== null && position >= gap.from ? gap : null
+  const lead = lines.find(line => line.agent)?.agent
   const list = useRef<HTMLOListElement>(null)
-  // Keep the sung line in the middle of the panel (only the panel scrolls).
+  // Keep the sung line (or the wait) in the middle of the panel (only the panel scrolls).
   useEffect(() => {
     const line = list.current?.querySelector<HTMLElement>('.is-active')
     const panel = list.current?.closest<HTMLElement>('.exo-music-panel')
     if (!line || !panel) return
     const top = line.getBoundingClientRect().top - panel.getBoundingClientRect().top + panel.scrollTop
     panel.scrollTo({ top: top - panel.clientHeight / 2 + line.offsetHeight / 2, behavior: shouldReduceMotion() ? 'auto' : 'smooth' })
-  }, [active])
+  }, [active, waiting])
   function seek(start: number) {
     void host.musicControl('seek', { positionMs: start }).catch(seekError => report(seekError, 'NowPlaying.seek'))
   }
   if (!fresh) return <Waiting label="Loading lyrics" />
   if (!lines.length) return error ? <Failure error={error} /> : <p className="exo-music-empty">No lyrics for this song</p>
+  const state = (index: number) => index === active && !waiting ? 'is-active' : index < active || index === active && waiting ? 'is-past' : undefined
   return (
     <ol ref={list} className={`exo-music-lyrics${synced ? ' is-synced' : ''}`}>
       {lines.map((line, index) => (
-        <li key={index} className={index === active ? 'is-active' : index < active ? 'is-past' : undefined}>
-          {synced && line.text ? <button type="button" onClick={() => seek(line.start)}>{index === active && line.words?.length && position !== null ? <Words line={line} at={position} /> : line.text}</button> : line.text || ' '}
-        </li>
+        <Fragment key={index}>
+          {gaps[index] ? <Wait gap={gaps[index]!} at={position} on={waiting === gaps[index]} /> : null}
+          <li className={cn(state(index), lead && line.agent && line.agent !== lead && 'is-other')}>
+            {synced && line.text
+              ? <button type="button" onClick={() => seek(line.start)}>{index === active && !waiting && line.words?.length && position !== null ? <Words line={line} at={position} /> : <LineText line={line} />}</button>
+              : line.text || ' '}
+          </li>
+        </Fragment>
       ))}
     </ol>
   )
 }
 
-/** The line being sung, each word lit once the song reaches it. */
+type Gap = { from: number; to: number }
+
+/** No one sings for 4 s or more: a wait worth showing. */
+const LONG_WAIT = 4000
+
+/** The wait before each line (before the first: from the song's start), where it's long enough to show. */
+function gapsOf(lines: LyricsLine[]): Array<Gap | null> {
+  return lines.map((line, index) => {
+    const before = index === 0 ? 0 : lines[index - 1].words?.reduce((end, word) => Math.max(end, word.end), 0)
+    return before !== undefined && line.start - before >= LONG_WAIT ? { from: before, to: line.start } : null
+  })
+}
+
+/** Three dots that fill as the wait runs out. */
+function Wait({ gap, at, on }: { gap: Gap; at: number | null; on: boolean }) {
+  const share = at === null ? 0 : Math.min(1, Math.max(0, (at - gap.from) / (gap.to - gap.from)))
+  return (
+    <li className={cn('exo-music-lyric-wait', on && 'is-active')} aria-hidden="true">
+      {[0, 1, 2].map(dot => <span key={dot} className={on && share > dot / 3 ? 'is-on' : undefined} />)}
+    </li>
+  )
+}
+
+/** A line not being sung: its words, with any background vocals in a smaller row under it. */
+function LineText({ line }: { line: LyricsLine }) {
+  const bg = line.words?.filter(word => word.bg) ?? []
+  if (!bg.length) return <>{line.text}</>
+  return <>{line.words!.filter(word => !word.bg).map(word => word.text).join('')}<span className="exo-music-lyric-bg">{bg.map(word => word.text).join('')}</span></>
+}
+
+/** The line being sung: each word fills left to right over its own time; background vocals in their row under it. */
 function Words({ line, at }: { line: LyricsLine; at: number }) {
-  return <>{line.words!.map((word, index) => <span key={index} className={word.start <= at ? 'is-sung' : undefined}>{word.text}</span>)}</>
+  const main = line.words!.filter(word => !word.bg)
+  const bg = line.words!.filter(word => word.bg)
+  return <>
+    {main.map((word, index) => <Word key={index} word={word} at={at} />)}
+    {bg.length ? <span className="exo-music-lyric-bg">{bg.map((word, index) => <Word key={index} word={word} at={at} />)}</span> : null}
+  </>
+}
+
+function Word({ word, at }: { word: NonNullable<LyricsLine['words']>[number]; at: number }) {
+  const share = at <= word.start ? 0 : at >= word.end ? 1 : (at - word.start) / Math.max(1, word.end - word.start)
+  if (share <= 0 || share >= 1) return <span className={share >= 1 ? 'is-sung' : undefined}>{word.text}</span>
+  return <span className="is-singing" style={{ '--exo-sung': share } as CSSProperties}>{word.text}</span>
 }

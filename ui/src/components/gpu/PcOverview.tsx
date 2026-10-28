@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import { Apps, ChevronRight, Cpu, GraphicsCard, Monitor, Rocket, Shaders } from '../../brand/icons'
-import type { GpuProfile, LauncherSettings } from '../../lib/host'
+import type { GpuProfile, LauncherSettings, PcAbout } from '../../lib/host'
 import { State } from '../settings/parts'
 import { Skeleton } from '../ui/Skeleton'
 import { BestSetup } from './BestSetup'
@@ -58,7 +58,7 @@ function shadersStatus({ shaders }: PcState): Status | null {
   const games = snapshot?.games ?? []
   const ready = games.filter(game => game.inAddAllReady).length
   if (ready) return { line: `${count(ready, 'game', 'games')} ready to compile`, state: { text: `${ready} waiting` } }
-  return games.length ? { line: 'Nothing to compile', state: { text: 'Up to date', good: true } } : { line: 'No games checked yet' }
+  return games.length ? { state: { text: 'Up to date', good: true } } : { line: 'No games checked yet' }
 }
 
 /** The main screen and its refresh, and HDR: on for HDR games, on, off, or a screen without it. */
@@ -79,7 +79,7 @@ function performanceStatus({ health, interrupts }: PcState): Status | null {
   if (!health) return null
   const fixes = health.items.filter(item => !item.applied && !item.current && !item.busy).map(item => item.label)
   if (interrupts && !interrupts.restart && interrupts.devices.some(device => device.plan === 'change')) fixes.push('Interrupts')
-  if (!fixes.length) return { sub: 'All good', line: 'Nothing to fix', state: { text: 'All good', good: true } }
+  if (!fixes.length) return { sub: 'All good', state: { text: 'All good', good: true } }
   return { sub: `${fixes.length} to fix`, line: fixes.join(', '), state: { text: `${fixes.length} to fix` } }
 }
 
@@ -89,9 +89,9 @@ const LINKS: { link: Exclude<PcLink, 'overview'>; label: string }[] = [
 ]
 
 /**
- * PC › Overview: this PC's About card, as Apple's System Settings draws it, in Exo's glass (the card's glyph on a large
- * tile of the ink, its name, then what it runs as label and value rows); beside it Best settings for this PC, then one
- * row per page with where it stands, which opens it (Shaders opens Graphics at its Shaders).
+ * PC › Overview: this PC's About card, as Apple's System Settings draws it, in Exo's glass (the processor's glyph on a
+ * large tile of the ink, the PC's name, then what it's made of and runs as label and value rows); beside it Best settings
+ * for this PC, then one row per page with where it stands, which opens it (Shaders opens Graphics at its Shaders).
  */
 export function PcOverview({ active, state, status, settings, onSave, onOpen }: {
   active: boolean
@@ -129,26 +129,98 @@ export function PcOverview({ active, state, status, settings, onSave, onOpen }: 
   )
 }
 
-/** The About card: what the room has read of the card and the screen, the words in the shine until it has. */
-function Hero({ state: { profile, driver, hdr } }: { state: PcState }) {
-  const screen = profile?.screen
-  const facts: [string, string | null | undefined][] = [
-    ['Driver', driver?.installed],
-    ['Screen', screen?.name],
-    ['Refresh rate', screen?.hz ? `${screen.hz} Hz` : null],
-    ['Variable refresh', profile?.vendor && screen?.hz ? (screen.vrr ? SYNC[profile.vendor] : 'None reported') : null],
-    ['HDR', hdr ? (hdr.supported ? (hdr.peakNits ? `Up to ${hdr.peakNits} nits` : 'Yes') : 'No') : null],
+type Fact = [string, string | null | undefined]
+
+const onOff = (on: boolean | null | undefined) => on == null ? null : on ? 'On' : 'Off'
+const size = (gb: number) => gb >= 1000 ? `${+(gb / 1024).toFixed(1)} TB` : `${Math.round(gb)} GB`
+const rate = (mbps: number | null | undefined) => !mbps ? null : mbps >= 1000 ? `${+(mbps / 1000).toFixed(1)} Gbps` : `${Math.round(mbps)} Mbps`
+const month = (day: string | null | undefined) => day ? new Date(`${day}T00:00:00`).toLocaleDateString(undefined, { month: 'long', year: 'numeric' }) : null
+
+/** Cores and threads: "6 cores, 12 threads", "8 cores" without SMT, the threads alone when SMBIOS has no core count. */
+function cores({ cores, threads }: PcAbout) {
+  if (!cores) return `${threads} threads`
+  return cores === threads ? count(cores, 'core', 'cores') : `${count(cores, 'core', 'cores')}, ${threads} threads`
+}
+
+/** The speed the memory runs at, with the kit's rating when it runs below it (EXPO/XMP off). */
+function memorySpeed({ memorySpeed: runs, memoryRated: rated }: PcAbout) {
+  if (!runs) return null
+  return rated && rated > runs ? `${runs} MT/s, rated ${rated}` : `${runs} MT/s`
+}
+
+/** A drive's free space first (what a game needs), then its disk; a hard drive says so. */
+function drive({ model, kind, freeGb }: PcAbout['drives'][number]) {
+  return [`${size(freeGb)} free`, model ?? kind, model && kind === 'Hard drive' ? kind : null].filter(Boolean).join(' · ')
+}
+
+const joined = (parts: (string | null | undefined)[], between = ' · ') => parts.filter(Boolean).join(between) || null
+
+/**
+ * The processor, then what it's paired with: memory, each drive, the motherboard and BIOS. What belongs together shares
+ * a row ("16 GB DDR4 · 3600 MT/s · 2 of 4 slots"), so the whole card fits one screen without scrolling.
+ */
+function madeOf(about: PcAbout | null): Fact[][] {
+  if (!about) return []
+  const { memoryGb, memorySlots, memorySlotsUsed } = about
+  return [
+    [['Processor', joined([about.processor, cores(about)])]],
+    [
+      ['Memory', memoryGb ? joined([joined([`${memoryGb} GB`, about.memoryType], ' '), memorySpeed(about),
+        memorySlots && memorySlotsUsed ? `${memorySlotsUsed} of ${memorySlots} slots` : null]) : null],
+      ...about.drives.map((disk): Fact => [`Drive ${disk.letter}`, drive(disk)]),
+    ],
+    [['Motherboard', about.motherboard], ['BIOS', about.bios ? joined([about.bios, month(about.biosDate)]) : null]],
   ]
-  const known = facts.filter((fact): fact is [string, string] => !!fact[1])
+}
+
+/** The graphics card: its name and video memory, the driver and DirectX, and Resizable BAR (what games ask of it). */
+function graphics({ about, profile, driver }: PcState): Fact[] {
+  return [
+    ['Graphics', joined([profile?.gpu || about?.graphics || driver?.card, about?.videoMemoryGb ? `${Math.round(about.videoMemoryGb)} GB` : null])],
+    ['Driver', joined([driver?.installed, about?.directX ? `DirectX ${about.directX}` : null])],
+    ['Resizable BAR', onOff(about?.resizableBar)],
+  ]
+}
+
+/** Windows and its build, what anti-cheat and Windows 11 ask of the PC on one row, and the connection in use. */
+function windows(about: PcAbout | null): Fact[] {
+  if (!about) return []
+  const security = [about.secureBoot == null ? null : `Secure Boot ${onOff(about.secureBoot)!.toLowerCase()}`, about.tpm ? `TPM ${about.tpm}` : null,
+    about.memoryIntegrity == null ? null : `Memory integrity ${onOff(about.memoryIntegrity)!.toLowerCase()}`]
+  return [
+    ['Windows', joined([about.windows ? joined([about.windows, about.windowsVersion], ' ') : null, about.build])],
+    ['Security', joined(security)],
+    ['Network', about.network ? joined([about.network, rate(about.networkMbps)]) : null],
+  ]
+}
+
+/** The main screen on one row: its name, refresh, variable refresh as the driver reports it, and HDR. */
+function screen({ profile, hdr }: PcState): Fact[] {
+  const main = profile?.screen
+  const hdrWords = hdr ? (hdr.supported ? (hdr.peakNits ? `HDR up to ${hdr.peakNits} nits` : 'HDR') : 'No HDR') : null
+  return [['Screen', joined([main?.name, main?.hz ? `${main.hz} Hz` : null, profile?.vendor && main?.vrr ? SYNC[profile.vendor] : null, hdrWords])]]
+}
+/**
+ * The About card: this PC by what it's made of (processor, graphics, memory, drives, motherboard and BIOS), then
+ * Windows, its security and connection, then the main screen, in groups between hairlines; the words in the shine until
+ * the room has read them.
+ */
+function Hero({ state }: { state: PcState }) {
+  const { about, profile, driver } = state
+  const [processor, ...paired] = madeOf(about)
+  const groups = [processor ?? [], graphics(state), ...paired, windows(about), screen(state)]
+  const known = groups.map(group => group.filter((fact): fact is [string, string] => !!fact[1])).filter(group => group.length > 0)
   return (
     <section className="exo-system-panel exo-pc-hero" aria-label="This PC">
-      <span className="exo-pc-hero-mark" aria-hidden="true"><GraphicsCard size={44} /></span>
-      {profile || driver ? (
+      <span className="exo-pc-hero-mark" aria-hidden="true"><Cpu size={44} /></span>
+      {about || profile || driver ? (
         <>
-          <h1 className="exo-pc-hero-name">{profile?.gpu || driver?.card || 'Graphics card'}</h1>
-          <dl className="exo-pc-hero-facts">
-            {known.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}
-          </dl>
+          <h1 className="exo-pc-hero-name">{about?.name || profile?.gpu || driver?.card || 'This PC'}</h1>
+          {known.map(group => (
+            <dl key={group[0][0]} className="exo-pc-hero-facts">
+              {group.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}
+            </dl>
+          ))}
         </>
       ) : <Skeleton label="Reading this PC" rows={3} className="exo-pc-hero-wait" />}
     </section>

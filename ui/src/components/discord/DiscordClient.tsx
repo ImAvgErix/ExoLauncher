@@ -13,8 +13,10 @@ import { AddServer, ImageHost, ProfileHost, useProfileReadAhead } from './extras
 import { ForumView } from './Forum'
 import { isPage, ServerPage } from './serverPages'
 import { FullProfileHost } from './DmProfile'
+import { ReportHost } from './Report'
 import { ProfilePlaces } from './profileParts'
 import { UserMenuHost } from './UserMenu'
+import { ThreadMenuHost } from './ThreadMenu'
 import { ImageMenuHost } from './ImageMenu'
 import { AppModalHost } from './AppModal'
 import { MfaHost } from './MfaDialog'
@@ -78,6 +80,56 @@ function threadChannel(thread: { id: string; name: string; locked?: boolean }): 
 }
 
 /** Keeps the server (or DMs) you're in and the channel open there across restarts; a server you've left falls back to your DMs. */
+type Stop = { place: string; open: string | null; thread: DiscordChannel | null }
+
+/**
+ * Back and Forward through where you've been in the room (servers, DMs, channels, threads), as Discord's client has
+ * them: the mouse's side buttons, or Alt+Left and Alt+Right, while the room is showing. At most 50 steps back.
+ */
+function useBackForward(active: boolean, place: string, open: string | null, thread: DiscordChannel | null,
+  navigate: (to: string, channelId: string | null, inThread?: DiscordChannel | null) => void) {
+  const trail = useRef<Stop[]>([])
+  const at = useRef(-1)
+  const stepping = useRef(false)
+  useEffect(() => {
+    if (!open) return
+    const here = trail.current[at.current]
+    if (here && here.place === place && here.open === open && here.thread?.id === thread?.id) return
+    // A step taken with Back or Forward lands where it went; anything else starts a new way forward from here.
+    if (stepping.current) { stepping.current = false; return }
+    trail.current = [...trail.current.slice(Math.max(0, at.current - 48), at.current + 1), { place, open, thread }]
+    at.current = trail.current.length - 1
+  }, [place, open, thread])
+  useEffect(() => {
+    if (!active) return
+    const step = (by: -1 | 1) => {
+      const next = trail.current[at.current + by]
+      if (!next) return
+      at.current += by
+      stepping.current = true
+      navigate(next.place, next.open, next.thread)
+    }
+    const onMouse = (event: MouseEvent) => {
+      if (event.button !== 3 && event.button !== 4) return
+      event.preventDefault()
+      if (event.type === 'mouseup') step(event.button === 3 ? -1 : 1)
+    }
+    const onKey = (event: KeyboardEvent) => {
+      if (!event.altKey || event.ctrlKey || event.shiftKey || (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight')) return
+      event.preventDefault()
+      step(event.key === 'ArrowLeft' ? -1 : 1)
+    }
+    window.addEventListener('mousedown', onMouse)
+    window.addEventListener('mouseup', onMouse)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('mousedown', onMouse)
+      window.removeEventListener('mouseup', onMouse)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [active, navigate])
+}
+
 function useRememberWhere(home: DiscordHome | null, place: string, open: string | null, thread: DiscordChannel | null, leave: () => void) {
   useEffect(() => {
     if (open) {
@@ -134,6 +186,7 @@ export function DiscordClient({ active }: { active: boolean }) {
 
   const toDms = useCallback(() => navigate(HOME, null), [navigate])
   useRememberWhere(home, place, open, thread, toDms)
+  useBackForward(active, place, open, thread, navigate)
 
   useEffect(() => { refreshHome() }, [refreshHome])
 
@@ -209,7 +262,8 @@ export function DiscordClient({ active }: { active: boolean }) {
     const { guildId, channelId } = voice.voice
     if (channelId) navigate(guildId ?? HOME, channelId)
   }
-  const panel = <UserPanel home={home} voice={voice} voicePlace={voicePlaceName(voice, list, home)} status={home?.me?.status ?? null} onOpenVoice={openVoice} />
+  const panel = <UserPanel home={home} voice={voice} voicePlace={voicePlaceName(voice, list, home)} callIds={voiceCallIds(voice, list, home)}
+    status={home?.me?.status ?? null} onOpenVoice={openVoice} />
   const channelName = useCallback((id: string) => list?.channels.find(c => c.id === id)?.name ?? null, [list])
 
   // An invite link clicked in a message joins the server (already in: opens it) at the invite's channel, as Discord's app
@@ -294,11 +348,13 @@ export function DiscordClient({ active }: { active: boolean }) {
       <Suspense fallback={null}><DiscordSettings open={!!settingsAt} section={settingsAt ?? lastSettings.current} home={home} onSection={setSettingsAt} onClose={closeSettings} /></Suspense>
       <ProfileHost key={`p${opened}`} meId={meId} onMessage={messageUser} />
       <UserMenuHost key={`m${opened}`} place={place} list={list} home={home} />
+      <ThreadMenuHost key={`t${opened}`} />
       <FullProfileHost key={`f${opened}`} meId={meId} onMessage={messageUser} />
       <ImageHost key={`i${opened}`} />
       <ImageMenuHost />
       <AppModalHost guildId={place === HOME ? null : place} />
       <MfaHost />
+      <ReportHost />
       {adding ? <AddServer refused={adding} onClose={() => setAdding(false)} onJoined={id => { setAdding(false); refreshHome(); go(id) }} /> : null}
       {caller ? <IncomingCall name={caller.name} onJoin={video => { navigate(HOME, caller.id); void voice.join(null, caller.id, video) }} onDecline={() => voice.decline(caller.id)} /> : null}
       <Rail home={home} place={place} onGo={railGo} onOpenDm={id => navigate(HOME, id)} onPeek={peekPlace} onAdd={() => setAdding(true)} homeIcon={<CompanyLogo company="discord" size={18} />} />
@@ -307,7 +363,7 @@ export function DiscordClient({ active }: { active: boolean }) {
         ? <DmSidebar home={home} open={open} onPick={pick} />
         : (
           <ServerSidebar key={`${place}:${fromOutside}`} guildId={place} name={list?.name ?? railGuild(home, place)?.name ?? ''}
-            guild={railGuild(home, place)} list={list} open={open} voice={voice}
+            guild={railGuild(home, place)} list={list} open={open} thread={thread?.id} voice={voice}
             onPick={pick} onJoin={id => { pick(id); if (voice.voice.channelId !== id || voice.voice.state === 'off') void voice.join(place, id) }}
             onMarkRead={() => void host.discordMarkRead(place).catch(() => { })}
             onLeave={() => void host.discordServer('leave', { guildId: place }).then(result => { if (result.ok) go(HOME) }).catch(() => { })} />
@@ -412,6 +468,16 @@ function voicePlaceName(voice: VoiceControls, list: DiscordChannels | null, home
   const name = channels?.find(c => c.id === channelId)?.name
   const server = home?.guilds.find(g => g.id === guildId)?.name
   return name ? (server ? `${name} / ${server}` : name) : server ?? null
+}
+
+// Who is in your call: the voice channel's people in its server's list, or the DM's call. The Jam box looks for their songs.
+function voiceCallIds(voice: VoiceControls, list: DiscordChannels | null, home: DiscordHome | null): string[] {
+  const { channelId, guildId, state } = voice.voice
+  if (!channelId || state !== 'connected') return []
+  const members = guildId
+    ? (list?.channels.some(c => c.id === channelId) ? list : shownLists.get(guildId))?.channels.find(c => c.id === channelId)?.members
+    : home?.dms.find(d => d.id === channelId)?.call
+  return members?.map(member => member.id) ?? []
 }
 
 type ConversationProps = {

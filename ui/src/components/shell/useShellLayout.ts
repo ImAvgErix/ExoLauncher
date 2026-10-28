@@ -3,7 +3,7 @@ import { host, type ChromeLayout, type ChromeRect, type LauncherSettings } from 
 import { applyTextTheme, textThemeFrom } from '../../lib/exoTheme'
 import { APPEARANCE_KEY, asAppearance, storedAppearance, subscribeWindowsMode, themeOf, windowsLight } from '../../lib/appearance'
 import { transition } from '../../lib/viewTransition'
-import { modalOpen, watchLayers } from '../../lib/dismiss'
+import { anythingOpen, watchLayers } from '../../lib/dismiss'
 
 export type ShellLayout = {
   /** The app setting or Windows asks for less motion. */
@@ -25,7 +25,8 @@ function systemReducesMotion(): boolean {
 const TITLE_BAND = '.exo-titlebar'
 /** What takes a click in the title band. Every other point of the band drags the window. */
 const TITLE_BAND_CONTROLS = 'button,a,input,select,textarea,[role="button"],[role="slider"]'
-/** While a sheet or dialog dims the app, only this top strip drags the window: a press anywhere else on the band reaches the page and closes it. */
+/** While anything is open (a sheet, a dialog, a menu, a popover), only this top strip drags the window: a press anywhere
+    else on the band reaches the page and closes it (before, a menu stayed open when the Bar's empty space was pressed). */
 const MODAL_DRAG_STRIP = 6
 
 function bandRect(element: Element, band: DOMRect): ChromeRect | null {
@@ -52,7 +53,7 @@ function measureTitleBand(bar: Element): ChromeLayout {
   const band = bar.getBoundingClientRect()
   const maximize = bar.querySelector('[data-exo-maximize]')
   const below = { x: Math.floor(band.left), y: Math.floor(band.top) + MODAL_DRAG_STRIP, width: Math.ceil(band.width), height: Math.ceil(band.height) - MODAL_DRAG_STRIP }
-  const interactiveRegions = modalOpen() ? [below] : [...bar.querySelectorAll(TITLE_BAND_CONTROLS)]
+  const interactiveRegions = anythingOpen() ? [below] : [...bar.querySelectorAll(TITLE_BAND_CONTROLS)]
     // A control inside another measured control is already covered.
     .filter(element => element !== maximize && !element.parentElement?.closest(TITLE_BAND_CONTROLS))
     .flatMap(element => bandRect(element, band) ?? [])

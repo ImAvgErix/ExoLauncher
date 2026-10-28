@@ -1,3 +1,4 @@
+import { CopyLogs } from '../../ui/ErrorNote'
 import { useEffect, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react'
 import { host } from '../../../lib/host'
 import { report } from '../../../lib/report'
@@ -10,7 +11,7 @@ import { Slider } from '../../ui/Slider'
 export function Row({ label, detail, error, children }: { label: string; detail?: ReactNode; error?: string | null; children?: ReactNode }) {
   return (
     <div className="exo-dc-settings-row">
-      <span className="exo-dc-settings-copy"><strong>{label}</strong>{detail ? <span>{detail}</span> : null}{error ? <em role="alert">{error}</em> : null}</span>
+      <span className="exo-dc-settings-copy"><strong>{label}</strong>{detail ? <span>{detail}</span> : null}{error ? <em role="alert">{error} <CopyLogs error={error} /></em> : null}</span>
       {children}
     </div>
   )
@@ -164,7 +165,7 @@ export function LoadError({ error, onRetry }: { error: string | null; onRetry: (
   if (!error) return null
   return (
     <p className="exo-dc-settings-note" role="alert">
-      {error} <button type="button" className="exo-set-btn" onClick={onRetry}>Try again</button>
+      {error} <button type="button" className="exo-set-btn" onClick={onRetry}>Try again</button> <CopyLogs error={error} />
     </p>
   )
 }

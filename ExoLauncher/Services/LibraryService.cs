@@ -1422,7 +1422,8 @@ public sealed class LibraryService
                     : owned ? EntitlementState.Owned : EntitlementState.NotOwned,
                 // Unverified (Steam closed, no Web API key) is not "not owned": the update stays.
                 UpdateAvailable = (owned || !verified) && entry.UpdateAvailable,
-                CanInstall = !entry.Installed && owned,
+                // A finished preload installs itself on release day; Steam refuses an install before.
+                CanInstall = !entry.Installed && owned && entry.Status != "Preloaded",
                 Path = entry.Path,
                 CoverUrl = entry.CoverUrl,
                 CoverSource = entry.CoverSource,

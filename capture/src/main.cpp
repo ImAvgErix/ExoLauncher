@@ -832,6 +832,15 @@ private:
     // Session thread only: the game and the settings change there.
     std::wstring GameName() const { return m_gameWindow && !m_gameTitle.empty() ? SafeName(m_gameTitle) : L"Desktop"; }
     std::wstring GameId() const { return m_gameWindow ? m_gameId : L""; }
+    /// True when the window is one of the game's (the process its window belongs to). On the session thread.
+    bool IsGame(HWND hwnd) const
+    {
+        if (!hwnd || !m_gameWindow) return false;
+        DWORD pid = 0, game = 0;
+        GetWindowThreadProcessId(hwnd, &pid);
+        GetWindowThreadProcessId(m_gameWindow, &game);
+        return pid && pid == game;
+    }
 
     /// Configure changes the settings under the state lock: other threads read a copy.
     Settings SettingsNow()
@@ -864,14 +873,16 @@ private:
         return MonitorFromWindow(GetForegroundWindow(), MONITOR_DEFAULTTOPRIMARY);
     }
 
-    /// game: the Exo game id it belongs to; empty lets Exo take it from the file's folder.
-    static void Saved(const wchar_t* kind, const std::wstring& path, int64_t duration, const std::wstring& game)
+    /// game: the Exo game id it belongs to; empty lets Exo take it from the file's folder. inGame: taken while the game
+    /// was in front (Exo stays behind it).
+    static void Saved(const wchar_t* kind, const std::wstring& path, int64_t duration, const std::wstring& game, bool inGame = false)
     {
         auto o = Obj();
         o.Insert(L"kind", json::JsonValue::CreateStringValue(kind));
         o.Insert(L"path", json::JsonValue::CreateStringValue(path));
         o.Insert(L"durationMs", json::JsonValue::CreateNumberValue(duration / 10'000.0));
         o.Insert(L"game", json::JsonValue::CreateStringValue(game));
+        if (inGame) o.Insert(L"inGame", json::JsonValue::CreateBooleanValue(true));
         Emit(L"saved", o);
     }
 
@@ -985,21 +996,26 @@ private:
 
     void StartSnip()
     {
-        m_ui.Snip([this](std::optional<SnipResult> result) {
+        // What was in front before the overlay took it: over the game, the snip stays out of its way.
+        HWND front = GetForegroundWindow();
+        m_ui.Snip([this, front](std::optional<SnipResult> result) {
             if (!result) return;
             auto snip = std::make_shared<SnipResult>(std::move(*result));
             // On the window thread: the clipboard wants a window of ours.
             CopyImageToClipboard(m_ui.Window(), snip->pixels.data(), snip->width, snip->height, snip->width * 4);
-            // The snip opens in Exo's editor: we took the last click, so Exo may come to the front.
-            AllowSetForegroundWindow(ASFW_ANY);
-            m_jobs.Post([this, snip] {
+            m_jobs.Post([this, snip, front] {
+                // The snip opens in Exo's editor: we took the last click, so Exo may come to the front. Over the game it
+                // doesn't: the game keeps the focus, a toast says it is saved, and the snip waits in Captures.
+                bool inGame = IsGame(front);
+                if (!inGame) AllowSetForegroundWindow(ASFW_ANY);
                 try
                 {
                     auto name = GameName();
                     auto path = FreePath(FolderFor(m_settings.folder, name), name + L" " + Stamp(), L".png");
                     SaveImage(path, snip->pixels.data(), snip->width, snip->height, snip->width * 4, true);
                     WriteThumb(m_settings.thumbs, path, snip->pixels, snip->width, snip->height);
-                    Saved(L"snip", path, 0, GameId());
+                    Saved(L"snip", path, 0, GameId(), inGame);
+                    if (inGame) m_ui.Toast(L"Snip saved", L"Copied", snip->monitor);
                 }
                 catch (const std::exception& e)
                 {

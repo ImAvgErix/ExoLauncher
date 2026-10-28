@@ -119,6 +119,8 @@ User = the RTX 3070 profile's value. "All" means every series and both variants.
 | 283385329 (0x10E41DF1) | DLSS FG preset | C | **C** on every RTX card, untouched GTX | NVIDIA's performance preset: up to 36% cheaper frame generation (most at 4x-6x on RTX 50), a minor image trade-off. On RTX 20/30 only mods that bring frame generation there read it. Where the DLL lacks C (before 310.9.16) the driver keeps its default. | C386, NPI |
 | 283385347 (0x10E41E03) | DLSS FG newest DLL | On | **On** every RTX card, untouched GTX | As SR; C needs 310.9.16 or later. | NV |
 | 283385348 (0x10E41E04) | DLSS NR newest DLL | On | default | Too new to judge; few games ship it. | NPI |
+| 283385350 (0x10E41E06) | DLSS Streamline override (616.56+, not in the file) | - | never touched | Swaps a game's Streamline plug-ins for NVIDIA's newest. The DLL and preset overrides above reach Streamline games without it (NGX loads the DLSS DLLs); NVIDIA's app turns it on per game with its DLSS override and predefines it off for some apps. Globally it would hit every Streamline game, including old ones where newer plug-ins broke frame generation, and anti-cheat games NVIDIA never tested. | NPI #501, #500, #304 |
+| 283385349 (0x10E41E05) | DLSS NR Streamline override (not in the file) | - | never touched | Same, for Neural Rendering. | NPI |
 | 279951208 (0x10AFB768) | DLSS SR forced mode | Game decides | default | The game's mode choice stays. | NV |
 | 280859683 (0x10BD9423) | DLSS RR forced mode | Game decides | default | Same. | NV |
 | 283385333 (0x10E41DF5) | DLSS SR forced ratio | Off | default | Same. | NV |
@@ -149,6 +151,7 @@ While a library game runs, `MainWindow.Dlss.cs` asks the driver every 15 s (for 
 - BBF: Blur Busters forum, Reflex cap formula, forums.blurbusters.com/viewtopic.php?p=125563
 - NV: NVIDIA `NvApiDriverSettings.h` (ids, value enums, defaults), github.com/NVIDIA/nvapi
 - NPI: NVIDIA Profile Inspector 3.0.2.3 `CustomSettingNames.xml` and `Reference.xml`, github.com/Orbmu2k/nvidiaProfileInspector
+- NPI #n: that repository's pull request #501 (the Streamline override and Resizable BAR v2 from driver 616.56, with testers' findings) and issues #500, #388, #304
 - TS: TechSpot, "Nvidia DLSS 4.5 vs DLSS 4", techspot.com/article/3080-nvidia-dlss-45-vs-40/
 - HH: HotHardware, "NVIDIA DLSS 4.5 Benchmarked Across GeForce RTX 50, 40 And 30 GPUs", hothardware.com/news/nvidia-dlss-45-benchmarked
 - NVSR: NVIDIA DLSS Super Resolution Programming Guide 310.6 (execution time and memory per preset and GPU), github.com/NVIDIA/DLSS/blob/main/doc/DLSS_Programming_Guide_Release.pdf
@@ -173,7 +176,7 @@ Exo's pick for each, and why. Revisit when new measurements appear.
 5. Resizable BAR: NVIDIA's per-game list; forced-on gains are synthetic and some games lose frames.
 6. DLSS presets per series, with the newest DLLs on every RTX card. Super Resolution: Recommended on RTX 40/50, K on RTX 20/30 (the user's decision; NVIDIA's timings agree). Ray Reconstruction: Recommended (F) on RTX 40/50 and F on RTX 20/30, replacing E: NVIDIA's own tables put F at the same speed or faster than E on RTX 20/30, and the 0.06-0.3 ms it adds on RTX 40/50 is within 1 fps in games for a clearly better image. Frame Generation: C everywhere (performance first).
 7. Smooth Motion and a forced multi-frame count are never touched: frame generation stays the player's.
-8. DLSS Streamline override (616.56): not written; what it swaps is undocumented.
+8. DLSS Streamline overrides (616.56): never touched (a `Leave` rule). NVIDIA documents neither; Profile Inspector's testers found the NVIDIA app sets 0x10E41E06 with its per-game DLSS override and that it swaps the game's Streamline plug-ins for the ones in `ProgramData\NVIDIA\NGX\models` (NPI #501, #500). Forcing them globally helped nothing in older DLSS games there, and replaced plug-ins have broken frame generation in pre-2.1 Streamline games (NPI #304). Revisit if NVIDIA documents it or a global preset stops applying in a Streamline game (NPI #388).
 9. Vulkan/OpenGL present method: Auto; layered on DXGI can break overlays and capture.
 10. Background FPS limit and RTX 50 32-bit PhysX: driver default.
 11. Model preset profile Custom on RTX 40/50 too (was Recommended): under Recommended the forced Frame Generation C is ignored.

@@ -62,8 +62,14 @@ public static class Program
                     .GetResult();
                 return;
             }
-            mainInstance.Activated += (_, _) =>
+            // A text file Windows opens with Exo (Notes' --note "%1"): in Notes once the page asks, Exo starting with it.
+            if (Services.NoteTextFiles.NoteArgument(args) is { } note) Services.WebHostBridge.QueueNoteFromWindows(note);
+            mainInstance.Activated += (_, activated) =>
             {
+                // Exo already open: the file opens in Notes now.
+                if (activated.Data is Windows.ApplicationModel.Activation.ILaunchActivatedEventArgs launch
+                    && Services.NoteTextFiles.NoteArgument(Services.NoteTextFiles.Split(launch.Arguments)) is { } opened)
+                    _ = Task.Run(() => App.MainAppWindow?.OpenNoteFromWindows(opened));
                 Interlocked.Exchange(ref _restoreRequested, 1);
                 TryDeliverRestore();
             };

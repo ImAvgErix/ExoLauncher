@@ -67,7 +67,13 @@ public sealed partial class WebHostBridge
         ExoComponents.FailedTwice += OnComponentFailed;
         _runStatePoll = new System.Threading.Timer(_ => PollRunStates(), null, TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(5));
         _services.Launcher.GameSessionCompleted += ReapplyCalibrationsAfter;
+        _services.Launcher.GameLaunching += ApplyGameProfile;
         WatchDevices();
+        KeepSteamClientCurrent();
+        WatchVersions();
+        HoldLucidForGames();
+        RetireSteamOverlayDefault();
+        _ = Task.Run(EpicQuietSettings.HandToExo);
     }
 
     /// <summary>
@@ -143,8 +149,10 @@ public sealed partial class WebHostBridge
         _services.Launcher.DownloadQueueChanged -= OnDownloadQueueChanged;
         _services.Launcher.GameSessionCompleted -= OnGameSessionCompleted;
         _services.Launcher.GameSessionCompleted -= ReapplyCalibrationsAfter;
+        _services.Launcher.GameLaunching -= ApplyGameProfile;
         _services.Launcher.GameLaunched -= OnGameLaunched;
         _services.Launcher.GameRunStateChanged -= OnGameRunStateChanged;
+        _services.Launcher.GameRunStateChanged -= ReleaseLucidAfterGames;
         _services.Shaders.Changed -= OnShadersChanged;
         _services.Store.Changed -= OnStoreChanged;
         _services.Achievements.SummaryChanged -= OnAchievementsChanged;
@@ -182,6 +190,8 @@ public sealed partial class WebHostBridge
     // pending sample so events never arrive out of order.
     private const int ProgressPostIntervalMs = 250;
     private readonly object _progressGate = new();
+    // Games whose download asked for a banner this run (under _progressGate).
+    private readonly HashSet<string> _bannerAsked = new(StringComparer.OrdinalIgnoreCase);
     private InstallProgress? _progressPosted;
     private InstallProgress? _progressPending;
     private long _progressPostedAtMs;
@@ -224,7 +234,24 @@ public sealed partial class WebHostBridge
         // The page reloads the library the moment it hears "completed": the library must already know it changed,
         // or that reload reuses the store's last answer and the new game shows as not installed.
         if (p.Phase == InstallPhase.Completed) _services.Library.Invalidate();
+        else if (_bannerAsked.Add(p.GameId)) _ = WarmBannerAsync(p.GameId);
         PostEvent("install.progress", MapProgress(p));
+    }
+
+    /// <summary>
+    /// A game that starts downloading gets its banner: Continue shows it wide, and library warms fetch banners for
+    /// installed games only, so a download showed its poster blurred into a wash.
+    /// </summary>
+    private async Task WarmBannerAsync(string id)
+    {
+        try
+        {
+            if (_services.Library.AllSourceEntries().FirstOrDefault(g => string.Equals(g.Id, id, StringComparison.OrdinalIgnoreCase)) is not { } game) return;
+            if (await CoverArtService.WarmBannerAsync(game, _bridgeLifetime.Token).ConfigureAwait(false))
+                await _services.Library.PublishArtworkChangeAsync(game.Id, recomputeComputedCovers: false, _bridgeLifetime.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex) { AppLog.Debug($"Banner for a download failed: {ex.GetType().Name}: {ex.Message}"); }
     }
 
     // A Steam download Steam started itself gets live progress too (see LaunchOrchestrator.FollowSteamTransfers).
@@ -466,6 +493,7 @@ public sealed partial class WebHostBridge
                         hasParams ? DesktopClientHost.ReadCutouts(paramsEl) : null)
                     : new { ok = false, message = "The app window is unavailable." },
                 "music.playback" => App.MainAppWindow?.MusicPlayback() ?? new { ok = false, playback = (object?)null },
+                "music.match" => hasParams ? MusicMatch.Answer(paramsEl) : new { ok = false, message = "Nothing to match." },
                 "music.control" => App.MainAppWindow is { } controlWindow
                     ? await controlWindow.ControlMusicAsync(ReadString(paramsEl, hasParams, "action"),
                         ReadDouble(paramsEl, hasParams, "positionMs")).ConfigureAwait(true)
@@ -550,14 +578,27 @@ public sealed partial class WebHostBridge
                 "runtimes.list" => await RuntimesListAsync(requestToken).ConfigureAwait(true),
                 "runtimes.install" => await RuntimesInstallAsync(paramsEl, hasParams, requestToken).ConfigureAwait(true),
                 "runtimes.cancel" => _services.Dependencies.Cancel(),
-                "replaced.scan" => await Task.Run(() => ReplacedScan(ReadBool(paramsEl, hasParams, "clean") == true)).ConfigureAwait(true),
+                "notes.list" => await Task.Run(() => NotesList(ReadString(paramsEl, hasParams, "query"))).ConfigureAwait(true),
+                "notes.read" => await Task.Run(() => NotesRead(ReadString(paramsEl, hasParams, "id"))).ConfigureAwait(true),
+                "notes.save" => await Task.Run(() => NotesSave(paramsEl, hasParams)).ConfigureAwait(true),
+                "notes.act" => await NotesActAsync(paramsEl, hasParams).ConfigureAwait(true),
+                "notes.session" => await Task.Run(() => NotesSession(paramsEl, hasParams)).ConfigureAwait(true),
+                "notes.open" => await NotesOpenAsync().ConfigureAwait(true),
+                "notes.saveAs" => await NotesSaveAsAsync(paramsEl, hasParams).ConfigureAwait(true),
+                "notes.pending" => NotesPending(),
+                "notes.spell" => await NotesSpellAsync(paramsEl, hasParams).ConfigureAwait(true),
+                "notes.textFiles" => await NotesTextFilesAsync(ReadString(paramsEl, hasParams, "action")).ConfigureAwait(true),
+                "replaced.scan" =>await Task.Run(() => ReplacedScan(ReadBool(paramsEl, hasParams, "clean") == true)).ConfigureAwait(true),
                 "replaced.remove" => await ReplacedRemoveAsync(ReadString(paramsEl, hasParams, "id") ?? "", requestToken).ConfigureAwait(true),
                 "apps.list" => await Task.Run(AppsList).ConfigureAwait(true),
                 "apps.icons" => await AppsIconsAsync(paramsEl, hasParams).ConfigureAwait(true),
-                "apps.uninstall" => await AppsUninstallAsync(ReadString(paramsEl, hasParams, "id") ?? "", requestToken).ConfigureAwait(true),
+                "apps.confirm" => await AppsConfirmAsync(paramsEl, hasParams).ConfigureAwait(true),
+                "apps.uninstall" => await AppsUninstallAsync(ReadString(paramsEl, hasParams, "id") ?? "", ReadString(paramsEl, hasParams, "pass"), requestToken).ConfigureAwait(true),
                 "apps.scan" => await AppsScanAsync(ReadString(paramsEl, hasParams, "id") ?? "", requestToken).ConfigureAwait(true),
                 "apps.clean" => await AppsCleanAsync(paramsEl, hasParams, requestToken).ConfigureAwait(true),
                 "apps.allowEdge" => await AppsAllowEdgeAsync(requestToken).ConfigureAwait(true),
+                "junk.scan" => await JunkScanAsync().ConfigureAwait(true),
+                "junk.clean" => await JunkCleanAsync(paramsEl, hasParams).ConfigureAwait(true),
                 "desktopClients.install" => App.MainAppWindow is { } desktopInstallWindow
                     ? await desktopInstallWindow.InstallDesktopClientAsync(ReadString(paramsEl, hasParams, "id")).ConfigureAwait(true)
                     : new { ok = false, message = "The app window is unavailable." },
@@ -580,6 +621,7 @@ public sealed partial class WebHostBridge
                 "accounts.signOut" => await AccountsSignOutAsync(paramsEl, hasParams, requestToken).ConfigureAwait(true),
                 "accounts.epicImport" => await AccountsEpicImportAsync(requestToken).ConfigureAwait(true),
                 "accounts.epicAdd" => await AccountsEpicAddAsync(requestToken).ConfigureAwait(true),
+                "accounts.epicNewLauncher" => await AccountsEpicNewLauncherAsync(requestToken).ConfigureAwait(true),
                 "accounts.epicRemove" => await AccountsEpicRemoveAsync(paramsEl, hasParams, requestToken).ConfigureAwait(true),
                 "shell.minimize" => MinimizeWindow(),
                 "shell.maximize" => ToggleMaximize(),
@@ -594,6 +636,7 @@ public sealed partial class WebHostBridge
                 "app.log" => LogFromUi(paramsEl, hasParams),
                 "app.repairCache" => await RepairCacheAsync(paramsEl, hasParams).ConfigureAwait(false),
                 "app.openLogs" => OpenLogsFolder(),
+                "app.logsFor" => await LogsForAsync(paramsEl, hasParams).ConfigureAwait(true),
                 "app.checkUpdate" => await CheckUpdateAsync(ReadBool(paramsEl, hasParams, "manual") == true, requestToken).ConfigureAwait(true),
                 "app.installUpdate" => await InstallUpdateAsync(requestToken).ConfigureAwait(true),
                 "dlss.status" => await DlssStatusAsync(paramsEl, hasParams, requestToken).ConfigureAwait(true),
@@ -605,11 +648,12 @@ public sealed partial class WebHostBridge
                 "shaders.status" => await ShadersStatusAsync(paramsEl, hasParams, requestToken).ConfigureAwait(true),
                 "shaders.estimates" => await ShadersEstimatesAsync(requestToken).ConfigureAwait(true),
                 "hdr.state" => await Task.Run(HdrState).ConfigureAwait(true),
-                "stores.quiet" => await QuietStoresAsync(requestToken).ConfigureAwait(true),
                 "hdr.game" => await HdrGameAsync(paramsEl, hasParams, requestToken).ConfigureAwait(true),
+                "game.settings" => await GameSettingsAsync(paramsEl, hasParams, requestToken).ConfigureAwait(true),
                 "gpu.display" => await GpuDeadlineAsync(GpuDisplayAsync(paramsEl, hasParams), TimeSpan.FromSeconds(25), requestToken).ConfigureAwait(true),
                 "discord.status" => DiscordStatus(paramsEl, hasParams),
                 "discord.signIn" => DiscordSignIn(paramsEl, hasParams),
+                "discord.accounts" => DiscordAccountsCall(paramsEl, hasParams),
                 "discord.signOut" => await DiscordSignOutAsync().ConfigureAwait(true),
                 "app.notify" => hasParams ? AppNotify(paramsEl) : new { ok = false },
                 "discord.home" => DiscordHome(),
@@ -629,6 +673,7 @@ public sealed partial class WebHostBridge
                 "discord.ring" => await DiscordRingAsync(paramsEl, hasParams, requestToken).ConfigureAwait(true),
                 "discord.friends" => DiscordFriends(),
                 "discord.friend" => await DiscordFriendAsync(paramsEl, hasParams, requestToken).ConfigureAwait(true),
+                "discord.report" => await DiscordReportAsync(paramsEl, hasParams, requestToken).ConfigureAwait(true),
                 "discord.markRead" => await DiscordMarkReadAsync(paramsEl, hasParams, requestToken).ConfigureAwait(true),
                 "discord.setStatus" => await DiscordSetStatusAsync(paramsEl, hasParams, requestToken).ConfigureAwait(true),
                 "discord.members" => DiscordMembers(paramsEl, hasParams),
@@ -680,13 +725,11 @@ public sealed partial class WebHostBridge
                 "controller.test" => await Task.Run(() => ControllerTestAsync(paramsEl, hasParams, requestToken)).ConfigureAwait(true),
                 "controller.watch" => await Task.Run(() => ControllerWatch(paramsEl, hasParams)).ConfigureAwait(true),
                 "steamInput.state" => await Task.Run(SteamInputState).ConfigureAwait(true),
-                "steamInput.set" => await Task.Run(() => SteamInputSetAsync(paramsEl, hasParams, requestToken)).ConfigureAwait(true),
                 "controller.calibrate" => await Task.Run(() => ControllerCalibrateAsync(paramsEl, hasParams, requestToken)).ConfigureAwait(true),
-                "controller.curve" => ControllerCurve(paramsEl, hasParams),
-                "controller.profiles" => await Task.Run(() => ControllerProfilesAsync(paramsEl, hasParams, requestToken)).ConfigureAwait(true),
-                "controller.profileSave" => await Task.Run(() => ControllerProfileSaveAsync(paramsEl, hasParams, requestToken)).ConfigureAwait(true),
-                "controller.profileClear" => await Task.Run(() => ControllerProfileClearAsync(paramsEl, hasParams, requestToken)).ConfigureAwait(true),
-                "controller.profileUndo" => await Task.Run(() => ControllerProfileUndoAsync(paramsEl, hasParams, requestToken)).ConfigureAwait(true),
+                "controller.settings" => await Task.Run(() => ControllerSettingsAsync(paramsEl, hasParams, requestToken)).ConfigureAwait(true),
+                "controller.sound" => await ControllerSoundAsync(paramsEl, hasParams).ConfigureAwait(true),
+                "controller.gameProfiles" => ControllerGameProfiles(),
+                "controller.gameProfilesSave" => await Task.Run(() => ControllerGameProfilesSave(paramsEl, hasParams)).ConfigureAwait(true),
                 "dictation.state" => await Task.Run(DictationState).ConfigureAwait(true),
                 "dictation.prepare" => await DictationPrepareAsync(requestToken).ConfigureAwait(true),
                 "dictation.start" => await Task.Run(DictationStart).ConfigureAwait(true),
@@ -699,6 +742,7 @@ public sealed partial class WebHostBridge
                 "gpu.game" => await GpuDeadlineAsync(GpuGameAsync(paramsEl, hasParams, requestToken), TimeSpan.FromSeconds(25), requestToken).ConfigureAwait(true),
                 "gpu.import" => await GpuImportAsync(paramsEl, hasParams, requestToken).ConfigureAwait(true),
                 "system.health" => await GpuDeadlineAsync(SystemHealthAsync(paramsEl, hasParams, requestToken), TimeSpan.FromSeconds(30), requestToken).ConfigureAwait(true),
+                "system.about" => await SystemAboutAsync(requestToken).ConfigureAwait(true),
                 "system.interrupts" => await SystemInterruptsAsync(paramsEl, hasParams, requestToken).ConfigureAwait(true),
                 "system.mouseCore" => await SystemMouseCoreAsync(paramsEl, hasParams, requestToken).ConfigureAwait(true),
                 "store.home" => await StoreHomeAsync(paramsEl, hasParams, requestToken).ConfigureAwait(true),
@@ -706,11 +750,13 @@ public sealed partial class WebHostBridge
                 "store.search" => await StoreSearchAsync(paramsEl, hasParams, requestToken).ConfigureAwait(true),
                 "store.game" => await StoreGameAsync(paramsEl, hasParams, requestToken).ConfigureAwait(true),
                 "store.gameOffers" => await StoreGameOffersAsync(paramsEl, hasParams, requestToken).ConfigureAwait(true),
+                "store.gameReviews" => await StoreGameReviewsAsync(paramsEl, hasParams, requestToken).ConfigureAwait(true),
                 "store.wishlist" => await StoreWishlistAsync(paramsEl, hasParams, requestToken).ConfigureAwait(true),
                 "store.open" => await StoreOpenAsync(paramsEl, hasParams, requestToken).ConfigureAwait(true),
                 // Listing opens every device to read its reports: off the UI thread, like the calls below.
                 "hid.list" => await Task.Run(() => HidList(paramsEl, hasParams)).ConfigureAwait(true),
                 "devices.list" => await Task.Run(DevicesList).ConfigureAwait(true),
+                "devices.openApp" => await Task.Run(() => DevicesOpenApp(paramsEl, hasParams)).ConfigureAwait(true),
                 "mouse.profiles.get" => MouseProfilesGet(),
                 "mouse.profiles.set" => MouseProfilesSet(paramsEl, hasParams),
                 "hid.open" or "hid.close" or "hid.sendReport" or "hid.sendFeatureReport" or "hid.receiveFeatureReport" or "hid.receiveInputReport"
@@ -842,6 +888,18 @@ public sealed partial class WebHostBridge
         return new { ok = false, message = $"Windows couldn’t open {what}." };
     }
 
+    /// <summary>app.logsFor: what an error's Copy logs button copies (<see cref="AppLog.ReportFor"/>), for the page to put on the clipboard.</summary>
+    private async Task<object> LogsForAsync(JsonElement p, bool hasParams)
+    {
+        var error = ReadString(p, hasParams, "error") ?? "";
+        var area = ReadString(p, hasParams, "area") ?? "";
+        var text = await Task.Run(() => AppLog.ReportFor(error.Length > 2000 ? error[..2000] : error, area, AppLog.RecentLines(), DateTime.UtcNow,
+            _services.AppVersion, Environment.OSVersion.Version.ToString(), Environment.UserName,
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile))).ConfigureAwait(true);
+        AppLog.Info($"Logs copied for an error in {(area.Length == 0 ? "the app" : area)}.");
+        return new { ok = true, text };
+    }
+
     private static object OpenLogsFolder()
     {
         try
@@ -887,6 +945,9 @@ public sealed partial class WebHostBridge
         // A Steam game with a EULA not yet accepted would stop at Steam's dialog: accepted first (Steam closes for a moment).
         if (game.Store == StoreKind.Steam && ExoLauncher.Adapters.Cli.SteamProtocol.IsValidAppId(game.LaunchTarget) && SteamEulaPending(game.LaunchTarget!))
             await ApplySteamOverlayAsync(null, userAsked: true, _bridgeLifetime.Token).ConfigureAwait(true);
+
+        // A game that isn't Steam's, sent through Steam Input: Steam starts it from its shortcut.
+        if (await PlayThroughSteamAsync(game).ConfigureAwait(true) is { } throughSteam) return throughSteam;
 
         PostEvent("launch.status", new
         {
@@ -1785,7 +1846,6 @@ public sealed partial class WebHostBridge
             riotId = RiotIdStore.TryRead(),
             riotHoursImported = PlaytimeService.TryGetImportedLifetimeObservedAt() is not null,
             showLibraryTools = s.ShowLibraryTools,
-            countHoursAcrossAccounts = s.CountHoursAcrossAccounts,
             hdrForGames = s.HdrForGames,
             hdrSdrGamma = s.HdrSdrGamma,
             discordNoiseSuppression = s.DiscordNoiseSuppression,
@@ -1796,8 +1856,6 @@ public sealed partial class WebHostBridge
             autoUpdateGames = s.AutoUpdateGames,
             autoUpdateChipset = s.AutoUpdateChipset,
             chipset = ChipsetUpdate.ThisPc is { } update && update.Installed() is not null ? update.Vendor : null,
-            steamOverlayDefaultOn = s.SteamOverlayDefaultOn,
-            quietStoreApps = s.QuietStoreApps,
             libraryFolders = s.LibraryFolders.Select(folder => new { id = folder.Id, name = folder.Name, color = folder.Color, sort = folder.Sort, art = _folderArt.ResolveUrl(folder.Art), games = folder.Games }),
             hiddenGames = s.HiddenGames,
 
@@ -1860,10 +1918,6 @@ public sealed partial class WebHostBridge
         if (p.TryGetProperty("showLibraryTools", out var slt) &&
             (slt.ValueKind is JsonValueKind.True or JsonValueKind.False))
             showLibraryTools = slt.GetBoolean();
-        bool? countHoursAcrossAccounts = null;
-        if (p.TryGetProperty("countHoursAcrossAccounts", out var cha) &&
-            (cha.ValueKind is JsonValueKind.True or JsonValueKind.False))
-            countHoursAcrossAccounts = cha.GetBoolean();
         bool? hdrForGames = null;
         if (p.TryGetProperty("hdrForGames", out var hdr) &&
             (hdr.ValueKind is JsonValueKind.True or JsonValueKind.False))
@@ -1891,7 +1945,6 @@ public sealed partial class WebHostBridge
             appearance = ap.GetString();
         string? whatsNewSeen = p.TryGetProperty("whatsNewSeen", out var wn) && wn.ValueKind == JsonValueKind.String ? wn.GetString() : null;
         var previousShowLibraryTools = _services.Settings.Current.ShowLibraryTools;
-        var previousCountHours = _services.Settings.Current.CountHoursAcrossAccounts;
         // Settings validate and commit first; a rejected patch must not leave
         // the Riot ID or developer secrets half-applied.
         _services.Settings.ApplyPatch(
@@ -1907,7 +1960,6 @@ public sealed partial class WebHostBridge
             framelessPinSide: framelessPinSide,
             showLibraryTools: showLibraryTools,
             preferredGameSources: preferredGameSources,
-            countHoursAcrossAccounts: countHoursAcrossAccounts,
             hdrForGames: hdrForGames,
             hdrSdrGamma: hdrSdrGamma,
             discordNoiseSuppression: discordNoiseSuppression,
@@ -1917,13 +1969,7 @@ public sealed partial class WebHostBridge
         if (appearance is not null && App.MainAppWindow is { } themed) themed.DispatcherQueue.TryEnqueue(themed.ApplyAppearance);
         if (showLibraryTools is { } tools && tools != previousShowLibraryTools)
             RefreshLibraryAfterToolsToggle();
-        else if (countHoursAcrossAccounts is { } all && all != previousCountHours)
-        {
-            if (all) EpicAccounts.RefreshAddedInBackground();
-            RefreshLibraryAfterToolsToggle();
-        }
         ApplyDownloadSettings(p);
-        ApplySteamOverlaySettings(p);
         ApplyDictationSetting(p);
         if (p.TryGetProperty("libraryFolders", out var folders) && folders.ValueKind == JsonValueKind.Array)
         {

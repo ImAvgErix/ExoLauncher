@@ -359,8 +359,6 @@ public sealed class AppSettings
     public bool LibraryShowOwned { get; set; } = true;
     /// <summary>Show demos, soundtracks, and tools on the library shelf.</summary>
     public bool ShowLibraryTools { get; set; }
-    /// <summary>Hours sum every Steam account and every Epic account seen on this PC. Off keeps a shared PC separate.</summary>
-    public bool CountHoursAcrossAccounts { get; set; }
     /// <summary>HDR on for the main screen while a game runs, back off after (System > Graphics > HDR).</summary>
     public bool HdrForGames { get; set; }
     /// <summary>SDR content drawn with gamma 2.2 while a screen is in HDR (System > Graphics > HDR; <see cref="ExoLauncher.Helpers.SdrInHdr"/>).</summary>
@@ -463,10 +461,11 @@ public sealed class AppSettings
     /// it refuses Riot games and Riot Vanguard.
     /// </summary>
     public Dictionary<string, string> UpscalerAntiCheatConsent { get; set; } = new(StringComparer.OrdinalIgnoreCase);
-    /// <summary>Settings > Game stores > Steam overlay: on for a Steam game Exo has no record of. Off by default: it costs frames.</summary>
+    /// <summary>
+    /// Retired: Settings' old Steam overlay switch, read only so a PC that had it on goes back to the overlay off for
+    /// every game once (<c>RetireSteamOverlayDefault</c>); a game's Properties turn it on now.
+    /// </summary>
     public bool SteamOverlayDefaultOn { get; set; }
-    /// <summary>Settings > Game stores > Notifications and sounds: Steam's and Epic's own pop-ups and sounds kept off (<see cref="ExoLauncher.Adapters.StoreQuiet"/>).</summary>
-    public bool QuietStoreApps { get; set; }
     /// <summary>The Library's folders, in their order on the grid (<see cref="LibraryFolder"/>).</summary>
     public List<LibraryFolder> LibraryFolders { get; set; } = [];
     /// <summary>Games hidden from the Library (card ids): out of its grid, Continue and folders; Library's Hidden view lists them.</summary>
@@ -477,14 +476,27 @@ public sealed class AppSettings
     /// </summary>
     public Dictionary<string, string> SteamOverlay { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     /// <summary>
-    /// Devices > controller > Games read it themselves: Steam Input off for every Steam game with its own PlayStation
-    /// controller support, and Steam's desktop layout off (<see cref="ExoLauncher.Adapters.SteamInputConfig"/>).
+    /// Devices > controller > Sound in Windows: controllers' own speakers and microphones as Windows audio devices.
+    /// Off by default: Exo turns them off whenever a controller connects, so Windows never switches your sound to one.
     /// </summary>
-    public bool NativeControllers { get; set; }
+    public bool ControllerSound { get; set; }
     /// <summary>A game's Steam Input as picked in Exo, by app id: "native" (off) or "steam" (on); absent: Exo's default.</summary>
     public Dictionary<string, string> SteamInputChoices { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     /// <summary>Steam Input values Exo wrote, by app id: "prior>set", so turning it off puts the prior value back exactly.</summary>
     public Dictionary<string, string> SteamInput { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>
+    /// Games that aren't Steam's, sent through Steam Input from their Properties (they read Xbox controllers only), by
+    /// Exo game id: each starts as a Steam shortcut (<see cref="ExoLauncher.Adapters.SteamShortcuts"/>).
+    /// </summary>
+    public List<string> ThroughSteam { get; set; } = [];
+    /// <summary>The shortcuts Exo added for them, by game id: "&lt;Steam's app id&gt;:&lt;stamp&gt;", with "!" after it once the player changed its Steam Input in Steam.</summary>
+    public Dictionary<string, string> SteamShortcuts { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>A PlayStation controller has been on this PC while Exo ran: Properties offers Steam Input for games that aren't Steam's.</summary>
+    public bool PlayStationPadSeen { get; set; }
+    /// <summary>Exo has put Steam on its Beta Update (once; a player who leaves it in Steam stays off it).</summary>
+    public bool SteamBetaJoined { get; set; }
+    /// <summary>The NVIDIA driver branch the driver row last showed ("studio"; null: Game Ready), for the version watch.</summary>
+    public string? NvidiaDriverBranch { get; set; }
 }
 
 /// <summary>User-supplied launch extras for one library id.</summary>

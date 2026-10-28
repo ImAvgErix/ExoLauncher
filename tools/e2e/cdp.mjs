@@ -5,6 +5,11 @@ import { inflateSync } from 'node:zlib'
 
 export const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
+const UNSAFE = { '<': '\\u003C', '>': '\\u003E', '/': '\\u002F', '\u2028': '\\u2028', '\u2029': '\\u2029' }
+
+/** A value as a JavaScript literal for page code: JSON with <, >, / and the line separators escaped. */
+export const literal = (value) => JSON.stringify(value).replace(/[<>/\u2028\u2029]/g, (c) => UNSAFE[c])
+
 /** RGBA pixels of an 8-bit RGB or RGBA PNG, not interlaced (Chromium's captures and System.Drawing's). */
 export function pngPixels(buffer) {
   let at = 8, width = 0, height = 0, channels = 4
@@ -114,7 +119,7 @@ export class Shell {
 
   /** Evaluates a function body with JSON args: fn(...args) runs in the page. */
   call(fn, ...args) {
-    return this.eval(`(${fn.toString()})(...${JSON.stringify(args)})`)
+    return this.eval(`(${fn.toString()})(...${literal(args)})`)
   }
 
   /** Polls a page predicate (function) until it returns a truthy value. */
@@ -123,7 +128,7 @@ export class Shell {
     let last
     while (Date.now() < deadline) {
       // A DOM element can't cross CDP by value (it arrives as nothing): one found counts as true.
-      last = await this.eval(`(() => { const v = (${fn.toString()})(...${JSON.stringify(args)}); return v instanceof Element ? true : v })()`).catch((error) => { last = error; return null })
+      last = await this.eval(`(() => { const v = (${fn.toString()})(...${literal(args)}); return v instanceof Element ? true : v })()`).catch((error) => { last = error; return null })
       if (last) return last
       await sleep(interval)
     }
@@ -160,7 +165,7 @@ export class Shell {
    */
   async click(finder, ...args) {
     const pt = await this.eval(`(() => {
-      const el = (${finder.toString()})(...${JSON.stringify(args)})
+      const el = (${finder.toString()})(...${literal(args)})
       if (!el) return null
       el.scrollIntoView({ block: 'nearest', inline: 'nearest' })
       const r = el.getBoundingClientRect()
@@ -194,7 +199,7 @@ export class Shell {
   /** A real right-click at the element's centre (the page gets its contextmenu); returns the point or null. */
   async rightClick(finder, ...args) {
     const pt = await this.eval(`(() => {
-      const el = (${finder.toString()})(...${JSON.stringify(args)})
+      const el = (${finder.toString()})(...${literal(args)})
       if (!el) return null
       el.scrollIntoView({ block: 'nearest', inline: 'nearest' })
       const r = el.getBoundingClientRect()
@@ -245,11 +250,11 @@ class FrameShell {
     if (r.exceptionDetails) throw new Error('frame exception: ' + (r.exceptionDetails.exception?.description || r.exceptionDetails.text).slice(0, 600))
     return r.result.value
   }
-  call(fn, ...args) { return this.eval(`(${fn.toString()})(...${JSON.stringify(args)})`) }
+  call(fn, ...args) { return this.eval(`(${fn.toString()})(...${literal(args)})`) }
   async waitFor(fn, { timeoutMs = 10000, interval = 100, args = [] } = {}) {
     const deadline = Date.now() + timeoutMs
     while (Date.now() < deadline) {
-      const last = await this.eval(`(() => { const v = (${fn.toString()})(...${JSON.stringify(args)}); return v instanceof Element ? true : v })()`).catch(() => null)
+      const last = await this.eval(`(() => { const v = (${fn.toString()})(...${literal(args)}); return v instanceof Element ? true : v })()`).catch(() => null)
       if (last) return last
       await sleep(interval)
     }

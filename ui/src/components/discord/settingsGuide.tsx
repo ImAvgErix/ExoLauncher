@@ -5,6 +5,7 @@ import { admin, Field, SaveBar, useAdmin, useGuard } from './admin'
 import { ReactionEmoji } from './Reactions'
 import { Dialog } from './settingsAccess'
 import type { OnboardingPlace } from './settingsOnboarding'
+import { ErrorNote } from '../ui/ErrorNote'
 
 /**
  * Discord's Server Guide editor (Onboarding's last part): the welcome sign (its author and message), 3 to 5 tasks for
@@ -186,7 +187,7 @@ function ItemDialog({ place, kind, item, taken, onSave, onRemove, onClose }: {
         </Field>
       )}
       <Field label="Emoji" detail="Optional, shown beside it."><EmojiField emoji={draft.emoji ?? null} onChange={emoji => set({ emoji })} /></Field>
-      {error ? <p className="exo-dialog-error" role="alert">{error}</p> : null}
+      {error ? <ErrorNote className="exo-dialog-error" message={error} /> : null}
     </Dialog>
   )
 }

@@ -43,7 +43,7 @@ function XboxRow({ saved, onSettings }: { saved: boolean; onSettings: (next: Lau
   return (
     <Row
       label="Xbox time played"
-      detail={note && !note.error ? note.text : 'Your OpenXBL key, for the hours Xbox shows'}
+      detail={note && !note.error ? note.text : undefined}
       error={note?.error ? note.text : null}
     >
       {open ? (
@@ -54,7 +54,7 @@ function XboxRow({ saved, onSettings }: { saved: boolean; onSettings: (next: Lau
             value={draft}
             autoComplete="off"
             spellCheck={false}
-            placeholder="Paste here"
+            placeholder="OpenXBL key"
             aria-label="OpenXBL key"
             disabled={busy}
             onChange={event => setDraft(event.target.value)}

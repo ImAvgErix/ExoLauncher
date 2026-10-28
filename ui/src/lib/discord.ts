@@ -39,6 +39,10 @@ export type DiscordGuild = {
   notify?: number
   suppressEveryone?: boolean
   suppressRoles?: boolean
+  /** Notification Settings' Suppress Highlights, Mute New Events and Mobile Push Notifications. */
+  suppressHighlights?: boolean
+  muteEvents?: boolean
+  mobilePush?: boolean
   /** You own it: no Leave Server. */
   owner?: boolean
 }
@@ -82,6 +86,23 @@ export function moveInRail(rail: DiscordRailItem[], source: string, drop: RailDr
   } else if (inFolder) to.guildIds.splice(to.guildIds.indexOf(drop.target) + after, 0, source)
   else next.splice(next.indexOf(to) + after, 0, lifted)
   return next.filter(item => item.guildIds.length > 0)
+}
+
+/** Move to's places for a server: the top or foot of its folder or of the list, or out of its folder (just after it). */
+export type ServerMove = 'folderFirst' | 'folderLast' | 'listFirst' | 'listLast' | 'noFolder'
+
+/** The server list with a server moved by Move to, or null when it is there already. */
+export function moveServer(rail: DiscordRailItem[], guildId: string, to: ServerMove): DiscordRailItem[] | null {
+  const folder = rail.find(item => item.id != null && item.guildIds.includes(guildId))
+  const keyOf = (item: DiscordRailItem) => item.id != null ? `folder:${item.id}` : item.guildIds[0]
+  const drop: RailDrop | null = to === 'listFirst' && rail.length ? { kind: 'before', target: keyOf(rail[0]) }
+    : to === 'listLast' && rail.length ? { kind: 'after', target: keyOf(rail[rail.length - 1]) }
+    : to === 'folderFirst' && folder ? { kind: 'before', target: folder.guildIds[0] }
+    : to === 'folderLast' && folder ? { kind: 'after', target: folder.guildIds[folder.guildIds.length - 1] }
+    : to === 'noFolder' && folder ? { kind: 'after', target: `folder:${folder.id}` }
+    : null
+  const next = drop ? moveInRail(rail, guildId, drop) : null
+  return next && railShape(next) !== railShape(rail) ? next : null
 }
 
 /** The list's order and folders alone, to tell whether a drop changes anything. */
@@ -160,6 +181,8 @@ export type DiscordChannels = {
   events?: number
   /** Hide Muted Channels: the sidebar leaves muted channels out. */
   hideMuted?: boolean
+  /** Discord's feature flags (COMMUNITY, GUILD_SERVER_GUIDE, ...). */
+  features?: string[]
   /** Opt-in mode: the sidebar lists only followed channels. */
   optIn?: boolean
   /** The server's banner hash, over the top of the channel list. */
@@ -169,7 +192,7 @@ export type DiscordChannels = {
   /** What this user may do in Server Settings and to members. */
   moderation?: DiscordModeration
   /** Threads Exo knows here: a notification or a jump to one opens it in its channel. */
-  threads?: { id: string; name: string; parentId: string; locked: boolean }[]
+  threads?: { id: string; name: string; parentId: string; locked: boolean; joined?: boolean; archived?: boolean; unread?: boolean; mentions?: number; muted?: boolean }[]
   /** The server's roles by id, for role mentions. */
   roles?: Record<string, { name: string; color: string | null }>
 }
@@ -530,6 +553,15 @@ export function requestDiscordSettings(section: SettingsSection = 'account') {
 }
 export function takePendingSettings() { const section = pendingSettings; pendingSettings = null; return section }
 
+let pendingServerProfile: string | null = null
+/** Edit Per-server Profile: Discord settings open on Profiles' Per-server profiles, on this server. */
+export function requestServerProfile(guildId: string) {
+  pendingServerProfile = guildId
+  window.dispatchEvent(new CustomEvent('exo-dc-server-profile', { detail: guildId }))
+  requestDiscordSettings('profiles')
+}
+export function takeServerProfile() { const id = pendingServerProfile; pendingServerProfile = null; return id }
+
 export type DiscordFriend = {
   id: string
   name: string
@@ -563,6 +595,15 @@ export type DiscordThread = {
   thread_metadata?: { archive_timestamp?: string; create_timestamp?: string; locked?: boolean; archived?: boolean }
 }
 export type DiscordForumTag = { id: string; name: string; emojiId: string | null; emojiName: string | null }
+/** A thread or forum post as its menu shows it: what it is, and what you may change (manage: Manage Threads; mine: you started it). */
+export type DiscordThreadState = {
+  id: string; name: string; parentId: string | null; guildId: string
+  joined: boolean; archived: boolean; locked: boolean; pinned: boolean; muted: boolean; mutedUntil: number | null
+  /** 0 all messages, 1 only @mentions, 2 nothing; null as its channel. */
+  notify: 0 | 1 | 2 | null
+  unread: boolean; mine: boolean; manage: boolean; forum: boolean
+  tags: DiscordForumTag[] | null; applied: string[]
+}
 export type DiscordSticker = { id: string; name: string; format: number }
 /** A server's stickers in the picker; usable is false for another server's without Nitro. */
 export type DiscordStickerGroup = { id: string; name: string; icon: string | null; usable: boolean; stickers: DiscordSticker[] }

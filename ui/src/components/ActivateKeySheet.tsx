@@ -9,12 +9,6 @@ import { useDismiss } from '../lib/dismiss'
 
 const STORES = ['steam', 'epic', 'gog'] as const
 const STORE_LABELS: Record<(typeof STORES)[number], string> = { steam: 'Steam', epic: 'Epic', gog: 'GOG' }
-/** What pressing Open does: each store keeps the final confirmation for itself. */
-const STORE_STEPS: Record<(typeof STORES)[number], string> = {
-  steam: 'Opens Steam with the key filled in. You accept Steam\'s agreement and press Continue.',
-  epic: 'Opens Epic\'s redeem page in your browser and copies the key. You paste it and press Redeem.',
-  gog: 'Opens GOG in your browser with the key filled in. You press Continue, then Redeem.',
-}
 
 /**
  * Anchored popover under the library's Add button. It hands the key to the
@@ -166,7 +160,6 @@ export function ActivateKeySheet({
           </button>
         ))}
       </div>
-      <p className="exo-key-popover-note">{STORE_STEPS[store]}</p>
       {note ? <p className="exo-key-popover-note" role="status">{note}</p> : null}
       <div className="exo-key-popover-actions">
         <Button

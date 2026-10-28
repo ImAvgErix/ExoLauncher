@@ -28,8 +28,30 @@ const TOKEN = /(^|\s)([:@#])([\w.+-]{2,32})$/
 type Suggestion = { key: string; label: string; image?: string; glyph?: React.ReactNode; insert: string; sticker?: string; mention?: string; detail?: string | null; color?: string }
 type Draft = { text: string; mentions: Map<string, string> }
 
-// What you were writing in each conversation, kept while Exo runs, as Discord keeps drafts.
-const drafts = new Map<string, Draft>()
+// What you were writing in each conversation, kept across Exo's restarts as Discord keeps drafts (on this PC only).
+const DRAFTS_KEY = 'exo.discord.drafts'
+const drafts = loadDrafts()
+let draftsSave = 0
+
+function loadDrafts(): Map<string, Draft> {
+  try {
+    const saved = JSON.parse(localStorage.getItem(DRAFTS_KEY) ?? '{}') as Record<string, { text?: unknown; mentions?: [string, string][] }>
+    return new Map(Object.entries(saved).flatMap(([id, d]) =>
+      typeof d?.text === 'string' && d.text ? [[id, { text: d.text, mentions: new Map(Array.isArray(d.mentions) ? d.mentions : []) }] as const] : []))
+  } catch { return new Map() }
+}
+
+function writeDrafts() {
+  window.clearTimeout(draftsSave)
+  try {
+    const kept = [...drafts].filter(([, d]) => d.text.trim()).slice(-100)
+    localStorage.setItem(DRAFTS_KEY, JSON.stringify(Object.fromEntries(kept.map(([id, d]) => [id, { text: d.text.slice(0, 8000), mentions: [...d.mentions] }]))))
+  } catch { /* not kept past this run, still kept while Exo runs */ }
+}
+
+// A moment after typing stops, and before Exo closes.
+const saveDrafts = () => { window.clearTimeout(draftsSave); draftsSave = window.setTimeout(writeDrafts, 400) }
+window.addEventListener('pagehide', writeDrafts)
 
 // Discord settings > Appearance > Show stickers in autocomplete results: :name also offers the stickers you can send.
 function useStickers(guildId: string | null) {
@@ -184,6 +206,7 @@ export function Composer({ channelId, guildId, users, placeholder, disabled, rep
   const setText = (next: string | ((current: string) => string)) => setTextNow(current => {
     const value = typeof next === 'function' ? next(current) : next
     drafts.set(channelId, { text: value, mentions: mentions.current })
+    saveDrafts()
     return value
   })
 
@@ -331,6 +354,7 @@ export function Composer({ channelId, guildId, users, placeholder, disabled, rep
     setText(''); setFiles([]); setSpoilers(new Set()); setNote(null)
     mentions.current = new Map()
     drafts.delete(channelId)
+    saveDrafts()
     typedAt.current = 0
     const ok = await onSend(content, sentFiles)
     if (ok && slowmode > 0) startCooldown(slowmode)
@@ -588,11 +612,14 @@ function ModifyAttachment({ file, spoiler, onSave, onClose }: { file: File; spoi
   )
 }
 
+/** The pictures a chip previews: plain bitmaps, never an SVG (a document of its own). */
+const PREVIEWED = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/avif', 'image/bmp'])
+
 // A picture's preview in its chip, freed when the chip goes.
 function FileThumb({ file }: { file: File }) {
   const [url, setUrl] = useState<string | null>(null)
   useEffect(() => {
-    if (!file.type.startsWith('image/')) return
+    if (!PREVIEWED.has(file.type)) return
     const next = URL.createObjectURL(file)
     setUrl(next)
     return () => URL.revokeObjectURL(next)

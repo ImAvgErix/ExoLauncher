@@ -2,14 +2,14 @@ import { useEffect, useRef, useState } from 'react'
 import { host, type ControllerCalibration, type ControllerState, type StickRest } from '../../lib/host'
 import { report } from '../../lib/report'
 import { Row, State } from '../settings/parts'
-import { Switch } from '../Switch'
 import { confirm, Dialog } from '../ui/Dialog'
 import { Spinner } from '../ui/Spinner'
+import { ErrorNote } from '../ui/ErrorNote'
 
 /**
  * The sticks' calibration rows (DESIGN.md › Devices › controller): Calibrate opens the controller's own routine, and
- * once Exo has calibrated it, how long that lasts (until unplugged; kept on a DualSense when asked; put back each time
- * an Edge connects) and Undo, which writes back what the controller had before.
+ * once Exo has calibrated it, how long that lasts (until unplugged; kept on a DualSense when asked; an Edge gets it back
+ * each time it connects, always) and Undo, which writes back what the controller had before.
  */
 export function CalibrationRows({ id, edge, usb, live, state, onChanged }: {
   id: string
@@ -22,7 +22,7 @@ export function CalibrationRows({ id, edge, usb, live, state, onChanged }: {
   const [open, setOpen] = useState(false)
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  async function step(name: 'undo' | 'keep' | 'reapply-on' | 'reapply-off') {
+  async function step(name: 'undo' | 'keep') {
     setBusy(name)
     setError(null)
     try {
@@ -55,38 +55,24 @@ export function CalibrationRows({ id, edge, usb, live, state, onChanged }: {
         ) : null}
         <button type="button" className="exo-set-btn" disabled={!usb || busy !== null} onClick={() => setOpen(true)}>{calibrated ? 'Again' : 'Calibrate'}</button>
       </Row>
-      {calibrated && state ? <LastingRows edge={edge} state={state} busy={busy} onReapply={on => void step(on ? 'reapply-on' : 'reapply-off')} onKeep={() => void keep()} /> : null}
+      {calibrated && !edge && state && !state.kept ? (
+        <Row label="Keep it after unplugging">
+          <button type="button" className="exo-set-btn" disabled={busy !== null} onClick={() => void keep()}>
+            {busy === 'keep' ? <Spinner label="Keeping it" /> : null}Keep
+          </button>
+        </Row>
+      ) : null}
       {open ? <CalibrateDialog id={id} edge={edge} live={live} onClose={() => { setOpen(false); onChanged() }} /> : null}
     </>
   )
 }
 
+/** Only what can't be seen otherwise: why Calibrate is off, or how long Exo's calibration lasts. */
 function calibrationLine(usb: boolean, edge: boolean, state: ControllerCalibration | undefined) {
   if (!usb) return 'Connect it with a cable to calibrate it'
-  if (!state?.calibrated) return 'The controller’s own routine: centers, then range'
+  if (!state?.calibrated) return undefined
   if (edge) return 'Calibrated by Exo'
   return state.kept ? 'Calibrated by Exo and kept by the controller' : 'Calibrated by Exo until it’s unplugged'
-}
-
-/** How long Exo's calibration lasts: an Edge gets it back on each connect; a DualSense can keep it. */
-function LastingRows({ edge, state, busy, onReapply, onKeep }: {
-  edge: boolean; state: ControllerCalibration; busy: string | null; onReapply: (on: boolean) => void; onKeep: () => void
-}) {
-  if (edge) {
-    return (
-      <Row label="Put it back on connect" labelId="ctl-reapply" detail="An Edge’s sticks keep their own; Exo gives it this one each time it connects">
-        <Switch checked={state.reapply} labelledBy="ctl-reapply" disabled={busy !== null} onChange={onReapply} />
-      </Row>
-    )
-  }
-  if (state.kept) return null
-  return (
-    <Row label="Keep it after unplugging">
-      <button type="button" className="exo-set-btn" disabled={busy !== null} onClick={onKeep}>
-        {busy === 'keep' ? <Spinner label="Keeping it" /> : null}Keep
-      </button>
-    </Row>
-  )
 }
 
 type Phase = 'intro' | 'before' | 'center' | 'range' | 'ending' | 'after' | 'done'
@@ -95,10 +81,11 @@ type Phase = 'intro' | 'before' | 'center' | 'range' | 'ending' | 'after' | 'don
 const BINS = 36
 
 /**
- * The controller's own calibration, start to finish: Exo measures the centers, the controller takes its center with
- * the sticks left alone, then its range while both are rolled around their edge (Exo won't end it before both have gone
- * all the way round, which would pin them to the corners), and Exo measures the centers again for before and after.
- * Leaving midway puts back the values the controller had.
+ * The sticks' calibration, start to finish: Exo measures the centers, the controller takes its center with the sticks
+ * left alone and Exo corrects what's left from its own measurement, then the range while both are rolled around their
+ * edge (an Edge's fitted by Exo from how far each stick went; a DualSense's by its own routine). Exo won't end it before
+ * both have gone all the way round, and measures the centers again for before and after. Leaving midway puts back the
+ * values the controller had.
  */
 function CalibrateDialog({ id, edge, live, onClose }: { id: string; edge: boolean; live: ControllerState | null; onClose: () => void }) {
   const [phase, setPhase] = useState<Phase>('intro')
@@ -180,8 +167,8 @@ function CalibrateDialog({ id, edge, live, onClose }: { id: string; edge: boolea
       actions={<CalibrateActions phase={phase} onClose={onClose} onStart={() => void start()} onFinish={() => void finish()} />}>
       {phase === 'intro' ? (
         <p>{edge
-          ? 'Your Edge runs its own calibration: first its centers with the sticks left alone, then its range while you roll both sticks around their edge. It lasts until you unplug it, and Exo gives it back each time it connects.'
-          : 'Your DualSense runs its own calibration: first its centers with the sticks left alone, then its range while you roll both sticks around their edge. It lasts until you unplug it, unless you keep it.'}</p>
+          ? 'First the centers, with the sticks left alone: your Edge takes its own, then Exo measures them and corrects what’s left. Then roll both sticks firmly around their edge: Exo measures how far each one goes in every direction and sets each so a normal push gives full output, the same all the way round. It lasts until you unplug it, and Exo gives it back each time it connects.'
+          : 'First the centers, with the sticks left alone: your DualSense takes its own, then Exo measures them and corrects what’s left. Then its range, while you roll both sticks around their edge. It lasts until you unplug it, unless you keep it.'}</p>
       ) : null}
       {working ? <p>Put the controller down and don’t touch the sticks.</p> : null}
       {rolling ? (
@@ -203,7 +190,7 @@ function CalibrateDialog({ id, edge, live, onClose }: { id: string; edge: boolea
           ))}
         </dl>
       ) : null}
-      {error ? <p className="exo-dialog-error" role="alert">{error}</p> : null}
+      {error ? <ErrorNote className="exo-dialog-error" message={error} /> : null}
     </Dialog>
   )
 }

@@ -156,6 +156,43 @@ internal static class LucidCatalog
             .. list.OrderBy(h => CategoryOrder(h.Category)).ThenBy(h => h.Category, StringComparer.OrdinalIgnoreCase).ThenBy(h => h.Name, StringComparer.OrdinalIgnoreCase)];
     }
 
+    // Words in a device's name that say nothing about which model it is.
+    private static readonly HashSet<string> Plain = new(StringComparer.Ordinal)
+    {
+        "headset", "headphones", "headphone", "earphone", "earphones", "speakers", "speaker", "wireless", "gaming", "game", "chat",
+        "stereo", "usb", "audio", "pro", "x", "the", "and", "with", "hands", "free", "bluetooth", "le", "high", "definition", "device",
+        "digital", "output", "realtek", "r",
+    };
+
+    /// <summary>
+    /// The headset Windows plays on, by the name it gives itself (a USB or wireless headset does: "Speakers (Arctis Nova
+    /// 7)"): the entry whose every model word is in that name and that shares the most telling words with it. Null for a
+    /// jack's plain "Headphones", for a name that fits nothing, and for two entries that fit it as well.
+    /// </summary>
+    internal static Headphone? Guess(string? output, IReadOnlyList<Headphone> list)
+    {
+        if (string.IsNullOrWhiteSpace(output)) return null;
+        var heard = Tokens(output);
+        Headphone? best = null;
+        var bestScore = 0;
+        var tie = false;
+        foreach (var headphone in list)
+        {
+            if (headphone.Id == LucidSettings.LucidIems) continue;
+            var model = Tokens(headphone.Model);
+            if (model.Count == 0 || !model.All(heard.Contains)) continue;
+            var telling = model.Count(word => !Plain.Contains(word)) + (Tokens(headphone.Brand).Any(heard.Contains) ? 1 : 0);
+            if (telling == 0) continue;
+            var score = telling * 10 + model.Count;
+            if (score > bestScore) (best, bestScore, tie) = (headphone, score, false);
+            else if (score == bestScore) tie = true;
+        }
+        return tie ? null : best;
+    }
+
+    private static HashSet<string> Tokens(string text) =>
+        [.. text.ToLowerInvariant().Split((char[])[' ', '(', ')', '-', '_', '/', ',', '.', '+', '®', '™'], StringSplitOptions.RemoveEmptyEntries)];
+
     private static bool Selectable(JsonElement device) =>
         Flag(device, "enabled") && Flag(device, "isCalibrated") && !string.IsNullOrWhiteSpace(Str(device, "eqConfig"));
 

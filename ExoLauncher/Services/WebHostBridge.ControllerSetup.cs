@@ -5,14 +5,13 @@ using ExoLauncher.Helpers;
 namespace ExoLauncher.Services;
 
 /// <summary>
-/// What the controller's page changes on the controller (<see cref="ControllerLab"/> Pad, <see cref="EdgeProfiles"/>),
+/// What the controller's page changes on the controller (<see cref="ControllerLab"/> Pad),
 /// over USB, never while a game runs or another controller program (DS4Windows, DSX, reWASD) is running, one change at
 /// a time:
 /// - controller.calibrate: the controller's own stick calibration. center (sticks left alone), range-begin and range-end
 ///   (both sticks rolled around their edge between them; Exo checks they were before it ends), range-cancel, keep (a
-///   DualSense keeps it after unplugging), undo (the values it had before Exo first calibrated it), and reapply (an Edge,
-///   whose sticks hold their own calibration, gets Exo's back each time it connects);
-/// - controller.profiles, controller.profileSave, controller.profileClear, controller.profileUndo: an Edge's slots 2-4.
+///   DualSense keeps it after unplugging) and undo (the values it had before Exo first calibrated it). An Edge, whose
+///   sticks hold their own calibration, gets Exo's back each time it connects.
 /// Before its first change to a controller Exo saves what the controller had, so Undo puts it back exactly.
 /// </summary>
 public sealed partial class WebHostBridge
@@ -20,6 +19,8 @@ public sealed partial class WebHostBridge
     private readonly SemaphoreSlim _padGate = new(1, 1);
     private RangeRun? _range;
     private readonly HashSet<string> _reapplied = new(StringComparer.OrdinalIgnoreCase);
+    // Pads (by source) a game profile changed: they get their usual settings back when the game ends, even the controller's own.
+    private readonly HashSet<string> _gameOverridden = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>A range calibration under way: when it began, and the sticks' positions since, for the check before it ends.</summary>
     private sealed class RangeRun(string id, ushort[]? before)
@@ -30,12 +31,17 @@ public sealed partial class WebHostBridge
         internal List<(byte, byte)> Left { get; } = [];
         internal List<(byte, byte)> Right { get; } = [];
         internal CancellationTokenSource Listening { get; } = new();
+        /// <summary>On an Edge, the range Exo opened wider to measure in (its own fit, not the controller's routine).</summary>
+        internal ushort[]? Wide { get; init; }
     }
 
-    /// <summary>Why Exo won't change the controller now; null when it may.</summary>
-    private string? CantChange(Peripherals.Peripheral card)
+    /// <summary>
+    /// Why Exo won't change the controller now; null when it may. <paramref name="launching"/>: a game profile on its way
+    /// in, just before its game starts, which Exo already counts as running: only a game already playing stops it then.
+    /// </summary>
+    private string? CantChange(Peripherals.Peripheral card, bool launching = false)
     {
-        if (AnyGame()) return "Close the game first: Exo never changes a controller while you play.";
+        if (launching ? MainWindow.RunningLibraryGames().Count > 0 : AnyGame()) return "Close the game first: Exo never changes a controller while you play.";
         if (card.Connection != "usb") return "Connect the controller with a cable first: Exo changes it over USB only.";
         var other = ControllerLab.ReadLayers().Tools.FirstOrDefault(t => t.Running && t.Name is "DS4Windows" or "DSX" or "reWASD");
         return other is null ? null : $"Close {other.Name} first: two programs changing one controller can mix up its settings.";
@@ -60,7 +66,7 @@ public sealed partial class WebHostBridge
     private Task<object> ControllerCalibrateAsync(JsonElement p, bool hasParams, CancellationToken ct) => WithPad(p, hasParams, (card, pad) =>
     {
         var step = ReadString(p, hasParams, "step");
-        var saved = ControllerLab.Load(card.Id);
+        var saved = ControllerLab.Load(card);
         switch (step)
         {
             case "center" or "range-begin":
@@ -71,7 +77,7 @@ public sealed partial class WebHostBridge
                     StopRange(open);
                     if (open.Id == card.Id)
                     {
-                        ControllerLab.EndRange(pad);
+                        if (open.Wide is null) ControllerLab.EndRange(pad);
                         if (open.Before is { } was) ControllerLab.WriteFinetune(pad, was);
                     }
                 }
@@ -83,14 +89,28 @@ public sealed partial class WebHostBridge
                     return new { ok = false, message = "Unplug the controller and plug it back in, then try again." };
                 var now = ControllerLab.ReadFinetune(pad);
                 if (now is null) return new { ok = false, message = "The controller didn't say how its sticks are set. Unplug it and plug it back in." };
-                if (saved.Original is null) ControllerLab.Store(card.Id, saved = saved with { Original = now });
+                if (saved.Original is null) ControllerLab.Store(card, saved = saved with { Original = now });
                 if (step == "center")
                 {
                     if (!ControllerLab.CalibrateCenters(pad)) return new { ok = false, message = "The controller didn't take it. Leave the sticks alone and try again." };
-                    return Calibrated(card, pad, saved);
+                    RefineCenters(card, pad);
+                    // Centers alone keep the ends the controller had: the factory's margin, or one Exo already gave them.
+                    return Calibrated(card, pad, saved with { Trimmed = saved.Trimmed || saved.Calibrated is null });
                 }
-                if (!ControllerLab.BeginRange(pad)) return new { ok = false, message = "The controller didn't start. Try again." };
-                var run = _range = new RangeRun(card.Id, now);
+                // An Edge's range Exo fits itself: opened wider so no push hits the end while it measures, then each end
+                // set from how far the stick really went. A DualSense runs its own routine (its scale isn't known yet).
+                RangeRun run;
+                if (pad.Edge)
+                {
+                    var wide = ControllerLab.Widened(now, 0.2, 4095);
+                    if (!ControllerLab.WriteFinetune(pad, wide)) return new { ok = false, message = "The controller didn't take it. Try again." };
+                    run = _range = new RangeRun(card.Id, now) { Wide = wide };
+                }
+                else
+                {
+                    if (!ControllerLab.BeginRange(pad)) return new { ok = false, message = "The controller didn't start. Try again." };
+                    run = _range = new RangeRun(card.Id, now);
+                }
                 _ = Task.Run(async () =>
                 {
                     try
@@ -114,7 +134,11 @@ public sealed partial class WebHostBridge
                 if (seconds < 8 || left is not { Covered: >= 0.9 } || right is not { Covered: >= 0.9 })
                     return new { ok = false, more = true, message = "Keep rolling both sticks slowly around their edge.", left = left?.Covered ?? 0, right = right?.Covered ?? 0 };
                 StopRange(run);
+                if (run.Wide is { } opened) return FitRange(card, pad, saved, run, opened);
                 if (!ControllerLab.EndRange(pad)) return new { ok = false, message = "The controller didn't take it. Unplug it and plug it back in: it goes back to how it was." };
+                // The ends it recorded are the hardest push: brought in a little, so a normal push reaches full output.
+                if (ControllerLab.ReadFinetune(pad) is { } ended && ControllerLab.WithMargin(ended) is { } trimmed && ControllerLab.WriteFinetune(pad, trimmed))
+                    saved = saved with { Trimmed = true };
                 return Calibrated(card, pad, saved);
             }
             case "range-cancel":
@@ -122,7 +146,7 @@ public sealed partial class WebHostBridge
                 if (_range is not { } run || run.Id != card.Id) return new { ok = true };
                 StopRange(run);
                 // The range can't be left open: end it, then put back the values from before it began.
-                ControllerLab.EndRange(pad);
+                if (run.Wide is null) ControllerLab.EndRange(pad);
                 if (run.Before is { } before) ControllerLab.WriteFinetune(pad, before);
                 return new { ok = true };
             }
@@ -132,7 +156,7 @@ public sealed partial class WebHostBridge
                 if (saved.Calibrated is null) return new { ok = false, message = "Calibrate it first." };
                 if (Charge(card) is < 30) return new { ok = false, message = "Charge the controller to 30% first: if the cable came out while it saves with a flat battery, the controller could stop working." };
                 if (!ControllerLab.Keep(pad)) return new { ok = false, message = "The controller didn't keep it. It still has it until you unplug it." };
-                ControllerLab.Store(card.Id, saved with { Kept = true });
+                ControllerLab.Store(card, saved with { Kept = true });
                 AppLog.Info("Controller: calibration kept on the DualSense.");
                 return new { ok = true };
             }
@@ -141,23 +165,63 @@ public sealed partial class WebHostBridge
                 if (saved.Original is not { } original) return new { ok = true };
                 if (!ControllerLab.WriteFinetune(pad, original)) return new { ok = false, message = "The controller didn't take it. Try again." };
                 if (saved.Kept && !ControllerLab.Keep(pad)) return new { ok = false, message = "The controller has its old calibration until you unplug it, but didn't keep it. Try again." };
-                ControllerLab.Store(card.Id, saved with { Calibrated = null, Reapply = false, Kept = false });
+                ControllerLab.Store(card, saved with { Calibrated = null, Kept = false, Trimmed = false });
                 AppLog.Info("Controller: calibration put back as it was.");
                 return new { ok = true };
             }
-            case "reapply-on" or "reapply-off":
-                ControllerLab.Store(card.Id, saved with { Reapply = step == "reapply-on" });
-                return new { ok = true };
             default:
                 return new { ok = false, message = "Not a calibration step." };
         }
     }, ct);
 
+    /// <summary>
+    /// Exo's pass after the controller's own center routine: each stick measured at rest, the fine-tune centers moved by
+    /// what Exo found, and measured again, up to three times, until every axis rests within half an 8-bit step.
+    /// </summary>
+    private static void RefineCenters(Peripherals.Peripheral card, ControllerLab.Pad pad)
+    {
+        for (var round = 0; round < 3; round++)
+        {
+            Thread.Sleep(300);
+            var left = new List<(byte, byte)>();
+            var right = new List<(byte, byte)>();
+            ControllerLab.ListenAsync(card, TimeSpan.FromSeconds(2), (_, s) => { left.Add((s.LX, s.LY)); right.Add((s.RX, s.RY)); }, CancellationToken.None)
+                .GetAwaiter().GetResult();
+            if (ControllerLab.AtRest(left) is not { } l || ControllerLab.AtRest(right) is not { } r) return;
+            double[] offsets = [l.OffsetX, l.OffsetY, r.OffsetX, r.OffsetY];
+            if (offsets.All(o => Math.Abs(o) <= ControllerLab.CenterTolerance)) return;
+            if (ControllerLab.ReadFinetune(pad) is not { } values || !ControllerLab.WriteFinetune(pad, ControllerLab.Recentered(values, offsets))) return;
+            AppLog.Info($"Controller: centers refined (round {round + 1}, off by up to {offsets.Max(Math.Abs):0.0}%).");
+        }
+    }
+
+    /// <summary>
+    /// An Edge's range from Exo's own measurement: how far each stick went toward each end while rolled on the widened
+    /// range, each end set just inside that. A reach that hit the end, or never got past half, puts back what it had.
+    /// </summary>
+    private static object FitRange(Peripherals.Peripheral card, ControllerLab.Pad pad, ControllerLab.Saved saved, RangeRun run, ushort[] opened)
+    {
+        (byte, byte)[] left, right;
+        lock (run) { left = [.. run.Left]; right = [.. run.Right]; }
+        if (ControllerLab.Reaches(left, right) is not { } reach)
+        {
+            if (run.Before is { } before) ControllerLab.WriteFinetune(pad, before);
+            return new { ok = false, message = "Exo couldn't measure how far the sticks go. Try again, rolling both firmly all the way round." };
+        }
+        if (!ControllerLab.WriteFinetune(pad, ControllerLab.Fitted(opened, reach.Low, reach.High, ControllerLab.EdgeMargin)))
+        {
+            if (run.Before is { } before) ControllerLab.WriteFinetune(pad, before);
+            return new { ok = false, message = "The controller didn't take it. Try again." };
+        }
+        AppLog.Info("Controller: the Edge's range fitted to how far its sticks go.");
+        return Calibrated(card, pad, saved with { Trimmed = true });
+    }
+
     /// <summary>After a calibration: what it left, kept for Undo and, on an Edge, put back each time it connects.</summary>
     private static object Calibrated(Peripherals.Peripheral card, ControllerLab.Pad pad, ControllerLab.Saved saved)
     {
         var values = ControllerLab.ReadFinetune(pad);
-        ControllerLab.Store(card.Id, saved with { Calibrated = values ?? saved.Calibrated, Reapply = pad.Edge || saved.Reapply });
+        ControllerLab.Store(card, saved with { Calibrated = values ?? saved.Calibrated });
         AppLog.Info("Controller: sticks calibrated (" + (pad.Edge ? "Edge, put back on each connect" : "until unplugged") + ").");
         return new { ok = true };
     }
@@ -184,173 +248,185 @@ public sealed partial class WebHostBridge
         return charge;
     }
 
-    /// <summary>What the page shows about calibration: whether Exo calibrated it, kept it, and puts it back on connect.</summary>
+    /// <summary>What the page shows about calibration: whether Exo calibrated it and whether a DualSense kept it.</summary>
     private static object CalibrationState(Peripherals.Peripheral card)
     {
-        var saved = ControllerLab.Load(card.Id);
-        return new { calibrated = saved.Calibrated is not null, kept = saved.Kept, reapply = saved.Reapply, canUndo = saved.Original is not null && saved.Calibrated is not null };
+        var saved = ControllerLab.Load(card);
+        return new { calibrated = saved.Calibrated is not null, kept = saved.Kept, canUndo = saved.Original is not null && saved.Calibrated is not null };
     }
 
-    private void ReapplyCalibrationsAfter(Models.GameEntry _) => ReapplyCalibrationsSoon();
+    private void ReapplyCalibrationsAfter(Models.GameEntry _) => ReapplyCalibrationsSoon(afterGame: true);
 
     /// <summary>
-    /// An Edge Exo calibrated gets its calibration back when it connects (its stick modules keep their own, so Exo's lasts
-    /// only until it's unplugged): once per connection, never while a game runs (it gets it when the game closes).
+    /// Until the library is read, a game already running (Exo started or restarted mid-game) isn't seen, and a controller
+    /// would be written during it: this waits for the library, at most a minute (a library with no games stays empty).
     /// </summary>
-    private void ReapplyCalibrationsSoon() => _ = Task.Run(async () =>
+    private async Task LibraryKnownAsync()
     {
+        if (_services.Library.PeekCachedLibrary().Count > 0) return;
+        var known = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        void Read() => known.TrySetResult();
+        _services.Library.LibraryUpdated += Read;
+        try
+        {
+            if (_services.Library.PeekCachedLibrary().Count == 0)
+                await Task.WhenAny(known.Task, Task.Delay(TimeSpan.FromMinutes(1), _bridgeLifetime.Token)).ConfigureAwait(false);
+        }
+        finally
+        {
+            _services.Library.LibraryUpdated -= Read;
+        }
+    }
+
+    /// <summary>
+    /// What a controller forgets when it disconnects, put back: an Edge Exo calibrated gets its calibration (its stick
+    /// modules keep their own, so Exo's lasts only until it's unplugged) once per connection, and a DualSense or Edge its
+    /// light, sound and vibration settings then and after each game (a game may set its own light). Never while a game runs.
+    /// </summary>
+    private void ReapplyCalibrationsSoon(bool afterGame = false) => _ = Task.Run(async () =>
+    {
+        await LibraryKnownAsync().ConfigureAwait(false);
         if (AnyGame()) return;
         await _padGate.WaitAsync(_bridgeLifetime.Token).ConfigureAwait(false);
         try
         {
-            var edges = Peripherals.List(AnyGame).Where(c => c is { Connection: "usb", ProductId: ControllerLab.DualSenseEdge } && ControllerLab.Supported(c.VendorId, c.ProductId) && c.Source is not null).ToList();
-            lock (_reapplied) _reapplied.IntersectWith(edges.Select(c => c.Source!));
-            foreach (var card in edges)
+            var pads = Peripherals.List(AnyGame).Where(c => c is { Connection: "usb" } && ControllerLab.Supported(c.VendorId, c.ProductId) && c.Source is not null).ToList();
+            lock (_reapplied) _reapplied.IntersectWith(pads.Select(c => c.Source!));
+            foreach (var card in pads)
             {
-                lock (_reapplied) if (_reapplied.Contains(card.Source!)) continue;
-                if (ControllerLab.Load(card.Id) is not { Reapply: true, Calibrated: { } values } || CantChange(card) is not null) continue;
+                bool fresh;
+                lock (_reapplied) fresh = !_reapplied.Contains(card.Source!);
+                if (!fresh && !afterGame || CantChange(card) is not null) continue;
+                if (fresh) ControllerLab.Adopt(card);
+                var saved = ControllerLab.Load(card);
+                var values = fresh && card.ProductId == ControllerLab.DualSenseEdge && saved is { Calibrated: { } c } ? c : null;
+                bool overridden;
+                lock (_gameOverridden) overridden = afterGame && _gameOverridden.Remove(card.Source!);
+                // After a game profile the usual settings go back, the controller's own included. A light left to games
+                // is lit again; its color stays the last one sent until a game sets its own.
+                var settings = saved.Settings is { IsDefault: false } s ? s : overridden ? new ControllerLab.PadSettings() : null;
+                if (overridden && settings is { Light: null }) settings = settings with { Light = "on" };
+                if (values is null && settings is null) { lock (_reapplied) _reapplied.Add(card.Source!); continue; }
+                // A range calibrated before the margin came in gets it now, once.
+                if (values is not null && !saved.Trimmed && ControllerLab.RangeMoved(values, saved.Original) && ControllerLab.WithMargin(values) is { } trimmed)
+                {
+                    ControllerLab.Store(card, saved with { Calibrated = trimmed, Trimmed = true });
+                    values = trimmed;
+                    AppLog.Info("Controller: the Edge's range brought in from its edge.");
+                }
                 using var pad = ControllerLab.Pad.Open(card);
-                if (pad is null || !ControllerLab.WriteFinetune(pad, values)) continue;
+                if (pad is null) continue;
+                if (values is not null && !ControllerLab.WriteFinetune(pad, values)) continue;
+                if (values is not null) AppLog.Info("Controller: the Edge's calibration put back.");
+                if (settings is not null && pad.Output(ControllerLab.SettingsReport(settings, pad.OutputLength))) AppLog.Info("Controller: its light, sound and vibration settings put back.");
                 lock (_reapplied) _reapplied.Add(card.Source!);
-                AppLog.Info("Controller: the Edge's calibration put back.");
             }
         }
-        catch (Exception ex) when (ex is IOException or InvalidOperationException or UnauthorizedAccessException) { AppLog.Warn("Controller: calibration not put back: " + ex.Message); }
+        catch (Exception ex) when (ex is IOException or InvalidOperationException or UnauthorizedAccessException or ArgumentException) { AppLog.Warn("Controller: settings not put back: " + ex.Message); }
         finally { _padGate.Release(); }
     });
 
-    // ------------------------------------------------------------------ an Edge's profiles
+    // ------------------------------------------------------------------ light, sound and vibration
 
-    private Task<object> ControllerProfilesAsync(JsonElement p, bool hasParams, CancellationToken ct) => WithPad(p, hasParams, (card, pad) =>
-        pad.Edge ? ProfilesOf(card, pad) : new { ok = false, message = "Only a DualSense Edge holds profiles." }, ct);
+    private static readonly JsonSerializerOptions PadSettingsJson = new(JsonSerializerDefaults.Web);
 
-    private object ProfilesOf(Peripherals.Peripheral card, ControllerLab.Pad pad)
+    /// <summary>controller.settings: the controller's light, sound and vibration, saved and sent now, and again each time it connects.</summary>
+    private Task<object> ControllerSettingsAsync(JsonElement p, bool hasParams, CancellationToken ct)
     {
-        var saved = ControllerLab.Load(card.Id);
-        var list = new List<object>();
-        for (var slot = 1; slot <= 4; slot++)
-        {
-            if (ControllerLab.ReadSlot(pad, slot) is not { } c || EdgeProfiles.Parse(slot, c[0], c[1], c[2]) is not { } profile)
-                return new { ok = false, message = "The controller didn't give its profiles. Unplug it and plug it back in." };
-            var (stored, computed) = EdgeProfiles.Checksums(c[0], c[1], c[2]);
-            list.Add(ProfileView(profile, intact: !profile.Assigned || stored == computed, canUndo: saved.Slots.ContainsKey(slot.ToString(System.Globalization.CultureInfo.InvariantCulture))));
-        }
-        return new { ok = true, profiles = list };
-    }
-
-    private static object ProfileView(EdgeProfiles.Profile p, bool intact, bool canUndo) => new
-    {
-        slot = p.Slot, assigned = p.Assigned, intact, canUndo, name = p.Name, id = Convert.ToHexString(p.UniqueId),
-        left = StickView(p.Left), right = StickView(p.Right), l2 = p.L2, r2 = p.R2, unifiedTriggers = p.UnifiedTriggers,
-        vibration = p.Vibration, triggerEffects = p.TriggerEffects, buttons = p.Buttons.Select(b => (int)b).ToArray(), disabled = p.Disabled, updated = p.Updated,
-    };
-
-    private static object StickView(EdgeProfiles.Stick s) => new
-    {
-        preset = s.Preset, points = s.Points.Select(b => (int)b).ToArray(),
-        deadzone = EdgeProfiles.DeadzoneOf(s.Points), adjustment = EdgeProfiles.AdjustmentOf(s.Preset, s.Points),
-    };
-
-    private Task<object> ControllerProfileSaveAsync(JsonElement p, bool hasParams, CancellationToken ct) => WithPad(p, hasParams, (card, pad) =>
-    {
-        if (!pad.Edge) return new { ok = false, message = "Only a DualSense Edge holds profiles." };
-        EdgeProfiles.Profile profile;
-        byte[][] chunks;
+        ControllerLab.PadSettings? settings = null;
         try
         {
-            profile = ProfileFrom(p.GetProperty("profile"));
-            chunks = EdgeProfiles.Build(profile, DateTimeOffset.UtcNow);
+            if (hasParams && p.TryGetProperty("settings", out var el) && el.ValueKind == JsonValueKind.Object)
+                settings = el.Deserialize<ControllerLab.PadSettings>(PadSettingsJson);
         }
-        catch (Exception ex) when (ex is ArgumentException or KeyNotFoundException or InvalidOperationException or FormatException)
+        catch (JsonException) { }
+        if (settings is null || !ControllerLab.Valid(settings) || settings.Light == "on") return Task.FromResult<object>(new { ok = false, message = "Not settings Exo knows." });
+        return WithPad(p, hasParams, (card, pad) =>
         {
-            return new { ok = false, message = ex.Message };
-        }
-        if (!BackUpSlot(card, pad, profile.Slot)) return new { ok = false, message = "The controller didn't give the slot's profile to keep first. Nothing changed." };
-        if (!ControllerLab.WriteSlot(pad, profile.Slot, chunks)) return new { ok = false, message = "The controller didn't take it. Try again." };
-        Thread.Sleep(300);
-        // Read back: what the controller holds now must be what was written, its CRC intact.
-        if (ControllerLab.ReadSlot(pad, profile.Slot) is not { } back || EdgeProfiles.Parse(profile.Slot, back[0], back[1], back[2]) is not { Assigned: true } kept
-            || EdgeProfiles.Checksums(back[0], back[1], back[2]) is var (stored, computed) && stored != computed || kept.Name != profile.Name.Trim())
-            return new { ok = false, message = "The controller didn't keep it as written. Undo puts the slot back." };
-        AppLog.Info($"Controller: Edge profile saved in slot {profile.Slot}.");
-        return ProfilesOf(card, pad);
-    }, ct);
-
-    private Task<object> ControllerProfileClearAsync(JsonElement p, bool hasParams, CancellationToken ct) => WithPad(p, hasParams, (card, pad) =>
-    {
-        var slot = (int)(ReadDouble(p, hasParams, "slot") ?? 0);
-        if (!pad.Edge || slot is < 2 or > 4) return new { ok = false, message = "Only slots 2 to 4 can be cleared." };
-        if (!BackUpSlot(card, pad, slot)) return new { ok = false, message = "The controller didn't give the slot's profile to keep first. Nothing changed." };
-        if (!ControllerLab.ClearSlot(pad, slot)) return new { ok = false, message = "The controller didn't clear it. Try again." };
-        Thread.Sleep(300);
-        AppLog.Info($"Controller: Edge profile slot {slot} cleared.");
-        return ProfilesOf(card, pad);
-    }, ct);
-
-    private Task<object> ControllerProfileUndoAsync(JsonElement p, bool hasParams, CancellationToken ct) => WithPad(p, hasParams, (card, pad) =>
-    {
-        var slot = (int)(ReadDouble(p, hasParams, "slot") ?? 0);
-        var key = slot.ToString(System.Globalization.CultureInfo.InvariantCulture);
-        var saved = ControllerLab.Load(card.Id);
-        if (!pad.Edge || slot is < 2 or > 4 || !saved.Slots.TryGetValue(key, out var hex)) return new { ok = false, message = "There's nothing to put back." };
-        var chunks = hex.Select(Convert.FromHexString).ToArray();
-        var before = EdgeProfiles.Parse(slot, chunks[0], chunks[1], chunks[2]);
-        var done = before is { Assigned: true }
-            // The same bytes, sent under the slot's write ID: the CRC doesn't cover the ID, so it still holds.
-            ? ControllerLab.WriteSlot(pad, slot, [.. chunks.Select(c => { var copy = (byte[])c.Clone(); copy[0] = EdgeProfiles.WriteIds(slot).Write; return copy; })])
-            : ControllerLab.ClearSlot(pad, slot);
-        if (!done) return new { ok = false, message = "The controller didn't take it. Try again." };
-        saved.Slots.Remove(key);
-        ControllerLab.Store(card.Id, saved);
-        Thread.Sleep(300);
-        AppLog.Info($"Controller: Edge profile slot {slot} put back.");
-        return ProfilesOf(card, pad);
-    }, ct);
-
-    /// <summary>A preset's curve for the editor's picture: no controller involved.</summary>
-    private static object ControllerCurve(JsonElement p, bool hasParams)
-    {
-        var preset = (int)(ReadDouble(p, hasParams, "preset") ?? 0);
-        if (preset is < 0 or > 5) return new { ok = false };
-        return new { ok = true, points = EdgeProfiles.Curve(preset, ReadDouble(p, hasParams, "deadzone") ?? 0, (int)(ReadDouble(p, hasParams, "adjustment") ?? 0)).Select(b => (int)b).ToArray() };
+            var saved = ControllerLab.Load(card);
+            // Back to games' light from Exo's: the bar is turned on again, its color left to them.
+            var send = settings.Light is null && saved.Settings?.Light is not null ? settings with { Light = "on" } : settings;
+            if (!pad.Output(ControllerLab.SettingsReport(send, pad.OutputLength))) return new { ok = false, message = "The controller didn't take it. Try again." };
+            ControllerLab.Store(card, saved with { Settings = settings.IsDefault ? null : settings });
+            AppLog.Info("Controller: light, sound and vibration settings sent.");
+            return new { ok = true, settings = PadSettingsView(settings) };
+        }, ct);
     }
 
-    /// <summary>Keeps the slot's bytes as the controller has them before Exo's first change to it.</summary>
-    private static bool BackUpSlot(Peripherals.Peripheral card, ControllerLab.Pad pad, int slot)
+    private static object PadSettingsView(ControllerLab.PadSettings? s)
     {
-        var saved = ControllerLab.Load(card.Id);
-        var key = slot.ToString(System.Globalization.CultureInfo.InvariantCulture);
-        if (saved.Slots.ContainsKey(key)) return true;
-        if (ControllerLab.ReadSlot(pad, slot) is not { } chunks) return false;
-        saved.Slots[key] = [.. chunks.Select(Convert.ToHexString)];
-        ControllerLab.Store(card.Id, saved);
-        return true;
+        var v = s ?? new();
+        return new { light = v.Light, playerLight = v.PlayerLight, micOff = v.MicOff, speakerOff = v.SpeakerOff, vibration = v.Vibration, triggerEffects = v.TriggerEffects };
     }
 
-    /// <summary>A profile as the page sends it, checked field by field (Build checks the rest).</summary>
-    private static EdgeProfiles.Profile ProfileFrom(JsonElement j)
+    /// <summary>controller.sound: every controller's speaker and microphone in Windows on, or off (Exo's default).</summary>
+    private async Task<object> ControllerSoundAsync(JsonElement p, bool hasParams)
     {
-        // A preset's curve is made here from its deadzone and adjustment, as the controller's own settings make it; a
-        // custom curve keeps its points.
-        static EdgeProfiles.Stick Stick(JsonElement s)
+        var on = ReadBool(p, hasParams, "on") == true;
+        if (on != _services.Settings.Current.ControllerSound) _services.Settings.UpdateProfile(s => s.ControllerSound = on);
+        var changed = await Task.Run(() => Peripherals.SetControllerSound(on)).ConfigureAwait(true);
+        return new { ok = true, on, changed };
+    }
+
+    /// <summary>Controllers' speakers and microphones off in Windows (unless the page turned them on): at start and whenever a device comes or goes.</summary>
+    private void HideControllerSoundSoon() => _ = Task.Run(() =>
+    {
+        if (!_services.Settings.Current.ControllerSound) Peripherals.SetControllerSound(false);
+    });
+
+    // ------------------------------------------------------------------ game profiles
+
+    /// <summary>controller.gameProfiles: the game profiles Exo keeps (<see cref="ControllerLab.GameProfile"/>).</summary>
+    private static object ControllerGameProfiles() => new { ok = true, profiles = ControllerLab.LoadGameProfiles() };
+
+    /// <summary>controller.gameProfilesSave: every game profile, as the page has them now. A game belongs to one profile.</summary>
+    private static object ControllerGameProfilesSave(JsonElement p, bool hasParams)
+    {
+        List<ControllerLab.GameProfile>? profiles = null;
+        try
         {
-            var preset = s.GetProperty("preset").GetInt32();
-            return preset == EdgeProfiles.Custom
-                ? new(preset, Bytes(s.GetProperty("points"), 8))
-                : new(preset, EdgeProfiles.Curve(preset, s.GetProperty("deadzone").GetDouble(), s.GetProperty("adjustment").GetInt32()));
+            if (hasParams && p.TryGetProperty("profiles", out var el) && el.ValueKind == JsonValueKind.Array)
+                profiles = el.Deserialize<List<ControllerLab.GameProfile>>(PadSettingsJson);
         }
-        static byte[] Bytes(JsonElement a, int count)
+        catch (JsonException) { }
+        if (profiles is null || profiles.Count > 100 || !profiles.All(ControllerLab.Valid) || profiles.Select(x => x.Id).Distinct().Count() != profiles.Count)
+            return new { ok = false, message = "Not game profiles Exo knows." };
+        // A game linked twice keeps the last profile: the one a game start would use anyway.
+        var owner = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var profile in profiles) foreach (var game in profile.Games) owner[game] = profile.Id;
+        profiles = [.. profiles.Select(x => x with { Name = x.Name.Trim(), Games = [.. x.Games.Distinct(StringComparer.OrdinalIgnoreCase).Where(g => owner[g] == x.Id)] })];
+        try { ControllerLab.StoreGameProfiles(profiles); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            var values = a.EnumerateArray().Select(v => v.GetInt32()).ToArray();
-            if (values.Length != count || values.Any(v => v is < 0 or > 255)) throw new ArgumentException("A value is out of range.");
-            return [.. values.Select(v => (byte)v)];
+            AppLog.Warn($"Controller: game profiles not saved: {ex.GetType().Name}");
+            return new { ok = false, message = "Exo couldn't save them. Try again." };
         }
-        static int[] Range(JsonElement a) => [.. a.EnumerateArray().Select(v => v.GetInt32())];
-        var id = j.TryGetProperty("id", out var idEl) && idEl.GetString() is { Length: 32 } hex ? Convert.FromHexString(hex) : Guid.NewGuid().ToByteArray();
-        return new EdgeProfiles.Profile(
-            j.GetProperty("slot").GetInt32(), true, j.GetProperty("name").GetString() ?? "", id,
-            Stick(j.GetProperty("left")), Stick(j.GetProperty("right")), Range(j.GetProperty("l2")), Range(j.GetProperty("r2")),
-            j.GetProperty("unifiedTriggers").GetBoolean(), j.GetProperty("vibration").GetString() ?? "", j.GetProperty("triggerEffects").GetString() ?? "",
-            Bytes(j.GetProperty("buttons"), 16), j.GetProperty("disabled").GetUInt32(), 0);
+        return new { ok = true, profiles };
+    }
+
+    /// <summary>
+    /// Just before a game starts (<see cref="LaunchOrchestrator.GameLaunching"/>): its profile, merged over each connected
+    /// DualSense's or Edge's usual settings, sent to each over USB. Never when another game already plays; the usual
+    /// settings go back when the game ends (<see cref="ReapplyCalibrationsSoon"/>).
+    /// </summary>
+    private void ApplyGameProfile(Models.GameEntry game)
+    {
+        if (ControllerLab.ProfileFor(ControllerLab.LoadGameProfiles(), [game.Id, .. game.Variants.Select(v => v.Id)]) is not { } profile) return;
+        if (!_padGate.Wait(TimeSpan.FromSeconds(2))) return;
+        try
+        {
+            foreach (var card in Peripherals.List(AnyGame).Where(c => c is { Connection: "usb" } && ControllerLab.Supported(c.VendorId, c.ProductId) && c.Source is not null))
+            {
+                if (CantChange(card, launching: true) is not null) continue;
+                using var pad = ControllerLab.Pad.Open(card);
+                if (pad is null) continue;
+                var settings = ControllerLab.Merge(ControllerLab.Load(card).Settings, profile.Settings);
+                if (!pad.Output(ControllerLab.SettingsReport(settings, pad.OutputLength))) continue;
+                lock (_gameOverridden) _gameOverridden.Add(card.Source!);
+                AppLog.Info($"Controller: game profile \"{profile.Name}\" sent for {game.Title}.");
+            }
+        }
+        catch (Exception ex) when (ex is IOException or InvalidOperationException or UnauthorizedAccessException or ArgumentException) { AppLog.Warn("Controller: game profile not sent: " + ex.Message); }
+        finally { _padGate.Release(); }
     }
 }

@@ -1,9 +1,12 @@
+import { useKeepShine } from '../../lib/shine'
 import { cn } from '../../lib/utils'
 
 const bone = (className: string) => <span className={cn('exo-skeleton exo-shine', className)} />
 
 /** Home's shapes: a greeting, the recent grid and two shelves, at their sizes. */
 function HomeBones() {
+  // The room's opening frame gives way to the player's own: one sweep goes on across both.
+  useKeepShine()
   return <>
     {bone('is-greeting')}
     <span className="exo-music-cover-recent">{Array.from({ length: 8 }, (_, i) => <span key={i}>{bone('is-art')}{bone('is-line')}</span>)}</span>

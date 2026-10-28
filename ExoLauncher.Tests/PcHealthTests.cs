@@ -314,7 +314,7 @@ public sealed class PcHealthTests
         var item = Assert.Single(PcHealth.Decide(ThisPc() with { Power = Plan(Guid.NewGuid(), Guid.Empty, "Exo", exo: true), ChipsetLatest = "8.08.12.551" }));
         Assert.Equal("chipset", item.Key);
         Assert.True(item.Current);
-        Assert.Equal("8.08.12.551 installed, AMD's newest", item.Detail);
+        Assert.Equal("8.08.12.551 · newest", item.Detail);
         // AMD's page unread: no claim either way.
         Assert.Empty(PcHealth.Decide(ThisPc() with { Power = Plan(Guid.NewGuid(), Guid.Empty, "Exo", exo: true), ChipsetLatest = null }));
     }
@@ -338,7 +338,7 @@ public sealed class PcHealthTests
     public void AfterUseExosPlanTheRowStaysWithUndo()
     {
         var item = Assert.Single(PcHealth.Decide(ThisPc() with { Power = Plan(Guid.NewGuid(), Guid.Empty, "Exo", exo: true, canUndo: true), ChipsetLatest = null }));
-        Assert.Equal("Exo's plan, tuned for your Ryzen 5 5600X", item.Detail);
+        Assert.Equal("Exo's plan", item.Detail);
         Assert.True(item.Applied);
         Assert.True(item.CanUndo);
     }

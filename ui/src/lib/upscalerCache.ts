@@ -19,11 +19,14 @@ export function invalidateUpscalerStatus(id?: string): void {
   inflightByGame.delete(key)
 }
 
+/** A game's upscaler files change when it updates or Exo updates them (which drops its entry): read again after 30 min. */
+const KEEP_MS = 30 * 60_000
+
 export function loadUpscalerStatus(id: string, refresh = false): Promise<DlssStatus> {
   const key = keyFor(id)
   if (!refresh) {
     const cached = statusByGame.get(key)
-    if (cached && Date.now() - (cachedAt.get(key) ?? 0) < 30_000) return Promise.resolve(cached)
+    if (cached && Date.now() - (cachedAt.get(key) ?? 0) < KEEP_MS) return Promise.resolve(cached)
     const inflight = inflightByGame.get(key)
     if (inflight) return inflight
   }

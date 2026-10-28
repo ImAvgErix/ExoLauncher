@@ -2227,7 +2227,11 @@ public static partial class CoverArtService
             if (appId is not null)
             {
                 if (TryImportSteamLibraryHero(appId, dest)) return true;
-                if (await TryDownloadWideAsync(http, SteamHeroCdnUrls(appId), dest, cancellationToken).ConfigureAwait(false))
+                // Games from about 2024 on keep their art only under hashed store_item_assets paths: the classic
+                // /steam/apps/<id>/library_hero.jpg 404s (Phantom Blade Zero's did), so the item service names them first.
+                if (await TryDownloadWideAsync(http, await ResolveSteamWideUrlsAsync(http, appId, cancellationToken).ConfigureAwait(false), dest, cancellationToken).ConfigureAwait(false) ||
+                    await TryDownloadWideAsync(http, SteamHeroCdnUrls(appId), dest, cancellationToken).ConfigureAwait(false) ||
+                    TryImportSteamLibraryHero(appId, dest, ["library_header_2x.jpg", "library_header.jpg", "header.jpg"]))
                     return true;
             }
 
@@ -2294,8 +2298,11 @@ public static partial class CoverArtService
         return false;
     }
 
-    /// <summary>Steam already stores library_hero locally for anything opened in Steam.</summary>
-    private static bool TryImportSteamLibraryHero(string appId, string dest)
+    /// <summary>
+    /// Steam already stores library_hero locally for anything opened in Steam; a game it only listed keeps just its
+    /// header (<paramref name="names"/> asks for that, the last resort when the network has no hero).
+    /// </summary>
+    private static bool TryImportSteamLibraryHero(string appId, string dest, string[]? names = null)
     {
         if (!IsUsableAppId(appId)) return false;
         try
@@ -2305,7 +2312,7 @@ public static partial class CoverArtService
             var root = Path.Combine(steamRoot, "appcache", "librarycache", appId);
             if (!Directory.Exists(root)) return false;
 
-            foreach (var name in new[] { "library_hero_2x.jpg", "library_hero.jpg" })
+            foreach (var name in names ?? ["library_hero_2x.jpg", "library_hero.jpg"])
             {
                 foreach (var src in Directory.EnumerateFiles(root, name, SearchOption.AllDirectories))
                 {
@@ -3454,40 +3461,70 @@ public static partial class CoverArtService
         CancellationToken cancellationToken = default,
         bool highResolutionOnly = false)
     {
-        if (!IsUsableAppId(appId)) return Array.Empty<string>();
+        if (!IsUsableAppId(appId) || await SteamItemAssetsAsync(http, appId, cancellationToken).ConfigureAwait(false) is not { } assets)
+            return Array.Empty<string>();
+        if (assets.TryGetValue("community_icon", out var hash)) SteamCommunityIcon[appId] = hash;
+        var built = BuildSteamLibraryCapsuleUrls(assets.GetValueOrDefault("asset_url_format"), assets.GetValueOrDefault("library_capsule_2x"),
+            highResolutionOnly ? null : assets.GetValueOrDefault("library_capsule"));
+        if (built.Count > 0) SteamCapsuleCdn[appId] = built[0];
+        return built;
+    }
+
+    /// <summary>A Steam game's landscape art from its item service, widest first: library hero, header, main capsule.</summary>
+    private static async Task<IReadOnlyList<string>> ResolveSteamWideUrlsAsync(HttpClient http, string appId, CancellationToken cancellationToken)
+    {
+        if (!IsUsableAppId(appId) || await SteamItemAssetsAsync(http, appId, cancellationToken).ConfigureAwait(false) is not { } assets ||
+            assets.GetValueOrDefault("asset_url_format") is not { } format)
+            return Array.Empty<string>();
+        var list = new List<string>();
+        foreach (var kind in new[] { "library_hero_2x", "library_hero", "header_2x", "header", "main_capsule_2x", "main_capsule" })
+            if (assets.TryGetValue(kind, out var file))
+                foreach (var prefix in SteamLibraryCapsuleCdnPrefixes)
+                    list.Add(prefix + format.Replace("${FILENAME}", file, StringComparison.Ordinal));
+        return list;
+    }
+
+    /// <summary>
+    /// Steam's item service (IStoreBrowseService/GetItems) for one app: its asset file names by kind, with the
+    /// asset_url_format they go into; null when it doesn't answer or knows no assets.
+    /// </summary>
+    private static async Task<Dictionary<string, string>?> SteamItemAssetsAsync(HttpClient http, string appId, CancellationToken cancellationToken)
+    {
         var input = $"{{\"ids\":[{{\"appid\":{appId}}}],\"context\":{{\"language\":\"english\",\"country_code\":\"US\",\"steam_realm\":1}},\"data_request\":{{\"include_assets\":true}}}}";
         var url =
             "https://api.steampowered.com/IStoreBrowseService/GetItems/v1/?input_json="
             + Uri.EscapeDataString(input);
         using var resp = await http.GetAsync(url, cancellationToken).ConfigureAwait(false);
-        if (!resp.IsSuccessStatusCode) return Array.Empty<string>();
+        if (!resp.IsSuccessStatusCode) return null;
         var json = await resp.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
         using var doc = JsonDocument.Parse(json);
         if (!doc.RootElement.TryGetProperty("response", out var response) ||
             !response.TryGetProperty("store_items", out var items) ||
             items.ValueKind != JsonValueKind.Array)
-            return Array.Empty<string>();
+            return null;
 
         foreach (var item in items.EnumerateArray())
         {
-            if (!item.TryGetProperty("assets", out var assets)) continue;
-            var fmt = assets.TryGetProperty("asset_url_format", out var fmtEl) ? fmtEl.GetString() : null;
-            var c2 = assets.TryGetProperty("library_capsule_2x", out var c2El) ? c2El.GetString() : null;
-            var c1 = assets.TryGetProperty("library_capsule", out var c1El) ? c1El.GetString() : null;
-            var built = BuildSteamLibraryCapsuleUrls(fmt, c2, highResolutionOnly ? null : c1);
-            if (assets.TryGetProperty("community_icon", out var iconEl))
-            {
-                var hash = iconEl.GetString();
-                if (!string.IsNullOrWhiteSpace(hash))
-                    SteamCommunityIcon[appId] = hash;
-            }
-            if (built.Count > 0)
-            {
-                SteamCapsuleCdn[appId] = built[0];
-                return built;
-            }
+            if (!item.TryGetProperty("assets", out var assets) || assets.ValueKind != JsonValueKind.Object) continue;
+            var names = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (var asset in assets.EnumerateObject())
+                if (asset.Value.ValueKind == JsonValueKind.String && asset.Value.GetString() is { Length: > 0 } value) names[asset.Name] = value;
+            return names;
         }
-        return Array.Empty<string>();
+        return null;
+    }
+
+    /// <summary>
+    /// A banner for a game shown wide before it's installed (a download sits in Continue): library warms fetch them for
+    /// installed games only. True when one was cached just now.
+    /// </summary>
+    public static async Task<bool> WarmBannerAsync(GameEntry game, CancellationToken cancellationToken)
+    {
+        if (ResolveWideArtUrl(game) is not null) return false;
+        var gate = ArtworkOperationGates.GetOrAdd(game.Id, _ => new SemaphoreSlim(1, 1));
+        await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try { return ResolveWideArtUrl(game) is null && await WarmWideArtAsync(CoverHttp, game, requested: true, cancellationToken).ConfigureAwait(false); }
+        finally { gate.Release(); }
     }
 
     /// <summary>

@@ -39,12 +39,19 @@ internal static partial class Peripherals
         [JsonIgnore] public string? Source { get; init; }
         [JsonIgnore] public int? VendorId { get; init; }
         [JsonIgnore] public int? ProductId { get; init; }
+        /// <summary>
+        /// This one controller whatever port it's in: its serial, hashed (a DualSense's, read with its color). Its id
+        /// comes from the port's device instance, which Windows renames when the plug moves.
+        /// </summary>
+        [JsonIgnore] public string? Unit { get; init; }
         /// <summary>Its HID collections' device instances and usages (native only).</summary>
         [JsonIgnore] public IReadOnlyList<Collection> Collections { get; init; } = [];
         /// <summary>Where it meets the PC (<see cref="UsbPorts"/>); null off USB or where Exo can't tell.</summary>
         [JsonIgnore(Condition = JsonIgnoreCondition.Never)] public UsbPorts.Port? Port { get; init; }
         /// <summary>A controller the Controller Lab reads (<see cref="ControllerLab.FamilyOf"/>): its card opens a page.</summary>
         public bool Lab { get; init; }
+        /// <summary>A keyboard's own settings app (Peripherals.Apps); absent for the rest.</summary>
+        public KeyboardAppCard? App { get; init; }
     }
 
     internal sealed record Collection(string Id, int Page, int Usage);
@@ -539,6 +546,9 @@ internal static partial class Peripherals
     private static string Hash(string key) =>
         Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(key.ToUpperInvariant())), 0, 6).ToLowerInvariant();
 
+    /// <summary>A controller's <see cref="Peripheral.Unit"/> from its serial, hashed as ids are.</summary>
+    internal static string UnitOf(Peripheral card, string serial) => $"pad-{card.VendorId:x4}-{card.ProductId:x4}-{Hash(serial)}";
+
     // ------------------------------------------------------------------ what the devices answer
 
     /// <summary>
@@ -579,13 +589,20 @@ internal static partial class Peripherals
         "10" => "Chroma Teal",
         "11" => "Chroma Indigo",
         "12" => "Chroma Pearl",
+        // 13, Z5 and ZA as their owners reported them with their serials (daidr/dualsense-tester issues 233, 213, 193);
+        // Z7 and ZC from that tester's own list.
+        "13" => "Techno Red",
         "30" => "30th Anniversary",
         "Z1" => "God of War Ragnarok",
         "Z2" => "Spider-Man 2",
         "Z3" => "Astro Bot",
         "Z4" => "Fortnite",
+        "Z5" => "Monster Hunter Wilds",
         "Z6" => "The Last of Us",
+        "Z7" => "Ghost of Yotei",
+        "ZA" => "God of War 20th Anniversary",
         "ZB" => "Icon Blue Limited Edition",
+        "ZC" => "Astro Bot Joyful",
         "ZE" => "Genshin Impact",
         _ => null,
     };

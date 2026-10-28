@@ -1,20 +1,25 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { useGlide } from '../../lib/glide'
 import { ChevronDown, ChevronUp, Close } from '../../brand/icons'
 import { host } from '../../lib/host'
-import { guildBannerUrl, moveInRail, performanceMode, railShape, requestDiscordSettings, type DiscordChannel, type DiscordChannels, type DiscordDm, type DiscordFriend, type DiscordGuild, type DiscordHome, type DiscordRailItem, type DiscordVoiceMember, type RailDrop } from '../../lib/discord'
+import { guildBannerUrl, moveInRail, moveServer, openDiscord, performanceMode, railShape, requestDiscordSettings, requestServerProfile, type DiscordChannel, type DiscordChannels, type DiscordDm, type DiscordFriend, type DiscordGuild, type DiscordHome, type DiscordModeration, type DiscordRailItem, type DiscordVoiceMember, type RailDrop, type ServerMove } from '../../lib/discord'
 import { Icons } from './icons'
+import { showReport } from './Report'
+import { openThreadMenu } from './ThreadMenu'
 import { emojiUrl } from './markdown'
 import { Avatar, CustomStatusLine } from './presence'
 import { Nameplate, StyledName } from './collectibles'
 import { VoiceMembers, VoicePanel, type VoiceControls } from './voice'
+import { JamBox } from './JamBox'
+import { DeviceMenu, MeMenu } from './MeMenus'
 import { CreateChannel, PAGES, ServerPrivacy, ServerRows } from './serverPages'
 import { EventsDialog } from './events'
 // Server Settings and Edit Channel load the first time they open, not with the room.
 const ServerSettings = lazy(() => import('./ServerSettings').then(m => ({ default: m.ServerSettings })))
 const ChannelSettings = lazy(() => import('./ChannelSettings').then(m => ({ default: m.ChannelSettings })))
 import { useAccountSettings } from '../../lib/discordPrefs'
-import { Confirm } from './admin'
+import { Confirm, Field } from './admin'
+import { NAV, type Section } from './serverSections'
 import { InviteDialog } from './InviteDialog'
 import { EditGroup } from './GroupDm'
 import { prefetchMessages } from './messageCache'
@@ -25,6 +30,7 @@ import { SubContext, Submenu } from './UserMenu'
 import { dmData, DmCopyId, DmMuteItem, DmReadItem } from './dmMenu'
 import { useDismiss } from '../../lib/dismiss'
 import { DictateButton } from '../ui/DictateButton'
+import { ErrorNote } from '../ui/ErrorNote'
 
 export const FRIENDS = 'friends'
 export const SHOP = 'shop'
@@ -39,9 +45,11 @@ function initials(name: string) {
 }
 
 /** A server's channel list as Discord shows it: its name on top, categories that fold, text, announcement, forum and voice channels. */
-export function ServerSidebar({ guildId, name, guild, list, open, voice, onPick, onJoin, onMarkRead, onLeave }: {
+export function ServerSidebar({ guildId, name, guild, list, open, thread, voice, onPick, onJoin, onMarkRead, onLeave }: {
   guildId: string
   name: string
+  /** The thread open inside `open`, if one is. */
+  thread?: string | null
   /** The server as the rail has it: its notification settings for the header's menu. */
   guild: DiscordGuild | null
   list: DiscordChannels | null
@@ -80,6 +88,7 @@ export function ServerSidebar({ guildId, name, guild, list, open, voice, onPick,
         {list?.banner ? <img className="exo-dc-guild-banner" src={guildBannerUrl(guildId, list.banner, !performanceMode() && !shouldReduceMotion())} alt="" draggable={false} /> : null}
         <ServerRows rows={list?.rows} events={list?.events ?? 0} open={open} onPick={onPick} onEvents={() => setEventsOpen('list')} />
         <ChannelList channels={followed(list, open)} open={open} collapsed={collapsed} onPick={onPick} voice={voice} onJoin={onJoin}
+          list={list} openThread={thread}
           onCreate={list?.canManage ? c => setCreating({ parentId: c.id, category: c.name }) : undefined}
           onMenu={(channel, x, y, inCategory) => setChannelMenu({ channel, x, y, inCategory })}
           onToggle={id => toggle(id)} />
@@ -226,17 +235,16 @@ function CreateItems({ list, onCreate }: { list: DiscordChannels | null; onCreat
   )
 }
 
-// The server menu's Notification Settings, Privacy Settings and Hide Muted Channels, saved on your account as Discord's are.
+// The server menu's Notification Settings, Privacy Settings, Edit Per-server Profile and Hide Muted Channels, saved on
+// your account as Discord's are.
 function ViewItems({ guildId, guild, list, onDone, onPrivacy }: { guildId: string; guild: DiscordGuild | null; list: DiscordChannels | null; onDone: () => void; onPrivacy: () => void }) {
   const save = (params: Parameters<typeof host.discordServer>[1]) => { onDone(); void host.discordServer('notify', { guildId, ...params }).catch(() => { }) }
   return (
     <>
       {guild ? <NotifyItems guild={guild} onChange={save} /> : null}
       <button type="button" role="menuitem" onClick={() => { onDone(); onPrivacy() }}>Privacy settings</button>
-      <button type="button" role="menuitemcheckbox" aria-checked={!!list?.hideMuted} onClick={() => save({ hideMuted: !list?.hideMuted })}>
-        <span className="exo-dc-ctx-name">Hide muted channels</span>
-        {list?.hideMuted ? <Icons.Check size={14} className="exo-dc-ctx-check" /> : null}
-      </button>
+      <button type="button" role="menuitem" onClick={() => { onDone(); requestServerProfile(guildId) }}>Edit per-server profile</button>
+      <HideMutedItem list={list} onChange={hideMuted => save({ hideMuted })} />
     </>
   )
 }
@@ -295,13 +303,7 @@ function ServerHeader({ guildId, name, guild, list, onMarkRead, onLeave, inviteT
               ) : null}
               <CreateItems list={list} onCreate={what => { setMenu(false); onCreate(what) }} />
               <ViewItems guildId={guildId} guild={guild} list={list} onDone={() => setMenu(false)} onPrivacy={() => setDialog('privacy')} />
-              {/* Discord offers Show All Channels in community servers. */}
-              {list?.rows?.guide ? (
-                <button type="button" role="menuitemcheckbox" aria-checked={!list.optIn}
-                  onClick={() => { setMenu(false); void host.discordServer('showAll', { guildId, on: list.optIn === true }).catch(() => { }) }}>
-                  Show all channels {list.optIn ? '' : '✓'}
-                </button>
-              ) : null}
+              <ShowAllItem guildId={guildId} list={list} onDone={() => setMenu(false)} />
               {/* The owner can't leave their own server, so Discord doesn't offer it. */}
               {list?.moderation?.owner ? null : <button type="button" role="menuitem" className="is-danger" onClick={() => { setMenu(false); setConfirmLeave(true) }}><Icons.Leave size={16} />Leave server</button>}
               {developer ? <button type="button" role="menuitem" onClick={() => { setMenu(false); void navigator.clipboard.writeText(guildId).catch(() => { }) }}><Icons.CopyId size={16} />Copy server ID</button> : null}
@@ -320,22 +322,31 @@ function ServerHeader({ guildId, name, guild, list, onMarkRead, onLeave, inviteT
   )
 }
 
-/** Floating under the sidebar: a call in progress, then you, with mute, deafen and settings (devices and status are in settings). */
-export function UserPanel({ home, voice, voicePlace, status, onOpenVoice }: {
+/** Floating under the sidebar: the Jam box, a call in progress, then you, with mute, deafen and settings. Your avatar opens
+    your status menu, and the arrows beside Mute and Deafen your microphone and speakers. callIds: who is in your call. */
+export function UserPanel({ home, voice, voicePlace, callIds, status, onOpenVoice }: {
   home: DiscordHome | null
   voice: VoiceControls
   voicePlace: string | null
+  callIds: readonly string[]
   status: string | null
   onOpenVoice: () => void
 }) {
   const { muted, deafened } = voice.voice
   const custom = useAccountSettings().customStatus
+  const [menu, setMenu] = useState<'me' | 'input' | 'output' | null>(null)
   if (!home?.me) return null
+  const close = () => setMenu(null)
+  const toggle = (which: 'me' | 'input' | 'output') => setMenu(now => now === which ? null : which)
   return (
     <div className="exo-dc-dock">
+      <JamBox callIds={callIds} />
       <VoicePanel controls={voice} place={voicePlace} onOpen={onOpenVoice} />
       <footer className="exo-dc-me">
-        <button type="button" className={`exo-dc-me-who${home.me.look?.nameplate ? ' has-nameplate' : ''}`} aria-label="Your account" onClick={() => requestDiscordSettings('account')}>
+        {menu === 'me' ? <MeMenu meId={home.me.id} status={status} onClose={close} /> : null}
+        {menu === 'input' || menu === 'output' ? <DeviceMenu key={menu} kind={menu} onClose={close} /> : null}
+        <button type="button" className={`exo-dc-me-who${home.me.look?.nameplate ? ' has-nameplate' : ''}`} aria-label="Your status"
+          aria-haspopup="menu" aria-expanded={menu === 'me'} onClick={() => toggle('me')}>
           <Nameplate look={home.me.look} scope=".exo-dc-me-who" />
           <Avatar src={home.me.avatar} name={home.me.name} status={status ?? 'online'} size={32} look={home.me.look} scope=".exo-dc-me-who" />
           <span className="exo-dc-me-names">
@@ -348,10 +359,14 @@ export function UserPanel({ home, voice, voicePlace, status, onOpenVoice }: {
           onClick={() => void voice.setMuted(!muted)}>
           {muted ? <Icons.Muted size={18} /> : <Icons.Mic size={18} />}
         </button>
+        <button type="button" className="exo-dc-icon-btn is-caret" aria-label="Microphone options" aria-haspopup="menu" aria-expanded={menu === 'input'}
+          onClick={() => toggle('input')}><ChevronUp size={12} /></button>
         <button type="button" className={`exo-dc-icon-btn${deafened ? ' is-off' : ''}`} aria-label={deafened ? 'Undeafen' : 'Deafen'} aria-pressed={deafened}
           onClick={() => void voice.setDeafened(!deafened)}>
           {deafened ? <Icons.Deafened size={18} /> : <Icons.Headphones size={18} />}
         </button>
+        <button type="button" className="exo-dc-icon-btn is-caret" aria-label="Speaker options" aria-haspopup="menu" aria-expanded={menu === 'output'}
+          onClick={() => toggle('output')}><ChevronUp size={12} /></button>
         <button type="button" className="exo-dc-icon-btn" aria-label="Discord settings" onClick={() => requestDiscordSettings()}>
           <Icons.Settings size={18} />
         </button>
@@ -392,10 +407,12 @@ export function Rail({ home, place, onGo, onOpenDm, onPeek, onAdd, homeIcon }: {
   // A drop shows at once and stays while Discord saves it; the host moved its own list too, so home has it after.
   const [moved, setMoved] = useState<DiscordRailItem[] | null>(null)
   const rail = moved ?? home?.rail ?? []
-  const drag = useRailDrag(rail, next => {
+  const save = (next: DiscordRailItem[]) => {
     setMoved(next)
     void host.discordUserSettings({ guildFolders: next }).catch(() => null).finally(() => setMoved(current => current === next ? null : current))
-  })
+  }
+  const drag = useRailDrag(rail, save)
+  const [folderMenu, setFolderMenu] = useState<{ folder: DiscordRailItem; members: DiscordGuild[]; x: number; y: number } | null>(null)
   const dragging = drag.state?.moving === true
   const guilds = useMemo(() => new Map(home?.guilds.map(g => [g.id, g])), [home?.guilds])
   // Hovering a server fetches its channels for the voice peek: a sweep of the rail would be one request each
@@ -433,7 +450,7 @@ export function Rail({ home, place, onGo, onOpenDm, onPeek, onAdd, homeIcon }: {
         </div>
       ) : null}
       {/* No badge of its own: each DM with new messages shows below it with its count, as in Discord. */}
-      <RailButton label="Direct messages" home place="@me" current={place === '@me'} unread={false} mentions={0} onClick={() => onGo('@me')}>
+      <RailButton label="Direct messages" home glass place="@me" current={place === '@me'} unread={false} mentions={0} onClick={() => onGo('@me')}>
         {homeIcon}
       </RailButton>
       {/* Discord stacks each DM with messages waiting under Home, newest first, with how many (up to 20 DMs). */}
@@ -450,24 +467,28 @@ export function Rail({ home, place, onGo, onOpenDm, onPeek, onAdd, homeIcon }: {
         const id = item.id
         return (
           <Folder key={id} folder={item} members={members} open={openFolders.has(id)} place={place} onGo={onGo} onMenu={setMenu} mark={drag.mark}
+            onFolderMenu={(x, y) => setFolderMenu({ folder: item, members, x, y })}
             onToggle={() => setOpenFolders(set => { const next = new Set(set); if (!next.delete(id)) next.add(id); return next })} />
         )
       })}
-      <button type="button" className="exo-dc-guild is-add" aria-label="Add a server" onClick={onAdd}><Icons.Plus size={24} /></button>
-      {menu ? <GuildMenu key={menu.guild.id} {...menu} onGo={onGo} onClose={() => setMenu(null)} /> : null}
+      <button type="button" className="exo-dc-guild exo-glass is-add" aria-label="Add a server" onClick={onAdd}><Icons.Plus size={24} /></button>
+      {menu ? <GuildMenu key={menu.guild.id} {...menu} rail={rail} onGo={onGo} onMove={save} onClose={() => setMenu(null)} /> : null}
+      {folderMenu ? <FolderMenu key={folderMenu.folder.id} {...folderMenu} rail={rail} onMove={save} onClose={() => setFolderMenu(null)} /> : null}
       <div ref={drag.ghost} className="exo-dc-rail-ghost" aria-hidden="true" hidden={!dragging} />
     </nav>
   )
 }
 
 /** A server folder in the rail: its servers' icons while closed, the folder and each server while open. */
-function Folder({ folder, members, open, place, onGo, onMenu, onToggle, mark }: {
+function Folder({ folder, members, open, place, onGo, onMenu, onFolderMenu, onToggle, mark }: {
   folder: DiscordRailItem
   members: DiscordGuild[]
   open: boolean
   place: string
   onGo: (place: string) => void
   onMenu: (menu: { guild: DiscordGuild; x: number; y: number }) => void
+  /** Right-click on the folder itself: its own menu at the pointer. */
+  onFolderMenu: (x: number, y: number) => void
   onToggle: () => void
   mark: (key: string, container?: boolean) => string
 }) {
@@ -475,8 +496,8 @@ function Folder({ folder, members, open, place, onGo, onMenu, onToggle, mark }: 
   const color = folder.color != null ? `#${folder.color.toString(16).padStart(6, '0')}` : undefined
   return (
     <div className={`exo-dc-folder${open ? ' is-open' : ''}${mark(key, true)}`}>
-      <RailButton label={folder.name ?? 'Server folder'} current={false} unread={!open && members.some(g => g.unread)} node={key} drop={mark(key)}
-        mentions={open ? 0 : members.reduce((sum, g) => sum + g.mentions, 0)} onClick={onToggle}>
+      <RailButton label={folder.name ?? 'Server folder'} glass current={false} unread={!open && members.some(g => g.unread)} node={key} drop={mark(key)}
+        mentions={open ? 0 : members.reduce((sum, g) => sum + g.mentions, 0)} onClick={onToggle} onMenu={onFolderMenu}>
         {open
           ? <span className="exo-dc-folder-icon" style={color ? { color } : undefined}><Icons.Folder size={22} /></span>
           : <span className="exo-dc-folder-grid">{members.slice(0, 4).map(g => g.icon ? <img key={g.id} src={g.icon} alt="" draggable={false} /> : <i key={g.id}>{initials(g.name)}</i>)}</span>}
@@ -595,15 +616,17 @@ function GuildButton({ guild, place, onGo, onMenu, drop, within }: {
   within?: 'in' | 'last'
 }) {
   return (
-    <RailButton label={guild.name} place={guild.id} current={place === guild.id} unread={guild.unread} mentions={guild.mentions} inVoice={guild.inVoice}
+    <RailButton label={guild.name} glass={!guild.icon} place={guild.id} current={place === guild.id} unread={guild.unread} mentions={guild.mentions} inVoice={guild.inVoice}
       muted={guild.muted} onClick={() => onGo(guild.id)} onMenu={(x, y) => onMenu({ guild, x, y })} node={guild.id} drop={drop} within={within}>
       {guild.icon ? <img src={guild.icon} alt="" draggable={false} loading="lazy" /> : <span className="exo-dc-initials">{initials(guild.name)}</span>}
     </RailButton>
   )
 }
 
-function RailButton({ label, home, place, current, unread, mentions, inVoice = 0, muted, onClick, onMenu, node, drop = '', within, children }: {
+function RailButton({ label, home, glass = false, place, current, unread, mentions, inVoice = 0, muted, onClick, onMenu, node, drop = '', within, children }: {
   label: string
+  /** Not a picture (Home's mark, a folder, a server with no icon): the tile is small Liquid Glass. */
+  glass?: boolean
   /** People in its voice channels: a speaker mark at its foot. */
   inVoice?: number
   home?: boolean
@@ -623,7 +646,7 @@ function RailButton({ label, home, place, current, unread, mentions, inVoice = 0
   children: React.ReactNode
 }) {
   return (
-    <button type="button" className={`exo-dc-guild${home ? ' is-home' : ''}${unread ? ' is-unread' : ''}${muted ? ' is-muted' : ''}${drop}`} aria-current={current}
+    <button type="button" className={`exo-dc-guild${glass ? ' exo-glass' : ''}${home ? ' is-home' : ''}${unread ? ' is-unread' : ''}${muted ? ' is-muted' : ''}${drop}`} aria-current={current}
       aria-label={[label, mentions ? `${mentions} mentions` : null, inVoice ? `${inVoice} in voice` : null].filter(Boolean).join(', ')} onClick={onClick} data-dc-place={place} data-dc-node={node} data-dc-within={within}
       onContextMenu={onMenu ? event => { event.preventDefault(); onMenu(event.clientX, event.clientY) } : undefined}>
       {children}
@@ -634,48 +657,57 @@ function RailButton({ label, home, place, current, unread, mentions, inVoice = 0
 }
 
 /**
- * Discord's right-click menu on a server in the rail: Mark As Read (off when nothing is unread), Invite to Server, Mute
- * Server for a while (or Unmute, with when it ends), Notification Settings with the two Suppress switches, Leave Server
- * (not for its owner), and Copy Server ID in Developer Mode.
+ * Discord's right-click menu on a server in the rail, in Discord's order: Mark As Read (off when nothing is unread), Invite
+ * to Server, Mute Server for a while (or Unmute, with when it ends), Notification Settings, Hide Muted Channels, Show All
+ * Channels (a community server), Server Settings with each page you may open, Privacy Settings, Edit Per-server Profile,
+ * Create Channel, Category and Event where allowed, Move To, Copy Server Info (its icon's and banner's links), Leave and
+ * Report Server (not for its owner), and Copy Server ID in Developer Mode. What it opens stays on the server you're on.
  */
-function GuildMenu({ guild, x, y, onGo, onClose }: { guild: DiscordGuild; x: number; y: number; onGo: (place: string) => void; onClose: () => void }) {
+function GuildMenu({ guild, x, y, rail, onGo, onMove, onClose }: {
+  guild: DiscordGuild
+  x: number
+  y: number
+  rail: DiscordRailItem[]
+  onGo: (place: string) => void
+  onMove: (next: DiscordRailItem[]) => void
+  onClose: () => void
+}) {
   const developer = useAccountSettings().developerMode
   const [note, setNote] = useState<string | null>(null)
-  const [leaving, setLeaving] = useState(false)
-  // Invite to Server opens Discord's invite dialog for the first channel you can read.
-  const [inviteTo, setInviteTo] = useState<DiscordChannel | null>(null)
+  const [dialog, setDialog] = useState<GuildDialog | null>(null)
   const [sub, setSub] = useState<string | null>(null)
-  const box = useRef<HTMLDivElement>(null)
-  useDismiss(box, onClose, { on: !leaving && !inviteTo })
+  // Exo's copy of its channel list: Hide Muted Channels, Server Settings' pages and Create, as you may on this server.
+  const [list, setList] = useState<DiscordChannels | null>(null)
   useEffect(() => {
-    if (leaving) return
+    let live = true
+    host.discordChannels(guild.id).then(result => { if (live) setList(result) }, () => { })
+    return () => { live = false }
+  }, [guild.id])
+  const box = useRef<HTMLDivElement>(null)
+  useDismiss(box, onClose, { on: !dialog })
+  useEffect(() => {
+    if (dialog) return
     const escape = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose() }
     window.addEventListener('keydown', escape)
     return () => window.removeEventListener('keydown', escape)
-  }, [onClose, leaving])
+  }, [onClose, dialog])
   const why = 'Discord did not take that.'
   const run = (work: Promise<{ ok: boolean; message?: string | null }>) =>
     void work.then(result => { if (result.ok) onClose(); else setNote(result.message ?? why) }).catch(() => setNote(why))
   const server = (action: 'mute' | 'notify', params: Parameters<typeof host.discordServer>[1]) => run(host.discordServer(action, { guildId: guild.id, ...params }))
-  const invite = () => void host.discordChannels(guild.id).then(list => {
+  const invite = () => {
     const channel = inviteChannel(list, null)
-    if (channel) setInviteTo(channel); else setNote("There's no channel to invite people to.")
-  }).catch(() => setNote(why))
-  if (inviteTo) return <InviteDialog name={guild.name} channelId={inviteTo.id} channelName={inviteTo.name} onClose={onClose} />
-  if (leaving) {
-    return (
-      <Confirm title={`Leave '${guild.name}'?`} action="Leave server" error={note} onClose={onClose}
-        onConfirm={() => void host.discordServer('leave', { guildId: guild.id }).then(result => { if (result.ok) { onClose(); onGo('@me') } else setNote(result.message ?? why) }, () => setNote(why))}>
-        <p>You won't be able to rejoin this server unless you are re-invited.</p>
-      </Confirm>
-    )
+    if (channel) setDialog({ kind: 'invite', channel }); else setNote("There's no channel to invite people to.")
   }
+  const copy = (text: string) => { void navigator.clipboard.writeText(text).catch(() => { }); onClose() }
+  if (dialog) return <GuildMenuDialog dialog={dialog} guild={guild} list={list} onGo={onGo} onClose={onClose} />
+  const moderation = list?.moderation
   return (
     <SubContext.Provider value={{ open: sub, show: setSub }}>
     <div ref={box} className="exo-dc-menu exo-dc-channel-menu exo-dc-guild-menu" role="menu" aria-label={guild.name} style={{ left: x, top: y }}>
       <button type="button" role="menuitem" disabled={!guild.unread && !guild.mentions} onClick={() => run(host.discordMarkRead(guild.id))}>Mark as read</button>
       <span className="exo-dc-menu-line" role="separator" />
-      <button type="button" role="menuitem" onClick={invite}>Invite to server</button>
+      <button type="button" role="menuitem" disabled={!list} onClick={invite}>Invite to server</button>
       <span className="exo-dc-menu-line" role="separator" />
       {guild.muted ? (
         <button type="button" role="menuitem" onClick={() => server('mute', { muted: false })}>
@@ -687,13 +719,30 @@ function GuildMenu({ guild, x, y, onGo, onClose }: { guild: DiscordGuild; x: num
         </Submenu>
       )}
       <NotifyItems guild={guild} onChange={params => server('notify', params)} />
+      <HideMutedItem list={list} onChange={hideMuted => server('notify', { hideMuted })} />
+      <ShowAllItem guildId={guild.id} list={list} onDone={onClose} />
+      <span className="exo-dc-menu-line" role="separator" />
+      {moderation ? <SettingsItems moderation={moderation} features={list?.features ?? []} onPick={section => setDialog({ kind: 'settings', section })} /> : null}
+      <button type="button" role="menuitem" onClick={() => setDialog({ kind: 'privacy' })}>Privacy settings</button>
+      <button type="button" role="menuitem" onClick={() => { onClose(); requestServerProfile(guild.id) }}>Edit per-server profile</button>
+      {list?.canManage || list?.canManageEvents ? <>
+        <span className="exo-dc-menu-line" role="separator" />
+        <CreateItems list={list} onCreate={what => setDialog(what === 'event' ? { kind: 'event' } : { kind: 'create', asCategory: what === 'category' })} />
+      </> : null}
+      <span className="exo-dc-menu-line" role="separator" />
+      <MoveItems rail={rail} guildId={guild.id} onMove={next => { onClose(); onMove(next) }} />
+      <CopyInfoItems guild={guild} banner={list?.banner ?? null} onCopy={copy} />
       {guild.owner ? null : <>
         <span className="exo-dc-menu-line" role="separator" />
-        <button type="button" role="menuitem" className="is-danger" onClick={() => setLeaving(true)}>Leave server</button>
+        <button type="button" role="menuitem" className="is-danger" onClick={() => setDialog({ kind: 'leave' })}>Leave server</button>
+        <button type="button" role="menuitem" className="is-danger" onClick={() => {
+          onClose()
+          showReport({ kind: 'guild', ids: { guild_id: guild.id }, preview: { name: guild.name, image: guild.icon } })
+        }}><Icons.Report size={16} />Report server</button>
       </>}
       {developer ? <>
         <span className="exo-dc-menu-line" role="separator" />
-        <button type="button" role="menuitem" onClick={() => { void navigator.clipboard.writeText(guild.id).catch(() => { }); onClose() }}><Icons.CopyId size={16} />Copy server ID</button>
+        <button type="button" role="menuitem" onClick={() => copy(guild.id)}><Icons.CopyId size={16} />Copy server ID</button>
       </> : null}
       {note ? <p className="exo-dc-note" role="status">{note}</p> : null}
     </div>
@@ -701,7 +750,159 @@ function GuildMenu({ guild, x, y, onGo, onClose }: { guild: DiscordGuild; x: num
   )
 }
 
-// A server's Notification Settings, in its menus: the level, then Suppress @everyone and @here and Suppress all role @mentions.
+type GuildDialog = { kind: 'invite'; channel: DiscordChannel } | { kind: 'leave' } | { kind: 'privacy' } | { kind: 'settings'; section: Section }
+  | { kind: 'create'; asCategory: boolean } | { kind: 'event' }
+
+// What a server's menu opened: its invite, Leave's question, Privacy Settings, Server Settings at a page, Create Channel
+// or Category (a new channel opens), or Create Event.
+function GuildMenuDialog({ dialog, guild, list, onGo, onClose }: { dialog: GuildDialog; guild: DiscordGuild; list: DiscordChannels | null; onGo: (place: string) => void; onClose: () => void }) {
+  const [note, setNote] = useState<string | null>(null)
+  switch (dialog.kind) {
+    case 'invite': return <InviteDialog name={guild.name} channelId={dialog.channel.id} channelName={dialog.channel.name} onClose={onClose} />
+    case 'privacy': return <ServerPrivacy guildId={guild.id} name={guild.name} onClose={onClose} />
+    case 'event': return <EventsDialog guildId={guild.id} list={list} create onClose={onClose} />
+    case 'create':
+      return (
+        <CreateChannel guildId={guild.id} parentId={null} category="" asCategory={dialog.asCategory} onClose={onClose}
+          onCreated={id => { onClose(); if (!dialog.asCategory) openDiscord({ guildId: guild.id, channelId: id, outside: false }) }} />
+      )
+    case 'settings':
+      return list?.moderation ? (
+        <Suspense fallback={null}>
+          <ServerSettings guildId={guild.id} name={guild.name} moderation={list.moderation} channels={list.channels} start={dialog.section} onClose={() => void transition(onClose)} />
+        </Suspense>
+      ) : null
+    case 'leave': {
+      const why = 'Discord did not take that.'
+      return (
+        <Confirm title={`Leave '${guild.name}'?`} action="Leave server" error={note} onClose={onClose}
+          onConfirm={() => void host.discordServer('leave', { guildId: guild.id }).then(result => { if (result.ok) { onClose(); onGo('@me') } else setNote(result.message ?? why) }, () => setNote(why))}>
+          <p>You won't be able to rejoin this server unless you are re-invited.</p>
+        </Confirm>
+      )
+    }
+  }
+}
+
+// Hide Muted Channels, saved on your account as Discord's is.
+function HideMutedItem({ list, onChange }: { list: DiscordChannels | null; onChange: (hide: boolean) => void }) {
+  return (
+    <button type="button" role="menuitemcheckbox" aria-checked={!!list?.hideMuted} disabled={!list} onClick={() => onChange(!list?.hideMuted)}>
+      <span className="exo-dc-ctx-name">Hide muted channels</span>
+      {list?.hideMuted ? <Icons.Check size={14} className="exo-dc-ctx-check" /> : null}
+    </button>
+  )
+}
+
+// Show All Channels, which Discord offers in a community server (off: only the channels you follow).
+function ShowAllItem({ guildId, list, onDone }: { guildId: string; list: DiscordChannels | null; onDone: () => void }) {
+  if (!list?.rows?.guide) return null
+  return (
+    <button type="button" role="menuitemcheckbox" aria-checked={!list.optIn}
+      onClick={() => { onDone(); void host.discordServer('showAll', { guildId, on: list.optIn === true }).catch(() => { }) }}>
+      <span className="exo-dc-ctx-name">Show all channels</span>
+      {list.optIn ? null : <Icons.Check size={14} className="exo-dc-ctx-check" />}
+    </button>
+  )
+}
+
+// Server Settings, each page you may open on this server, as Discord's submenu lists them.
+function SettingsItems({ moderation, features, onPick }: { moderation: DiscordModeration; features: string[]; onPick: (section: Section) => void }) {
+  const pages = NAV.flatMap(group => group.items).filter(item => item.shown(moderation, { features }))
+  if (!Object.values(moderation).some(Boolean) || !pages.length) return null
+  return (
+    <Submenu label="Server settings">
+      {pages.map(page => <button key={page.id} type="button" role="menuitem" onClick={() => onPick(page.id)}>{page.label}</button>)}
+    </Submenu>
+  )
+}
+
+const MOVES: [ServerMove, string][] = [['folderFirst', 'First in folder'], ['folderLast', 'Last in folder'], ['listFirst', 'First in list'], ['listLast', 'Last in list'], ['noFolder', 'No folder']]
+
+// Move To: the top or foot of its folder or of the server list, or out of its folder, saved as a drag saves it.
+function MoveItems({ rail, guildId, onMove }: { rail: DiscordRailItem[]; guildId: string; onMove: (next: DiscordRailItem[]) => void }) {
+  const inFolder = rail.some(item => item.id != null && item.guildIds.includes(guildId))
+  const moves = MOVES.filter(([to]) => inFolder || to === 'listFirst' || to === 'listLast')
+  return (
+    <Submenu label="Move to">
+      {moves.map(([to, label]) => {
+        const next = moveServer(rail, guildId, to)
+        return <button key={to} type="button" role="menuitem" disabled={!next} onClick={() => { if (next) onMove(next) }}>{label}</button>
+      })}
+    </Submenu>
+  )
+}
+
+// Copy Server Info: links to its icon and banner at full size.
+function CopyInfoItems({ guild, banner, onCopy }: { guild: DiscordGuild; banner: string | null; onCopy: (text: string) => void }) {
+  if (!guild.icon && !banner) return null
+  const full = (link: string) => link.replace(/([?&])size=\d+/, '$1size=4096')
+  return (
+    <Submenu label="Copy server info">
+      {guild.icon ? <button type="button" role="menuitem" onClick={() => onCopy(full(guild.icon!))}>Copy server icon image link</button> : null}
+      {banner ? <button type="button" role="menuitem" onClick={() => onCopy(full(guildBannerUrl(guild.id, banner, true)))}>Copy server banner image link</button> : null}
+    </Submenu>
+  )
+}
+
+/** A folder's right-click menu: Mark Folder As Read and Folder Settings (its name and color), as Discord's. */
+function FolderMenu({ folder, members, x, y, rail, onMove, onClose }: {
+  folder: DiscordRailItem
+  members: DiscordGuild[]
+  x: number
+  y: number
+  rail: DiscordRailItem[]
+  onMove: (next: DiscordRailItem[]) => void
+  onClose: () => void
+}) {
+  const [editing, setEditing] = useState(false)
+  const box = useRef<HTMLDivElement>(null)
+  useDismiss(box, onClose, { on: !editing })
+  useEffect(() => {
+    if (editing) return
+    const escape = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose() }
+    window.addEventListener('keydown', escape)
+    return () => window.removeEventListener('keydown', escape)
+  }, [onClose, editing])
+  const unread = members.filter(g => g.unread || g.mentions)
+  if (editing) {
+    return <FolderSettings folder={folder} onClose={onClose}
+      onSave={(name, color) => { onClose(); onMove(rail.map(item => item.id === folder.id ? { ...item, name, color } : item)) }} />
+  }
+  return (
+    <div ref={box} className="exo-dc-menu exo-dc-channel-menu exo-dc-guild-menu" role="menu" aria-label={folder.name ?? 'Server folder'} style={{ left: x, top: y }}>
+      <button type="button" role="menuitem" disabled={!unread.length} onClick={() => { onClose(); void Promise.all(unread.map(g => host.discordMarkRead(g.id))).catch(() => { }) }}>Mark folder as read</button>
+      <button type="button" role="menuitem" onClick={() => setEditing(true)}>Folder settings</button>
+    </div>
+  )
+}
+
+// Folder Settings: its name (empty: the servers' names, as Discord shows it) and its color (Default: Discord's own).
+function FolderSettings({ folder, onSave, onClose }: { folder: DiscordRailItem; onSave: (name: string | null, color: number | null) => void; onClose: () => void }) {
+  const [name, setName] = useState(folder.name ?? '')
+  const [color, setColor] = useState<number | null>(folder.color ?? null)
+  const hex = color != null ? `#${color.toString(16).padStart(6, '0')}` : null
+  return (
+    <Confirm title="Folder settings" action="Done" danger={false} form onClose={onClose} onConfirm={() => onSave(name.trim() || null, color)}>
+      <Field label="Folder name" stacked>
+        <input className="exo-field" value={name} maxLength={100} placeholder="Server folder" aria-label="Folder name" data-autofocus onChange={e => setName(e.target.value)} />
+      </Field>
+      <Field label="Folder color">
+        <span className="exo-dc-settings-buttons">
+          <label className="exo-set-btn exo-dc-settings-swatch">
+            <span style={{ background: hex ?? 'var(--dc-blurple, #5865f2)' }} aria-hidden="true" />
+            {hex?.toUpperCase() ?? 'Default'}
+            <input type="color" aria-label="Folder color" value={hex ?? '#5865f2'} onChange={e => setColor(parseInt(e.target.value.slice(1), 16))} />
+          </label>
+          {color != null ? <button type="button" className="exo-set-btn" onClick={() => setColor(null)}>Default</button> : null}
+        </span>
+      </Field>
+    </Confirm>
+  )
+}
+
+// A server's Notification Settings, in its menus: the level, then Suppress @everyone and @here, Suppress all role
+// @mentions, Suppress highlights and Mute new events, then Mobile push notifications, as Discord's.
 function NotifyItems({ guild, onChange }: { guild: DiscordGuild; onChange: (params: Parameters<typeof host.discordServer>[1]) => void }) {
   const level = guild.notify ?? 0
   return (
@@ -721,7 +922,20 @@ function NotifyItems({ guild, onChange }: { guild: DiscordGuild; onChange: (para
         <span className="exo-dc-ctx-name">Suppress all role @mentions</span>
         {guild.suppressRoles ? <Icons.Check size={14} className="exo-dc-ctx-check" /> : null}
       </button>
+      <CheckRow label="Suppress highlights" on={!!guild.suppressHighlights} onChange={on => onChange({ suppressHighlights: on })} />
+      <CheckRow label="Mute new events" on={!!guild.muteEvents} onChange={on => onChange({ muteEvents: on })} />
+      <span className="exo-dc-menu-line" role="separator" />
+      <CheckRow label="Mobile push notifications" on={guild.mobilePush !== false} onChange={on => onChange({ mobilePush: on })} />
     </Submenu>
+  )
+}
+
+function CheckRow({ label, on, onChange }: { label: string; on: boolean; onChange: (on: boolean) => void }) {
+  return (
+    <button type="button" role="menuitemcheckbox" aria-checked={on} onClick={() => onChange(!on)}>
+      <span className="exo-dc-ctx-name">{label}</span>
+      {on ? <Icons.Check size={14} className="exo-dc-ctx-check" /> : null}
+    </button>
   )
 }
 
@@ -734,9 +948,12 @@ export function ChannelIcon({ channel, size = 18 }: { channel: DiscordChannel; s
   return channel.locked ? <Icons.HashLock size={size} /> : <Icons.Hash size={size} />
 }
 
-function ChannelList({ channels, open, collapsed, onPick, onToggle, onJoin, onCreate, onMenu, voice }: {
+function ChannelList({ channels, open, collapsed, onPick, onToggle, onJoin, onCreate, onMenu, voice, list, openThread }: {
   channels: DiscordChannel[]
   open: string | null
+  /** The server's list: the threads you're in that are open, each listed under its channel as Discord lists them. */
+  list: DiscordChannels | null
+  openThread?: string | null
   collapsed: Set<string>
   onPick: (id: string) => void
   onToggle: (id: string) => void
@@ -746,6 +963,7 @@ function ChannelList({ channels, open, collapsed, onPick, onToggle, onJoin, onCr
   voice: VoiceControls
 }) {
   let category: string | null = null
+  const threads = list?.threads?.filter(t => t.joined && !t.archived) ?? []
   return channels.map(c => {
     if (c.kind === 'category') {
       category = c.id
@@ -765,10 +983,12 @@ function ChannelList({ channels, open, collapsed, onPick, onToggle, onJoin, onCr
     if (c.kind === 'voice') return <VoiceChannel key={c.id} channel={c} voice={voice} open={open === c.id} onPreview={onPick} onJoin={onJoin} onMenu={(channel, x, y) => onMenu(channel, x, y, inCategory)} />
     // Any text channel listed opens, as in Discord: one without Read Message History shows only what arrives while open.
     const readable = c.kind === 'text' || c.kind === 'forum'
+    const inside = threads.filter(t => t.parentId === c.id)
     return (
-      <button key={c.id} type="button"
+      <Fragment key={c.id}>
+      <button type="button"
         className={`exo-dc-item${c.unread ? ' is-unread' : ''}${c.muted ? ' is-muted' : ''}`}
-        aria-current={c.id === open}
+        aria-current={c.id === open && !inside.some(t => t.id === openThread)}
         disabled={!readable}
         data-dc-channel={c.kind === 'text' && readable ? c.id : undefined}
         onContextMenu={event => { event.preventDefault(); onMenu(c, event.clientX, event.clientY, inCategory) }}
@@ -777,8 +997,26 @@ function ChannelList({ channels, open, collapsed, onPick, onToggle, onJoin, onCr
         <span className="exo-dc-item-name">{c.name}</span>
         {c.mentions ? <span className="exo-dc-badge">{c.mentions}</span> : null}
       </button>
+      {inside.map(t => <ThreadItem key={t.id} thread={t} open={t.id === openThread} onPick={onPick} />)}
+      </Fragment>
     )
   })
+}
+
+type SidebarThread = NonNullable<DiscordChannels['threads']>[number]
+
+// A thread you're in, under its channel with Discord's curved line to it: picking it opens it there; right-click for its menu.
+function ThreadItem({ thread, open, onPick }: { thread: SidebarThread; open: boolean; onPick: (id: string) => void }) {
+  return (
+    <button type="button" className={`exo-dc-item exo-dc-thread-item${thread.unread ? ' is-unread' : ''}${thread.muted ? ' is-muted' : ''}`}
+      aria-current={open} data-dc-channel={thread.id}
+      onContextMenu={event => { event.preventDefault(); openThreadMenu(thread.id, event.clientX, event.clientY) }}
+      onClick={() => onPick(thread.id)}>
+      <span className="exo-dc-thread-spine" aria-hidden="true" />
+      <span className="exo-dc-item-name">{thread.name}</span>
+      {thread.mentions ? <span className="exo-dc-badge">{thread.mentions}</span> : null}
+    </button>
+  )
 }
 
 /**
@@ -848,7 +1086,7 @@ function StartDm({ onOpen, onClose }: { onOpen: (channelId: string) => void; onC
           </button>
         ))}
       </div>
-      {error ? <p className="is-bad" role="alert">{error}</p> : null}
+      {error ? <ErrorNote className="is-bad" message={error} /> : null}
       <button type="button" className="exo-set-btn is-primary" disabled={!picked.length || busy} onClick={() => void create()}>Create DM</button>
     </div>
   )

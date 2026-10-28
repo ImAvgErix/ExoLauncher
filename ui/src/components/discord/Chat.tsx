@@ -1,3 +1,4 @@
+import { CopyLogs } from '../ui/ErrorNote'
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { host, onHostEvent } from '../../lib/host'
 import { report } from '../../lib/report'
@@ -380,6 +381,7 @@ function Retry({ message, onRetry }: { message: string; onRetry: () => void }) {
     <p className="exo-dc-note exo-dc-retry" role="alert">
       {message}
       <button type="button" className="exo-dc-tab" onClick={onRetry}>Retry</button>
+      <CopyLogs error={message} />
     </p>
   )
 }

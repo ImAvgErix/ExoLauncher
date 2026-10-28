@@ -1,3 +1,4 @@
+import { ErrorNote } from './ErrorNote'
 import { useId, useRef, useSyncExternalStore, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useChildRef, useDismiss } from '../../lib/dismiss'
@@ -83,7 +84,7 @@ export function ConfirmDialog({ title, body, action, danger, cancel = 'Cancel', 
     }>
       {typeof body === 'string' ? <p>{body}</p> : body}
       {children}
-      {error ? <p className="exo-dialog-error" role="alert">{error}</p> : null}
+      {error ? <ErrorNote className="exo-dialog-error" message={error} /> : null}
     </Dialog>
   )
 }

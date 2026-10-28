@@ -9,9 +9,8 @@ namespace ExoLauncher.Adapters;
 /// <summary>
 /// Steam playtime + last played from userdata localconfig.vdf.
 /// Reads the active Steam account and brace-matches app blocks (nested cloud
-/// keys are common). Hours merge across every account on the PC only when the
-/// user turns on Settings > Game stores > Count hours from all my accounts, so
-/// a shared PC stays separate by default. Ownership is always the active account's.
+/// keys are common). Hours merge across every account on this PC; ownership is
+/// always the active account's.
 /// </summary>
 internal static partial class SteamPlaytime
 {

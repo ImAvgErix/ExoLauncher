@@ -300,6 +300,14 @@ internal sealed partial class DiscordRest : IDisposable
     internal Task<Reply> LeaveGuildAsync(string guildId, CancellationToken ct) =>
         SendAsync(HttpMethod.Delete, $"users/@me/guilds/{Id(guildId)}", new JsonObject { ["lurking"] = false }, ct);
 
+    /// <summary>The questions Discord asks for a kind of report (one of <see cref="DiscordReports.Kinds"/>).</summary>
+    internal Task<Reply> ReportMenuAsync(string kind, CancellationToken ct) =>
+        SendAsync(HttpMethod.Get, $"reporting/menu/{kind}", null, ct);
+
+    /// <summary>Sends a report built by <see cref="DiscordReports.Build"/>.</summary>
+    internal Task<Reply> ReportAsync(string kind, JsonObject report, CancellationToken ct) =>
+        SendAsync(HttpMethod.Post, $"reporting/{kind}", report, ct);
+
     /// <summary>Saves channel override flags (and, with guildFlags, the server's), as Discord's Browse Channels does.</summary>
     internal Task<Reply> ChannelFlagsAsync(string guildId, IReadOnlyDictionary<string, int> flags, int? guildFlags, CancellationToken ct)
     {

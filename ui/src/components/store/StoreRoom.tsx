@@ -1,3 +1,4 @@
+import { CopyLogs } from '../ui/ErrorNote'
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { Bookmark, CHECK_PATH, ChevronLeft, ChevronRight, Close, Refresh, Search } from '../../brand/icons'
 import { shouldReduceMotion } from '../../lib/motionPreference'
@@ -15,7 +16,7 @@ import { DictateButton } from '../ui/DictateButton'
 import { SteamImage, StoreCard, useWarm } from './StoreCard'
 import { CoverArt } from '../CoverArt'
 import { StoreGamePage } from './StoreGamePage'
-import { artSources, steamArt, useOwned, useWishlist } from './storeData'
+import { artSources, localDay, steamArt, steamSaleMarks, steamSaleNow, useOwned, useWishlist } from './storeData'
 
 type Tab = 'home' | 'calendar' | 'wishlist'
 /** A card at its place in the view; arrive: the view is showing its items for the first time. */
@@ -41,19 +42,17 @@ function arriveStyle(i: number): CSSProperties {
  * they play woven in. Search and a wishlist
  * sit above; a game opens its own page.
  */
-/** The window a game's page sits in over the Store. */
-const PAGE_WINDOW = '.exo-game-overlay-stage:has(> .exo-sgp)'
+/** A game's page's viewer (its trailer or screenshot, or their placeholder): where its card's art flies to and back from. */
+const PAGE_ART = '.exo-game-overlay-stage .exo-sgp-stage'
 
 const NO_GAMES: Game[] = []
 
 /** What a hidden-unmounted Store comes back to (BootGate's roomScroll keeps the scroll). */
 const remembered = { tab: 'home' as Tab, query: '', page: null as StoreTile | null, lastPage: null as StoreTile | null }
 
-export function StoreRoom({ active, games, onSale, onOpenGame }: {
+export function StoreRoom({ active, games, onOpenGame }: {
   active: boolean
   games: readonly Game[]
-  /** Wishlisted games on sale the library does not own; LauncherApp already counts them for the Store tab. */
-  onSale: number
   /** "In your library": the game's name and its Steam app id. */
   onOpenGame: (name: string, appId?: string) => void
 }) {
@@ -84,17 +83,18 @@ export function StoreRoom({ active, games, onSale, onOpenGame }: {
   const scroller = useRef<HTMLDivElement>(null)
   useTopOnChange(scroller, `${view}|${hits.query}`)
 
-  // The card grows into the page's window and shrinks back into it on close, as a card opens in the App Store
-  // (the window, not the page's dimmed backdrop, is where it lands). Opened from elsewhere, the page floats in.
+  // The card's art flies into the page's viewer and back on close, the page coming up under it, as a game's page does
+  // in Library. Flown into the whole window, the window's glass was captured on its own and stood in as a flat tint,
+  // then blinked into glass as it landed. Opened from elsewhere, the page floats in.
   const artFrom = useRef<Element | null>(null)
   const openPage = useCallback((tile: StoreTile) => {
     const from = pressedArt()
     artFrom.current = from
-    void transition(() => setPage(tile), { kind: 'morph', morph: { name: 'exo-store-art', from, to: () => visible(PAGE_WINDOW) } })
+    void transition(() => setPage(tile), { kind: 'morph', morph: { name: 'exo-store-art', from, to: () => visible(PAGE_ART) } })
   }, [])
   const closePage = () => {
     const to = artFrom.current
-    void transition(() => setPage(null), { kind: 'morph', back: true, morph: { name: 'exo-store-art', from: visible(PAGE_WINDOW), to: () => onScreen(to) ? to : null } })
+    void transition(() => setPage(null), { kind: 'morph', back: true, morph: { name: 'exo-store-art', from: visible(PAGE_ART), to: () => onScreen(to) ? to : null } })
   }
 
   // The library games a pick is like, for its Similar to band; the host names them by library id.
@@ -108,13 +108,20 @@ export function StoreRoom({ active, games, onSale, onOpenGame }: {
     return list
   }, [byId, similarKept])
   const openLibrary = useCallback((game: Game) => onOpenGame(game.title), [onOpenGame])
+  // A game's wishlist mark follows the wishlist as it is now: the shelves, the banner and the calendar were read with the
+  // wishlist of their moment, so a game added since showed none. Their own word stands only until the wishlist is read.
+  const withWish = useCallback((tile: StoreTile): StoreTile => {
+    const wished = wish.loaded ? wish.ids.has(tile.appId) : !!tile.wished
+    return wished === !!tile.wished ? tile : { ...tile, wished }
+  }, [wish.loaded, wish.ids])
   const card = useCallback<CardFn>((tile, index, arrive, priced) => (
-    <StoreCard key={tile.appId} tile={tile} owned={owned(tile.appId, tile.name)} similar={similar(tile.similarTo)} priced={priced} onOpen={openPage} onOpenGame={openLibrary} arrive={arrive ? index : undefined} />
-  ), [owned, openPage, similar, openLibrary])
+    <StoreCard key={tile.appId} tile={withWish(tile)} owned={owned(tile.appId, tile.name)} similar={similar(tile.similarTo)} priced={priced} onOpen={openPage} onOpenGame={openLibrary} arrive={arrive ? index : undefined} />
+  ), [owned, openPage, similar, openLibrary, withWish])
 
   const [openError, setOpenError] = useState<string | null>(null)
   // With nothing else to show, an error reads in the view itself, with Retry; over a page on screen, here.
   const status = viewStatus(view, { hits, home, calendar, wish, openError })
+  const steamSale = steamSaleNow()
 
   return (
     <main className="exo-store" aria-label="Store" data-room-scroll>
@@ -122,8 +129,9 @@ export function StoreRoom({ active, games, onSale, onOpenGame }: {
       <header className="exo-store-top">
         <StoreTools view={view} query={query} wished={wish.items.length} refreshing={home.refreshing}
           onTab={next => void transition(() => { setTab(next); setQuery(''); setOpenError(null) }, { kind: 'push', back: next === 'home', morph: pane(scroller.current) })} onQuery={setQuery} onRefresh={() => void home.load(true)}>
-          {onSale ? <span className="exo-store-sale">{onSale} on sale</span> : null}
           <p className="exo-store-status" role="status">{status}</p>
+          {/* Steam's sale on now or within the week, by the search. */}
+          {steamSale ? <span className="exo-store-sale">{steamSale}</span> : null}
         </StoreTools>
       </header>
 
@@ -131,8 +139,8 @@ export function StoreRoom({ active, games, onSale, onOpenGame }: {
         <div key={view} className="exo-motion-switch">
           {view === 'search' ? <Results hits={hits} card={card} onClear={() => setQuery('')} />
             : view === 'wishlist' ? <Wishlist wish={wish} owned={owned} card={card} />
-              : view === 'calendar' ? <Calendar cal={calendar} card={card} />
-              : <Discover home={home.data} error={home.error} retrying={home.loading} onRetry={() => void home.load(false)} card={card} similar={similar} onOpen={openPage}
+              : view === 'calendar' ? <Calendar cal={calendar} card={card} withWish={withWish} />
+              : <Discover home={home.data} error={home.error} retrying={home.loading} onRetry={() => void home.load(false)} card={card} withWish={withWish} similar={similar} onOpen={openPage}
                   still={!!page || !active} shining={home.refreshing} />}
         </div>
       </div>
@@ -147,7 +155,6 @@ export function StoreRoom({ active, games, onSale, onOpenGame }: {
             wished={wish.ids.has(shownPage.appId)}
             onWish={on => void wish.set(shownPage, on)}
             onOpenLibrary={() => { setPage(null); onOpenGame(shownPage.name, shownPage.appId) }}
-            onClose={closePage}
           />
         ) : null}
       </GameOverlay>
@@ -169,23 +176,25 @@ function viewStatus(view: string, s: {
   return s.wish.loaded ? s.wish.error : null
 }
 
-function Discover({ home, error, retrying, onRetry, card, similar, onOpen, still, shining }: {
+function Discover({ home, error, retrying, onRetry, card, withWish, similar, onOpen, still, shining }: {
   home: StoreHome | null
   similar: (ids?: string[] | null) => Game[]
   error: string | null
   retrying: boolean
   onRetry: () => void
   card: CardFn
+  withWish: (tile: StoreTile) => StoreTile
   onOpen: (t: StoreTile) => void
   still: boolean
   /** The refresh you asked for: the banner and the shelves shine where they are until it lands (DESIGN.md › Waits). */
   shining: boolean
 }) {
   const arrive = useArrive('home', !!home)
+  const hero = useMemo(() => home?.hero?.map(withWish), [home, withWish])
   if (!home) return error ? <Unreachable message={error} busy={retrying} onRetry={onRetry} /> : <Skeleton />
   return (
     <>
-      {home.hero?.length ? <Hero items={home.hero} similar={similar} onOpen={onOpen} still={still} shining={shining} arrive={arrive} /> : null}
+      {hero?.length ? <Hero items={hero} similar={similar} onOpen={onOpen} still={still} shining={shining} arrive={arrive} /> : null}
       {(home.shelves ?? []).map(s => s.items.length
         ? <Row key={s.id} id={s.id} title={s.title} count={s.items.length} shining={shining}>{s.items.map((t, i) => card(t, i, arrive))}</Row>
         : null)}
@@ -199,6 +208,7 @@ function Unreachable({ message, busy, onRetry }: { message: string; busy: boolea
     <div className="exo-store-empty exo-store-error" role="alert">
       <p>{message}</p>
       <button type="button" className="exo-set-btn" disabled={busy} onClick={onRetry}>{busy ? <Spinner label="Trying again" /> : null}Retry</button>
+      <CopyLogs error={message} />
     </div>
   )
 }
@@ -423,29 +433,29 @@ function dayLabel(iso: string): string {
  * The calendar: what came out in the last two weeks and what is dated in the next six, a day at a time, the wishlist
  * first and then games like the ones played most. The filters are for this view only and do nothing to the lists.
  */
-function Calendar({ cal, card }: { cal: ReturnType<typeof useCalendar>; card: CardFn }) {
+function Calendar({ cal, card, withWish }: { cal: ReturnType<typeof useCalendar>; card: CardFn; withWish: (tile: StoreTile) => StoreTile }) {
   const [hideOwned, setHideOwned] = useState(true)
   const [wishOnly, setWishOnly] = useState(false)
   const [hideEarly, setHideEarly] = useState(false)
   const arrive = useArrive('calendar', !!cal.data)
   if (!cal.data) return cal.error ? <Unreachable message={cal.error} busy={cal.loading} onRetry={() => void cal.load()} /> : <GridSkeleton label="Loading the calendar" />
   const shown = (cal.data.days ?? [])
-    .map(d => ({ ...d, entries: d.entries.filter(e => !(hideOwned && e.owned) && !(wishOnly && !e.wished) && !(hideEarly && e.earlyAccess)) }))
+    .map(d => ({ ...d, entries: d.entries.filter(e => !(hideOwned && e.owned) && !(wishOnly && !withWish({ ...e.tile, wished: e.wished }).wished) && !(hideEarly && e.earlyAccess)) }))
     .filter(d => d.entries.length > 0)
   // Coming up first, from today; then what came out lately, the newest first.
   const now = new Date()
-  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
-  const ahead = shown.filter(d => d.date >= today)
+  const today = localDay(now)
+  // Steam's sales on their first and last day ahead, as far as the calendar reaches (a day of their own when no game
+  // falls on it); not over a calendar the filters emptied, which says so instead.
+  const marks = shown.length ? steamSaleMarks(today, localDay(new Date(now.getFullYear(), now.getMonth(), now.getDate() + 42))) : new Map<string, string[]>()
+  const markedOnly = [...marks.keys()].filter(date => !shown.some(d => d.date === date)).map(date => ({ date, entries: [] }))
+  const ahead: typeof shown = [...shown.filter(d => d.date >= today), ...markedOnly].sort((a, b) => a.date.localeCompare(b.date))
   const past = shown.filter(d => d.date < today).reverse()
   let before = 0
   const place = (list: typeof shown) => list.map(d => { const start = before; before += d.entries.length; return { ...d, start } })
   const groups = [{ id: 'ahead', title: 'Coming up', days: place(ahead) }, { id: 'past', title: 'Out recently', days: place(past) }].filter(g => g.days.length)
-  const interests = cal.data.interests ?? []
   return (
     <>
-      <p className="exo-cal-note">
-        {interests.length ? `Picked for what you play: ${interests.join(', ')}.` : 'Out in the last two weeks and dated in the next six. Games you wishlist come first.'}
-      </p>
       <div className="exo-cal-filters" role="group" aria-label="Calendar filters">
         <span className="exo-cal-filter"><span id="exo-cal-owned">Hide games I own</span><Switch checked={hideOwned} labelledBy="exo-cal-owned" onChange={setHideOwned} /></span>
         <span className="exo-cal-filter"><span id="exo-cal-wish">Wishlist only</span><Switch checked={wishOnly} labelledBy="exo-cal-wish" onChange={setWishOnly} /></span>
@@ -464,15 +474,18 @@ function Calendar({ cal, card }: { cal: ReturnType<typeof useCalendar>; card: Ca
             {group.days.map(day => (
               <section key={day.date} className="exo-cal-day" aria-labelledby={`exo-cal-${day.date}`}>
                 <h3 id={`exo-cal-${day.date}`} className="exo-cal-date">{dayLabel(day.date)}</h3>
-                <div className="exo-cal-games">
-                  {day.entries.map((e, i) => (
-                    <div key={e.tile.appId} className="exo-cal-item">
-                      {/* The day says when; the card needs no date of its own. */}
-                      {card({ ...e.tile, wished: e.wished, soon: false }, Math.min(day.start + i, 24), arrive)}
-                      {e.earlyAccess ? <p className="exo-cal-why">Early Access</p> : null}
-                    </div>
-                  ))}
-                </div>
+                {marks.get(day.date)?.map(m => <p key={m} className="exo-cal-mark">{m}</p>)}
+                {day.entries.length ? (
+                  <div className="exo-cal-games">
+                    {day.entries.map((e, i) => (
+                      <div key={e.tile.appId} className="exo-cal-item">
+                        {/* The day says when; the card needs no date of its own. */}
+                        {card({ ...e.tile, wished: e.wished, soon: false }, Math.min(day.start + i, 24), arrive)}
+                        {e.earlyAccess ? <p className="exo-cal-why">Early Access</p> : null}
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
               </section>
             ))}
           </div>
@@ -584,7 +597,8 @@ function useHome() {
 
 /**
  * Search as you type, a quarter second after the last key; the newest query
- * wins (the host cancels the one before), and the last answer stays up until
+ * wins (the host cancels the typed one before it, and nothing else: a friend's
+ * game looked up meanwhile never ends it), and the last answer stays up until
  * it lands. A new query clears the last one's error.
  */
 function useSearch(query: string) {
@@ -597,7 +611,7 @@ function useSearch(query: string) {
     if (q.length < 2) { setResult(null); return }
     let live = true
     const timer = setTimeout(() => {
-      host.storeSearch(q)
+      host.storeSearch(q, true)
         .then(res => {
           // A newer query replaced this one: live is false and the answer is dropped.
           if (!live) return

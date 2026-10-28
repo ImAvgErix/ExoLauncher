@@ -97,13 +97,13 @@ export function BestSetup({ active, settings, onSave }: {
   if (!profile || !health) return null
   if (steps.length === 0) {
     return (
-      <Row label="Best settings for this PC" detail={done ? 'Set. Each change has its Undo on its own page.' : 'Everything Exo can set for this PC is set'} error={error}>
+      <Row label="Best settings for this PC" error={error}>
         <State on>{done ? 'Done' : 'Set'}</State>
       </Row>
     )
   }
   return (
-    <Row label="Best settings for this PC" detail={`${steps.map(step => step.what).join(', ')}. Each keeps its Undo on its own page.`} error={error}>
+    <Row label="Best settings for this PC" detail={steps.map(step => step.what).join(', ')} error={error}>
       <button type="button" className="exo-set-btn is-primary" disabled={!!busy} aria-busy={!!busy} onClick={() => void run()}>
         {busy ? <Spinner label={`Setting up this PC · ${busy.done} of ${busy.of} done`} /> : null}Use best settings
       </button>

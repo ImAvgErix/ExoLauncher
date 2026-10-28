@@ -257,7 +257,7 @@ public sealed class ChipsetUpdateTests : IDisposable
         var item = Assert.Single(PcHealth.Decide(IntelPc(IntelOld, null)));
         Assert.Equal("Intel chipset driver", item.Label);
         Assert.Equal($"{IntelOld} installed · {IntelNew} installs while you're away", item.Detail);
-        Assert.Equal($"{IntelNew} installed, Intel's newest", Assert.Single(PcHealth.Decide(IntelPc(IntelNew, null))).Detail);
+        Assert.Equal($"{IntelNew} · newest", Assert.Single(PcHealth.Decide(IntelPc(IntelNew, null))).Detail);
         Assert.Equal("Restart to finish the Intel chipset update",
             Assert.Single(PcHealth.Decide(IntelPc(IntelOld, new(ChipsetUpdate.Phase.Restart, IntelNew, null, DateTime.UtcNow)))).Detail);
         Assert.Equal($"Updating to {IntelNew}. Devices may reset for a moment",

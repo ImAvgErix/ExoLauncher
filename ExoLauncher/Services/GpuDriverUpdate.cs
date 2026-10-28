@@ -42,9 +42,8 @@ internal static partial class GpuDriverUpdate
 
     private static readonly HttpClient Http = ExoHttp.Create(TimeSpan.FromMinutes(30), new HttpClientHandler { AutomaticDecompression = DecompressionMethods.All });
     private static readonly Lock Gate = new();
-    /// <summary>The newest driver per card, an hour (PRIVACY.md); everyone asking meanwhile shares one lookup.</summary>
-    private static readonly Dictionary<string, (DateTime At, Latest? Value)> Cache = [];
-    private static readonly Dictionary<string, Task<Latest?>> Fetching = [];
+    /// <summary>The newest driver per vendor, card and processor, kept an hour on disk too, as every version check is (<see cref="LatestCache{T}"/>).</summary>
+    private static readonly LatestCache<Latest> Drivers = new("AMD's and Intel's driver pages", TimeSpan.FromHours(1), "gpu-drivers.json");
     private static NvidiaDriverService.Progress _progress = new("idle", 0, null);
     private static Task? _running;
     private static string? _vendor;
@@ -102,8 +101,7 @@ internal static partial class GpuDriverUpdate
     }
 
     /// <summary>Whether <paramref name="latest"/> is newer than <paramref name="installed"/> by number ("26.10.1" after "26.9.2"); without an installed version, it is.</summary>
-    internal static bool Newer(string latest, string? installed) =>
-        Version.TryParse(latest, out var want) && (!Version.TryParse(installed, out var have) || want > have);
+    internal static bool Newer(string latest, string? installed) => VersionNumber.Newer(latest, installed);
 
     /// <summary>The newest driver for this PC's card from its vendor's pages (cached an hour); null when there is none or it can't tell.</summary>
     /// <remarks>An answer older than the hour shows at once while the pages are read again; <paramref name="fresh"/> (an
@@ -114,42 +112,17 @@ internal static partial class GpuDriverUpdate
         if (Card(vendor) is not { } card) return null;
         var cpu = PcHealth.CpuName();
         var key = $"{vendor}|{card}|{cpu}";
-        Task<Latest?>? task;
-        lock (Gate)
-        {
-            var known = Cache.TryGetValue(key, out var cached);
-            if (known && DateTime.UtcNow - cached.At < TimeSpan.FromHours(1)) return cached.Value;
-            if (!Fetching.TryGetValue(key, out task))
-                Fetching[key] = task = Task.Run(() => FetchAsync(vendor, card, cpu, key));
-            if (known && !fresh) return cached.Value;
-        }
-        return await task.WaitAsync(ct).ConfigureAwait(false);
+        return await Drivers.GetAsync(key, lookup => FetchAsync(vendor, card, cpu, lookup), ct, fresh).ConfigureAwait(false);
     }
 
-    /// <summary>Reads the pages (shared by everyone waiting on this key, so one caller leaving doesn't stop it) and keeps the answer an hour.</summary>
-    private static async Task<Latest?> FetchAsync(string vendor, string card, string? cpu, string key)
+    /// <summary>Reads the vendor's pages for the card's newest driver (a failure throws: the cache keeps the last answer).</summary>
+    private static async Task<Latest?> FetchAsync(string vendor, string card, string? cpu, CancellationToken ct)
     {
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(45));
-        Latest? latest;
-        try
-        {
-            Task<string> Get(string url) => GetTextAsync(vendor, url, timeout.Token);
-            latest = vendor == "amd"
-                ? await AmdLatestAsync(card, cpu, Get).ConfigureAwait(false)
-                : await IntelLatestAsync(card, cpu, Get).ConfigureAwait(false);
-            if (latest is null) AppLog.Info($"Driver: {Maker(vendor)}'s pages name no driver for {card}{(cpu is null ? "" : " with " + cpu)}.");
-        }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
-        {
-            AppLog.Info($"Driver: {Maker(vendor)}'s driver pages could not be read: {ex.Message}");
-            lock (Gate) Fetching.Remove(key);
-            return null;
-        }
-        lock (Gate)
-        {
-            Fetching.Remove(key);
-            Cache[key] = (DateTime.UtcNow, latest);
-        }
+        Task<string> Get(string url) => GetTextAsync(vendor, url, ct);
+        var latest = vendor == "amd"
+            ? await AmdLatestAsync(card, cpu, Get).ConfigureAwait(false)
+            : await IntelLatestAsync(card, cpu, Get).ConfigureAwait(false);
+        if (latest is null) AppLog.Info($"Driver: {Maker(vendor)}'s pages name no driver for {card}{(cpu is null ? "" : " with " + cpu)}.");
         return latest;
     }
 
@@ -174,6 +147,7 @@ internal static partial class GpuDriverUpdate
     {
         using var request = Request(vendor, url);
         using var response = await Http.SendAsync(request, ct).ConfigureAwait(false);
+        Drivers.SlowDown(response);
         response.EnsureSuccessStatusCode();
         return await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
     }
@@ -270,7 +244,7 @@ internal static partial class GpuDriverUpdate
     internal static Ending Outcome(Latest latest, int exitCode, int? amdResult, string? installed)
     {
         var amd = latest.Vendor == "amd";
-        var updated = Version.TryParse(installed, out var have) && Version.TryParse(latest.Version, out var want) && have >= want;
+        var updated = VersionNumber.AtLeast(installed, latest.Version);
         var restart = amd ? amdResult == 2 : exitCode is 2 or 14;
         var shutdown = !amd && (exitCode is 17 or 18);
         var failed = amd ? amdResult == 1 || (amdResult is null && exitCode != 0) : exitCode is not (0 or 2 or 14 or 17 or 18);
@@ -381,7 +355,7 @@ internal static partial class GpuDriverUpdate
                 Report("failed", 0, end.Message);
                 return;
             }
-            lock (Gate) Cache.Clear();
+            Drivers.Clear();
             // Done before the profile is read: while the stage says installing, GpuProfileService answers "being installed".
             Report("done", 100, end.Message);
             // A new driver can reset its settings: put Exo's profile back (ADLX loads the new driver's library for each call).
@@ -404,8 +378,7 @@ internal static partial class GpuDriverUpdate
         }
     }
 
-    private static bool Same(string? installed, string latest) =>
-        Version.TryParse(installed, out var have) && Version.TryParse(latest, out var want) && have == want;
+    private static bool Same(string? installed, string latest) => VersionNumber.Same(installed, latest);
 
     /// <summary>The package is the vendor's: signed by them and, where the page lists one, the same SHA-512.</summary>
     private static bool Genuine(Latest latest, string path)

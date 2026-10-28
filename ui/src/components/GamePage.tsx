@@ -1,6 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { Button } from './ui/Button'
-import { CHECK_PATH, Close } from '../brand/icons'
+import { useCallback, useEffect, useState } from 'react'
+import { CHECK_PATH } from '../brand/icons'
 import { hostedBuyUrl, resolvePrimaryAction, type Game, type GameVariant, type InstallProgress } from '../lib/host'
 import { transferForGame } from '../lib/library'
 import { installProgressLabel, transferPercent } from '../lib/utils'
@@ -8,12 +7,12 @@ import { CoverArt, HeroWash } from './CoverArt'
 import { GameHeader, GameStats, GameStore } from './game/GameSections'
 import { HdrRow } from './game/HdrRow'
 import { FrameGenRow } from './game/FrameGenRow'
+import { OptimizeLine } from './game/OptimizeLine'
 import { ArtworkStrip, GameActions } from './game/ManageStrip'
 import { PrimaryAction } from './game/PrimaryAction'
 import { ShaderPrecompile } from './game/ShaderPrecompile'
 import { useGameDetails } from './game/useGameDetails'
 import { useJustFinished } from '../lib/useJustFinished'
-import { useLens } from '../lib/glass'
 import { UpscalerFiles } from './UpscalerFiles'
 
 function isNoiseStatus(message: string): boolean {
@@ -68,12 +67,10 @@ export type GamePageProps = {
   onDequeue?: () => void
   /** Opens the PC room's Graphics page: every game's upscalers, or its Shaders. */
   onOpenSystem?: (page: 'graphics' | 'shaders') => void
-  onClose: () => void
   /** Switches the exact store entry behind a grouped library card. */
   onSelectSource?: (id: string) => void
   onStatus: (msg: string | null, sticky?: boolean) => void
   onUninstalled: () => void
-  closeDisabled?: boolean
   /** System > HDR > HDR for HDR games, and turning it on from the HDR row. */
   hdrForGames: boolean
   onHdrForGames: () => Promise<boolean>
@@ -82,7 +79,7 @@ export type GamePageProps = {
   onPropertiesOpen: (open: boolean) => void
 }
 
-/** Upscalers and Shaders, one row each, each opening its part of PC › Graphics. */
+/** Upscalers and Shaders, one row each, each opening its part of PC › Graphics; Optimize for a game Exo has best settings for. */
 function GameLines({ selected, details, onOpenSystem }: {
   selected: Game
   details: ReturnType<typeof useGameDetails>
@@ -97,6 +94,7 @@ function GameLines({ selected, details, onOpenSystem }: {
         onOpen={() => onOpenSystem('graphics')}
       />
       <ShaderPrecompile key={'shaders' + details.selectionKey} gameId={selected.id} onOpenShaders={() => onOpenSystem('shaders')} />
+      <OptimizeLine key={'optimize' + details.selectionKey} gameId={selected.id} />
     </div>
   )
 }
@@ -149,11 +147,9 @@ export function GamePage({
   onCancel,
   onDequeue,
   onOpenSystem,
-  onClose,
   onSelectSource,
   onStatus,
   onUninstalled,
-  closeDisabled = false,
   hdrForGames,
   onHdrForGames,
   propertiesOpen,
@@ -173,30 +169,12 @@ export function GamePage({
   // Done (DESIGN.md › Motion) on the cover when a download lands installed; while it runs, the pill carries the bar.
   const downloading = !!selectedProgress?.isActive
   const finished = useJustFinished(downloading, isCurrent(selected))
-  const close = useRef<HTMLButtonElement>(null)
-  useLens(close)
 
   return (
     <article className="exo-game-page exo-enter">
       <div className="exo-game-page-wash" aria-hidden>
         <HeroWash game={artworkView} />
       </div>
-      {/* Stays put while a launch owns the sheet, so the header never jumps. */}
-      <Button
-        type="button"
-        variant="ghost"
-        size="sm"
-        isIconOnly
-        ref={close}
-        className="exo-game-close exo-glass"
-        isDisabled={closeDisabled}
-        onPress={onClose}
-        aria-label="Close"
-        aria-keyshortcuts="Escape"
-      >
-        <Close size={18} />
-      </Button>
-
       <div className="exo-game-page-inner">
         <div className="exo-game-page-layout">
           <div className="exo-game-cover-col">

@@ -64,7 +64,6 @@ export function ProfileTab({ active }: { active: boolean }) {
   if (profile.status === 'none' && profile.ok) return <>{driver}<p className="exo-hub-sub">This PC has no graphics card Exo can tune.</p></>
 
   const nvidia = profile.vendor === 'nvidia'
-  const { screen } = profile
   const series = profile.series ? `${profile.series} series` : null
   const gsync = choice ?? profile.gsync
   const head = [series, screenLine(profile)].filter(Boolean).join(' · ')
@@ -78,9 +77,7 @@ export function ProfileTab({ active }: { active: boolean }) {
       {driver}
       {/* The profile's sync (G-SYNC or not) sits beside its Use, as the variant it applies; whether it is applied leads
           the line under its name. */}
-      <Row label={profile.gpu || 'Graphics card'} detail={<>{profileStatus(profile, gsync)}{head}. {gsync
-        ? `G-SYNC, V-Sync in the driver, frames capped just under the refresh rate: turn V-Sync off in games${screen.vrr ? '' : ' (this screen reports no variable refresh)'}`
-        : 'Fixed refresh: V-Sync and frame caps stay each game’s'}</>}
+      <Row label={profile.gpu || 'Graphics card'} detail={<>{profileStatus(profile, gsync)}{head}</>}
         error={error ?? (profile.ok ? null : trimStop(profile.message) || 'The driver did not answer')}>
         <Choice label="Sync" value={gsync ? 'gsync' : 'fixed'} choices={SYNC} disabled={!!busy} onChange={value => setChoice(value === 'gsync')} />
         <ProfileAction profile={profile} gsync={gsync} busy={busy} onAct={action => void act(action, gsync)} />
@@ -90,10 +87,9 @@ export function ProfileTab({ active }: { active: boolean }) {
   )
 }
 
-/** The main screen, its refresh rate, and its variable refresh as the driver reports it. */
+/** The main screen and its refresh rate; a Radeon's or Intel's variable refresh by its name. */
 function screenLine({ vendor, screen }: GpuProfile) {
-  const sync = vendor === 'nvidia' ? (screen.vrr ? 'reports G-SYNC' : 'reports no variable refresh')
-    : screen.vrr ? (vendor === 'amd' ? 'FreeSync' : vendor === 'intel' ? 'Adaptive Sync' : null) : null
+  const sync = screen.vrr ? (vendor === 'amd' ? 'FreeSync' : vendor === 'intel' ? 'Adaptive Sync' : null) : null
   return [`${screen.name || 'Main screen'}${screen.hz ? ` at ${screen.hz} Hz` : ''}`, sync].filter(Boolean).join(', ')
 }
 
@@ -105,7 +101,7 @@ function ManualProfile({ profile, head }: { profile: GpuProfile; head: string })
       <Row label={profile.gpu || 'Graphics card'} detail={head} />
       {profile.message && <p className="exo-hub-sub">{profile.message}</p>}
       {profile.items.map(item => (
-        <Row key={item.key} label={item.label} detail={item.why}>
+        <Row key={item.key} label={item.label}>
           <State on={!!item.current && same(item.current, item.value)}>
             {item.value}{item.current && !same(item.current, item.value) ? ` (now ${item.current})` : ''}
           </State>
@@ -165,7 +161,7 @@ function ImportRow() {
     <>
       <Row
         label="Profile Inspector file"
-        detail={undo ? `Imported ${undo.profile ? `“${undo.profile}”` : 'the global profile'}, ${undo.count} settings` : 'Import a global profile export (.nip). You see every setting before anything changes.'}
+        detail={undo ? `Imported ${undo.profile ? `“${undo.profile}”` : 'the global profile'}, ${undo.count} settings` : undefined}
         error={error}
       >
         {/* Undo import carries the ring while it puts the profile back; Import… while the file is read and, after Apply, written. */}
@@ -209,7 +205,6 @@ function ImportPreview({ preview, busy, onCancel, onApply }: {
         ))}
       </ul>
       {extra && <p className="exo-graphics-import-extra">{extra}</p>}
-      <p>Undo import puts back what it replaces.</p>
     </ConfirmDialog>
   )
 }

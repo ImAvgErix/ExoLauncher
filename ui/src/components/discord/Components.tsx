@@ -8,6 +8,7 @@ import { showImage } from './extras'
 import { emojiUrl, Markdown, open, type MarkdownContext } from './markdown'
 import { useDismiss } from '../../lib/dismiss'
 import { Spinner } from '../ui/Spinner'
+import { ErrorNote } from '../ui/ErrorNote'
 
 // Discord's component types.
 const ROW = 1, BUTTON = 2, STRING_SELECT = 3, USER_SELECT = 5, ROLE_SELECT = 6, MENTIONABLE_SELECT = 7, CHANNEL_SELECT = 8,
@@ -43,7 +44,7 @@ export function MessageComponents({ message, ctx }: { message: DiscordMessage; c
   return (
     <div className={`exo-dc-components${(message.flags ?? 0) & COMPONENTS_V2 ? ' is-v2' : ''}`}>
       {message.components!.map((c, i) => <Component key={c.id ?? i} component={c} message={message} ctx={ctx} state={state} press={press} />)}
-      {state.failed ? <p className="exo-dc-interaction-failed" role="alert">{state.failed}</p> : null}
+      {state.failed ? <ErrorNote className="exo-dc-interaction-failed" message={state.failed} /> : null}
     </div>
   )
 }

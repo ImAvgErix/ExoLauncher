@@ -43,25 +43,9 @@ function missingInstallableRuntimes(result: { items?: DependencyItem[] | null })
     .map((item) => ({ id: item.id, name: item.name }))
 }
 
-const LEDE: Record<StepId, string> = {
-  welcome: 'Exo looks at this PC and sets up the rest. Everything here can be changed later.',
-  capture: 'Keep the last moments of a game, record, or snip the screen. Change the keys if they clash with a game.',
-  cleanup: 'Exo does the job of these. Remove the ones you don’t need, with every file and setting they leave behind.',
-  stores: "Exo found these on this PC. Sign in where offered so games you own but haven't installed, and games friends give you, show up too.",
-  apps: 'The service Exo plays your music from. The song stays in the top bar in every room.',
-  discord: 'Exo has its own Discord: your servers, DMs and calls, without the Discord app. Sign in now or later in the Discord room.',
-  pc: 'Exo sets up the rest by itself. One thing changes your graphics driver, so it asks first.',
-}
-
 /** Steps with nothing to offer on this PC are left out. */
 function visibleSteps(offers: Record<'pc' | 'capture' | 'cleanup', boolean>) {
   return STEPS.filter(item => !(item.id in offers) || offers[item.id as keyof typeof offers])
-}
-
-function ledeFor(id: StepId, pcNeeded: boolean, cleared: number): string {
-  if (id === 'pc' && !pcNeeded) return 'Exo sets up the rest by itself.'
-  if (id === 'cleanup' && cleared > 0) return `${LEDE.cleanup} Exo already cleared ${cleared} leftovers of apps that were removed.`
-  return LEDE[id]
 }
 
 export interface OnboardingPanelProps {
@@ -305,7 +289,8 @@ export function OnboardingPanel({
     pc: () => <PcStep profile={pcNeeded ? gpu : null} tune={tunePc} onTune={setTunePc} lucid={lucid} onLucid={setLucid} />,
     cleanup: () => replaced ? <CleanupStep apps={replaced.apps} onApps={apps => setReplaced(value => ({ cleared: value?.cleared ?? 0, apps }))} /> : null,
   }
-  const lede = ledeFor(current.id, pcNeeded, replaced?.cleared ?? 0)
+  // The one line under a step's title: the leftovers of removed apps Exo already cleared on its own.
+  const cleared = current.id === 'cleanup' ? replaced?.cleared ?? 0 : 0
   return (
     <div className="exo-app exo-ob">
       <header className="exo-titlebar exo-ob-titlebar">
@@ -321,7 +306,7 @@ export function OnboardingPanel({
             <Progress value={(index - 1) / (steps.length - 1)} label={`Step ${index} of ${steps.length - 1}`} className="exo-ob-progress" />
           )}
           <h1 id="exo-ob-title" ref={headingRef} tabIndex={-1} className="exo-ob-title">{current.title}</h1>
-          <p className="exo-ob-lede">{lede}</p>
+          {cleared > 0 ? <p className="exo-ob-lede">Exo cleared {cleared} leftovers of apps that were removed.</p> : null}
 
           {current.id === 'welcome' ? null : (
             <div className="exo-ob-body">

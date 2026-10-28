@@ -30,7 +30,8 @@ internal static class LucidSettings
         string HeadphoneId, string HeadphoneName, bool HeadphoneChosen, IReadOnlyList<string> Favorites,
         bool GameMode, bool KeepOnAltTab, bool OnlyWhileGaming,
         bool NightShift, string NightStart, string NightEnd, bool NightSync,
-        bool Notifications, bool Discord, int ToggleSound, int DetectSound);
+        bool Notifications, bool Discord, int ToggleSound, int DetectSound,
+        int HotkeyModifiers, int HotkeyKey, bool EqOn);
 
     /// <summary>One change from Exo; a null field is left alone.</summary>
     internal sealed record Change
@@ -50,6 +51,8 @@ internal static class LucidSettings
         /// <summary>Lucid's cue sounds, 0 (off) to 100: switching on or off, and a game detected.</summary>
         public int? ToggleSound { get; init; }
         public int? DetectSound { get; init; }
+        /// <summary>Lucid's on/off hotkey: Windows' virtual key (0: none) and its modifiers (Alt 1, Ctrl 2, Shift 4, Win 8).</summary>
+        public (int Modifiers, int Key)? Hotkey { get; init; }
         /// <summary>Lucid Voice off, as its own switch turns it off (Exo keeps it off: Exo Voice handles the mic).</summary>
         public bool VoiceOff { get; init; }
 
@@ -69,6 +72,7 @@ internal static class LucidSettings
             Discord = next.Discord ?? Discord,
             ToggleSound = next.ToggleSound ?? ToggleSound,
             DetectSound = next.DetectSound ?? DetectSound,
+            Hotkey = next.Hotkey ?? Hotkey,
             VoiceOff = next.VoiceOff || VoiceOff,
         };
 
@@ -106,7 +110,9 @@ internal static class LucidSettings
             Bool(root, "EnableNotifications", true),
             Bool(root, "EnableDiscordRPC", false),
             Math.Clamp(Int(root, "ToggleSoundVolume", 25), 0, 100),
-            Math.Clamp(Int(root, "AutoDetectionSoundVolume", 25), 0, 100));
+            Math.Clamp(Int(root, "AutoDetectionSoundVolume", 25), 0, 100),
+            Int(root, "HotkeyModifiers", 0), Int(root, "HotkeyVirtualKey", 0),
+            Bool(root, "LastEqState", true));
     }
 
     /// <summary>
@@ -191,6 +197,14 @@ internal static class LucidSettings
         // Lucid's own range (Settings.Validate resets anything outside 0-100 to 25).
         if (change.ToggleSound is { } toggle) { if (toggle is < 0 or > 100) return "Sound volume is 0 to 100%."; root["ToggleSoundVolume"] = toggle; }
         if (change.DetectSound is { } detect) { if (detect is < 0 or > 100) return "Sound volume is 0 to 100%."; root["AutoDetectionSoundVolume"] = detect; }
+        if (change.Hotkey is { } hotkey)
+        {
+            var (modifiers, key) = hotkey;
+            if (key is < 0 or > 254 || modifiers is < 0 or > 15) return "Pick another key.";
+            // 0 is no key, as Lucid's own quick-profile hotkeys store it.
+            root["HotkeyVirtualKey"] = key;
+            root["HotkeyModifiers"] = key == 0 ? 0 : modifiers;
+        }
         if (change.VoiceOff)
         {
             // Lucid's LucidVoiceProfileStore.MarkDisabledInSettings.

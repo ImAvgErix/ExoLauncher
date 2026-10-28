@@ -14,21 +14,36 @@ public sealed partial class DependencyService
 {
     private static readonly string StagingRoot = Path.Combine(Path.GetTempPath(), "ExoLauncherDependencies");
 
+    /// <summary>
+    /// What the installed games need of the Other runtimes (XNA, OpenAL, PhysX), from the last list: few games do and
+    /// each is a system-wide install, so "Install what's missing" leaves out the ones none of them names. Null: not known.
+    /// </summary>
+    private IReadOnlySet<string>? _needed;
+
+    /// <summary>The catalog ids any of <paramref name="games"/> says it needs (<see cref="RuntimesFor"/>).</summary>
+    internal static IReadOnlySet<string> NeededBy(IEnumerable<GameEntry> games) =>
+        games.SelectMany(RuntimesFor).ToHashSet(StringComparer.OrdinalIgnoreCase);
+
     /// <summary>runtimes.list: every runtime that applies to this PC, with its version, the newest, and its state.</summary>
-    public async Task<object> ListAsync(CancellationToken ct = default)
+    public async Task<object> ListAsync(IReadOnlyCollection<GameEntry>? installed = null, CancellationToken ct = default)
     {
         var dotnet = DotnetReleasesAsync(ct);
-        var snapshot = await Task.Run(() => WithGraphics(CurrentSnapshot()), ct).ConfigureAwait(false);
+        var (snapshot, needed) = await Task.Run(() => (WithGraphics(CurrentSnapshot()), installed is null ? null : NeededBy(installed)), ct).ConfigureAwait(false);
+        _needed = needed ?? _needed;
         var statuses = Evaluate(snapshot, await dotnet.ConfigureAwait(false));
-        return new { ok = true, busy = _job is not null, items = statuses.Select(Shown).ToArray() };
+        return new { ok = true, busy = _job is not null, items = statuses.Select(s => Shown(s, _needed)).ToArray() };
     }
+
+    /// <summary>Whether "Install what's missing" includes it: an Other runtime only when a game here needs it.</summary>
+    internal static bool Wanted(RuntimeStatus status, IReadOnlySet<string>? needed) =>
+        status.Runtime.Group != Group.Other || needed is null || needed.Contains(status.Runtime.Id);
 
     /// <summary>The snapshot with what Direct3D 12 does on this PC's graphics, for the page (asked once a session).</summary>
     internal static Snapshot WithGraphics(Snapshot snapshot) =>
         snapshot with { Graphics = Graphics.Value ?? "Windows couldn't say what Direct3D 12 does on this PC's graphics." };
 
     /// <summary>One runtime as the page shows it.</summary>
-    internal static object Shown(RuntimeStatus status) => new
+    internal static object Shown(RuntimeStatus status, IReadOnlySet<string>? needed) => new
     {
         id = status.Runtime.Id,
         name = status.Runtime.Name,
@@ -40,13 +55,14 @@ public sealed partial class DependencyService
         // The download's size where Exo pins it (0: known once it starts, as for .NET).
         size = status.Runtime.Size,
         endOfSupport = status.EndOfSupport,
-        // "Install what's missing" leaves out what Microsoft no longer supports; a game that names one still gets it.
-        bulk = status.Runtime.Installable && !status.EndOfSupport,
+        // "Install what's missing" leaves out what Microsoft no longer supports and an Other runtime no game here needs;
+        // a game that names one still gets it.
+        bulk = status.Runtime.Installable && !status.EndOfSupport && Wanted(status, needed),
     };
 
     /// <summary>deps.list (Settings › About, First run): the runtimes as present or missing; one Microsoft no longer supports is only offered when a game asks.</summary>
     public IReadOnlyList<DependencyInfo> DetectAll() =>
-        Evaluate(CurrentSnapshot(), _dotnet?.Releases).Where(s => s.Runtime.Installable && !(s.State == State.Missing && s.EndOfSupport)).Select(Legacy).ToList();
+        Evaluate(CurrentSnapshot(), DotnetKept()).Where(s => s.Runtime.Installable && !(s.State == State.Missing && s.EndOfSupport)).Select(Legacy).ToList();
 
     private static DependencyInfo Legacy(RuntimeStatus status) => new()
     {
@@ -68,7 +84,7 @@ public sealed partial class DependencyService
         {
             var wanted = RuntimesFor(game);
             if (wanted.Count == 0) return [];
-            return Evaluate(CurrentSnapshot(), _dotnet?.Releases)
+            return Evaluate(CurrentSnapshot(), DotnetKept())
                 .Where(s => s.State == State.Missing && wanted.Contains(s.Runtime.Id, StringComparer.OrdinalIgnoreCase))
                 .Select(Legacy).ToList();
         }
@@ -162,7 +178,9 @@ public sealed partial class DependencyService
 
     /// <summary>
     /// The installer is the one Exo means to run: the exact file its maker published (its pinned SHA-256, or the SHA-512
-    /// Microsoft's .NET release list gives) and signed by its maker. Throws with the reason when it isn't.
+    /// Microsoft's .NET release list gives) and signed by its maker. A zip is never signed itself: its hash is checked here,
+    /// and the installer it carries is checked for its maker's signature once it's out (OpenAL's and GameInput's failed here
+    /// when the zip itself was asked for one). Throws with the reason when it isn't.
     /// </summary>
     internal static void Verify(string path, Runtime runtime, string? sha256, string? sha512)
     {
@@ -170,7 +188,7 @@ public sealed partial class DependencyService
             throw new InvalidDataException($"{runtime.Name}'s download isn't the file its maker published.");
         if (sha512 is not null && !HashOf(path, SHA512.Create()).Equals(sha512, StringComparison.OrdinalIgnoreCase))
             throw new InvalidDataException($"{runtime.Name}'s download doesn't match Microsoft's release list.");
-        RequireSigned(path, runtime);
+        if (runtime.Kind != Kind.Zip) RequireSigned(path, runtime);
     }
 
     /// <summary>Signed by its maker: Microsoft itself for Microsoft's runtimes, else the named publisher.</summary>

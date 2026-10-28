@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
-import { host, type DriverState, type Game, type GpuProfile, type HdrState, type Interrupts, type LauncherSettings, type PcHealth } from '../../lib/host'
+import { host, type DriverState, type Game, type GpuProfile, type HdrState, type Interrupts, type LauncherSettings, type PcAbout, type PcHealth } from '../../lib/host'
 import { useHdrState } from '../../lib/hdr'
 import { report } from '../../lib/report'
 import { pushPage } from '../../lib/viewTransition'
@@ -22,7 +22,7 @@ export type PcLink = PcPage | 'shaders'
 
 /** Each page: its id, its name in the page list and the words Ctrl+K finds it by. */
 export const PC_PAGES: readonly { page: PcPage; label: string; keywords: readonly string[] }[] = [
-  { page: 'overview', label: 'Overview', keywords: ['this pc', 'about', 'graphics card', 'gpu', 'best settings', 'specs'] },
+  { page: 'overview', label: 'Overview', keywords: ['this pc', 'about', 'specs', 'processor', 'cpu', 'cores', 'graphics card', 'gpu', 'video memory', 'vram', 'directx', 'motherboard', 'bios', 'storage', 'drives', 'ssd', 'windows version', 'build', 'secure boot', 'tpm', 'memory integrity', 'network', 'best settings'] },
   { page: 'graphics', label: 'Graphics', keywords: ['driver', 'nvidia', 'radeon', 'intel', 'driver profile', 'g-sync', 'upscalers', 'dlss', 'fsr', 'xess', 'shaders', 'compile'] },
   { page: 'display', label: 'Display', keywords: ['screen', 'monitor', 'refresh rate', 'hz', 'hdr', 'color', 'scaling', 'night shift', 'night light'] },
   { page: 'performance', label: 'Performance', keywords: ['power plan', 'game mode', 'gpu scheduling', 'resizable bar', 'rebar', 'memory', 'ram', 'chipset', 'interrupts', 'msi mode'] },
@@ -168,6 +168,7 @@ function holdInView(scroller: HTMLElement, selector: string) {
 
 /** What the page list and Overview say about each page, read from the host. */
 export type PcState = {
+  about: PcAbout | null
   profile: GpuProfile | null
   driver: DriverState | null
   hdr: HdrState | null
@@ -181,11 +182,12 @@ export type PcState = {
 const quiet = (where: string) => (error: unknown) => report(error, `PcRoom.${where}`, { level: 'warn' })
 
 /**
- * The card, its driver and the screen, read with the room behind the splash so the Overview is filled the first time
- * it shows; then everything each time the room shows, on each page change (a page may have changed what it says) and
- * when Exo's window comes back. Apps is read once and again after its page, where an app may have gone.
+ * This PC, the card, its driver and the screen, read with the room behind the splash so the Overview is filled the
+ * first time it shows; then everything each time the room shows, on each page change (a page may have changed what it
+ * says) and when Exo's window comes back. Apps is read once and again after its page, where an app may have gone.
  */
 function usePcState(active: boolean, page: PcPage): PcState {
+  const [about, setAbout] = useState<PcAbout | null>(null)
   const [profile, setProfile] = useState<GpuProfile | null>(null)
   const [driver, setDriver] = useState<DriverState | null>(null)
   const [shaders, setShaders] = useState<PcState['shaders']>(null)
@@ -199,6 +201,7 @@ function usePcState(active: boolean, page: PcPage): PcState {
     read.current = true
     let live = true
     const load = () => {
+      host.systemAbout().then(next => { if (live) setAbout(next) }, quiet('about'))
       host.gpuProfile().then(next => { if (live) setProfile(next) }, quiet('profile'))
       host.gpuDriver('state').then(next => { if (live) setDriver(next) }, quiet('driver'))
       if (!active) return
@@ -221,7 +224,7 @@ function usePcState(active: boolean, page: PcPage): PcState {
     host.appsList().then(next => setApps(next.programs.length), quiet('apps'))
   }, [active, page])
 
-  return { profile, driver, hdr, shaders, health, interrupts, apps }
+  return { about, profile, driver, hdr, shaders, health, interrupts, apps }
 }
 
 const VERDICT: Record<string, string> = {
@@ -248,19 +251,14 @@ function HdrRows({ screen, settings, onSave }: {
   settings: LauncherSettings | null
   onSave: (patch: Partial<LauncherSettings>) => Promise<boolean>
 }) {
-  const nits = screen.peakNits ? `up to ${screen.peakNits} nits` : null
-  const weak = screen.verdict === 'weak'
   return (
     <>
-      <Row label={screen.name || 'Main screen'} detail={['HDR', nits].filter(Boolean).join(', ')}>
-        <State on={!weak}>{VERDICT[screen.verdict ?? 'unknown']}</State>
+      <Row label={screen.name || 'Main screen'} detail={screen.peakNits ? `Up to ${screen.peakNits} nits` : undefined}>
+        <State on={screen.verdict !== 'weak'}>{VERDICT[screen.verdict ?? 'unknown']}</State>
       </Row>
       <SwitchRow
         id="set-hdr-games"
         label="HDR for HDR games"
-        detail={weak
-          ? 'On this screen HDR usually looks worse than SDR. If you turn it on, HDR comes on only while a game with real HDR runs.'
-          : 'HDR comes on only while a game with real HDR runs, and goes back off after. Games without it stay SDR, so nothing looks washed out.'}
         checked={settings?.hdrForGames === true}
         disabled={!settings}
         onChange={async value => await onSave({ hdrForGames: value }) ? null : 'Could not save. Try again.'}
@@ -268,17 +266,11 @@ function HdrRows({ screen, settings, onSave }: {
       <SwitchRow
         id="set-hdr-sdr-gamma"
         label="SDR looks right in HDR"
-        detail="While HDR is on, the desktop, overlays and SDR windows use gamma 2.2 like an SDR screen, so blacks stay black instead of washed out. HDR itself is untouched."
         checked={settings?.hdrSdrGamma !== false}
         disabled={!settings}
         onChange={async value => await onSave({ hdrSdrGamma: value }) ? null : 'Could not save. Try again.'}
       />
-      <Row
-        label="HDR calibration"
-        detail={screen.calibrated
-          ? 'Windows knows how bright this screen really gets, so games set HDR right'
-          : 'Games set their HDR brightness from this. Windows HDR Calibration measures your screen in a minute.'}
-      >
+      <Row label="HDR calibration">
         {screen.calibrated
           ? <State on>Calibrated</State>
           : <button type="button" className="exo-set-btn" onClick={() => void host.openUrl('ms-windows-store://pdp/?productid=9N7F2SM5D1LR')}>Calibrate</button>}

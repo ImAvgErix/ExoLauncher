@@ -1,3 +1,4 @@
+import { CopyLogs } from '../ui/ErrorNote'
 import { memo, useEffect, useRef, useState } from 'react'
 import { host } from '../../lib/host'
 import { usePageActive } from '../../lib/pageActivity'
@@ -28,6 +29,7 @@ import { useDismiss } from '../../lib/dismiss'
 import { GuildTag } from './guildTag'
 import { Progress } from '../ui/Progress'
 import { DictateButton } from '../ui/DictateButton'
+import { showReport } from './Report'
 
 /**
  * A GIF link: plays by itself while Exo is active when Play GIFs when Discord is focused is on (not in
@@ -658,6 +660,7 @@ function Failed({ message, actions }: { message: DiscordMessage; actions: Messag
       {message.failed}
       {actions.onRetry ? <button type="button" className="exo-dc-link" onClick={() => actions.onRetry?.(message)}>Retry</button> : null}
       {actions.onDiscard ? <button type="button" className="exo-dc-link is-bad" onClick={() => actions.onDiscard?.(message)}>Delete</button> : null}
+      <CopyLogs error={String(message.failed)} />
     </p>
   )
 }
@@ -815,7 +818,7 @@ function ActionsBar({ message, ctx, mine, canSend, actions, onViewReactions }: {
 }
 
 // The message's More menu (and right-click), in Discord's order: Add Reaction, Edit, Reply, Forward, Apps, Create Thread,
-// View Reactions; Copy Text, Pin, Mark Unread, Copy Message Link, Delete; Copy Message ID in Developer Mode.
+// View Reactions; Copy Text, Pin, Mark Unread, Copy Message Link, Delete, Report Message; Copy Message ID in Developer Mode.
 type Ask = 'removeEmbeds' | 'clearReactions'
 
 // Discord's Speak Message: "Name said …" (or "Name replied to Other …"), mentions, channels and emoji read as words,
@@ -903,6 +906,15 @@ function MessageMenu({ message, ctx, mine, canSend, actions, at, editable, onClo
       <button type="button" role="menuitem" onClick={run(actions.onMarkUnread)}><Icons.Unread size={16} />Mark unread</button>
       <button type="button" role="menuitem" onClick={() => copy(link)}><Icons.Link size={16} />Copy message link</button>
       <RemoveItems message={message} mine={mine} actions={actions} onDelete={run(actions.onDelete)} onAsk={onAsk} />
+      {mine || message.pending || message.failed ? null : (
+        <button type="button" role="menuitem" className="is-danger" onClick={() => {
+          onClose()
+          showReport({
+            kind: 'message', ids: { channel_id: message.channel_id, message_id: message.id }, userId: message.author.id, canDelete: actions.canManageMessages === true,
+            preview: { name: displayName(message), text: message.content || null, image: avatarUrl(message.author, 40) },
+          })
+        }}><Icons.Report size={16} />Report message</button>
+      )}
       {developer ? <button type="button" role="menuitem" onClick={() => copy(message.id)}><Icons.CopyId size={16} />Copy message ID</button> : null}
     </div>
   )

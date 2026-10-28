@@ -9,9 +9,10 @@ namespace ExoLauncher;
 /// it more room than a 1080p one: more cards in a row, the Store's and Devices' panels arranged another way. Now the
 /// page is laid out as on a 1080p screen and drawn larger to fill the window, with Chromium's own device emulation
 /// (the one DevTools' device mode uses: input is mapped back), at the window's size over the zoom, so resizing the
-/// window still reflows the page. The zoom is the screen's height in Windows' scaled pixels over 1080: 1 on a 1080p
-/// screen at 100%, 1.33 on 1440p at 100% or 4K at 150%, never below 1. What the host places from the page's
-/// coordinates (the Bar's drag regions, Music's hosted app) takes the same zoom (<see cref="PageZoom"/>).
+/// window still reflows the page. The zoom brings the screen, in Windows' scaled pixels, down to 1080p's size either
+/// way up (<see cref="PageScale.ZoomFor"/>): 1 on a 1080p screen at 100%, lying down or stood on end, 1.33 on 1440p
+/// at 100% or 4K at 150%, never below 1. What the host places from the page's coordinates (the Bar's drag regions,
+/// Music's hosted app) and the window's smallest size take the same zoom (<see cref="PageZoom"/>).
 /// </summary>
 public sealed partial class MainWindow
 {
@@ -24,14 +25,17 @@ public sealed partial class MainWindow
     private void ApplyPageScale(bool again = false)
     {
         if (WebHost?.CoreWebView2 is not { } core) return;
-        double zoom = 1, screenHeight = 0;
+        double zoom = 1;
+        (double Width, double Height) screen = default;
         try
         {
-            screenHeight = DisplayArea.GetFromWindowId(AppWindow.Id, DisplayAreaFallback.Nearest).OuterBounds.Height / GetWindowScale();
-            // EXO_PAGE_SCREEN=1440 tries another screen's zoom on this one (a 1440p or 4K-at-150% screen's).
-            if (double.TryParse(Environment.GetEnvironmentVariable("EXO_PAGE_SCREEN"), System.Globalization.CultureInfo.InvariantCulture, out var tried) && tried > 0)
-                screenHeight = tried;
-            zoom = PageScale.ZoomFor(screenHeight);
+            var bounds = DisplayArea.GetFromWindowId(AppWindow.Id, DisplayAreaFallback.Nearest).OuterBounds;
+            var scale = GetWindowScale();
+            screen = (bounds.Width / scale, bounds.Height / scale);
+            // EXO_PAGE_SCREEN=1440 (or 1080x1920) tries another screen's zoom on this one (a 1440p or 4K-at-150% screen's).
+            if (PageScale.TryScreen(Environment.GetEnvironmentVariable("EXO_PAGE_SCREEN"), out var tried))
+                screen = tried;
+            zoom = PageScale.ZoomFor(screen.Width, screen.Height);
         }
         catch { /* no screen to read while the window closes: the page stays as it is */ }
         var width = (int)Math.Round(WebHost.ActualWidth / zoom);
@@ -42,7 +46,11 @@ public sealed partial class MainWindow
         _pageScaled = (width, height, zoom);
         PageZoom = zoom;
         if (zoom == 1 && was == 1 && !again) return;
-        if (zoom != was) AppLog.Info($"Page scale: {zoom:0.###}, the page laid out at {width}x{height} on a screen {screenHeight:0} scaled pixels tall.");
+        if (zoom != was)
+        {
+            AppLog.Info($"Page scale: {zoom:0.###}, the page laid out at {width}x{height} on a screen of {screen.Width:0}x{screen.Height:0} scaled pixels.");
+            ApplyWindowMinimumSize();
+        }
         // dontSetVisibleSize: the view stays the window's own size and the zoomed page fills it. Without it Chromium
         // shrank the view to the layout size, so on a 4K screen at 150% only the top-left three quarters of the page
         // showed, cut off at the right and bottom (the page's own screenshots looked whole, the screen didn't).

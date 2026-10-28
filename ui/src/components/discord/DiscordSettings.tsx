@@ -5,7 +5,7 @@ import { useDialogFocus } from '../../lib/focusTrap'
 import { loadAccountSettings } from '../../lib/discordPrefs'
 import { useGlide } from '../../lib/glide'
 import { AccountPage, DevicesPage, ProfilesPage } from './settings/AccountPages'
-import { AccessibilityPage, AppearancePage, DeveloperPage, LanguagePage, LogOut, NotificationsPage } from './settings/AppPages'
+import { AccessibilityPage, AppearancePage, DeveloperPage, LogOut, NotificationsPage } from './settings/AppPages'
 import { SystemPage } from './settings/KeybindsPage'
 import { ActivityPage, ConnectedAppsPage, DataPrivacyPage, MessagingPage } from './settings/PrivacyPages'
 import { SettingsLayer } from './SettingsLayer'
@@ -14,7 +14,7 @@ import { pushPage } from '../../lib/viewTransition'
 
 export type DiscordSettingsSection =
   | 'profiles' | 'account' | 'devices' | 'privacy' | 'messaging' | 'notifications'
-  | 'voice' | 'appearance' | 'accessibility' | 'system' | 'language'
+  | 'voice' | 'appearance' | 'accessibility' | 'system'
   | 'activity' | 'apps' | 'developer'
 
 // Discord's User Settings sidebar (October 2026), with what applies to Exo's client: Billing, Clips,
@@ -37,7 +37,6 @@ const GROUPS: { title?: string; items: { id: DiscordSettingsSection | 'logout'; 
       { id: 'appearance', label: 'Appearance' },
       { id: 'accessibility', label: 'Accessibility' },
       { id: 'system', label: 'System' },
-      { id: 'language', label: 'Language & time' },
     ],
   },
   {
@@ -146,7 +145,6 @@ function Page({ section, me, guilds, onSection }: {
     case 'appearance': return <AppearancePage />
     case 'accessibility': return <AccessibilityPage />
     case 'system': return <SystemPage />
-    case 'language': return <LanguagePage />
     case 'activity': return <ActivityPage />
     case 'apps': return <ConnectedAppsPage />
     case 'developer': return <DeveloperPage />

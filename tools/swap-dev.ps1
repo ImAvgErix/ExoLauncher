@@ -25,6 +25,10 @@ foreach ($process in $targets) {
     if (-not $process.CloseMainWindow()) { throw 'Exo did not accept a normal close. Exit Exo before swapping.' }
     if (-not $process.WaitForExit(20000)) { throw 'Exo has not finished releasing hosted apps. Swap canceled; no processes were killed.' }
 }
+# Exo's helpers (the Steam watcher checks its parent's pid every few seconds) can outlive it briefly and hold the folder.
+$appPrefix = $app.TrimEnd('\') + '\'
+for ($wait = 0; $wait -lt 30 -and (Get-Process | Where-Object { $_.Path -and $_.Path.StartsWith($appPrefix, [StringComparison]::OrdinalIgnoreCase) }); $wait++) { Start-Sleep -Milliseconds 500 }
+if (Get-Process | Where-Object { $_.Path -and $_.Path.StartsWith($appPrefix, [StringComparison]::OrdinalIgnoreCase) }) { throw "A process from Exo's folder is still running. Swap canceled; no processes were killed." }
 Rename-Item -LiteralPath $app -NewName (Split-Path $previous -Leaf)
 try {
     Rename-Item -LiteralPath $incoming -NewName (Split-Path $app -Leaf)

@@ -55,7 +55,7 @@ export function useMouseAlerts(status: MouseStatus | null) {
     // Its picture and link too, for its card in Devices' overview.
     const wireless = signalLevel(status) != null || /wireless|2\.4\s*ghz|receiver|dongle/i.test(status.connectionDetail ?? '') ? true
       : /wired|usb cable|cable/i.test(status.connectionDetail ?? '') ? false : null
-    tell({ state: { name: status.name, battery, charging: charging(status), low, image: deviceImage(status.name), wireless } })
+    tell({ state: { name: status.name, maker: status.brand, battery, charging: charging(status), low, image: deviceImage(status.name), wireless } })
     if (low && Date.now() - lastTold('exo-mouse.alert.battery') > BATTERY_REPEAT_MS) {
       told('exo-mouse.alert.battery')
       tell({ notice: `Your ${status.name} is at ${battery}%. Charge it soon.` })

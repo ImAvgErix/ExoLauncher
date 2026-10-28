@@ -554,3 +554,108 @@
 }:root[data-exo-motion="reduce"] :is(.exo-dc-cv-button, .exo-dc-cv-select-arrow) {
   transition: none;
 }
+
+/* ---- Discord's report: its steps, what's reported, the choices and questions, and how it went ---- */
+.exo-dc-report-head {
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  text-align: center;
+}
+
+.exo-dc-report-head strong {
+  font-size: calc(20px * var(--exo-scale, 1));
+}
+
+.exo-dc-report-head p,
+.exo-dc-report-info,
+.exo-dc-report-sub {
+  margin: 0;
+  color: var(--color-fg);
+  font-size: calc(13px * var(--exo-scale, 1));
+}
+
+.exo-dc-report-mark {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 999px;
+  background: rgb(61 214 140 / 0.16);
+  color: var(--color-good);
+}
+
+.exo-dc-report-mark.is-bad {
+  background: rgb(255 92 92 / 0.16);
+  color: var(--color-bad);
+}
+
+.exo-dc-report-preview {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: var(--exo-row-radius);
+  box-shadow: var(--exo-glass-rim);
+}
+
+.exo-dc-report-preview img {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  object-fit: cover;
+}
+
+.exo-dc-report-preview > span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.exo-dc-report-picked {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding-left: 20px;
+}
+
+.exo-dc-report-choices .exo-dc-option {
+  justify-content: space-between;
+}
+
+.exo-dc-report-check {
+  display: grid;
+  gap: 2px;
+}
+
+.exo-dc-report-check > span {
+  font-size: calc(12px * var(--exo-scale, 1));
+}
+
+.exo-dc-report-check > span.is-bad {
+  color: var(--color-bad);
+}
+
+.exo-dc-report-switch {
+  padding: 6px 0;
+}
+
+.exo-dc-report-link {
+  justify-content: space-between;
+  box-shadow: var(--exo-glass-rim);
+}
+
+.exo-dc-report-link.is-danger {
+  color: var(--color-bad);
+}
+
+.exo-dc-report-text {
+  display: grid;
+  gap: 4px;
+}
+
+.exo-dc-report-text p {
+  margin: 0;
+}

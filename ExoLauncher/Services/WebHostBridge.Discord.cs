@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using ExoLauncher.Helpers;
 using ExoLauncher.Services.DiscordClient;
 
@@ -47,6 +48,24 @@ public sealed partial class WebHostBridge
     /// <summary>A Discord notification was clicked: the room opens that conversation (a thread in its channel).</summary>
     internal void PostDiscordOpen(string? guildId, string channelId, string? parentId, string? name) =>
         PostEvent("discord.open", new { guildId, channelId, parentId, name });
+
+    /// <summary>discord.accounts: the accounts signed in on this PC; switch connects as one, forget drops one that isn't connected.</summary>
+    private static object DiscordAccountsCall(JsonElement p, bool hasParams)
+    {
+        var id = ReadString(p, hasParams, "id");
+        switch (ReadString(p, hasParams, "action"))
+        {
+            case "switch" when id is not null:
+                var error = DiscordSession.SwitchTo(id);
+                return new { ok = error is null, message = error };
+            case "forget" when id is not null:
+                if (DiscordSession.Current?.Cache.Me?.Id == id) return new { ok = false, message = "Sign out of the account you're using in Settings." };
+                DiscordAccounts.Forget(id);
+                return new { ok = true, accounts = DiscordSession.Accounts() };
+            default:
+                return new { ok = true, accounts = DiscordSession.Accounts() };
+        }
+    }
 
     private object DiscordSignIn(JsonElement p, bool hasParams)
     {
@@ -356,6 +375,22 @@ public sealed partial class WebHostBridge
         return new { ok = reply.Error is null, message = reply.Error };
     }
 
+    /// <summary>discord.report: Discord's in-app report; menu reads the questions for a kind, send sends the answers.</summary>
+    private static async Task<object> DiscordReportAsync(JsonElement p, bool hasParams, CancellationToken ct)
+    {
+        if (DiscordSession.Current is not { } session) return new { ok = false, message = "Discord isn't connected." };
+        if (!hasParams || ReadString(p, hasParams, "kind") is not { } kind || !DiscordReports.Kinds.ContainsKey(kind)) return new { ok = false, message = (string?)null };
+        if (ReadString(p, hasParams, "action") == "menu")
+        {
+            var menu = await session.Rest.ReportMenuAsync(kind, ct).ConfigureAwait(false);
+            return new { ok = menu.Error is null, message = menu.Error, menu = menu.Body };
+        }
+        if (DiscordReports.Build(kind, p) is not { } report) return new { ok = false, message = "Exo couldn't send that report." };
+        var reply = await session.Rest.ReportAsync(kind, report, ct).ConfigureAwait(false);
+        AppLog.Info(reply.Error is null ? "Discord client: report sent." : "Discord client: report refused.");
+        return new { ok = reply.Error is null, message = reply.Error };
+    }
+
     // The friends picked for a new group DM: up to 9 ids, each a snowflake.
     private static List<string>? GroupOf(JsonElement p, bool hasParams) =>
         hasParams && p.TryGetProperty("userIds", out var ids) && ids.ValueKind == JsonValueKind.Array
@@ -371,7 +406,10 @@ public sealed partial class WebHostBridge
     private static async Task<object> DiscordSetStatusAsync(JsonElement p, bool hasParams, CancellationToken ct)
     {
         if (DiscordSession.Current is not { } session) return new { ok = false };
-        var error = await session.SetStatusAsync(ReadString(p, hasParams, "status") ?? "", ct).ConfigureAwait(false);
+        // For a while (minutes) or for good.
+        var minutes = ReadDouble(p, hasParams, "minutes") is { } m && m > 0 && m <= 7 * 24 * 60 ? (long)m : 0;
+        var until = minutes > 0 ? DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() + minutes * 60_000 : (long?)null;
+        var error = await session.SetStatusAsync(ReadString(p, hasParams, "status") ?? "", ct, until).ConfigureAwait(false);
         return new { ok = error is null, message = error };
     }
 
@@ -676,7 +714,8 @@ public sealed partial class WebHostBridge
                 reply = await session.Rest.LeaveGuildAsync(DiscordRest.Id(leave), ct).ConfigureAwait(false);
                 return new { ok = reply.Error is null, message = reply.Error };
             // The rail's right-click menu: Mute Server (minutes: 15 minutes to 24 hours; absent, until turned back on),
-            // Notification Settings (level 0 all, 1 only mentions, 2 nothing) and the two Suppress switches.
+            // Notification Settings (level 0 all, 1 only mentions, 2 nothing), the Suppress switches, Mute New Events and
+            // Mobile Push Notifications.
             case "mute" when ReadString(p, hasParams, "guildId") is { } muteGuild:
                 var muteId = DiscordRest.Id(muteGuild);
                 var mute = ReadBool(p, hasParams, "muted") ?? true;
@@ -690,14 +729,21 @@ public sealed partial class WebHostBridge
                 var everyone = ReadBool(p, hasParams, "suppressEveryone");
                 var roles = ReadBool(p, hasParams, "suppressRoles");
                 var hideMuted = ReadBool(p, hasParams, "hideMuted");
+                var highlights = ReadBool(p, hasParams, "suppressHighlights");
+                var muteEvents = ReadBool(p, hasParams, "muteEvents");
+                var mobilePush = ReadBool(p, hasParams, "mobilePush");
                 var change = new System.Text.Json.Nodes.JsonObject();
+                // Discord's notify_highlights: 1 suppressed, 2 on.
+                if (highlights is { } quiet) change["notify_highlights"] = quiet ? 1 : 2;
+                if (muteEvents is { } eventsMuted) change["mute_scheduled_events"] = eventsMuted;
+                if (mobilePush is { } pushOn) change["mobile_push"] = pushOn;
                 if (level >= 0) change["message_notifications"] = level;
                 if (everyone is { } e) change["suppress_everyone"] = e;
                 if (roles is { } r) change["suppress_roles"] = r;
                 if (hideMuted is { } h) change["hide_muted_channels"] = h;
                 if (change.Count == 0) return new { ok = false, message = (string?)null };
                 reply = await session.Rest.GuildSettingsAsync(notifyId, change, ct).ConfigureAwait(false);
-                if (reply.Error is null) { if (level >= 0) session.Cache.SetNotifyLevel(notifyId, level); session.Cache.SetSuppress(notifyId, everyone, roles, hideMuted); }
+                if (reply.Error is null) { if (level >= 0) session.Cache.SetNotifyLevel(notifyId, level); session.Cache.SetSuppress(notifyId, everyone, roles, hideMuted, highlights, muteEvents, mobilePush); }
                 return new { ok = reply.Error is null, message = reply.Error };
             case "showAll" when ReadString(p, hasParams, "guildId") is { } showAll:
                 // Discord's Show All Channels: opt-in mode off (all) or on (followed only), the guild flag alone.
@@ -980,7 +1026,8 @@ public sealed partial class WebHostBridge
         var reply = await c.Session.Rest.ThreadsAsync(c.Id, ReadBool(p, hasParams, "archived") == true, ReadInt(p, "offset", 0, 10_000, 0), ct).ConfigureAwait(false);
         if (reply.Body is { ValueKind: JsonValueKind.Object } body && body.TryGetProperty("threads", out var threads))
         {
-            c.Session.Cache.AddThreads(guild, threads);
+            // Your membership of them comes beside them (members), as Discord's search sends it.
+            c.Session.Cache.AddThreads(guild, threads, body.TryGetProperty("members", out var members) ? members : null);
             return new
             {
                 ok = true,
@@ -1007,7 +1054,10 @@ public sealed partial class WebHostBridge
         if (Channel(p, hasParams) is not { } c) return new { ok = false };
         if (c.Guild is null) return await DiscordDmActionAsync(c, p, hasParams, ct).ConfigureAwait(false);
         var guild = c.Guild;
-        switch (ReadString(p, hasParams, "action"))
+        var action = ReadString(p, hasParams, "action");
+        if (action is not null && ThreadActions.Contains(action) && c.Session.Cache.ThreadRights(c.Id) is { } rights)
+            return await DiscordThreadActionAsync(c, action, rights, p, hasParams, ct).ConfigureAwait(false);
+        switch (action)
         {
             case "mute":
                 var mute = ReadBool(p, hasParams, "muted") ?? !c.Session.Cache.ChannelMuted(c.Id);
@@ -1046,6 +1096,83 @@ public sealed partial class WebHostBridge
         }
         return new { ok = false };
     }
+
+    private static readonly string[] ThreadActions = ["thread", "join", "leave", "archive", "lock", "pin", "tags", "threadNotify", "threadMute", "delete"];
+
+    /// <summary>
+    /// A thread's or forum post's menu: its state, Join or Leave, Close or Open, Lock, Pin a post, its tags, its
+    /// notifications and mute, and Delete. Lock, Pin and Delete need Manage Threads; Close and tags, the thread's owner or
+    /// Manage Threads; Pin and tags are a forum's.
+    /// </summary>
+    private static async Task<object> DiscordThreadActionAsync(DiscordChannelRef c, string action, (bool Mine, bool Manage, bool Forum, int Flags, int MemberFlags, HashSet<string> Tags) rights,
+        JsonElement p, bool hasParams, CancellationToken ct)
+    {
+        var rest = c.Session.Rest;
+        var cache = c.Session.Cache;
+        DiscordRest.Reply reply;
+        switch (action)
+        {
+            case "thread":
+                return new { ok = true, message = (string?)null, thread = cache.ThreadState(c.Id) };
+            case "join":
+                reply = await rest.JoinThreadAsync(c.Id, ct).ConfigureAwait(false);
+                if (reply.Error is null) cache.SetThreadMember(c.Id, joined: true);
+                break;
+            case "leave":
+                reply = await rest.LeaveThreadAsync(c.Id, ct).ConfigureAwait(false);
+                if (reply.Error is null) cache.SetThreadMember(c.Id, joined: false);
+                break;
+            case "archive" when rights.Mine || rights.Manage:
+                var archived = ReadBool(p, hasParams, "archived") ?? true;
+                reply = await rest.SaveChannelAsync(c.Id, new JsonObject { ["archived"] = archived }, ct).ConfigureAwait(false);
+                if (reply.Error is null) cache.SetThread(c.Id, archived: archived);
+                break;
+            case "lock" when rights.Manage:
+                var locked = ReadBool(p, hasParams, "locked") ?? true;
+                reply = await rest.SaveChannelAsync(c.Id, new JsonObject { ["locked"] = locked }, ct).ConfigureAwait(false);
+                if (reply.Error is null) cache.SetThread(c.Id, locked: locked);
+                break;
+            case "pin" when rights.Manage && rights.Forum:
+                var flags = ReadBool(p, hasParams, "pinned") ?? true ? rights.Flags | DiscordCache.PinnedPost : rights.Flags & ~DiscordCache.PinnedPost;
+                reply = await rest.SaveChannelAsync(c.Id, new JsonObject { ["flags"] = flags }, ct).ConfigureAwait(false);
+                if (reply.Error is null) cache.SetThread(c.Id, flags: flags);
+                break;
+            // Edit Tags: up to five of the forum's own.
+            case "tags" when (rights.Mine || rights.Manage) && rights.Forum && ThreadTags(p, hasParams) is { Count: <= 5 } tags && tags.All(rights.Tags.Contains):
+                reply = await rest.SaveChannelAsync(c.Id, new JsonObject { ["applied_tags"] = new JsonArray([.. tags.Select(t => JsonValue.Create(t))]) }, ct).ConfigureAwait(false);
+                if (reply.Error is null) cache.SetThread(c.Id, tags: tags);
+                break;
+            // Notification Settings: level 0 all messages, 1 only @mentions, 2 nothing (the member's other flags kept).
+            case "threadNotify" when ReadInt(p, "level", 0, 2, -1) is >= 0 and var level:
+                var bit = level switch { 0 => DiscordCache.ThreadAll, 1 => DiscordCache.ThreadMentions, _ => DiscordCache.ThreadNothing };
+                var memberFlags = rights.MemberFlags & ~(DiscordCache.ThreadAll | DiscordCache.ThreadMentions | DiscordCache.ThreadNothing) | bit;
+                reply = await rest.ThreadSettingsAsync(c.Id, new JsonObject { ["flags"] = memberFlags }, ct).ConfigureAwait(false);
+                if (reply.Error is null) cache.SetThreadMember(c.Id, flags: memberFlags);
+                break;
+            // Mute Thread for 15 minutes to 24 hours (minutes), or until turned back on; muted false unmutes.
+            case "threadMute":
+                var mute = ReadBool(p, hasParams, "muted") ?? true;
+                var minutes = ReadInt(p, "minutes", 0, 1440, 0);
+                DateTimeOffset? until = mute && minutes > 0 ? DateTimeOffset.UtcNow.AddMinutes(minutes) : null;
+                var settings = new JsonObject { ["muted"] = mute };
+                if (mute) settings["mute_config"] = new JsonObject { ["selected_time_window"] = minutes > 0 ? minutes * 60 : -1, ["end_time"] = until?.ToString("o") };
+                reply = await rest.ThreadSettingsAsync(c.Id, settings, ct).ConfigureAwait(false);
+                if (reply.Error is null) cache.SetThreadMember(c.Id, muted: mute, until: until);
+                break;
+            case "delete" when rights.Manage:
+                reply = await rest.DeleteChannelAsync(c.Id, ct).ConfigureAwait(false);
+                break;
+            default:
+                return new { ok = false, message = "You can't do that in this thread." };
+        }
+        return new { ok = reply.Error is null, message = reply.Error };
+    }
+
+    // Edit Tags' tags: their ids, each a snowflake, none twice.
+    private static List<string>? ThreadTags(JsonElement p, bool hasParams) =>
+        hasParams && p.TryGetProperty("tags", out var tags) && tags.ValueKind == JsonValueKind.Array
+            ? [.. tags.EnumerateArray().Select(t => t.GetString()).OfType<string>().Where(t => t.Length is > 0 and <= 20 && t.All(char.IsAsciiDigit)).Distinct()]
+            : null;
 
     // The group owner's actions; a new icon is a PNG, JPEG, GIF or WebP data URI of up to 10 MB, as Discord takes one.
     private static async Task<object> DiscordGroupAsync(DiscordChannelRef c, string action, JsonElement p, bool hasParams, CancellationToken ct)

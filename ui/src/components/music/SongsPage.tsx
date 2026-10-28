@@ -4,6 +4,7 @@ import type { PlayerOption, PlayerTrack } from '../../lib/player'
 import { Menu } from '../ui/Menu'
 import { TrackList, Waiting } from './pages'
 import { loadView, usePlayer } from './playerContext'
+import { ErrorNote } from '../ui/ErrorNote'
 
 const ROW = 56
 /** Rows drawn above and below the ones in view. */
@@ -145,7 +146,7 @@ export function SongsPage({ scroller }: { scroller: RefObject<HTMLDivElement | n
         ) : null}
         {reordering(list, listKey, error) ? <span className="sr-only" role="status">Loading your songs</span> : null}
       </header>
-      {error ? <p className="exo-music-error" role="alert">{error}</p> : list ? null : <Waiting label="Loading your songs" />}
+      {error ? <ErrorNote className="exo-music-error" message={error} /> : list ? null : <Waiting label="Loading your songs" />}
       {list && !total ? <p className="exo-music-empty">{settled.trim() ? `No songs match “${settled.trim()}”` : 'No songs in your library yet'}</p> : null}
       <div ref={rows}>
         {total ? (

@@ -10,14 +10,12 @@ const MODES = [
   { value: 'off', label: 'Never' },
 ] as const
 
-/** What happens while it runs, from the game's own choice (Auto follows whether it has real HDR). */
-function sayFor(mode: string, hdr: string): string {
-  if (mode === 'on') return 'HDR comes on while it runs'
-  if (mode === 'off') return 'Stays SDR'
-  if (hdr === 'true') return 'Has HDR, so HDR comes on while it runs'
-  if (hdr === 'false') return 'No HDR, so it stays SDR'
-  if (hdr === 'hackable') return 'HDR only with a mod, so it stays SDR'
-  return 'Unknown, so it stays SDR'
+/** Under Auto, whether the game has real HDR (what Auto follows); nothing when that isn't known. */
+function hdrFact(hdr: string | null | undefined): string | null {
+  if (hdr === 'true') return 'Has HDR'
+  if (hdr === 'false') return 'No HDR'
+  if (hdr === 'hackable') return 'HDR only with a mod'
+  return null
 }
 
 /**
@@ -64,13 +62,12 @@ export function HdrRow({ gameId, hdrForGames, onHdrForGames }: {
     void onHdrForGames().then(ok => { if (!ok) setError('Could not save. Try again.') }).finally(() => setBusy(false))
   }
   const off = !hdrForGames && mode !== 'off'
+  const say = error ?? (off ? 'HDR for HDR games is off, so it stays SDR' : mode === 'auto' ? hdrFact(game.hdr) : null)
   return (
     <section className="exo-graphics" aria-label="HDR">
       <div className="exo-graphics-head">
         <h3 className="exo-graphics-heading">HDR</h3>
-        <span className={`exo-graphics-state${error ? ' is-bad' : ''}`} role={error ? 'alert' : undefined}>
-          {error ?? (off ? 'HDR for HDR games is off, so it stays SDR' : sayFor(mode, game.hdr ?? 'unknown'))}
-        </span>
+        {say ? <span className={`exo-graphics-state${error ? ' is-bad' : ''}`} role={error ? 'alert' : undefined}>{say}</span> : null}
         {off ? <button type="button" className="exo-game-tool" disabled={busy} onClick={turnOn}>Turn on</button> : null}
       </div>
       <ul className="exo-graphics-list">

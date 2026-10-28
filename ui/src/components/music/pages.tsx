@@ -11,6 +11,7 @@ import { Art, isLikedCard } from './Art'
 import { ArtistPage } from './artist'
 import { copyLink, newPlaylist, openRadio, shareLink } from './manage'
 import { loadView, pageFor, runAction, usePlayer, useView, type Page } from './playerContext'
+import { ErrorNote } from '../ui/ErrorNote'
 
 const arrive = (index: number) => ({ '--i': index }) as CSSProperties
 
@@ -21,7 +22,7 @@ export function Waiting({ label }: { label: string }) {
 
 /** An action the service refused, under the control that asked. */
 export function Failed({ when }: { when: boolean }) {
-  return when ? <p className="exo-music-error" role="alert">Didn't work. Try again.</p> : null
+  return when ? <ErrorNote className="exo-music-error" message="Didn't work. Try again." /> : null
 }
 
 export function HomePage({ data, onSettled }: { data: PlayerViewData; onSettled: () => void }) {

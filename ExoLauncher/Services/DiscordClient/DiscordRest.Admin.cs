@@ -196,9 +196,21 @@ internal sealed partial class DiscordRest
     internal Task<Reply> DeleteAutoModRuleAsync(string guildId, string ruleId, CancellationToken ct) =>
         SendAsync(HttpMethod.Delete, $"guilds/{Id(guildId)}/auto-moderation/rules/{Id(ruleId)}", null, ct);
 
-    /// <summary>Edit Channel's Overview: only the changed fields.</summary>
+    /// <summary>Edit Channel's Overview: only the changed fields (a thread's too: closed, locked, pinned, its tags).</summary>
     internal Task<Reply> SaveChannelAsync(string channelId, JsonObject changes, CancellationToken ct) =>
         SendAsync(HttpMethod.Patch, $"channels/{Id(channelId)}", changes, ct);
+
+    /// <summary>Join Thread.</summary>
+    internal Task<Reply> JoinThreadAsync(string threadId, CancellationToken ct) =>
+        SendAsync(HttpMethod.Put, $"channels/{Id(threadId)}/thread-members/@me", null, ct);
+
+    /// <summary>Leave Thread.</summary>
+    internal Task<Reply> LeaveThreadAsync(string threadId, CancellationToken ct) =>
+        SendAsync(HttpMethod.Delete, $"channels/{Id(threadId)}/thread-members/@me", null, ct);
+
+    /// <summary>Your thread membership's settings: its notification flags, or muted with Discord's mute_config.</summary>
+    internal Task<Reply> ThreadSettingsAsync(string threadId, JsonObject settings, CancellationToken ct) =>
+        SendAsync(HttpMethod.Patch, $"channels/{Id(threadId)}/thread-members/@me/settings", settings, ct);
 
     /// <summary>A role's (type 0) or member's (type 1) overwrite: what it allows and denies.</summary>
     internal Task<Reply> SaveOverwriteAsync(string channelId, string targetId, int type, ulong allow, ulong deny, CancellationToken ct) =>

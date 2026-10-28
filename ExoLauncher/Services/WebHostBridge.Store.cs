@@ -4,7 +4,7 @@ using ExoLauncher.Helpers;
 
 namespace ExoLauncher.Services;
 
-/// <summary>The Store room: store.home, store.calendar, store.search, store.game, store.gameOffers, store.wishlist, store.open; store.changed (what: home or wishlist) and store.sale.</summary>
+/// <summary>The Store room: store.home, store.calendar, store.search, store.game, store.gameOffers, store.gameReviews, store.wishlist, store.open; store.changed (what: home or wishlist) and store.sale.</summary>
 public sealed partial class WebHostBridge
 {
     /// <summary>
@@ -118,12 +118,15 @@ public sealed partial class WebHostBridge
         priceText = o.PriceText, wasText = o.WasText, url = o.Url,
     };
 
-    /// <summary>A search a newer one replaced answers ok false with no message; the room has already moved on and drops it.</summary>
+    /// <summary>
+    /// typed: the Store room's search as you type, which a newer typed search replaces (ok false with no message; the
+    /// room has already moved on and drops it). Without it, a lookup that never replaces the room's search.
+    /// </summary>
     private async Task<object> StoreSearchAsync(JsonElement p, bool hasParams, CancellationToken ct)
     {
         try
         {
-            var hits = await _services.Store.SearchAsync(ReadString(p, hasParams, "query") ?? "", ct).ConfigureAwait(false);
+            var hits = await _services.Store.SearchAsync(ReadString(p, hasParams, "query") ?? "", ReadBool(p, hasParams, "typed") == true, ct).ConfigureAwait(false);
             if (hits is null) return new { ok = false, items = Array.Empty<object>() };
             return new { ok = true, items = hits.Select(MapTile) };
         }
@@ -149,7 +152,7 @@ public sealed partial class WebHostBridge
                 ok = true, appId = g.AppId, name = g.Name, description = g.Description, header = g.Header,
                 comingSoon = g.ComingSoon, released = g.Released, developers = g.Developers, publishers = g.Publishers, genres = g.Genres,
                 metacritic = g.Metacritic, reviewWord = g.ReviewWord, reviewPercent = g.ReviewPercent, reviewCount = g.ReviewCount, free = g.Free,
-                tags = g.Tags,
+                tags = g.Tags, drm = g.Drm, account = g.Account, controller = g.Controller, playStation = g.PlayStation, languages = g.Languages,
                 offers = g.Offers.Select(MapOffer),
                 media = g.Media.Select(m => new { thumb = m.Thumb, hls = m.Hls, av1 = m.Av1 }),
                 specs = fit.Rows.Select(s => new { label = s.Label, minimum = s.Minimum, recommended = s.Recommended, mine = s.Mine, meets = s.Meets }),
@@ -164,19 +167,38 @@ public sealed partial class WebHostBridge
         }
     }
 
-    /// <summary>The other official launchers for a game page, Epic first, from CheapShark.</summary>
+    /// <summary>The other official launchers for a game page, Epic first, and the lowest price ever (US only), from CheapShark.</summary>
     private async Task<object> StoreGameOffersAsync(JsonElement p, bool hasParams, CancellationToken ct)
     {
         if (ReadString(p, hasParams, "appId") is not { Length: > 0 and <= 10 } appId || !appId.All(char.IsAsciiDigit)) return new { ok = false, offers = Array.Empty<object>() };
         try
         {
             // CheapShark did not answer: ok false, so the page does not keep "sold nowhere else".
-            if (await _services.Store.GameOffersAsync(appId, ct).ConfigureAwait(false) is not { } offers) return new { ok = false, offers = Array.Empty<object>() };
-            return new { ok = true, offers = offers.Select(MapOffer) };
+            if (await _services.Store.GameOffersAsync(appId, ct).ConfigureAwait(false) is not { } stores) return new { ok = false, offers = Array.Empty<object>() };
+            return new
+            {
+                ok = true, offers = stores.Offers.Select(MapOffer),
+                lowest = stores.Lowest is { } low ? new { final = low.Final, at = low.At.ToString("O", CultureInfo.InvariantCulture) } : null,
+            };
         }
         catch (OperationCanceledException)
         {
             return new { ok = false, offers = Array.Empty<object>() };
+        }
+    }
+
+    /// <summary>A game page's Recent reviews (Steam, the last 30 days), asked for only once the page opens; ok false when Steam did not answer.</summary>
+    private async Task<object> StoreGameReviewsAsync(JsonElement p, bool hasParams, CancellationToken ct)
+    {
+        if (ReadString(p, hasParams, "appId") is not { Length: > 0 and <= 10 } appId || !appId.All(char.IsAsciiDigit)) return new { ok = false };
+        try
+        {
+            if (await _services.Store.RecentReviewsAsync(appId, ct).ConfigureAwait(false) is not { } recent) return new { ok = false };
+            return new { ok = true, word = recent.Word, percent = recent.Percent, count = recent.Count };
+        }
+        catch (OperationCanceledException)
+        {
+            return new { ok = false };
         }
     }
 

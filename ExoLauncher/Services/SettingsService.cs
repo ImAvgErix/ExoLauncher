@@ -57,12 +57,6 @@ public sealed class SettingsService
     }
 
     /// <summary>
-    /// <see cref="AppSettings.CountHoursAcrossAccounts"/> as last loaded or
-    /// saved, for the static playtime readers (Steam localconfig, Epic cache).
-    /// </summary>
-    internal static volatile bool CountHoursAcrossAccounts;
-
-    /// <summary>
     /// Returns a detached snapshot. Callers can safely enumerate its collections
     /// while settings are being changed on another thread, and cannot mutate the
     /// service by holding on to a list or dictionary reference.
@@ -148,7 +142,6 @@ public sealed class SettingsService
                 _loadFailed = blockSaves;
                 _newFile = newFile;
                 _revision++;
-                CountHoursAcrossAccounts = loaded.CountHoursAcrossAccounts;
             }
         }
     }
@@ -348,7 +341,6 @@ public sealed class SettingsService
             {
                 _current = committed;
                 _revision++;
-                CountHoursAcrossAccounts = committed.CountHoursAcrossAccounts;
             }
             // The settings file is the commit point. A stale advisory marker
             // cannot override that explicit value on the next load.
@@ -464,7 +456,6 @@ public sealed class SettingsService
         bool? framelessPinSide = null,
         bool? showLibraryTools = null,
         IReadOnlyDictionary<string, string>? preferredGameSources = null,
-        bool? countHoursAcrossAccounts = null,
         bool? hdrForGames = null,
         bool? hdrSdrGamma = null,
         bool? discordNoiseSuppression = null,
@@ -497,8 +488,6 @@ public sealed class SettingsService
                 settings.FramelessPinSide = framelessPinSide.Value;
             if (showLibraryTools is not null)
                 settings.ShowLibraryTools = showLibraryTools.Value;
-            if (countHoursAcrossAccounts is not null)
-                settings.CountHoursAcrossAccounts = countHoursAcrossAccounts.Value;
             if (hdrForGames is not null)
                 settings.HdrForGames = hdrForGames.Value;
             if (hdrSdrGamma is not null)
@@ -841,7 +830,6 @@ public sealed class SettingsService
         LibraryShowInstalled = source.LibraryShowInstalled,
         LibraryShowOwned = source.LibraryShowOwned,
         ShowLibraryTools = source.ShowLibraryTools,
-        CountHoursAcrossAccounts = source.CountHoursAcrossAccounts,
         HdrForGames = source.HdrForGames,
         HdrSdrGamma = source.HdrSdrGamma,
         DiscordNoiseSuppression = source.DiscordNoiseSuppression,
@@ -887,13 +875,17 @@ public sealed class SettingsService
         MouseBridgeAppPath = source.MouseBridgeAppPath,
         StartLucidWithExo = source.StartLucidWithExo,
         SteamOverlayDefaultOn = source.SteamOverlayDefaultOn,
-        QuietStoreApps = source.QuietStoreApps,
         LibraryFolders = NormalizeLibraryFolders(source.LibraryFolders),
         HiddenGames = NormalizeHiddenGames(source.HiddenGames),
         SteamOverlay = CopyStrings(source.SteamOverlay),
-        NativeControllers = source.NativeControllers,
+        ControllerSound = source.ControllerSound,
         SteamInputChoices = CopyStrings(source.SteamInputChoices),
         SteamInput = CopyStrings(source.SteamInput),
+        ThroughSteam = [.. (source.ThroughSteam ?? []).Where(id => !string.IsNullOrWhiteSpace(id)).Distinct(StringComparer.OrdinalIgnoreCase)],
+        SteamShortcuts = CopyStrings(source.SteamShortcuts),
+        PlayStationPadSeen = source.PlayStationPadSeen,
+        SteamBetaJoined = source.SteamBetaJoined,
+        NvidiaDriverBranch = source.NvidiaDriverBranch == "studio" ? "studio" : null,
         StartupHandedToExo = [.. (source.StartupHandedToExo ?? []).Where(id => StartupApps.Known.Any(app => app.Id == id)).Distinct()],
         LucidPath = source.LucidPath is { Length: > 0 and <= 1024 } lucid ? lucid : null,
     };

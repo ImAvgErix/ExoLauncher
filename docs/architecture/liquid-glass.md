@@ -45,7 +45,7 @@ The E2E threshold is 4.5:1 (under 3:1 fails), measured from the screen against w
 
 ## One tone per Appearance
 
-- **Small glass** on Void and Dark is Glassy's slab (`--glassy-slab`) over `--glassy-tone`; on Light, Light's frost. It
+- **Small glass** is the controls' glass: `--exo-fill` over `--exo-control-glass` (on Light, Light's frost). It
   never flips with what is under it: the band keeps its words legible over any art. (Exo once flipped the Bar's capsules
   and Music's player to light glass over bright art, read from a 24×24 sample of the covers; it read as two controls
   and changed the Bar as you scrolled, so it was removed.)

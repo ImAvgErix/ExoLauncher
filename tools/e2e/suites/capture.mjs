@@ -2,7 +2,7 @@
 // what is saved. Then Snip from the title bar's Capture menu, round after round: the overlay shows at once, the snip
 // opens in the editor drawn no larger than it is shown, and closing it leaves no memory behind and the page alive (a
 // snip once came before the page ran out of memory). Each snip is of the screen under the cursor; it goes to the
-// Recycle Bin as the round ends. Skipped without Exo Capture.
+// Recycle Bin as the round ends. Skipped without Exo Capture. Then Notes, which needs no add-on.
 import { sleep } from '../cdp.mjs'
 
 export async function run(t) {
@@ -33,6 +33,22 @@ export async function run(t) {
     await c.shot('capture-settings', t.shell)
     if (fromMenu === null) failures.push('the Capture menu did not open Capture settings with Make recordings smaller')
     else if (String(status.settings.autoShrink !== false) !== fromMenu) failures.push(`the switch shows ${fromMenu}, the saved setting is ${status.settings.autoShrink}`)
+    // Replay length names the saved length and offers up to 10 minutes: opened and shut, never changed.
+    const lengths = { 30: '30 s', 60: '1 min', 120: '2 min', 300: '5 min', 600: '10 min' }
+    const trigger = () => document.querySelector('.exo-captures button[aria-label^="Replay length,"]')
+    const length = await t.shell.eval(`document.querySelector('.exo-captures button[aria-label^="Replay length,"]')?.getAttribute('aria-label') ?? null`)
+    const savedLength = lengths[status.settings.replaySeconds ?? 60] ?? 'Set elsewhere'
+    c.evidence.length = length
+    if (length !== `Replay length, ${savedLength}`) failures.push(`Replay length reads "${length}", the saved length is ${savedLength}`)
+    else {
+      await t.shell.click(trigger)
+      const offered = await t.shell.waitFor(() => { const m = document.querySelector('[role="menu"][aria-label="Replay length"]'); return m?.checkVisibility() ? [...m.querySelectorAll('[role^="menuitem"]')].map(i => i.textContent.trim()) : null }, { timeoutMs: 3000 })
+      c.evidence.lengths = offered
+      if (!offered?.includes('10 min')) failures.push(`Replay length offers ${offered?.join(', ') ?? 'nothing'}, not 10 min`)
+      await t.shell.click(trigger)
+      if (!await t.shell.waitFor(() => !document.querySelector('[role="menu"][aria-label="Replay length"]')?.checkVisibility() || null, { timeoutMs: 2000 })) await t.shell.key('Escape')
+      await sleep(300)
+    }
     // All captures goes back to the list; the sheet's own Capture settings comes again.
     await t.shell.click(button, 'All captures')
     if (!await t.shell.waitFor(() => document.getElementById('exo-captures-title')?.textContent.trim() === 'Captures', { timeoutMs: 3000 })) failures.push(`All captures left ${await title()} up`)
@@ -106,6 +122,35 @@ export async function run(t) {
     if (heap > 40) failures.push(`the page kept ${Math.round(heap)} MB after ${rounds} snips`)
     if (web > 400) failures.push(`WebView2 kept ${Math.round(web)} MB after ${rounds} snips`)
     if (crashed.length) failures.push(`the page's process failed: ${crashed[0].text}`)
+    return failures
+  })
+
+  // Notes needs no add-on: New note in the Capture menu opens a note to type in, what is typed is saved as it is typed
+  // (named for its first line), and Find lights its match. The note goes to the Recycle Bin as the check ends.
+  await run.check('capture', 'notes', 'New note in the Capture menu saves what is typed and finds in it', async (c) => {
+    await k.closeAll()
+    await k.nav('Library')
+    const stamp = `Exo check ${Date.now()}`
+    const failures = []
+    if (!await t.shell.eval(`(() => { const b = document.querySelector('.exo-capture-btn'); b?.click(); return !!b })()`)) return ['no Capture button in the title bar']
+    if (!await t.shell.waitFor(() => [...document.querySelectorAll('.exo-capture-menu [role="menuitem"]')].some(i => i.textContent.includes('New note') && i.checkVisibility()), { timeoutMs: 3000 }))
+      return ['the Capture menu has no New note']
+    await t.shell.click(() => [...document.querySelectorAll('.exo-capture-menu [role="menuitem"]')].find(i => i.textContent.includes('New note')))
+    if (!await t.shell.waitFor(() => document.activeElement?.classList.contains('exo-note-text') || null, { timeoutMs: 5000 })) return ['New note did not open a note to type in']
+    await t.shell.type(`${stamp}\nraid at nine`)
+    const row = await t.shell.waitFor((s) => [...document.querySelectorAll('.exo-notes-row-title')].some(r => r.textContent.includes(s)) || null, { timeoutMs: 5000, args: [stamp] })
+    const saved = (await t.host('notes.list', { query: stamp }))?.notes?.[0]
+    c.evidence.name = saved?.name ?? null
+    if (!row) failures.push('the note did not join the list')
+    if (saved?.name !== `${stamp}.txt`) failures.push(`the note was saved as ${saved?.name ?? 'nothing'}, not named for its first line`)
+    await t.shell.key('f', { ctrl: true })
+    await t.shell.type('raid')
+    const lit = await t.shell.waitFor(() => document.querySelector('.exo-note-marks mark.is-current')?.textContent || null, { timeoutMs: 3000 })
+    c.evidence.found = lit
+    if (lit !== 'raid') failures.push(`Find lit ${lit ?? 'nothing'}`)
+    await c.shot('notes', t.shell)
+    if (saved) await t.host('notes.act', { id: saved.id, action: 'delete' })
+    await k.closeAll()
     return failures
   })
 }

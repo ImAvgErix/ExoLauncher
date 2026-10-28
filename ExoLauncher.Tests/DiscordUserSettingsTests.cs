@@ -109,6 +109,36 @@ public sealed class DiscordUserSettingsTests
         Assert.Equal("dnd", ReadStatus(ReplaceSections(Sample, patch)));
     }
 
+    [Fact]
+    public void AStatusForAWhileEndsOnEveryDevice()
+    {
+        // Discord's For 15 minutes … For 3 days: status (11) > status_expires_at_ms (4), a fixed64 of ms; the custom status beside it stays.
+        var until = 1_800_000_000_000L;
+        var patch = DiscordUserSettings.Patch(Sample, Changes("{\"statusExpiresAtMs\": " + until + "}"))!;
+        Assert.Equal([11], DiscordProto.Fields(patch).Select(f => f.Number));
+        var values = DiscordUserSettings.Decode(ReplaceSections(Sample, patch));
+        Assert.Equal(until, values["statusExpiresAtMs"]!.GetValue<long>());
+        Assert.Equal(DiscordUserSettings.Decode(Sample)["customStatus"]?.ToJsonString(), values["customStatus"]?.ToJsonString());
+        var forGood = DiscordUserSettings.Patch(ReplaceSections(Sample, patch), Changes("""{"statusExpiresAtMs": null}"""))!;
+        Assert.Null(DiscordUserSettings.Decode(ReplaceSections(Sample, forGood))["statusExpiresAtMs"]);
+        Assert.Null(DiscordUserSettings.Patch(Sample, Changes("""{"statusExpiresAtMs": "soon"}""")));
+    }
+
+    [Fact]
+    public void KeepsMyMessagesOffServerWebPages()
+    {
+        // Discord's Data & Privacy > Show my message content from Discoverable channels on web pages, off: privacy (8),
+        // swp_message_promotion_opted_out (35) true. Unset reads as shown, as Discord defaults it.
+        Assert.False(DiscordUserSettings.Decode(Sample)["swpMessagePromotionOptedOut"]!.GetValue<bool>());
+        var patch = DiscordUserSettings.Patch(Sample, Changes("""{"swpMessagePromotionOptedOut": true}"""))!;
+        Assert.Equal([8], DiscordProto.Fields(patch).Select(f => f.Number));
+        var privacy = DiscordProto.Fields(DiscordProto.Fields(patch).Single().Value).ToList();
+        Assert.Contains(privacy, f => f.Number == 35);
+        var values = DiscordUserSettings.Decode(ReplaceSections(Sample, patch));
+        Assert.True(values["swpMessagePromotionOptedOut"]!.GetValue<bool>());
+        Assert.True(values["defaultGuildsRestricted"]!.GetValue<bool>()); // the rest of privacy kept
+    }
+
     [Theory]
     [InlineData("""{"nope": true}""")]
     [InlineData("""{"messageDisplayCompact": 1}""")]

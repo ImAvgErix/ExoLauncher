@@ -1,3 +1,4 @@
+import { CopyLogs } from '../ui/ErrorNote'
 import { Activity, Suspense, lazy, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { Button } from '../ui/Button'
 import { host, type LauncherSettings, type StoreStatus } from '../../lib/host'
@@ -101,6 +102,7 @@ export function bootGate(props: BootGateProps): ReactNode {
             <Button type="button" size="sm" className="exo-set-btn is-primary mt-5" onPress={props.onRetrySettings}>
               Try again
             </Button>
+            <CopyLogs error={settingsError} />
           </div>
         </div>
       )
@@ -213,7 +215,7 @@ export function Room({ name, mounted, active, covered = false, warm = false, lab
   const backstage = warm && !active && !floating
   return (
     <Activity mode={active || warm ? 'visible' : 'hidden'}>
-      <div ref={frame} data-room={name} className={`${className} exo-room${backstage ? ' is-backstage' : ''}`}
+      <div ref={frame} data-room={name} data-log-area={label.toLowerCase()} className={`${className} exo-room${backstage ? ' is-backstage' : ''}`}
         hidden={(!active && !backstage) || undefined} inert={backstage || (active && covered) || undefined}>
         <ErrorBoundary label={label}>
           <Suspense fallback={null}>{children}</Suspense>

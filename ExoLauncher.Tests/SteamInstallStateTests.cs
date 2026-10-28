@@ -29,6 +29,20 @@ public sealed class SteamInstallStateTests
         Assert.False(SteamStateFlags.IsInstalledPresence(pathExists: false, flags, buildId));
     }
 
+    // Phantom Blade Zero, preloaded before release (October 26, 2026): 1026, every byte down, nothing running.
+    [Theory]
+    [InlineData("1026", 148293236640L, 148293236640L, true)]
+    [InlineData("1026", 148293236640L, 1000L, false)]           // still downloading
+    [InlineData("1026", 148293236640L, 0L, false)]              // queued: steam://install sets UpdateStarted first
+    [InlineData("1282", 148293236640L, 148293236640L, false)]   // UpdateRunning: Steam is still working on it
+    [InlineData("1030", 148293236640L, 148293236640L, false)]   // installed, with an update waiting
+    [InlineData("1049602", 148293236640L, 148293236640L, false)] // Downloading
+    public void AFinishedPreloadIsNotADownload(string flags, long total, long done, bool preloaded)
+    {
+        Assert.Equal(preloaded, SteamStateFlags.IsPreloaded(flags, total, done));
+        if (preloaded) Assert.False(SteamStateFlags.IsBusy(flags, total, done));
+    }
+
     [Fact]
     public void AGameMidUpdateShowsUpdate() =>
         Assert.True(SteamStateFlags.IsUpdateAvailable("1026", SteamStateFlags.IsInstalledPresence(true, "1026", "123")));

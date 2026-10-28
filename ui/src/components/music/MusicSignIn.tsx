@@ -1,6 +1,7 @@
 import { AppleMusic, Spotify, YouTube } from '../../brand/icons'
 import { Button } from '../ui/Button'
 import { Spinner } from '../ui/Spinner'
+import { ErrorNote } from '../ui/ErrorNote'
 
 const marks = { spotify: Spotify, youtube: YouTube, apple: AppleMusic }
 
@@ -33,7 +34,7 @@ export function MusicSignIn({ service, name, busy, note, message, status = null,
           {busy ? <Spinner label={`Opening ${name}’s sign-in`} /> : null}
           {action ?? `Sign in to ${name}`}
         </Button>
-        {message ? <p className="exo-music-signin-error" role="alert">{message}</p>
+        {message ? <ErrorNote className="exo-music-signin-error" message={message} />
           : status ? <p className="exo-music-signin-note" role="status">{status}</p> : null}
       </div>
     </main>

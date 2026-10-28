@@ -6,6 +6,7 @@ import { report } from '../../lib/report'
 import { Progress } from '../ui/Progress'
 import { Skeleton } from '../ui/Skeleton'
 import { Spinner } from '../ui/Spinner'
+import { ErrorNote } from '../ui/ErrorNote'
 
 type Tone = 'good' | 'warn' | 'primary' | 'muted' | 'bad'
 /**
@@ -228,7 +229,7 @@ export function ShadersBoard({ active, games }: { active: boolean; games: readon
     <div ref={setRoot} className="exo-shaders-board" aria-busy={failed ? undefined : true}>
       {failed
         ? <header className="exo-shaders-bar">
-          <span className="exo-shaders-line is-bad" role="alert">{failed}</span>
+          <ErrorNote as="span" className="exo-shaders-line is-bad" message={failed} />
           <button type="button" className="exo-set-btn" onClick={() => void read()}>Try again</button>
         </header>
         : <Skeleton label="Reading your games' shaders" tiles={8} className="exo-shaders-wait" />}
@@ -263,7 +264,7 @@ export function ShadersBoard({ active, games }: { active: boolean; games: readon
     <div ref={setRoot} className="exo-shaders-board">
       <Bar snap={snap} view={view} estimates={estimates} busy={busy} run={run} />
       <Delivery snap={snap} />
-      {error || failed ? <p className="exo-shaders-error" role="alert">{error ?? failed}</p> : null}
+      {error || failed ? <ErrorNote className="exo-shaders-error" message={error ?? failed} /> : null}
       {current ? <Progress value={fraction(current)} label={`Compiling ${current.name}`} /> : null}
       <Posters
         posters={view.posters}
@@ -292,16 +293,13 @@ export function ShadersBoard({ active, games }: { active: boolean; games: readon
 }
 
 /**
- * Windows' precompiled shaders (Advanced Shader Delivery): on for this PC, and how many games came with theirs
- * (Exo Shaders leaves those out, as Precompiled), or the one thing this PC still needs for them.
+ * Windows' precompiled shaders (Advanced Shader Delivery): On for this PC, or the one thing this PC still needs for
+ * them. A game that came with its own shows as Precompiled in the list.
  */
 function Delivery({ snap }: { snap: Snapshot }) {
   const delivery = snap.app.gpu?.shaderDelivery
   if (!delivery) return null
-  const precompiled = snap.games.filter(game => game.statusText === 'Precompiled').length
-  const line = delivery.works
-    ? `On${precompiled ? ` · ${precompiled} ${precompiled === 1 ? 'game came' : 'games came'} precompiled, nothing to compile` : ''}`
-    : delivery.text
+  const line = delivery.works ? 'On' : delivery.text
   return (
     <p className="exo-shaders-delivery">
       <span className={`exo-set-state${delivery.works ? ' is-on' : ''}`}>Windows' precompiled shaders</span>
@@ -515,13 +513,13 @@ function queueTime(current: QueueItem | null, after: string[], estimates: Record
 
 /**
  * " · about 2 h 10 min left, done around 4:30 AM" when this PC's own compiles taught every time; else
- * what it may take as a rounded range and "rough estimate", never a clock time it can't keep.
+ * what it may take as a rounded range, never a clock time it can't keep.
  */
 function eta({ low, high, learned, floor }: Span & { floor: boolean }, now: number, running: boolean, paused: boolean) {
   if (high <= 0) return null
   const left = running ? ' left' : ''
-  if (floor) return low >= 60 ? ` · over ${roundSpan(low).span}${left}, rough estimate` : null
-  if (!learned) return ` · ${rangeText(low, high)}${left}, rough estimate`
+  if (floor) return low >= 60 ? ` · over ${roundSpan(low).span}${left}` : null
+  if (!learned) return ` · ${rangeText(low, high)}${left}`
   if (high < 60) return ` · under a minute${left}`
   const { span, rounded } = roundSpan(high)
   const done = new Date(now + rounded * 60_000)

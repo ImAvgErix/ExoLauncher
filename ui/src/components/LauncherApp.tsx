@@ -71,6 +71,7 @@ import { useShellLayout } from './shell/useShellLayout'
 import { useShelves } from './shell/useShelves'
 import type { SettingsSectionId } from '../lib/settingsSections'
 import { closeCaptures, openCaptures, useCapturesSheet } from '../lib/capture'
+import { runNoteCommand, useNoteCommands, watchNotesOpen } from '../lib/notes'
 
 // Rooms and heavy panes load as their own chunks the first time they render.
 // Fallbacks are null/quiet shells — the app never flashes a spinner for these.
@@ -97,6 +98,17 @@ import { onScreen, pressedArt, transition, visible, type Morph } from '../lib/vi
  * It starts once the splash's mark has landed, so the intro never shares its frames with that work, and settles when
  * everything is ready or after the cap.
  */
+/** When Music was last opened, so a PC that uses it gets its room (and its service) started with Exo. */
+const MUSIC_USED_KEY = 'exo.music.usedAt'
+
+/**
+ * Music was opened in the last week: its room opens with Exo, out of sight, so Spotify is ready when you get there (a
+ * cold start took about 7 s). A PC that doesn't use Music still never runs it (its eight processes cost about 570 MB).
+ */
+function musicUsedLately() {
+  try { return Date.now() - Number(localStorage.getItem(MUSIC_USED_KEY) ?? 0) < 7 * 24 * 3600_000 } catch { return false }
+}
+
 function useBootPreload(booting: boolean, settings: LauncherSettings | null, musicService: MusicService, setOpenedRooms: (update: (rooms: ReadonlySet<View>) => ReadonlySet<View>) => void) {
   const preloaded = useRef<Promise<unknown> | null>(null)
   // The preloaded rooms stay live (their effects read their data) until a while after the splash.
@@ -110,7 +122,7 @@ function useBootPreload(booting: boolean, settings: LauncherSettings | null, mus
     if (!booting || settings?.onboardingComplete !== true || preloaded.current) return
     preloaded.current = new Promise(resolve => window.setTimeout(() => {
       setWarming(true)
-      setOpenedRooms(current => new Set<View>([...current, 'devices', 'settings']))
+      setOpenedRooms(current => new Set<View>([...current, 'devices', 'settings', ...(musicUsedLately() ? ['music' as const] : [])]))
       resolve(Promise.race([
         Promise.allSettled([
           import('./DevicesRoom'),
@@ -529,13 +541,27 @@ export function LauncherApp() {
   goToViewRef.current = goToView
   // A game's Shaders opens the PC room.
   const openGpu = useCallback(() => goToView('system'), [goToView])
+  // A newer driver or app found in the background: said once, with where to update it.
+  useEffect(() => onHostEvent('versions.new', found => notice({
+    id: `versions-${found.id}`,
+    title: `${found.name} ${found.version}`,
+    text: found.installed ? `Out now. You have ${found.installed}.` : 'Out now.',
+    actions: [{
+      label: 'Open', primary: true, onPress: () => {
+        if (found.page === 'devices') { void goToView('devices'); return }
+        setGpuJump({ tab: found.page })
+        void goToView('system')
+      },
+    }],
+  })), [goToView])
   const openNowPlaying = useCallback(() => void goToView('music',
     { name: 'exo-music-now', from: visible('.exo-mini-cover'), to: () => visible('.exo-music-now > .exo-music-art') },
     () => setNowPlaying(n => n + 1)), [goToView])
 
   // The Captures sheet opens over any room. It stands in for a game page it was
   // opened from (two sheets would fight over focus). A new snip opens in it,
-  // straight in the editor; Send to Discord opens the Discord room with the file copied.
+  // straight in the editor (one taken over a game waits there, the game kept in
+  // front); Send to Discord opens the Discord room with the file copied.
   const capturesSheet = useCapturesSheet()
   useEffect(() => { if (capturesSheet.open) closeGamePage() }, [capturesSheet.open, capturesSheet.seq, closeGamePage])
   const sendToDiscord = useCallback(() => {
@@ -549,9 +575,11 @@ export function LauncherApp() {
     openDiscord({ guildId: notice.guildId ?? null, channelId: notice.channelId, parentId: notice.parentId, name: notice.parentId ? notice.place?.replace(/^#/, '') : undefined })
     goToView('friends')
   }, [goToView])
-  useEffect(() => onHostEvent('capture.saved', ({ item, kind }) => {
-    if (kind === 'snip') openCaptures({ itemId: item.id, edit: true })
+  useEffect(() => onHostEvent('capture.saved', ({ item, edit }) => {
+    if (edit) openCaptures({ itemId: item.id, edit: true })
   }), [])
+  // A text file Windows opened with Exo: in Captures › Notes.
+  useEffect(() => watchNotesOpen(message => setStatus(message, null, false, 'bad')), [setStatus])
 
   /** The gear opens Settings and, pressed again, returns where Escape would. */
   // Settings floats over the room it was opened from, which stays on screen (dimmed) under it.
@@ -880,6 +908,11 @@ export function LauncherApp() {
     return () => { cancelled = true; artworkCancellation.abort(); clearTimeout(timer) }
   }, [booting])
 
+  useEffect(() => {
+    if (view !== 'music') return
+    try { localStorage.setItem(MUSIC_USED_KEY, String(Date.now())) } catch { /* the warm start is a convenience */ }
+  }, [view])
+
   // Warm the actual rooms independently. Registry/account reads and artwork
   // downloads must not stand between opening Exo and a ready music player.
   // A provider switch re-prepares the rooms only, not the library warming.
@@ -954,6 +987,7 @@ export function LauncherApp() {
   )
 
   const paletteExtras = usePaletteExtras(commandOpen)
+  const noteCommands = useNoteCommands(commandOpen)
   const commands = useMemo<Command[]>(() => {
     const nav: Command[] = [
       { id: 'nav-library', group: 'Go to', title: 'Library', icon: Library },
@@ -990,8 +1024,8 @@ export function LauncherApp() {
         { id: 'act-install', group: 'Actions', title: `Install ${selected.title}`, icon: Download },
       ] : []),
     ]
-    return [...nav, ...gameCommands, ...actions, ...paletteExtras]
-  }, [commandPaletteGames, selected, paletteExtras])
+    return [...nav, ...gameCommands, ...actions, ...noteCommands, ...paletteExtras]
+  }, [commandPaletteGames, selected, noteCommands, paletteExtras])
 
   const NAV_COMMANDS: Record<string, View> = {
     'nav-library': 'library',
@@ -1031,6 +1065,7 @@ export function LauncherApp() {
       return
     }
     if (command.id.startsWith('game-')) { openGamePage(command.id.slice(5), 'instant'); return }
+    if (runNoteCommand(command.id)) return
     const room = runPaletteExtra(command, message => setStatus(message, null, false, 'bad'))
     if (room === 'friends' || room === 'music') goToView(room)
   }
@@ -1108,7 +1143,7 @@ export function LauncherApp() {
         return
       }
       if (libraryPane === 'game') {
-        if (busy) return
+        // Closes while a launch runs too: it goes on behind the page (GameSheet).
         closeGameSheet()
       }
     }
@@ -1546,9 +1581,9 @@ export function LauncherApp() {
   ), [under, openedRooms, warming, opening, view, musicService, musicActive, booting, nowPlaying])
   const storeRoom = useMemo(() => (
     <Room name="store" mounted={openedRooms.has('store')} warm={warming || opening === 'store'} active={under === 'store'} covered={view === 'settings'} label="Store" className="relative z-10 flex min-h-0 flex-1 flex-col">
-      <StoreRoom active={view === 'store'} games={games} onSale={storeSales} onOpenGame={openLibraryGameFromStore} />
+      <StoreRoom active={view === 'store'} games={games} onOpenGame={openLibraryGameFromStore} />
     </Room>
-  ), [under, openedRooms, warming, opening, view, games, storeSales, openLibraryGameFromStore])
+  ), [under, openedRooms, warming, opening, view, games, openLibraryGameFromStore])
   const devicesRoom = useMemo(() => (
     <Room mounted={openedRooms.has('devices')} warm={warming} active={under === 'devices'} covered={view === 'settings'} label="Devices" className="relative z-10 flex min-h-0 flex-1 flex-col">
       <DevicesRoom active={devicesActive} />
@@ -1608,7 +1643,7 @@ export function LauncherApp() {
       open={commandOpen}
       onOpenChange={setCommandOpen}
       commands={commands}
-      groupOrder={['Go to', 'Library', 'Actions', 'Music', 'Discord']}
+      groupOrder={['Go to', 'Library', 'Actions', 'Notes', 'Music', 'Discord']}
       onSelect={selectCommand}
       inputPlaceholder="Search commands and games"
       className="pointer-events-none absolute inset-0 z-[60] h-full w-full bg-transparent"
@@ -1679,7 +1714,6 @@ export function LauncherApp() {
           open={overlayOpen}
           instant={overlayMotion === 'instant'}
           openedAt={overlayOpenedAtRef.current}
-          locked={busy}
           statusMsg={status.message}
           statusGameId={status.gameId}
           busy={busy || pendingTransfers.includes(displayedGame?.id ?? '')}

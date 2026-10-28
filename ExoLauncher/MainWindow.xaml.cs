@@ -95,6 +95,8 @@ public sealed partial class MainWindow : Window
             ApplyWindowChrome();
             StartHdrForGames();
             StartGpuPreference();
+            StartSafeModeGuard();
+            StartGameAwake();
             StartDlssCheck();
             _ = Task.Run(() => NvidiaColor.ApplySaved(App.Services.Settings));
             _foregroundWatcher = ForegroundWatcher.Start(WindowNative.GetWindowHandle(this), inFront =>
@@ -654,12 +656,19 @@ public sealed partial class MainWindow : Window
             core.ProcessFailed += OnWebProcessFailed;
             core.PermissionRequested += OnShellPermissionRequested;
             // A page element in fullscreen (a stream, a trailer) takes the whole screen, not only Exo's window; leaving it
-            // puts the window back as it was (maximized or not).
+            // puts the window back as it was (maximized or not). From a maximized window the full-screen presenter keeps
+            // the maximized bounds, 8 px past every edge of the screen, and the page spilled past them: the window is put
+            // on exactly the screen's bounds.
             core.ContainsFullScreenElementChanged += (sender, _) =>
             {
                 try
                 {
-                    if (sender.ContainsFullScreenElement) { _beforeFullScreen ??= AppWindow.Presenter; AppWindow.SetPresenter(AppWindowPresenterKind.FullScreen); }
+                    if (sender.ContainsFullScreenElement)
+                    {
+                        _beforeFullScreen ??= AppWindow.Presenter;
+                        AppWindow.SetPresenter(AppWindowPresenterKind.FullScreen);
+                        if (DisplayArea.GetFromWindowId(AppWindow.Id, DisplayAreaFallback.Nearest) is { } screen) AppWindow.MoveAndResize(screen.OuterBounds);
+                    }
                     else if (_beforeFullScreen is { } before) { _beforeFullScreen = null; AppWindow.SetPresenter(before); }
                 }
                 catch (Exception ex) { AppLog.Warn("Fullscreen: " + ex.GetType().Name); }
@@ -1252,7 +1261,9 @@ public sealed partial class MainWindow : Window
     private void ApplyWindowMinimumSize()
     {
         if (AppWindow.Presenter is not OverlappedPresenter presenter) return;
-        var scale = GetWindowScale();
+        // The smallest page, not window: at the page's zoom (MainWindow.PageScale) it is that much bigger, so a 4K screen
+        // at 100% can't shrink the page to 480 pixels wide where a 1080p one stops at 960. The screen still caps it.
+        var scale = GetWindowScale() * PageZoom;
         var width = Math.Max(1, (int)Math.Round(MinWindowWidth * scale));
         var height = Math.Max(1, (int)Math.Round(MinWindowHeight * scale));
         try

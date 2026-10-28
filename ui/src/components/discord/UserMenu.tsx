@@ -7,12 +7,14 @@ import { admin, Confirm, StrangerConfirm, useLayer } from './admin'
 import { DmClose, DmCopyId, DmLead, DmMuteRow, readDm, type DmInfo } from './dmMenu'
 import { showFullProfile } from './profileParts'
 import { Icons } from './icons'
+import { showReport } from './Report'
 import { useAccountSettings } from '../../lib/discordPrefs'
 import { appIcon, appsPlace, runCommand } from '../../lib/discordApps'
 import { useContextCommands } from './AppCommands'
 import { CallPersonItems } from './voice'
 import { useDismiss } from '../../lib/dismiss'
 import { Skeleton } from '../ui/Skeleton'
+import { ErrorNote } from '../ui/ErrorNote'
 
 type Person = {
   ok: boolean; known: boolean; me: boolean; owner: boolean; outranks: boolean; timedOut: boolean; mfa?: boolean
@@ -160,12 +162,18 @@ function UserMenu({ at, guildId, serverName, meId, onClose }: { at: At; guildId:
       {person?.can.nick ? <button type="button" role="menuitem" onClick={() => setDialog('nick')}>Change nickname</button> : null}
       <PersonApps userId={at.userId} onClose={onClose} />
       {relation ? <RelationItems relation={relation} onRelate={relate} onAsk={setDialog} /> : null}
+      {me ? null : (
+        <button type="button" role="menuitem" className="is-danger" onClick={() => {
+          onClose()
+          showReport({ kind: 'user', ids: { reported_user_id: at.userId }, userId: at.userId, preview: { name, text: username ? `@${username}` : null } })
+        }}><Icons.Report size={16} />Report</button>
+      )}
       {person ? <ServerItems person={person} name={name} run={run} setPerson={setPerson} onDialog={setDialog} /> : null}
       <DmMuteRow dm={at.dm} username={username} name={name} onDone={done} />
       <span className="exo-dc-menu-line" role="separator" />
       <CopyItems userId={at.userId} username={username} onClose={onClose} />
       <DmCopyId dm={at.dm} onClose={onClose} />
-      {error ? <p className="exo-dc-note is-bad" role="alert">{error}</p> : null}
+      {error ? <ErrorNote className="exo-dc-note is-bad" message={error} /> : null}
     </div>
     </SubContext.Provider>
   )

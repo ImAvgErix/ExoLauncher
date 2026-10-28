@@ -8,6 +8,7 @@ import { Icons } from './icons'
 import { Avatar } from './presence'
 import { RoleLinks, type RoleLink } from './settingsRoleLinks'
 import { Skeleton } from '../ui/Skeleton'
+import { ErrorNote } from '../ui/ErrorNote'
 
 type Role = { id: string; name: string; color: number; position: number; hoist: boolean; mentionable: boolean; managed: boolean; permissions: string }
 type RolesData = { roles: Role[]; counts: Record<string, number> | null; top: number }
@@ -194,7 +195,7 @@ function RoleList({ guildId, sorted, data, error, creating, onCreate, onOpen, on
         </label>
         <button type="button" className="exo-set-btn is-primary" disabled={creating} onClick={onCreate}>Create role</button>
       </div>
-      {error ? <p className="exo-dc-note is-bad" role="alert">{error}</p> : null}
+      {error ? <ErrorNote className="exo-dc-note is-bad" message={error} /> : null}
       <p className="exo-dc-note">Members use the color of the highest role they have on this list. Drag roles to reorder them, or focus a handle and use the arrow keys.</p>
       {/* Discord's table: Roles with their count, and Members; a row opens its role. */}
       <div className="exo-dc-role-head" aria-hidden="true"><span>Roles — {others.length}</span><span>Members</span></div>
@@ -219,7 +220,7 @@ function RoleList({ guildId, sorted, data, error, creating, onCreate, onOpen, on
               <span className="exo-dc-role-count"><Icons.Members size={14} /> {data.counts?.[role.id] ?? 0}</span>
             </button>
             <button type="button" className="exo-dc-icon-btn exo-dc-role-edit" aria-label={`Edit ${role.name}`} onClick={() => onOpen(role.id)}><Icons.Edit size={16} /></button>
-            {failed?.id === role.id ? <span className="exo-dc-field-error exo-dc-row-error" role="alert">{failed.message}</span> : null}
+            {failed?.id === role.id ? <ErrorNote as="span" className="exo-dc-field-error exo-dc-row-error" message={failed.message} /> : null}
           </li>
         ))}
       </ul>
@@ -399,7 +400,7 @@ function RoleMembers({ guildId, role, editable, onChanged }: { guildId: string; 
         </label>
         {editable ? <button type="button" className="exo-set-btn is-primary" onClick={() => setAdding(true)}>Add members</button> : null}
       </div>
-      {error ? <p className="exo-dc-note is-bad" role="alert">{error}</p> : null}
+      {error ? <ErrorNote className="exo-dc-note is-bad" message={error} /> : null}
       <ReadError error={members.error} onRetry={members.reload} />
       {members.data && shown.length === 0 ? <p className="exo-dc-note">No members were found.</p> : null}
       {!members.data && !members.error ? <Skeleton label="Loading members" avatar /> : null}

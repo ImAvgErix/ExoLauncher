@@ -33,16 +33,13 @@ internal static partial class ControllerLab
     /// </summary>
     internal static bool Allowed(byte id, ReadOnlySpan<byte> payload, bool set, bool edge)
     {
-        if (!set) return id is 0x20 or 0x81 or 0x83 || edge && id is >= 0x63 and <= 0x65 or >= 0x70 and <= 0x7B;
+        if (!set) return id is 0x20 or 0x81 or 0x83;
         return id switch
         {
             0x80 => payload.SequenceEqual(ReadSerial) || payload.SequenceEqual(NvStatus) || payload.SequenceEqual(NvLock) || payload.SequenceEqual(NvUnlock)
                 || payload.SequenceEqual(FinetuneRead(edge)) || payload.Length == 2 + 24 && payload.StartsWith(FinetuneWrite),
             0x82 => payload.SequenceEqual(CenterBegin) || payload.SequenceEqual(CenterSample) || payload.SequenceEqual(CenterEnd)
                 || payload.SequenceEqual(RangeBegin) || payload.SequenceEqual(RangeEnd),
-            // A profile chunk: the 63 bytes after its ID.
-            >= 0x60 and <= 0x62 => edge && payload.Length == 63,
-            0x68 => edge && payload.Length == 1 && payload[0] is >= 2 and <= 4,
             _ => false,
         };
     }

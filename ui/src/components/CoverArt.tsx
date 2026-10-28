@@ -351,7 +351,7 @@ function pushSteamStoreBitmap(list: ArtCandidate[], url: string) {
     const parsed = new URL(url)
     const host = parsed.hostname
     if (parsed.protocol !== 'https:') return
-    if (!(host.endsWith('steamstatic.com') || host === 'steamcdn-a.akamaihd.net')) return
+    if (!(host === 'steamstatic.com' || host.endsWith('.steamstatic.com') || host === 'steamcdn-a.akamaihd.net')) return
   } catch {
     return
   }
@@ -859,14 +859,18 @@ function useUndim(dim: boolean, coverRef: RefObject<HTMLDivElement | null>) {
  * Wide store art behind the game sheet. Real
  * landscape art wins; a portrait cover is blurred into a wash instead of being
  * stretched; a title with no art at all renders nothing and keeps the monogram
- * surface underneath.
+ * surface underneath. With `poster`, a washed portrait also stands sharp in front
+ * of its wash: a Continue card is the art itself, and a game still downloading
+ * (no wide art yet) read as one blur.
  */
 export function HeroWash({
   game,
   className,
+  poster = false,
 }: {
   game: ArtGame
   className?: string
+  poster?: boolean
 }) {
   const key = cacheKey(game.id, 'wash', game.artRevision)
   const candidates = useMemo(() => wideArtCandidates(game), [game])
@@ -874,13 +878,14 @@ export function HeroWash({
 
   // Reset before the image mounts. A cached 404 can fire before effects, so a
   // mount effect that resets idx to zero would erase its fallback advancement.
-  return <HeroWashImage key={`${key}:${primary}`} imageCacheKey={key} candidates={candidates} className={className} />
+  return <HeroWashImage key={`${key}:${primary}`} imageCacheKey={key} candidates={candidates} className={className} poster={poster} />
 }
 
-function HeroWashImage({ imageCacheKey: key, candidates, className }: {
+function HeroWashImage({ imageCacheKey: key, candidates, className, poster }: {
   imageCacheKey: string
   candidates: ArtCandidate[]
   className?: string
+  poster: boolean
 }) {
   const cachedHit = loadedUrlByKey.get(key)
   const cachedIdx = cachedHit ? candidates.findIndex((c) => c.url === cachedHit) : -1
@@ -971,6 +976,7 @@ function HeroWashImage({ imageCacheKey: key, candidates, className }: {
           advance()
         }}
       />
+      {poster && washed && ok ? <img src={candidate.url} alt="" className="exo-now-wash-poster" draggable={false} decoding="async" aria-hidden /> : null}
     </>
   )
 }

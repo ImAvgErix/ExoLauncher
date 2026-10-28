@@ -7,7 +7,7 @@ import { sortGames } from '../../lib/utils'
 export type Shelves = {
   /** The one grid: every card the library shows, sorted the user's way. Installed or not is a mark, not a place. Empty means the empty state. */
   library: Game[]
-  /** What you are playing: running, then downloading or updating, then the most recently played; three at most. */
+  /** What you are playing: running, then downloading or updating, then the most recently played; four at most (three across shows three, two across all four). */
   playing: Game[]
   /** The games you hid: out of the grid, Continue and folders; Library's Hidden view lists them, sorted the same way. */
   hidden: Game[]
@@ -23,7 +23,7 @@ function isShelfGame(game: Game, transferId: string | null, showTools: boolean):
   return game.store === 'local'
 }
 
-const CONTINUE_MAX = 3
+const CONTINUE_MAX = 4
 
 function continueOrder(games: Game[], transferId: string | null): Game[] {
   const rank = (game: Game) => game.isRunning ? 0 : isInstallingGame(game, transferId) ? 1 : 2

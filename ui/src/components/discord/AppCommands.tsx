@@ -5,6 +5,7 @@ import { appIcon, commandEntries, loadCommands, runCommand, type AppChoice, type
 import { uploadFile } from './Chat'
 import { Icons } from './icons'
 import { Skeleton } from '../ui/Skeleton'
+import { ErrorNote } from '../ui/ErrorNote'
 
 // Command option types.
 const STRING = 3, INTEGER = 4, BOOLEAN = 5, USER = 6, CHANNEL = 7, ROLE = 8, MENTIONABLE = 9, NUMBER = 10, ATTACHMENT = 11
@@ -133,7 +134,7 @@ export function CommandForm({ entry, channelId, guildId, users, onDone, onCancel
           <Icons.Plus size={12} />{option.name}
         </button>
       ))}
-      {problem ? <span className="exo-dc-command-problem" role="alert">{problem}</span> : null}
+      {problem ? <ErrorNote as="span" className="exo-dc-command-problem" message={problem} /> : null}
       {!fields.length && !problem ? <span className="exo-dc-command-hint">{entry.description}</span> : null}
     </div>
   )

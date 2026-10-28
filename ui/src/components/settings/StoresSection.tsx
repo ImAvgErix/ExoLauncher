@@ -1,7 +1,7 @@
 import { memo, useCallback, useEffect, useState } from 'react'
 import { CompanyLogo } from '../../brand/CompanyLogo'
-import { host, onHostEvent, type AccountStore, type LauncherSettings, type StoreAccounts, type StoreStatus, type SwitchStore } from '../../lib/host'
-import { AccountControl, AccountHours, AccountRows, accountDetail, accountLine, useStoreAccounts } from './StoreAccounts'
+import { host, onHostEvent, type AccountStore, type StoreAccounts, type StoreStatus, type SwitchStore } from '../../lib/host'
+import { AccountControl, AccountHours, accountDetail, accountLine, useStoreAccounts } from './StoreAccounts'
 import {
   availableStoreRows,
   canConnectStore,
@@ -13,7 +13,8 @@ import {
 } from '../../lib/stores'
 import { Spinner } from '../ui/Spinner'
 import { Skeleton } from '../ui/Skeleton'
-import { Group, Row, State, SwitchRow } from './parts'
+import { Group, Row, State } from './parts'
+import { ErrorNote } from '../ui/ErrorNote'
 
 export type StoreAction = 'connect' | 'open'
 /** A store row's last result: a plain line, or an error under the row. */
@@ -38,8 +39,7 @@ function InstalledStore({ store, busy, note, accounts, onConnect, onOpen, onAcco
   const handoff = signsInInOwnApp(store)
   const open = !handoff && canOpenStoreClient(store)
   const signedInAs = accountLine(store.store, accounts)
-  const showAccount = accounts !== null && ACCOUNT_STORES.has(store.store) && (signedInAs !== null || store.store === 'steam')
-  const switches = store.store === 'steam' || store.store === 'riot'
+  const showAccount = accounts !== null && ACCOUNT_STORES.has(store.store) && (signedInAs !== null || store.store === 'steam' || store.store === 'riot')
   return (
     <>
       <Row
@@ -77,7 +77,6 @@ function InstalledStore({ store, busy, note, accounts, onConnect, onOpen, onAcco
           />
         ) : null}
       </Row>
-      {switches ? <AccountRows store={store.store as SwitchStore} accounts={accounts} busy={accountBusy || !!busy} onBusy={setAccountBusy} onDone={onAccountsChanged} /> : null}
     </>
   )
 }
@@ -150,40 +149,6 @@ function StoreSignIn({ store, onLine, onError }: { store: string; onLine: (line:
   return store === 'steam' ? <SteamSignIn onLine={onLine} onError={onError} /> : null
 }
 
-/** Steam's and Epic's own pop-ups and sounds, off with one press and kept off. */
-function QuietStores({ settings }: { settings: LauncherSettings }) {
-  const [busy, setBusy] = useState(false)
-  const [done, setDone] = useState(settings.quietStoreApps === true)
-  const [note, setNote] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const turnOff = useCallback(async () => {
-    setBusy(true)
-    setError(null)
-    try {
-      const result = await host.quietStores()
-      if (result.ok) {
-        setDone(true)
-        setNote(result.message ?? null)
-      } else setError(result.message ?? 'Could not turn them off. Try again.')
-    } catch {
-      setError('Could not turn them off. Try again.')
-    } finally {
-      setBusy(false)
-    }
-  }, [])
-  return (
-    <Row
-      label="Notifications and sounds"
-      detail={note ?? 'Steam and Epic stay silent: no pop-ups, toasts or sounds, for every account on this PC.'}
-      error={error}
-    >
-      {done && !busy
-        ? <State>Off</State>
-        : <button type="button" className="exo-set-btn" disabled={busy} onClick={() => void turnOff()}>{busy ? <Spinner label="Turning off" /> : null}Turn off</button>}
-    </Row>
-  )
-}
-
 export const StoresSection = memo(function StoresSection({
   stores,
   storeBusy,
@@ -193,12 +158,8 @@ export const StoresSection = memo(function StoresSection({
   onCheckStores,
   onConnect,
   onOpen,
-  settings,
-  onSave,
   active,
 }: {
-  settings: LauncherSettings | null
-  onSave: (patch: Partial<LauncherSettings>) => Promise<boolean>
   active: boolean
   stores: StoreStatus[]
   storeBusy: Record<string, StoreAction | undefined>
@@ -242,20 +203,9 @@ export const StoresSection = memo(function StoresSection({
         ))
       )}
       {installed.length > 0 && storeCheckCopy ? (
-        <div className="exo-set-item"><p className="exo-set-error" role="alert">{storeCheckCopy}</p></div>
+        <div className="exo-set-item"><ErrorNote className="exo-set-error" message={storeCheckCopy} /></div>
       ) : null}
-      {settings && installed.some(store => store.store === 'steam') ? (
-        <SwitchRow
-          id="set-steam-overlay"
-          label="Steam overlay"
-          detail="For every Steam game. Off saves frames; Properties turns it on for one game."
-          checked={settings.steamOverlayDefaultOn === true}
-          disabled={false}
-          onChange={on => onSave({ steamOverlayDefaultOn: on }).then(ok => ok ? null : 'Could not save. Try again.')}
-        />
-      ) : null}
-      {settings && installed.some(store => store.store === 'steam' || store.store === 'epic') ? <QuietStores settings={settings} /> : null}
-      {hasAccounts ? <AccountHours settings={settings} accounts={accounts} onSave={onSave} onChanged={changed} /> : null}
+      {hasAccounts ? <AccountHours accounts={accounts} onChanged={changed} /> : null}
       {missing.length > 0 ? (
         <div className="exo-set-item">
           <span className="exo-set-item-label">Get another store</span>
@@ -264,7 +214,7 @@ export const StoresSection = memo(function StoresSection({
               <MissingStore key={store.store} store={store} onError={setGetError} />
             ))}
           </ul>
-          {getError ? <p className="exo-set-error" role="alert">{getError}</p> : null}
+          {getError ? <ErrorNote className="exo-set-error" message={getError} /> : null}
         </div>
       ) : null}
     </Group>

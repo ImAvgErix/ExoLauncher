@@ -57,15 +57,15 @@ export function ReplacedAppRows({ apps, onApps }: { apps: ReplacedApp[]; onApps:
     }
   }
 
-  if (shown.length === 0) return <Row label="Nothing to clean up" detail="None of the apps Exo replaces are on this PC." />
+  if (shown.length === 0) return <Row label="Nothing to clean up" />
   return (
     <>
       {shown.map(app => {
         const gone = !app.installed && app.leftovers === 0
         const amount = size(app.bytes)
-        const detail = app.installed ? app.detail
+        const detail = app.installed ? undefined
           : !gone ? `Left behind: ${said(app.found)}`
-          : app.cleared ? `Cleared ${said(app.cleared)}` : app.detail
+          : app.cleared ? `Cleared ${said(app.cleared)}` : undefined
         return (
           <Row key={app.id} label={app.name} detail={detail} error={errors[app.id]}>
             {gone ? <State on>Removed</State> : (

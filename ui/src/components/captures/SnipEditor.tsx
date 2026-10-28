@@ -1,13 +1,14 @@
 import { useEffect, useRef, useState, type ComponentType, type PointerEvent as ReactPointerEvent } from 'react'
-import { ArrowUpRight, Blur, Crop, Highlighter, type IconProps, TextIcon, Undo } from '../../brand/icons'
+import { ArrowUpRight, Crop, EyeOff, Highlighter, type IconProps, TextIcon, Undo } from '../../brand/icons'
 import { host } from '../../lib/host'
 import type { CaptureItem } from '../../lib/capture'
+import { ErrorNote } from '../ui/ErrorNote'
 
-type Tool = 'crop' | 'arrow' | 'highlight' | 'blur' | 'text'
+type Tool = 'crop' | 'arrow' | 'highlight' | 'hide' | 'text'
 type Rect = { x: number; y: number; w: number; h: number }
 type Mark =
   | { tool: 'arrow'; from: [number, number]; to: [number, number] }
-  | { tool: 'highlight' | 'blur'; rect: Rect }
+  | { tool: 'highlight' | 'hide'; rect: Rect }
   | { tool: 'text'; at: [number, number]; text: string }
   | { tool: 'crop'; rect: Rect }
 
@@ -15,7 +16,7 @@ const TOOLS: { tool: Tool; label: string; icon: ComponentType<IconProps> }[] = [
   { tool: 'crop', label: 'Crop', icon: Crop },
   { tool: 'arrow', label: 'Arrow', icon: ArrowUpRight },
   { tool: 'highlight', label: 'Highlight', icon: Highlighter },
-  { tool: 'blur', label: 'Blur', icon: Blur },
+  { tool: 'hide', label: 'Hide', icon: EyeOff },
   { tool: 'text', label: 'Text', icon: TextIcon },
 ]
 
@@ -24,9 +25,6 @@ const ANNOTATE = '#ff5c5c'
 function rectOf(a: [number, number], b: [number, number]): Rect {
   return { x: Math.min(a[0], b[0]), y: Math.min(a[1], b[1]), w: Math.abs(a[0] - b[0]), h: Math.abs(a[1] - b[1]) }
 }
-
-// The blur's small copy, reused for every blur and every frame.
-let scratch: HTMLCanvasElement | null = null
 
 /**
  * Draws the snip and every mark, in the snip's own pixels, at `scale` of its size (the editor draws at the size
@@ -46,18 +44,10 @@ function paint(canvas: HTMLCanvasElement, image: HTMLImageElement, marks: Mark[]
   ctx.drawImage(image, 0, 0)
   const unit = Math.max(2, Math.round(Math.max(image.naturalWidth, image.naturalHeight) / 400))
   for (const mark of all) {
-    if (mark.tool === 'blur') {
-      // Pixelated, so the hidden text can't be read back.
-      const { x, y, w, h } = mark.rect
-      if (w < 2 || h < 2) continue
-      const block = Math.max(8, Math.round(Math.max(w, h) / 24))
-      const small = scratch ??= document.createElement('canvas')
-      small.width = Math.max(1, Math.round(w / block))
-      small.height = Math.max(1, Math.round(h / block))
-      small.getContext('2d')!.drawImage(canvas, (x - area.x) * scale, (y - area.y) * scale, w * scale, h * scale, 0, 0, small.width, small.height)
-      ctx.imageSmoothingEnabled = false
-      ctx.drawImage(small, 0, 0, small.width, small.height, x, y, w, h)
-      ctx.imageSmoothingEnabled = true
+    if (mark.tool === 'hide') {
+      // A solid box: pixelated or blurred text can be read back (Depix matches the blocks), a box keeps nothing.
+      ctx.fillStyle = '#000'
+      ctx.fillRect(mark.rect.x, mark.rect.y, mark.rect.w, mark.rect.h)
     } else if (mark.tool === 'highlight') {
       ctx.save()
       ctx.globalCompositeOperation = 'multiply'
@@ -106,7 +96,7 @@ function paint(canvas: HTMLCanvasElement, image: HTMLImageElement, marks: Mark[]
 }
 
 /**
- * The snip editor: crop, arrow, highlight, blur (pixelated) and text, with undo.
+ * The snip editor: crop, arrow, highlight, hide (a solid box) and text, with undo.
  * Save writes the result over the snip and copies it.
  */
 export function SnipEditor({ item, onDone }: { item: CaptureItem; onDone: (saved: CaptureItem | null) => void }) {
@@ -195,7 +185,7 @@ export function SnipEditor({ item, onDone }: { item: CaptureItem; onDone: (saved
   function draftFor(from: [number, number], to: [number, number]): Mark {
     if (tool === 'arrow') return { tool, from, to }
     if (tool === 'crop') return { tool, rect: rectOf(from, to) }
-    return { tool: tool === 'blur' ? 'blur' : 'highlight', rect: rectOf(from, to) }
+    return { tool: tool === 'hide' ? 'hide' : 'highlight', rect: rectOf(from, to) }
   }
 
   async function save() {
@@ -269,7 +259,7 @@ export function SnipEditor({ item, onDone }: { item: CaptureItem; onDone: (saved
           />
         ) : null}
       </div>
-      {error ? <p className="exo-capture-note is-bad" role="alert">{error}</p> : null}
+      {error ? <ErrorNote className="exo-capture-note is-bad" message={error} /> : null}
     </div>
   )
 }

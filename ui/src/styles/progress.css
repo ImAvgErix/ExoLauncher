@@ -158,6 +158,25 @@
   opacity: 0;
 }
 
+/* A word for work with no measure (ui/WorkingWord.tsx): its three dots light in turn, then rest. */
+.exo-working-dots span {
+  opacity: 0.25;
+  animation: exo-working-dot 1.2s var(--ease-out) infinite;
+}
+
+.exo-working-dots span:nth-child(2) { animation-delay: 0.2s; }
+.exo-working-dots span:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes exo-working-dot {
+  0%, 100% { opacity: 0.25; }
+  30% { opacity: 1; }
+}
+
+:root[data-exo-motion="reduce"] .exo-working-dots span {
+  opacity: 1;
+  animation: none;
+}
+
 /* Windows' contrast themes: a plain outlined bar in the system's colors. */
 @media (forced-colors: active) {
   .exo-progress-track {

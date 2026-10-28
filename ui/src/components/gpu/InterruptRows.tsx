@@ -45,14 +45,9 @@ export function InterruptRows({ active }: { active: boolean }) {
   const waiting = state.devices.filter(d => d.plan === 'change').length
   // A device on MSI that Optimize still changes takes high priority (the graphics card and USB controllers).
   const sharing = state.devices.filter(d => d.plan === 'change' && d.mode !== 'msi').length
-  const detail = state.restart
-    ? 'Windows switches them when the PC restarts'
-    : state.result
-      || (sharing > 0
-        ? `${sharing === 1 ? 'A device shares' : `${sharing} devices share`} an interrupt line. MSI mode lets each signal the processor on its own, so none waits on another.`
-        : waiting > 0
-          ? 'Your graphics card and USB controllers can take high interrupt priority, so a frame or an input never waits behind another device.'
-          : 'Every device that can use MSI mode does, and your graphics card and USB controllers go first')
+  // What took after the restart, else how many devices still share a line; the state beside it says the rest.
+  const detail = state.restart ? undefined
+    : state.result || (sharing > 0 ? `${sharing === 1 ? 'A device shares' : `${sharing} devices share`} an interrupt line` : undefined)
   return (
     <>
       <Row label="Interrupts (MSI mode)" detail={detail} error={error}>

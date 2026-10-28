@@ -75,14 +75,17 @@ internal static class SystemSpecs
     /// The DirectX a game can count on: 12 when the main graphics card runs Direct3D 12 at feature level 12_0 (asked
     /// of the driver without making a device), else 11, which every card Windows 10 and 11 run on has.
     /// </summary>
-    private static int DirectXVersion()
+    private static int DirectXVersion() => Direct3D12(0xc000) ? 12 : 11;
+
+    /// <summary>Whether the main graphics card runs Direct3D 12 at a feature level (0xc000 is 12_0; 0xc200, 12_2, is DirectX 12 Ultimate).</summary>
+    internal static bool Direct3D12(int featureLevel)
     {
         try
         {
             var device = new Guid("189819f1-1db6-4b57-be54-1821339b85f7"); // ID3D12Device
-            return D3D12CreateDevice(IntPtr.Zero, 0xc000, ref device, IntPtr.Zero) >= 0 ? 12 : 11;
+            return D3D12CreateDevice(IntPtr.Zero, featureLevel, ref device, IntPtr.Zero) >= 0;
         }
-        catch (Exception ex) when (ex is DllNotFoundException or EntryPointNotFoundException) { return 11; }
+        catch (Exception ex) when (ex is DllNotFoundException or EntryPointNotFoundException) { return false; }
     }
 
     // A null device asks only whether one could be made (S_FALSE when it could).

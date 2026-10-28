@@ -4,6 +4,7 @@ import { Spinner } from '../ui/Spinner'
 import { Art } from './Art'
 import { runActionFor, usePlayer, type PlaylistEdit } from './playerContext'
 import { useDismiss } from '../../lib/dismiss'
+import { ErrorNote } from '../ui/ErrorNote'
 
 /** A playlist's privacy, where the service has one (YouTube Music). */
 const PRIVACY = [['PUBLIC', 'Public'], ['UNLISTED', 'Unlisted'], ['PRIVATE', 'Private']] as const
@@ -102,7 +103,7 @@ export function PlaylistSheet({ edit, onClose }: { edit: PlaylistEdit; onClose: 
             </div>
           </div>
         ) : null}
-        {error ? <p className="exo-music-error" role="alert">{error}</p> : null}
+        {error ? <ErrorNote className="exo-music-error" message={error} /> : null}
         <div className="exo-music-sheet-actions">
           <button type="button" className="exo-set-btn" onClick={() => dialog.current?.close()}>Cancel</button>
           <button type="submit" className="exo-set-btn is-primary" disabled={busy || !name.trim()}>

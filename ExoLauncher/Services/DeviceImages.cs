@@ -14,7 +14,7 @@ namespace ExoLauncher.Services;
 /// The Devices room's pictures: each device's official product shot, found by model in Exo's own list
 /// (Assets/device-images.json holds links only: the pictures are their makers', and Exo never ships them), fetched
 /// once from the maker's image server and made to look like one set. A white or flat light studio background that
-/// reaches the photo's edges is cut away (whites inside the product stay) as a soft matte, a cable the photo's frame
+/// reaches the photo's edges is cut away, as tight as it is flat (whites inside and beside the product stay), as a soft matte, a cable the photo's frame
 /// cuts fades out, and the product is fitted, centered, into one transparent 1200x800 frame with the same margin on
 /// every picture (never enlarged past the photo's own pixels). The result is kept as a PNG in device-images under Exo's data folder and shown
 /// through the devices virtual host (MainWindow). Every failure is a quiet null: the room draws the device itself.
@@ -23,14 +23,16 @@ internal static class DeviceImages
 {
     internal const string VirtualHost = "devices.exo-launcher.local";
     /// <summary>Part of every kept file's name: bumped when the look changes, so pictures an older look made are made again.</summary>
-    internal const int PipelineVersion = 1;
+    internal const int PipelineVersion = 2;
     internal const int CanvasWidth = 1200;
     internal const int CanvasHeight = 800;
     /// <summary>The clear margin on every side of the product, as a share of the frame's height (64 px).</summary>
     internal const double PaddingShare = 0.08;
     internal const int MaxDownloadBytes = 8 * 1024 * 1024;
-    /// <summary>How far (largest channel difference) a pixel may be from the background's color and still be background.</summary>
+    /// <summary>How far (largest channel difference) a pixel may be from the background's color and still be background, at most.</summary>
     internal const int Tolerance = 28;
+    /// <summary>The least it may be: a flat white's own reach, so a white or clear product beside it isn't taken with it.</summary>
+    internal const int TightTolerance = 8;
     /// <summary>The opacity from which a pixel is part of the product when finding its bounds (a faint shadow is not).</summary>
     internal const int SolidAlpha = 40;
     /// <summary>A larger photo is brought down to this on decode: the frame never needs more.</summary>
@@ -85,20 +87,41 @@ internal static class DeviceImages
     /// <summary>
     /// The picture for a device: by its model (a devices.list id or a model's name) and variant (color, layout), else
     /// that model's default; else the longest model name or alias its maker, name and model contain ("Ziigaat Lush",
-    /// "Wooting 60HE v2"). Null when the list has nothing for it.
+    /// "Wooting 60HE v2"). A name naming a model more exactly than its render does wins over the render: Exo Mouse
+    /// gives several models of a maker one render (every Pulsar the X2 V2's, the Superlight 2 DEX the Superlight's).
+    /// Null when the list has nothing for it.
     /// </summary>
     internal static Entry? Resolve(IReadOnlyList<Entry> catalog, Request request)
     {
         var kind = request.Kind?.Trim() ?? "";
         var pool = catalog.Where(e => kind.Length == 0 || e.Kind.Equals(kind, StringComparison.OrdinalIgnoreCase)).ToArray();
         var model = Key(request.Model);
-        if (model.Length > 0 &&
-            pool.Where(e => Key(e.Model) == model || (e.Ids ?? []).Any(id => Key(id) == model)).ToArray() is { Length: > 0 } byModel)
-            return Variant(byModel, request);
-
         // '|' never survives Key, so a name is never matched across two fields.
         var maker = Key(request.Maker);
-        var said = maker + "|" + Key(request.Name) + "|" + model;
+        var name = maker + "|" + Key(request.Name);
+        if (model.Length > 0 &&
+            pool.Where(e => Key(e.Model) == model || (e.Ids ?? []).Any(id => Key(id) == model)).ToArray() is { Length: > 0 } byModel)
+        {
+            var rendered = byModel.SelectMany(e => (string[])[e.Model, .. e.Aliases ?? []]).Select(Key)
+                .Where(key => name.Contains(key, StringComparison.Ordinal)).DefaultIfEmpty("").Max(key => key.Length);
+            return ByName(pool, name, maker) is { } named && named.Length > rendered && named.Entry.Maker == byModel[0].Maker
+                && named.Entry.Model != byModel[0].Model
+                ? Variant(Same(pool, named.Entry), request)
+                : Variant(byModel, request);
+        }
+        return ByName(pool, name + "|" + model, maker) is { } best ? Variant(Same(pool, best.Entry), request) : null;
+    }
+
+    private static Entry[] Same(Entry[] pool, Entry entry) => [.. pool.Where(e => e.Maker == entry.Maker && e.Model == entry.Model)];
+
+    /// <summary>The longest model name or alias <paramref name="said"/> contains, and that name's length.</summary>
+    private static (Entry Entry, int Length)? ByName(Entry[] pool, string said, string maker)
+    {
+        // With no maker given, a name that starts with one ("Delux M600 Pro (Wireless)") matches only that maker's
+        // models, or a model whose own name starts with it ("Drop HD 6XX", Sennheiser's): Logitech's "PRO Wireless" is
+        // not in a Delux.
+        var lead = maker.Length > 0 ? null : pool.Select(e => Key(e.Maker))
+            .Where(m => m.Length >= 4 && said.StartsWith("|" + m, StringComparison.Ordinal)).MaxBy(m => m.Length);
         Entry? best = null;
         var bestLength = 0;
         foreach (var entry in pool)
@@ -107,11 +130,13 @@ internal static class DeviceImages
                 var key = Key(name);
                 if (key.Length <= bestLength || !said.Contains(key, StringComparison.Ordinal)) continue;
                 // The maker has to agree when one is known; without one, only a long, distinctive name counts.
-                if (!said.Contains(Key(entry.Maker), StringComparison.Ordinal) && (maker.Length > 0 || key.Length < 6)) continue;
+                var entryMaker = Key(entry.Maker);
+                if (!said.Contains(entryMaker, StringComparison.Ordinal) && (maker.Length > 0 || key.Length < 6)) continue;
+                if (lead is not null && entryMaker != lead && !key.StartsWith(lead, StringComparison.Ordinal)) continue;
                 best = entry;
                 bestLength = key.Length;
             }
-        return best is null ? null : Variant([.. pool.Where(e => e.Maker == best.Maker && e.Model == best.Model)], request);
+        return best is null ? null : (best, bestLength);
     }
 
     /// <summary>The variant the device reports, else one of the same layout family (split spacebar or not), else the model's first.</summary>
@@ -351,29 +376,75 @@ internal static class DeviceImages
     internal static byte[]? Compose(byte[] bgra, int width, int height, Cut cut = default)
     {
         if (RemoveBackground(bgra, width, height, cut)) FadeCutEdges(bgra, width, height);
+        DropSpecks(bgra, width, height);
         return ContentBounds(bgra, width, height) is { } bounds ? Frame(bgra, width, height, bounds) : null;
     }
 
     /// <summary>
-    /// Cut the background away. A photo already transparent at its edges keeps its own cut. Otherwise the border's
-    /// usual color, when it is light (white, or a flat light studio color) and most of the border is it, is flooded
-    /// from the edges within <see cref="Tolerance"/>; only what the flood reaches goes, so whites inside the product
-    /// stay (with <see cref="Cut"/>, the studio's shadow and background seen through loops go too). The edge is then
-    /// a soft matte (<see cref="Matte"/>). False: no background found, and the photo is left as it was.
+    /// Specks go (dust on a maker's transparent render, a fleck the cut left), so they don't stretch the product's
+    /// bounds off center: a solid piece (<see cref="SolidAlpha"/>, touching at a corner counts) at most 1/200 of the
+    /// largest. A pair's second earpiece, a cable's plug or a receiver is far larger and stays.
+    /// </summary>
+    internal static void DropSpecks(byte[] p, int width, int height)
+    {
+        var length = width * height;
+        var piece = new int[length];
+        var sizes = new List<int> { 0 };
+        var queue = new int[length];
+        for (var start = 0; start < length; start++)
+        {
+            if (piece[start] != 0 || p[start * 4 + 3] < SolidAlpha) continue;
+            var id = sizes.Count;
+            int head = 0, tail = 0;
+            piece[start] = id;
+            queue[tail++] = start;
+            while (head < tail)
+            {
+                var i = queue[head++];
+                int x = i % width, y = i / width;
+                for (var dy = -1; dy <= 1; dy++)
+                    for (var dx = -1; dx <= 1; dx++)
+                    {
+                        int nx = x + dx, ny = y + dy;
+                        if ((dx | dy) == 0 || nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
+                        var j = ny * width + nx;
+                        if (piece[j] != 0 || p[j * 4 + 3] < SolidAlpha) continue;
+                        piece[j] = id;
+                        queue[tail++] = j;
+                    }
+            }
+            sizes.Add(tail);
+        }
+        if (sizes.Count <= 2) return;
+        var most = sizes.Max() / 200;
+        for (var i = 0; i < length; i++)
+            if (piece[i] != 0 && sizes[piece[i]] <= most) p[i * 4 + 3] = 0;
+    }
+
+    /// <summary>
+    /// Cut the background away. A photo already transparent at its edges keeps its own cut (a light rim a converter
+    /// left half see-through doesn't count). Otherwise the usual color of the border's light part (white, or a flat
+    /// light studio color), when at least a quarter of the border is it (a product cropped tight takes the rest), is flooded from the edges, as far as the background's own
+    /// spread along the border reaches (<see cref="Reach"/>); only what the flood reaches goes, so whites inside the
+    /// product stay (with <see cref="Cut"/>, the studio's shadow and background seen through loops go too). The edge
+    /// is then a soft matte (<see cref="Matte"/>). False: no background found, and the photo is left as it was.
     /// </summary>
     internal static bool RemoveBackground(byte[] p, int width, int height, Cut cut = default)
     {
         if (width < 2 || height < 2) return false;
         var border = BorderPixels(width, height);
         var clear = 0;
-        foreach (var i in border) if (p[i * 4 + 3] < 250) clear++;
+        foreach (var i in border) if (p[i * 4 + 3] < 128) clear++;
         if (clear * 4 >= border.Length) return true;
 
-        var background = BorderColor(p, border);
-        if (Math.Min(background.B, Math.Min(background.G, background.R)) < 200) return false;
+        // The light part of the border: a product cropped tight (a keyboard touching three sides) takes the rest.
+        var light = Array.FindAll(border, i => Math.Min(p[i * 4], Math.Min(p[i * 4 + 1], p[i * 4 + 2])) >= 200);
+        if (light.Length * 4 < border.Length) return false;
+        var background = BorderColor(p, light);
         var near = 0;
         foreach (var i in border) if (Distance(p, i, background) <= Tolerance) near++;
-        if (near * 10 < border.Length * 6) return false;
+        if (near * 4 < border.Length) return false;
+        var tolerance = Reach(p, border, background);
 
         // 0 product, 1 background, 6 the studio's shadow on it; 4 and 5 only while finding holes.
         var state = new byte[width * height];
@@ -409,7 +480,7 @@ internal static class DeviceImages
         void Take(int i, int from)
         {
             if (state[i] != 0) return;
-            var plain = Distance(p, i, background) <= Tolerance;
+            var plain = Distance(p, i, background) <= tolerance;
             if (!plain && !(throughShadow && IsShadow(p, i, background) && Distance(p, i, (p[from * 4], p[from * 4 + 1], p[from * 4 + 2])) <= ShadowStep))
                 return;
             state[i] = plain ? (byte)1 : (byte)6;
@@ -423,7 +494,7 @@ internal static class DeviceImages
             var region = new List<int>();
             for (var start = 0; start < state.Length; start++)
             {
-                if (state[start] != 0 || Distance(p, start, background) > Tolerance) continue;
+                if (state[start] != 0 || Distance(p, start, background) > tolerance) continue;
                 region.Clear();
                 state[start] = 4;
                 region.Add(start);
@@ -443,11 +514,32 @@ internal static class DeviceImages
 
             void Grow(int i)
             {
-                if (state[i] != 0 || Distance(p, i, background) > Tolerance) return;
+                if (state[i] != 0 || Distance(p, i, background) > tolerance) return;
                 state[i] = 4;
                 region.Add(i);
             }
         }
+    }
+
+    /// <summary>
+    /// How far the flood reaches from the background's color: twice its spread along the border (where nine in ten of
+    /// its pixels lie: a JPEG's noise, a studio's falloff) and a little, from <see cref="TightTolerance"/> for a flat white
+    /// to <see cref="Tolerance"/>. A flat background is cut tight, so a white or clear shell beside it stays.
+    /// </summary>
+    private static int Reach(byte[] p, int[] border, (byte B, byte G, byte R) background)
+    {
+        var spread = new int[Tolerance + 1];
+        var count = 0;
+        foreach (var i in border)
+            if (Distance(p, i, background) is var d && d <= Tolerance)
+            {
+                spread[d]++;
+                count++;
+            }
+        var seen = 0;
+        for (var d = 0; d <= Tolerance; d++)
+            if ((seen += spread[d]) * 10 >= count * 9) return Math.Clamp(d * 2 + 4, TightTolerance, Tolerance);
+        return Tolerance;
     }
 
     /// <summary>The largest step between neighbors the shadow follow takes: a shadow fades smoothly, a product's edge doesn't.</summary>

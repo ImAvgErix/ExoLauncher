@@ -66,9 +66,10 @@ export function DictateButton({ target, place = 'inline', className }: {
 }
 
 /**
- * The take's voice line over its text box: a soft wave in the ink that rises with the mic's level, across the box while
- * it's empty (its placeholder makes way) and along its foot under words already typed. Canvas, redrawn each frame only
- * while it listens. Under Reduce motion, a still bar whose height follows the level.
+ * The take's voice line over its text box: a wave in the ink that rises with the mic's level over a fainter one that
+ * runs against it, across the box while it's empty (its placeholder makes way) and along its foot under words already
+ * typed; it ripples a little while you're quiet, so it reads as listening. Canvas, redrawn each frame only while it
+ * listens. Under Reduce motion, a still bar whose height follows the level.
  */
 function VoiceLine({ field, anchor }: { field: DictationField; anchor: string }) {
   const canvas = useRef<HTMLCanvasElement>(null)
@@ -107,32 +108,41 @@ function VoiceLine({ field, anchor }: { field: DictationField; anchor: string })
       context.setTransform(ratio, 0, 0, ratio, 0, 0)
       context.clearRect(0, 0, width, height)
       const empty = field.value.length === 0
-      // Empty: across the middle, up to a third of the box; with words: a strip along the foot, never over them.
-      const middle = empty ? height / 2 : height - 4
-      const reach = (empty ? height * 0.34 : 2.5) * level
+      // Empty: across the middle, up to nearly half the box; with words: a strip along the foot, never over them.
+      const middle = empty ? height / 2 : height - 5
+      const most = empty ? height * 0.44 : 4
+      // Quiet still ripples (a fifth of the way); a voice takes it the rest.
+      const reach = most * (0.2 + 0.8 * level)
       const left = 12
       const span = Math.max(0, width - left * 2)
       context.strokeStyle = ink
       context.fillStyle = ink
       if (reduce) {
-        const thick = 1.5 + reach
+        const thick = 2.5 + most * level
         context.beginPath()
         context.roundRect(left, middle - thick / 2, span, thick, thick / 2)
         context.fill()
         return
       }
-      context.lineWidth = 1.5
       context.lineCap = 'round'
       context.lineJoin = 'round'
-      context.beginPath()
-      for (let x = 0; x <= span; x += 2) {
-        const t = span ? x / span : 0
-        const envelope = Math.sin(Math.PI * t) ** 1.5
-        const y = middle + reach * envelope * (0.6 * Math.sin(t * 6 * Math.PI - wave) + 0.4 * Math.sin(t * 10.6 * Math.PI + wave * 1.3))
-        if (x === 0) context.moveTo(left + x, y)
-        else context.lineTo(left + x, y)
+      const stroke = (thickness: number, alpha: number, phase: number, scale: number) => {
+        context.globalAlpha = alpha
+        context.lineWidth = thickness
+        context.beginPath()
+        for (let x = 0; x <= span; x += 2) {
+          const t = span ? x / span : 0
+          const envelope = Math.sin(Math.PI * t) ** 1.5
+          const y = middle + reach * scale * envelope * (0.6 * Math.sin(t * 6 * Math.PI - phase) + 0.4 * Math.sin(t * 10.6 * Math.PI + phase * 1.3))
+          if (x === 0) context.moveTo(left + x, y)
+          else context.lineTo(left + x, y)
+        }
+        context.stroke()
       }
-      context.stroke()
+      // The fainter wave runs the other way, so the pair reads as a voice and not a line.
+      stroke(1.75, 0.4, -wave * 0.8 + 1.7, 0.7)
+      stroke(2.5, 1, wave, 1)
+      context.globalAlpha = 1
     }
     const tick = (now: number) => {
       // Up at once with the voice, down a little slower, so the line breathes rather than flickers.

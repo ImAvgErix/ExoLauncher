@@ -43,8 +43,9 @@ public sealed partial class WebHostBridge
             var live = RiotAccounts.ReadLive(RiotAccounts.LiveDataDir);
             var saved = RiotAccounts.List(RiotAccounts.StoreDir);
             var valorant = RiotAccounts.ReadValorantLastUser(SteamPlaytime.ReadSharedText(RiotAccounts.ValorantMachineIni));
-            // The signed-in account shows even before Exo saves it; it is saved on the first switch away.
-            var rows = saved.Select(account => (account.Key, account.Puuid, account.Name, Saved: true)).ToList();
+            // The signed-in account shows even before Exo saves it; it is saved on the first switch away. Its name is the live
+            // one: a Riot ID changed since its sign-in was saved showed the old name until the next switch.
+            var rows = saved.Select(account => (account.Key, account.Puuid, Name: live is not null && account.Key == live.Key ? live.Name : account.Name, Saved: true)).ToList();
             if (live is not null && rows.All(row => row.Key != live.Key))
                 rows.Insert(0, (live.Key, live.Puuid, live.Name, Saved: false));
             riot = new
@@ -74,6 +75,7 @@ public sealed partial class WebHostBridge
             name = legendaryName,
             launcherDiffers,
             canImport = (launcherDiffers || legendaryId is null) && EpicPlaytime.HasEglRememberMe(),
+            canSwitchLauncher = EpicAdapter.OnLegacyLauncher(),
             added = EpicAccounts.List().Select(account => new { key = account.Scope, name = account.DisplayName ?? "Epic account" }).ToArray(),
         };
 
@@ -149,6 +151,56 @@ public sealed partial class WebHostBridge
         finally
         {
             _accountsGate.Release();
+        }
+    }
+
+    /// <summary>Epic's own download of its new launcher for Windows (launcher.epicgames.com links it).</summary>
+    private const string EpicNewLauncherSetup = "https://launcher-public-service-prod06.ol.epicgames.com/launcher/api/installer/download/EpicGamesLauncherSetup-x86_64.exe";
+
+    /// <summary>
+    /// Settings > Epic > Account > Switch to Epic's new launcher, after its confirm: Epic's installer of its new launcher,
+    /// downloaded from Epic, kept only if Epic Games signed it, and opened for its own steps. The installer moves the
+    /// games, saves and purchases over and takes out the old launcher itself; Exo then finds the new one as it finds any
+    /// Epic launcher. Never while a game plays.
+    /// </summary>
+    private async Task<object> AccountsEpicNewLauncherAsync(CancellationToken ct)
+    {
+        if (!EpicAdapter.OnLegacyLauncher()) return new { ok = false, message = "This PC already has Epic's new launcher." };
+        if (_services.Launcher.AnyGameRunning || MainWindow.RunningLibraryGames().Count > 0) return new { ok = false, message = "Close your game first." };
+        var setup = Path.Combine(Path.GetTempPath(), "exo-epic-setup-" + Guid.NewGuid().ToString("N") + ".exe");
+        try
+        {
+            using (var http = ExoHttp.Create(TimeSpan.FromMinutes(10)))
+            {
+                await using var input = await http.GetStreamAsync(EpicNewLauncherSetup, ct).ConfigureAwait(false);
+                await using var output = File.Create(setup);
+                await input.CopyToAsync(output, ct).ConfigureAwait(false);
+            }
+            if (!DesktopClients.IsSignedBy(setup, "Epic Games"))
+            {
+                AppLog.Warn("Epic: the new launcher's installer isn't signed by Epic Games; deleted.");
+                File.Delete(setup);
+                return new { ok = false, message = "That download wasn't signed by Epic Games, so Exo deleted it." };
+            }
+            var installer = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(setup) { UseShellExecute = true });
+            AppLog.Info("Epic: its new launcher's installer is open.");
+            // The installer runs from the download: it goes once the installer is done with it.
+            _ = Task.Run(async () =>
+            {
+                try { if (installer is not null) await installer.WaitForExitAsync().ConfigureAwait(false); }
+                finally
+                {
+                    installer?.Dispose();
+                    try { File.Delete(setup); } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+                }
+            });
+            return new { ok = true, message = "Epic's installer is open. It moves your games over and takes out the old launcher." };
+        }
+        catch (Exception ex) when (ex is HttpRequestException or IOException or System.ComponentModel.Win32Exception or TaskCanceledException)
+        {
+            AppLog.Warn("Epic: its new launcher couldn't be fetched: " + ex.GetType().Name);
+            try { File.Delete(setup); } catch (Exception cleanup) when (cleanup is IOException or UnauthorizedAccessException) { }
+            return new { ok = false, message = "Epic's new launcher couldn't be downloaded. Check your connection." };
         }
     }
 
@@ -536,15 +588,29 @@ public sealed partial class WebHostBridge
         return "The Riot Client did not close. Quit it from its tray icon, then try again.";
     }
 
-    private static async Task StartRiotHiddenAsync(string rcs, CancellationToken ct)
+    /// <summary>
+    /// Starts the Riot Client hidden after an account change and says whether Riot took the sign-in it was given: true
+    /// once it's signed in, false when it still stands at its sign-in after 15 seconds (Riot ends a saved sign-in after a
+    /// while), null when it never said.
+    /// </summary>
+    private static async Task<bool?> StartRiotHiddenAsync(string rcs, CancellationToken ct)
     {
         try
         {
             using var api = await Adapters.Riot.RiotClientApi.ConnectAsync(rcs, TimeSpan.FromSeconds(35), ct).ConfigureAwait(false);
+            if (api is null) return null;
+            bool? last = null;
+            for (var i = 0; i < 20; i++)
+            {
+                if ((last = await api.IsSignedInAsync(ct).ConfigureAwait(false) ?? last) == true) return true;
+                await Task.Delay(750, ct).ConfigureAwait(false);
+            }
+            return last;
         }
         catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
         {
             AppLog.Debug("Riot: hidden start after an account change: " + ex.GetType().Name);
+            return null;
         }
     }
 
@@ -582,11 +648,23 @@ public sealed partial class WebHostBridge
             failure = "Exo could not switch the Riot account. Try again.";
         }
         AccountProgress("riot", failure is null ? $"Signing in as {target.Name}…" : "Starting the Riot Client again…");
-        await StartRiotHiddenAsync(rcs, ct).ConfigureAwait(false);
+        var signedIn = await StartRiotHiddenAsync(rcs, ct).ConfigureAwait(false);
         AfterAccountChange("riot");
         if (failure is not null) return new { ok = false, message = failure };
-        AppLog.Info("Riot: switched the signed-in account.");
-        return new { ok = true, message = $"Riot Client is signed in as {target.Name}." };
+        if (signedIn == false)
+        {
+            // Riot ended that account's saved sign-in: it said "signed in as" before and wasn't. Its own sign-in comes up.
+            AppLog.Info("Riot: the Riot Client didn't take the saved sign-in; it asks to sign in again.");
+            var shown = await OpenStoreClientAsync("riot").ConfigureAwait(false);
+            return new
+            {
+                ok = false,
+                message = $"Riot didn't take {target.Name}'s saved sign-in (Riot ends it after a while). " +
+                    (shown.Ok ? $"Sign in as {target.Name} in the Riot Client" : "Open the Riot Client and sign in") + " with Stay signed in on; Exo keeps it for the next switch.",
+            };
+        }
+        AppLog.Info(signedIn == true ? "Riot: switched the signed-in account." : "Riot: switched the account's files; the Riot Client didn't say whether it signed in.");
+        return new { ok = true, message = signedIn == true ? $"Riot Client is signed in as {target.Name}." : $"Riot Client is starting as {target.Name}." };
     }
 
     /// <summary>

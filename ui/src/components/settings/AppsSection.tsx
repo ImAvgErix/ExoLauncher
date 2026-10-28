@@ -112,7 +112,7 @@ function AppRow({ app, onInstalled }: { app: DesktopApp; onInstalled: () => Prom
     }
   }
   return (
-    <Row label={app.title} icon={<Icon size={22} />} detail={store ? 'Can’t play inside Exo. Your account and library stay when you switch' : undefined} error={error}>
+    <Row label={app.title} icon={<Icon size={22} />} error={error}>
       {app.state === 'loading' && !busy ? <SkeletonWord label={`Checking ${app.title}`} /> : (
         <State on={app.state === 'running' && !busy}>
           {busy || app.state === 'installing' ? <><Spinner label={busy && store ? 'Switching to Spotify’s app' : `Installing ${app.title}`} /> </> : null}

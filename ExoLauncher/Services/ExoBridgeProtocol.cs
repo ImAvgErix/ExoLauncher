@@ -53,7 +53,11 @@ internal static class ExoBridgeProtocol
         method == "capture.saveImage" ? MaxImageRequestCharacters
             : method == "discord.camera" ? MaxVideoFrameCharacters // a camera keyframe, base64
             : method == "library.folderArt" ? MaxFolderArtCharacters + 4096
+            : method is "notes.save" or "notes.saveAs" ? MaxNoteCharacters
             : MaxRequestCharacters;
+
+    /// <summary>A note's words (NoteStore.MaxChars), every character escaped at worst, and its request.</summary>
+    internal const int MaxNoteCharacters = NoteStore.MaxChars * 2 + 4096;
 
     internal const int MaxVideoFrameCharacters = 8 * 1024 * 1024;
 

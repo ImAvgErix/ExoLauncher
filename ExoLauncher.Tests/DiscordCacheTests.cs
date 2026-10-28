@@ -119,6 +119,73 @@ public sealed class DiscordCacheTests
         Assert.True(JsonSerializer.SerializeToElement(cache.Home()).GetProperty("guilds")[0].GetProperty("unread").GetBoolean());
     }
 
+    private static DiscordCache JoinedThread() => Load("""
+        {
+          "session_id": "s", "user": { "id": "100", "username": "me" },
+          "guilds": [{
+            "id": "1", "name": "Guild", "owner_id": "100", "roles": [ { "id": "1", "permissions": "3072" } ], "members": [],
+            "channels": [ { "id": "10", "type": 0, "name": "general", "last_message_id": "400" } ],
+            "threads": [ { "id": "20", "type": 11, "name": "a thread", "parent_id": "10", "last_message_id": "900",
+              "thread_metadata": { "archived": false, "locked": false }, "member": { "flags": 4, "muted": false } } ]
+          }],
+          "private_channels": [], "read_state": { "entries": [] }
+        }
+        """);
+
+    private static JsonElement ThreadRow(DiscordCache cache) => JsonSerializer.SerializeToElement(cache.Channels("1")).GetProperty("threads")[0];
+
+    // A THREAD_UPDATE (a rename, closing it) carries no membership: the thread stays joined, with its notification
+    // setting, so it stays under its channel in the sidebar.
+    [Fact]
+    public void AThreadUpdateKeepsYouInTheThread()
+    {
+        var cache = JoinedThread();
+        Assert.True(ThreadRow(cache).GetProperty("joined").GetBoolean());
+        using var update = JsonDocument.Parse("""
+            { "id": "20", "type": 11, "guild_id": "1", "name": "renamed", "parent_id": "10", "thread_metadata": { "archived": true, "locked": false } }
+            """);
+        cache.Apply("THREAD_UPDATE", update.RootElement);
+        var row = ThreadRow(cache);
+        Assert.Equal("renamed", row.GetProperty("name").GetString());
+        Assert.True(row.GetProperty("joined").GetBoolean());
+        Assert.True(row.GetProperty("archived").GetBoolean());
+        Assert.Equal(1, JsonSerializer.SerializeToElement(cache.ThreadState("20")).GetProperty("notify").GetInt32()); // only @mentions
+    }
+
+    // Leaving in another app arrives as THREAD_MEMBERS_UPDATE with you among the removed: the thread is no longer joined;
+    // someone else leaving changes nothing for you.
+    [Fact]
+    public void LeavingElsewhereTakesTheThreadOffYourList()
+    {
+        var cache = JoinedThread();
+        using var other = JsonDocument.Parse("""{ "id": "20", "guild_id": "1", "member_count": 1, "removed_member_ids": ["200"] }""");
+        cache.Apply("THREAD_MEMBERS_UPDATE", other.RootElement);
+        Assert.True(ThreadRow(cache).GetProperty("joined").GetBoolean());
+        using var mine = JsonDocument.Parse("""{ "id": "20", "guild_id": "1", "member_count": 0, "removed_member_ids": ["100"] }""");
+        cache.Apply("THREAD_MEMBERS_UPDATE", mine.RootElement);
+        Assert.False(ThreadRow(cache).GetProperty("joined").GetBoolean());
+        Assert.False(JsonSerializer.SerializeToElement(cache.ThreadState("20")).GetProperty("joined").GetBoolean());
+    }
+
+    // Opening a server asks for its threads (threads: true): THREAD_LIST_SYNC brings the open ones, with your membership
+    // beside them, and a synced channel's thread left out is no longer open.
+    [Fact]
+    public void AServerSyncTellsWhichThreadsAreYours()
+    {
+        var cache = JoinedThread();
+        using var sync = JsonDocument.Parse("""
+            { "guild_id": "1", "channel_ids": ["10"],
+              "threads": [ { "id": "21", "type": 11, "name": "yours", "parent_id": "10" }, { "id": "22", "type": 11, "name": "not yours", "parent_id": "10" } ],
+              "members": [ { "id": "21", "user_id": "100", "flags": 2 } ] }
+            """);
+        cache.Apply("THREAD_LIST_SYNC", sync.RootElement);
+        var rows = JsonSerializer.SerializeToElement(cache.Channels("1")).GetProperty("threads").EnumerateArray().ToDictionary(t => t.GetProperty("id").GetString()!);
+        Assert.True(rows["21"].GetProperty("joined").GetBoolean());
+        Assert.False(rows["22"].GetProperty("joined").GetBoolean());
+        Assert.True(rows["20"].GetProperty("archived").GetBoolean()); // left out of channel 10's open threads
+        Assert.Equal(0, JsonSerializer.SerializeToElement(cache.ThreadState("21")).GetProperty("notify").GetInt32()); // all messages
+    }
+
     // The member list keeps each row at Discord's index: a later range doesn't shift the first, and a range no
     // longer subscribed keeps what it showed.
     [Fact]
@@ -135,6 +202,34 @@ public sealed class DiscordCacheTests
         Assert.Equal("7", items[1].GetProperty("id").GetString());
         Assert.Equal(JsonValueKind.Null, items[2].ValueKind); // not sent yet: a placeholder in its place
         Assert.Equal("8", items[100].GetProperty("id").GetString());
+    }
+
+    // Your own activity: Discord sends your presence to everyone but this session, so your row in a server's list (it
+    // comes without your activity) and your profile show what Exo sent, and what Discord's SESSIONS_REPLACE says you're
+    // doing on another device. Ways it fails: your row stays bare, a friend's row takes yours, the open list isn't redrawn.
+    [Fact]
+    public void YourOwnActivityShowsOnYourRowAndProfile()
+    {
+        var cache = Ready("", owner: "100");
+        using var list = JsonDocument.Parse("""{ "guild_id": "1", "groups": [ { "id": "online", "count": 2 } ], "ops": [ { "op": "SYNC", "range": [0, 99], "items": [ { "group": { "id": "online" } }, { "member": { "user": { "id": "100", "username": "me" }, "roles": [], "presence": { "status": "online", "activities": [] } } }, { "member": { "user": { "id": "7", "username": "u7" }, "roles": [], "presence": { "status": "online", "activities": [] } } } ] } ] }""");
+        cache.Apply("GUILD_MEMBER_LIST_UPDATE", list.RootElement);
+        string? Row(string id) => JsonSerializer.SerializeToElement(cache.MemberList("1")).GetProperty("items").EnumerateArray()
+            .First(i => i.ValueKind == JsonValueKind.Object && i.TryGetProperty("id", out var x) && x.GetString() == id).GetProperty("activity").GetString();
+        Assert.Null(Row("100"));
+
+        var song = new System.Text.Json.Nodes.JsonObject { ["name"] = "Spotify", ["type"] = 2, ["details"] = "One More Time", ["state"] = "Daft Punk" };
+        var events = cache.SetMyActivities([song]);
+        Assert.Contains(events, e => e.Name == "discord.members");
+        Assert.Contains(events, e => e.Name == "discord.presence");
+        Assert.Equal("Daft Punk", Row("100")); // Discord's line for a song: its artist
+        Assert.Null(Row("7"));
+        var profile = JsonSerializer.SerializeToElement(cache.ProfileOn("100", "1", null)).GetProperty("presence");
+        Assert.Equal("One More Time", profile.GetProperty("rich").GetProperty("Details").GetString());
+
+        // Playing on another device: Discord's merged session.
+        using var sessions = JsonDocument.Parse("""[ { "session_id": "phone", "status": "online", "activities": [] }, { "session_id": "all", "status": "online", "activities": [ { "type": 0, "name": "Rocket League" } ] } ]""");
+        cache.Apply("SESSIONS_REPLACE", sessions.RootElement);
+        Assert.Equal("Rocket League", Row("100"));
     }
 
     // A server update (a new icon, a boost) rebuilds the server; the subscribed member list and its counts stay,

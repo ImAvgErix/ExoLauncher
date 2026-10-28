@@ -57,7 +57,7 @@ export const GeneralSection = memo(function GeneralSection({ settings, onSave: s
   return (
     <>
     <Section id="general" title="General">
-      <Row label="Appearance" labelId="set-appearance" detail="Void is pure black, for OLED screens" error={appearanceError}>
+      <Row label="Appearance" labelId="set-appearance" error={appearanceError}>
         <Choice
           label="Appearance"
           value={settings?.appearance ?? 'system'}
@@ -66,7 +66,7 @@ export const GeneralSection = memo(function GeneralSection({ settings, onSave: s
           onChange={value => { setAppearanceError(null); void save({ appearance: value }).then(setAppearanceError) }}
         />
       </Row>
-      <Row label="Material" labelId="set-glass" detail="Liquid Glass, or solid surfaces with nothing showing through" error={glassError}>
+      <Row label="Material" labelId="set-glass" error={glassError}>
         <Choice
           label="Material"
           value={settings?.glass === 'solid' ? 'solid' : 'clear'}
@@ -94,7 +94,6 @@ export const GeneralSection = memo(function GeneralSection({ settings, onSave: s
       <SwitchRow
         id="set-dictation"
         label="Dictation"
-        detail="A mic in text boxes turns what you say into text, on this PC"
         checked={settings?.dictation !== false}
         disabled={disabled}
         onChange={value => save({ dictation: value })}
@@ -102,7 +101,6 @@ export const GeneralSection = memo(function GeneralSection({ settings, onSave: s
       <SwitchRow
         id="set-tools"
         label="Show tools and soundtracks"
-        detail="Servers, SDKs and soundtracks"
         checked={settings?.showLibraryTools === true}
         disabled={disabled}
         onChange={async value => {
@@ -143,7 +141,7 @@ function DownloadRows({ settings, disabled, save }: { settings: LauncherSettings
   const current = HOURS.find(h => h.start === (settings?.downloadHoursStart ?? null) && h.end === (settings?.downloadHoursEnd ?? null))?.value ?? 'custom'
   return (
     <>
-      <Row label="Download hours" labelId="set-download-hours" detail="New downloads wait for these hours" error={hoursError}>
+      <Row label="Download hours" labelId="set-download-hours" error={hoursError}>
         <Choice
           label="Download hours"
           value={current}
@@ -159,7 +157,6 @@ function DownloadRows({ settings, disabled, save }: { settings: LauncherSettings
       <SwitchRow
         id="set-pause-playing"
         label="Pause downloads while playing"
-        detail="Epic, GOG and Amazon. Steam has its own."
         checked={settings?.pauseDownloadsWhilePlaying !== false}
         disabled={disabled}
         onChange={value => save({ pauseDownloadsWhilePlaying: value })}
@@ -167,7 +164,6 @@ function DownloadRows({ settings, disabled, save }: { settings: LauncherSettings
       <SwitchRow
         id="set-auto-update"
         label="Update games automatically"
-        detail="Epic, GOG and Amazon, while you're away. Steam has its own."
         checked={settings?.autoUpdateGames !== false}
         disabled={disabled}
         onChange={value => save({ autoUpdateGames: value })}
@@ -176,7 +172,6 @@ function DownloadRows({ settings, disabled, save }: { settings: LauncherSettings
         <SwitchRow
           id="set-auto-chipset"
           label={settings.chipset === 'amd' ? 'Keep the AMD chipset driver up to date' : 'Keep the Intel chipset driver up to date'}
-          detail={`While you're away, with no game or call. ${settings.chipset === 'amd' ? 'USB and sound may drop' : 'Devices may reset'} for a moment.`}
           checked={settings.autoUpdateChipset !== false}
           disabled={disabled}
           onChange={value => save({ autoUpdateChipset: value })}

@@ -11,6 +11,7 @@ import { Avatar } from './presence'
 import { Dialog } from '../ui/Dialog'
 import { Spinner } from '../ui/Spinner'
 import { Skeleton } from '../ui/Skeleton'
+import { ErrorNote } from '../ui/ErrorNote'
 
 type Invite = { code: string; uses: number; max_uses: number; expires_at?: string | null; inviter?: DiscordUser | null; channel?: { id: string; name: string } | null }
 
@@ -67,7 +68,7 @@ export function Invites({ guildId, channels, incidents, onChanged }: { guildId: 
               <span role="cell" className="exo-dc-row-actions">
                 <button type="button" className="exo-dc-icon-btn is-danger" aria-label={`Revoke ${invite.code}`} onClick={() => revoke(invite.code)}><Close size={14} /></button>
               </span>
-              {failed?.code === invite.code ? <span className="exo-dc-field-error exo-dc-row-error" role="alert">{failed.message}</span> : null}
+              {failed?.code === invite.code ? <ErrorNote as="span" className="exo-dc-field-error exo-dc-row-error" message={failed.message} /> : null}
             </div>
           ))}
         </div>
@@ -165,7 +166,7 @@ function Webhooks({ guildId, hooks, channels, onRemove, onChanged }: { guildId: 
         <h3 className="exo-dc-grow">Webhooks</h3>
         <button type="button" className="exo-set-btn is-primary" disabled={!text.length} onClick={create}>New webhook</button>
       </div>
-      {error ? <p className="exo-dc-note is-bad" role="alert">{error}</p> : null}
+      {error ? <ErrorNote className="exo-dc-note is-bad" message={error} /> : null}
       {hooks.length ? null : <p className="exo-dc-note">No webhooks yet.</p>}
       <ul className="exo-dc-mod-list exo-dc-hook-list">
         {hooks.map(hook => (
@@ -216,7 +217,7 @@ function WebhookEditor({ guildId, hook, channels, onRemove, onChanged }: { guild
         <button type="button" className="exo-dc-tab is-raised is-danger" onClick={() => onRemove({ kind: 'webhook', id: hook.id, name: hook.name })}>Delete webhook</button>
         {dirty ? <button type="button" className="exo-set-btn is-primary" disabled={busy || !name.trim()} onClick={() => void save()}>Save changes</button> : null}
       </span>
-      {error ? <p className="exo-dc-note is-bad" role="alert">{error}</p> : null}
+      {error ? <ErrorNote className="exo-dc-note is-bad" message={error} /> : null}
     </div>
   )
 }
@@ -393,7 +394,7 @@ export function AuditLog({ guildId }: { guildId: string }) {
       {audit.data && entries.length >= 50 && !more.done ? <button type="button" className="exo-dc-tab is-raised" disabled={loading} onClick={loadMore}>
         {loading ? <Spinner label="Loading more entries" /> : null}Load more
       </button> : null}
-      {moreError ? <p className="exo-dc-note is-bad" role="alert">{moreError}</p> : null}
+      {moreError ? <ErrorNote className="exo-dc-note is-bad" message={moreError} /> : null}
     </>
   )
 }
@@ -483,7 +484,7 @@ function BanDetail({ ban, error, busy, onRevoke, onClose }: { ban: Ban; error: s
     </>}>
       <p className="exo-dc-side-label">Ban reason</p>
       <p>{ban.reason || 'No reason given.'}</p>
-      {error ? <p className="exo-dialog-error" role="alert">{error}</p> : null}
+      {error ? <ErrorNote className="exo-dialog-error" message={error} /> : null}
     </Dialog>
   )
 }

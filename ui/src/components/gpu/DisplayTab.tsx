@@ -131,7 +131,7 @@ function ColorRows({ adjust, busy, error, onColor }: {
       {adjust.controls.map(control => (
         <ColorSlider key={control.key} control={control} busy={!!busy} error={error?.key === control.key ? error.text : null} onCommit={value => onColor(control.key, { key: control.key, value })} />
       ))}
-      <Row label="Default color" detail={nvidia === null ? "Puts every slider back to the driver's normal value" : 'Hands color back to Windows, with your calibration as it was'} error={error?.key === 'reset' ? error.text : null}>
+      <Row label="Default color" error={error?.key === 'reset' ? error.text : null}>
         {changed
           ? <button type="button" className="exo-set-btn" disabled={!!busy} aria-busy={busy === 'reset'} onClick={() => onColor('reset', nvidia === null ? { reset: true } : { nvidia: false })}>
             {busy === 'reset' ? <Spinner label="Putting the screen's color back" /> : null}Restore
@@ -184,7 +184,7 @@ function OutputColorRow({ auto, color, busy, error, onSet }: {
   onSet: (key: string, change: Omit<DisplayChange, 'display'>) => void
 }) {
   return (
-    <Row label="Output color" detail={auto ? `The driver picks: ${describe(color)}` : 'Format, depth and range below'} error={error}>
+    <Row label="Output color" detail={auto ? describe(color) : undefined} error={error}>
       <Busy on={busy === 'policy'} label="Changing the output color">
         <Choice
           label="Output color"
@@ -221,7 +221,7 @@ function VideoRows({ video, busy, error, onVideo }: {
   return (
     <>
       {video.superResolution !== null && (
-        <Row label="RTX Video Super Resolution" detail="Sharpens video in browsers and players with AI. Higher quality uses more of the GPU" error={error?.key === 'vsr' ? error.text : null}>
+        <Row label="RTX Video Super Resolution" error={error?.key === 'vsr' ? error.text : null}>
           <Busy on={busy === 'vsr'} label="Changing RTX Video Super Resolution">
             <Choice label="RTX Video Super Resolution" value={String(video.superResolution)} choices={SUPER_RESOLUTION} disabled={!!busy}
               onChange={value => onVideo('vsr', { superResolution: Number(value) })} />
@@ -229,7 +229,7 @@ function VideoRows({ video, busy, error, onVideo }: {
         </Row>
       )}
       {video.hdr !== null && (
-        <Row label="RTX Video HDR" detail="Turns SDR video into HDR in browsers and players. Needs HDR on in Windows" error={error?.key === 'vhdr' ? error.text : null}>
+        <Row label="RTX Video HDR" error={error?.key === 'vhdr' ? error.text : null}>
           <Busy on={busy === 'vhdr'} label="Changing RTX Video HDR">
             <Choice label="RTX Video HDR" value={video.hdr > 0 ? 'on' : 'off'} choices={[{ value: 'off', label: 'Off' }, { value: 'on', label: 'On' }]} disabled={!!busy}
               onChange={value => onVideo('vhdr', { hdr: value === 'on' })} />
@@ -257,14 +257,14 @@ function ScalingRows({ scaling, busy, errorFor, onSet, onOverride }: {
 }) {
   return (
     <>
-      <Row label="Scaling" detail="How a game or desktop below the screen's own resolution fills it" error={errorFor('scaling')}>
+      <Row label="Scaling" error={errorFor('scaling')}>
         <Busy on={busy === 'scaling'} label="Changing the scaling">
           <Choice label="Scaling" value={scaling.mode} choices={SCALING} disabled={!!busy}
             onChange={mode => onSet('scaling', { scaling: mode as ScalingMode, scalingGpu: scaling.gpu })} />
         </Busy>
       </Row>
       {scaling.mode !== 'integer' && scaling.mode !== 'default' && (
-        <Row label="Perform scaling on" detail="The GPU keeps it the same on every screen; the display uses its own scaler" error={errorFor('scalingOn')}>
+        <Row label="Perform scaling on" error={errorFor('scalingOn')}>
           <Busy on={busy === 'scalingOn'} label="Changing where scaling runs">
             <Choice label="Perform scaling on" value={scaling.gpu ? 'gpu' : 'display'}
               choices={[{ value: 'gpu', label: 'GPU' }, { value: 'display', label: 'Display' }]} disabled={!!busy}
@@ -273,21 +273,24 @@ function ScalingRows({ scaling, busy, errorFor, onSet, onOverride }: {
         </Row>
       )}
       {scaling.over !== null && (
-        <SwitchRow id="display-override" label="Override the scaling set by games" detail="Games and programs can't pick their own scaling; yours always wins"
+        <SwitchRow id="display-override" label="Override the scaling set by games"
           checked={scaling.over} disabled={!!busy} onChange={onOverride} />
       )}
     </>
   )
 }
 
-/** "165 Hz, RGB 10-bit, full range, no scaling on the GPU, games can't change it". */
+/**
+ * "165 Hz, RGB 10-bit, full range, no scaling on the GPU". The host's why follows only where the
+ * cable or port holds the screen off RGB, the one case it says how to fix.
+ */
 function bestLine(best: DisplayScreen['best']) {
-  return [
+  const line = [
     `${best.refresh} Hz`,
     best.color ? describe(best.color) : null,
     best.scaling ? 'no scaling on the GPU' : null,
-    best.over ? "games can't change it" : null,
   ].filter(Boolean).join(', ')
+  return best.why && best.color && best.color.format !== 'rgb' ? `${line}. ${best.why}` : line
 }
 
 function ScreenRows({ screen, busy, error, onSet }: {
@@ -316,11 +319,7 @@ function ScreenRows({ screen, busy, error, onSet }: {
 
   return (
     <>
-      <Row
-        label="Best for this screen"
-        detail={best.why ? `${bestText}. ${best.why}` : bestText}
-        error={errorFor('best')}
-      >
+      <Row label="Best for this screen" detail={bestText} error={errorFor('best')}>
         {screen.isBest
           ? <State on>In use</State>
           : <button type="button" className="exo-set-btn" disabled={!!busy} aria-busy={busy === 'best'} onClick={() => onSet('best', { best: true })}>
@@ -328,7 +327,7 @@ function ScreenRows({ screen, busy, error, onSet }: {
           </button>}
       </Row>
       {screen.refreshes.length > 1 && (
-        <Row label="Refresh rate" detail="How many times a second the screen draws" error={errorFor('refresh')}>
+        <Row label="Refresh rate" error={errorFor('refresh')}>
           <Busy on={busy === 'refresh'} label="Changing the refresh rate">
             <GraphicsControl
               row={{ key: 'refresh', label: 'Refresh rate', detail: '', choice: String(screen.refresh), choices: screen.refreshes.map(hz => ({ id: String(hz), label: `${hz} Hz` })) }}
@@ -343,7 +342,7 @@ function ScreenRows({ screen, busy, error, onSet }: {
         <Row label="Color" detail="Exo can't reach this screen's graphics driver, so only the refresh rate changes here" />
       ) : screen.auto ? null : (
         <>
-          <Row label="Color format" detail="RGB is sharpest. The 4:x:x formats are YCbCr, for TVs and cables that can't carry RGB" error={errorFor('format')}>
+          <Row label="Color format" error={errorFor('format')}>
             {formats.length > 1 ? (
               <Busy on={busy === 'format'} label="Changing the color format">
                 <GraphicsControl
@@ -354,7 +353,7 @@ function ScreenRows({ screen, busy, error, onSet }: {
               </Busy>
             ) : <State on>{FORMAT_NAME[color.format]}</State>}
           </Row>
-          <Row label="Color depth" detail="Bits per color on the cable, up to what the panel itself shows. More means smoother gradients" error={errorFor('bpc')}>
+          <Row label="Color depth" error={errorFor('bpc')}>
             {depths.length > 1 ? (
               <Busy on={busy === 'bpc'} label="Changing the color depth">
                 <GraphicsControl
@@ -369,7 +368,7 @@ function ScreenRows({ screen, busy, error, onSet }: {
             ) : <State on>{`${color.bpc}-bit`}</State>}
           </Row>
           {color.format === 'rgb' && (
-            <Row label="Dynamic range" detail="Full for PC monitors. Limited only for a TV that crushes blacks on Full" error={errorFor('range')}>
+            <Row label="Dynamic range" error={errorFor('range')}>
               {ranges.length > 1 ? (
                 <Busy on={busy === 'range'} label="Changing the dynamic range">
                   <GraphicsControl

@@ -8,6 +8,7 @@ import { Markdown, type MarkdownContext } from './markdown'
 import { ModalBack } from './SettingsLayer'
 import { Switch } from '../Switch'
 import { Spinner } from '../ui/Spinner'
+import { ErrorNote } from '../ui/ErrorNote'
 
 // Form component types.
 const ROW = 1, TEXT_INPUT = 4, TEXT = 10, LABEL = 18, FILE_UPLOAD = 19, RADIO = 21, CHECKS = 22, CHECKBOX = 23
@@ -94,7 +95,7 @@ function AppForm({ modal, guildId, onClose }: { modal: AppModal; guildId: string
           : <FormField key={f.component.custom_id ?? i} field={f} guildId={guildId} answer={answers[f.component.custom_id ?? '']} files={files[f.component.custom_id ?? ''] ?? []}
             first={i === fields.findIndex(x => 'component' in x)} onAnswer={answer => set(f.component.custom_id!, answer)}
             onFiles={list => setFiles(all => ({ ...all, [f.component.custom_id!]: list }))} />)}
-        {error ? <p className="is-bad" role="alert">{error}</p> : null}
+        {error ? <ErrorNote className="is-bad" message={error} /> : null}
         <div className="exo-dc-modal-row">
           <button type="button" className="exo-dc-tab" onClick={onClose}>Cancel</button>
           <button type="submit" className="exo-set-btn is-primary" disabled={busy}>

@@ -7,6 +7,7 @@
 
 #include <winrt/Windows.Graphics.Capture.h>
 #include <winrt/Windows.Graphics.DirectX.Direct3D11.h>
+#include <condition_variable>
 
 /// One D3D11 device shared by capture, color conversion and the encoder (no copies through the CPU).
 struct GpuDevice
@@ -135,7 +136,8 @@ public:
     com_ptr<IMFMediaType> VideoType() { return m_encoder->OutputType(); }
     void ForceKeyFrame() { if (m_encoder) m_encoder->ForceKeyFrame(); }
     void SetBitrate(UINT bitrate) { if (m_encoder) m_encoder->SetBitrate(bitrate); }
-    /// The newest frame as BGRA pixels at most maxWidth across, for a thumbnail. False when there is none (or HDR).
+    /// The newest frame as BGRA pixels at most maxWidth across, for a thumbnail (HDR tone-mapped as an HDR snip is).
+    /// False when there is none.
     bool LastFrame(std::vector<uint8_t>& pixels, UINT& width, UINT& height, UINT maxWidth = 480);
     /// Frames converted and dropped since the start (dropped: the encoder was still busy).
     uint64_t Frames() const { return m_frames; }
@@ -145,6 +147,8 @@ public:
 
 private:
     void OnFrame(winrt::Windows::Graphics::Capture::Direct3D11CaptureFramePool const& pool);
+    /// A picture Windows handed over, into the clip's or stream's frame for that time (under m_convert).
+    void ConvertFrame(winrt::Windows::Graphics::Capture::Direct3D11CaptureFrame const& frame, int64_t time);
     /// A free converted-frame texture, or a new one while there are fewer than MaxTargets; -1 when all are in use.
     int TakeTarget();
     int AddTarget();
@@ -182,6 +186,8 @@ private:
     com_ptr<ID3D11VideoProcessorInputView> m_copyView;
     int m_lastIndex = -1; // the target holding the newest converted frame
     int m_pending = -1;   // Go Live: the newest converted frame not sent yet (the stream's clock sends it)
+    winrt::Windows::Graphics::Capture::Direct3D11CaptureFrame m_held{ nullptr }; // a clip: the newest picture for its next tick
+    std::condition_variable m_heldReady; // a picture came while the clip's clock waits for one
     RECT m_lastDest{};
     SIZE m_content{};
     com_ptr<ID3D11VideoDevice> m_videoDevice;
@@ -193,7 +199,6 @@ private:
     std::vector<Target> m_targets; // grown only under m_convert
     std::shared_ptr<std::vector<int>> m_free = std::make_shared<std::vector<int>>();
     std::shared_ptr<std::mutex> m_freeLock = std::make_shared<std::mutex>();
-    int64_t m_lastFrame = 0;
     int64_t m_lastSubmit = 0;
     int64_t m_lastKey = 0;
     std::atomic<uint64_t> m_frames{ 0 }, m_dropped{ 0 }, m_arrived{ 0 };

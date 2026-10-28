@@ -1,12 +1,13 @@
 import { useId, useRef, useState, type ComponentType, type KeyboardEvent } from 'react'
-import { Capture, Gallery, History, type IconProps, Record, Scissors, Settings } from '../../brand/icons'
+import { Capture, Gallery, History, type IconProps, Notes, Plus, Record, Scissors, Settings } from '../../brand/icons'
 import { host } from '../../lib/host'
 import { clock, keysLabel, openCaptures, useCapture } from '../../lib/capture'
+import { openNotes } from '../../lib/notes'
 import { report } from '../../lib/report'
 import { usePageClock } from '../../lib/pageActivity'
 import { reportFailure } from './useActionStatus'
 
-type Action = 'saveReplay' | 'record' | 'snip' | 'captures' | 'settings'
+type Action = 'saveReplay' | 'record' | 'snip' | 'note' | 'captures' | 'notes' | 'settings'
 
 const sinceStart = () => performance.now()
 
@@ -19,9 +20,9 @@ function RecordingClock({ ms, at }: { ms: number; at: number }) {
 /**
  * The title bar's Capture button, beside the mini player: a quiet green dot while
  * instant replay holds the last seconds; a short menu of Save replay, Record and Snip,
- * each with its keys, then Open captures and Capture settings (the Captures sheet's
- * own). While recording it is a red timer pill that stops the recording. Nothing
- * shows without Exo Capture.
+ * each with its keys, and New note, then Open captures, Open notes and Capture settings
+ * (the Captures sheet's own). While recording it is a red timer pill that stops the
+ * recording. Without Exo Capture the menu holds Notes alone.
  */
 export function CaptureButton() {
   const { state, settings, at } = useCapture()
@@ -29,7 +30,9 @@ export function CaptureButton() {
   const menuRef = useRef<HTMLDivElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
   const [open, setOpen] = useState(false)
-  if (!state?.present) return null
+  // Until Exo answers, nothing; Notes needs no add-on.
+  if (!state) return null
+  const present = state.present
 
   async function run(action: Action) {
     const menu = menuRef.current
@@ -42,6 +45,7 @@ export function CaptureButton() {
       menu.style.transition = ''
     } else menu?.hidePopover()
     if (action === 'captures' || action === 'settings') { openCaptures({ settings: action === 'settings' }); return }
+    if (action === 'note' || action === 'notes') { openNotes({ fresh: action === 'note' }); return }
     try {
       const result = await host.captureAct(action)
       if (!result.ok) {
@@ -54,7 +58,7 @@ export function CaptureButton() {
     }
   }
 
-  if (state.recording) {
+  if (present && state.recording) {
     return (
       <button type="button" className="exo-capture-rec" onClick={() => void run('record')} aria-label="Stop recording">
         <span className="exo-capture-rec-dot" aria-hidden />
@@ -64,12 +68,17 @@ export function CaptureButton() {
   }
 
   // Save replay needs instant replay holding the last seconds.
-  const items: { action: Action; label: string; keys?: string; icon: ComponentType<IconProps>; disabled?: boolean }[] = [
+  const items: { action: Action; label: string; keys?: string; icon: ComponentType<IconProps>; disabled?: boolean }[] = present ? [
     { action: 'saveReplay', label: 'Save replay', keys: settings?.saveReplayKeys, icon: History, disabled: !state.buffering },
     { action: 'record', label: 'Record', keys: settings?.recordKeys, icon: Record },
     { action: 'snip', label: 'Snip', keys: settings?.snipKeys, icon: Scissors },
+    { action: 'note', label: 'New note', icon: Plus },
     { action: 'captures', label: 'Open captures', icon: Gallery },
+    { action: 'notes', label: 'Open notes', icon: Notes },
     { action: 'settings', label: 'Capture settings', icon: Settings },
+  ] : [
+    { action: 'note', label: 'New note', icon: Plus },
+    { action: 'notes', label: 'Open notes', icon: Notes },
   ]
   const entries = () => Array.from(menuRef.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [])
   function onKeyDown(event: KeyboardEvent<HTMLDivElement>) {

@@ -110,7 +110,21 @@ public sealed partial class WebHostBridge
         }
         else if (game.Store == StoreKind.Epic && LegendaryProperties.IsAppName(game.LaunchTarget))
             await Task.Run(() => FillEpicAsync(common, game.LaunchTarget!, ct), ct).ConfigureAwait(true);
+        if (game.Store != StoreKind.Steam) common.ThroughSteam = await Task.Run(() => ThroughSteamFor(game), ct).ConfigureAwait(true);
+        common.ShaderCacheBytes = await Task.Run(() => ShaderCacheBytesOf(game), ct).ConfigureAwait(true);
         return common.ToDto();
+    }
+
+    private static long? ShaderCacheBytesOf(GameEntry game)
+    {
+        try
+        {
+            return GameSettings.ShaderCaches(game) is { } caches ? GameSettings.ShaderCacheBytes(caches) : null;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
     }
 
     private static async Task FillSteamAsync(PropertiesView view, string appId, CancellationToken ct)
@@ -288,6 +302,11 @@ public sealed partial class WebHostBridge
             return await ApplySteamOverlayAsync(new Dictionary<string, bool> { [game.LaunchTarget!] = value == "on" }, userAsked: true, ct)
                 .ConfigureAwait(true);
         }
+        if (key == "throughSteam")
+        {
+            if (game.Store == StoreKind.Steam) throw new InvalidDataException("Steam does not take that change.");
+            return await ApplyThroughSteamAsync(game, value, ct).ConfigureAwait(true);
+        }
         if (key == "controller")
         {
             if (game.Store != StoreKind.Steam || !SteamProtocol.IsValidAppId(game.LaunchTarget) || value is not ("native" or "steam" or "default"))
@@ -296,9 +315,10 @@ public sealed partial class WebHostBridge
             _services.Settings.UpdateProfile(s => { if (value == "default") s.SteamInputChoices.Remove(appId); else s.SteamInputChoices[appId] = value; });
             return await ApplySteamOverlayAsync(null, userAsked: true, ct, new HashSet<string> { appId }).ConfigureAwait(true);
         }
-        var touchesFiles = key is "content" or "beta" or "betaCode" or "language" or "folder";
+        var touchesFiles = key is "content" or "beta" or "betaCode" or "language" or "folder" or "shaders";
         if (touchesFiles && _services.Launcher.GetGameRunState(game).IsRunning)
             throw new InvalidDataException($"Close {game.Title} first.");
+        if (key == "shaders") return await RebuildShadersAsync(game, ct).ConfigureAwait(true);
         return game.Store switch
         {
             StoreKind.Steam when SteamProtocol.IsValidAppId(game.LaunchTarget) =>
@@ -307,6 +327,24 @@ public sealed partial class WebHostBridge
                 await ApplyEpicPropertyAsync(game, game.LaunchTarget!, key, value, ct).ConfigureAwait(true),
             _ => throw new InvalidDataException("Exo cannot change that for this game."),
         };
+    }
+
+    /// <summary>The game's own shader caches deleted, so it builds them again as it starts (Call of Duty for now).</summary>
+    private static async Task<string?> RebuildShadersAsync(GameEntry game, CancellationToken ct)
+    {
+        if (GameSettings.ShaderCaches(game) is not { Count: > 0 } caches) throw new InvalidDataException("There are no shaders to rebuild.");
+        try
+        {
+            await Task.Run(() => GameSettings.ClearShaderCaches(caches), ct).ConfigureAwait(true);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            AppLog.Warn($"Shaders: {game.Title}'s shader cache couldn't be cleared: {ex.GetType().Name}");
+            throw new InvalidDataException($"Some shader files couldn't be deleted. Close {game.Title} and try again.");
+        }
+        AppLog.Info($"Shaders: {game.Title}'s shader cache cleared; it builds it again as it starts.");
+        // The row itself now reads Builds at next start.
+        return null;
     }
 
     private async Task<string?> ApplySteamPropertyAsync(GameEntry game, string appId, string key, string value, string? secret, CancellationToken ct)
@@ -552,6 +590,10 @@ public sealed partial class WebHostBridge
         public string? Controller { get; set; }
         /// <summary>Whether the game reads a PlayStation controller itself (its store page says so).</summary>
         public bool ReadsPlayStation { get; set; }
+        /// <summary>A game that isn't Steam's, started through Steam for Steam Input; null where that isn't offered.</summary>
+        public bool? ThroughSteam { get; set; }
+        /// <summary>The game's own shader caches together (0 once cleared); null for a game Exo can't rebuild them for.</summary>
+        public long? ShaderCacheBytes { get; set; }
 
         public object ToDto() => new
         {
@@ -582,6 +624,8 @@ public sealed partial class WebHostBridge
             overlay = Overlay,
             controller = Controller,
             readsPlayStation = ReadsPlayStation,
+            throughSteam = ThroughSteam,
+            shaderCacheBytes = ShaderCacheBytes,
         };
 
         private static object Choice(PropertyChoice choice) =>

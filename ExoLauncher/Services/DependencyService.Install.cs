@@ -54,11 +54,12 @@ public sealed partial class DependencyService
     /// What one install runs, in order. missing: what isn't on this PC (bulk leaves out what Microsoft no longer supports;
     /// named ids keep it, as a game asked for it). update: that and every older version. repair: every Visual C++ again.
     /// </summary>
-    internal static IReadOnlyList<RuntimeStatus> Plan(IReadOnlyList<RuntimeStatus> statuses, string mode, IReadOnlyCollection<string>? ids)
+    internal static IReadOnlyList<RuntimeStatus> Plan(IReadOnlyList<RuntimeStatus> statuses, string mode, IReadOnlyCollection<string>? ids,
+        IReadOnlySet<string>? needed = null)
     {
         var named = ids is { Count: > 0 } ? new HashSet<string>(ids, StringComparer.OrdinalIgnoreCase) : null;
         var pool = statuses.Where(s => s.Runtime.Installable && (named is null || mode == "repair" || named.Contains(s.Runtime.Id)));
-        bool Missing(RuntimeStatus s) => s.State == State.Missing && (named is not null || !s.EndOfSupport);
+        bool Missing(RuntimeStatus s) => s.State == State.Missing && (named is not null || !s.EndOfSupport && Wanted(s, needed));
         var chosen = mode switch
         {
             "repair" => pool.Where(s => s.Runtime.IsVisualCpp),
@@ -92,9 +93,9 @@ public sealed partial class DependencyService
             await Task.Run(CleanupStaging, cancel.Token).ConfigureAwait(false);
             var dotnet = await DotnetReleasesAsync(cancel.Token).ConfigureAwait(false);
             var before = Evaluate(await Task.Run(() => Shows(CurrentSnapshot()), cancel.Token).ConfigureAwait(false), dotnet);
-            var plan = Plan(before, mode, ids);
+            var plan = Plan(before, mode, ids, _needed);
             if (plan.Count == 0)
-                return new Result(true, ids is { Count: > 0 } ? "Already on this PC." : "Every runtime is up to date.", [], Items: before.Select(Shown).ToArray());
+                return new Result(true, ids is { Count: > 0 } ? "Already on this PC." : "Every runtime is up to date.", [], Items: before.Select(s => Shown(s, _needed)).ToArray());
             AppLog.Info($"Runtimes: {mode} {string.Join(", ", plan.Select(s => s.Runtime.Id))}.");
 
             var steps = plan.Select(s => ToStep(s, mode == "repair", dotnet)).ToList();
@@ -120,14 +121,14 @@ public sealed partial class DependencyService
             held.Clear();
 
             if (declined)
-                return new Result(false, "Windows' permission was declined, so nothing was installed.", [], Declined: true, Items: before.Select(Shown).ToArray());
+                return new Result(false, "Windows' permission was declined, so nothing was installed.", [], Declined: true, Items: before.Select(s => Shown(s, _needed)).ToArray());
 
             progress?.Invoke(new Progress("check", null, null, steps.Count, steps.Count, 0, null, 0, 0));
             ForgetSnapshot();
             var after = Evaluate(await Task.Run(() => Shows(CurrentSnapshot()), CancellationToken.None).ConfigureAwait(false), dotnet);
             var results = steps.Select(step => Outcome(step, before, after, codes)).ToList();
             foreach (var result in results) AppLog.Info($"Runtimes: {result.Id} {result.Outcome}{(result.Code is { } code ? $" ({code})" : "")}.");
-            return new Result(results.All(r => r.Outcome != "failed"), null, results, Items: after.Select(Shown).ToArray());
+            return new Result(results.All(r => r.Outcome != "failed"), null, results, Items: after.Select(s => Shown(s, _needed)).ToArray());
         }
         catch (OperationCanceledException)
         {

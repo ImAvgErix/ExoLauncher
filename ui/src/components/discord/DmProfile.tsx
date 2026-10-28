@@ -11,6 +11,7 @@ import {
 } from './profileParts'
 import { ModalBack } from './SettingsLayer'
 import { Skeleton } from '../ui/Skeleton'
+import { ErrorNote } from '../ui/ErrorNote'
 
 /**
  * Discord's profile panel beside a DM: banner, the person, badges, what they're doing, About Me, Member Since,
@@ -138,7 +139,7 @@ function FullProfile({ target, meId, onClose, onMessage }: {
             </div>
             <ProfileEffectOf data={data} guildId={guildId} />
           </>
-        ) : failed ? <p className="exo-dc-note exo-dc-pf-wait" role="alert">Discord didn't send this profile. Try again.</p> : <Skeleton label="Loading the profile" />}
+        ) : failed ? <ErrorNote className="exo-dc-note exo-dc-pf-wait" message="Discord didn't send this profile. Try again." /> : <Skeleton label="Loading the profile" />}
       </div>
     </ModalBack>
   )
@@ -173,7 +174,7 @@ function FriendAction({ data, name }: { data: Loaded; name: string }) {
           <button type="button" className={raised} disabled={busy} onClick={() => act('remove', 0)}>Ignore</button>
         </>
       ) : null}
-      {error ? <span className="exo-dc-note is-bad" role="alert">{error}</span> : null}
+      {error ? <ErrorNote as="span" className="exo-dc-note is-bad" message={error} /> : null}
       {stranger ? <StrangerConfirm name={name} busy={busy} onClose={() => setStranger(false)} onConfirm={() => act('accept', 1, true)} /> : null}
     </>
   )

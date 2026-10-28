@@ -7,6 +7,7 @@ import { showProfile } from './extras'
 import { Icons } from './icons'
 import { Avatar } from './presence'
 import { ModalBack } from './SettingsLayer'
+import { ErrorNote } from '../ui/ErrorNote'
 
 const MAX_ICON = 10 * 1024 * 1024
 
@@ -107,7 +108,7 @@ export function EditGroup({ dm, onClose }: { dm: DiscordDm; onClose: () => void 
         <label className="exo-dc-modal-field"><span>Group name</span>
           <input className="exo-dc-modal-input" value={name} maxLength={100} onChange={event => setName(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') save() }} />
         </label>
-        {error ? <p className="is-bad" role="alert">{error}</p> : null}
+        {error ? <ErrorNote className="is-bad" message={error} /> : null}
         <div className="exo-dc-modal-row">
           <button type="button" className="exo-dc-tab" onClick={onClose}>Cancel</button>
           <button type="button" className="exo-set-btn is-primary" disabled={busy} onClick={save}>Save</button>

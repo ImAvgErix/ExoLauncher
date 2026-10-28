@@ -53,10 +53,12 @@ internal static unsafe partial class NvidiaProfiles
             : $"{name} the game's own";
         var parts = new[] { Feature("Super Resolution", s.Sr), Feature("Ray Reconstruction", s.Rr), Feature("Frame Generation", s.Fg) }
             .Where(part => part.Length > 0).ToList();
-        // The preset reads as the DRS preset does (1 = A); mode and frame count are logged as the driver gives them.
+        // The preset reads as the DRS preset does (1 = A), named by Ray Reconstruction's models when it runs
+        // (its letters name other models than Super Resolution's); mode and frame count as the driver gives them.
+        var presetOf = (s.Rr & (NgxCreated | NgxEvaluate)) != 0 ? GraphicsCatalog.RrPreset : GraphicsCatalog.SrPreset;
         if ((s.Sr | s.Rr) != 0)
             parts.Add(string.Create(CultureInfo.InvariantCulture,
-                $"{GraphicsCatalog.ValueOf(GraphicsCatalog.SrPreset, s.Preset)}, mode {s.Mode}, scale {s.Ratio:0.##}"));
+                $"{GraphicsCatalog.ValueOf(presetOf, s.Preset)}, mode {s.Mode}, scale {s.Ratio:0.##}"));
         if (s.Fg != 0)
             parts.Add($"frame generation {GraphicsCatalog.ValueOf(GraphicsCatalog.FgPreset, s.FgPreset)}, count {s.FgCount}, mode {s.FgMode}");
         return string.Join("; ", parts);

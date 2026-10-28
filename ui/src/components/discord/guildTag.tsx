@@ -5,6 +5,7 @@ import { useDismiss } from '../../lib/dismiss'
 import type { DiscordGuildProfile, DiscordLook } from '../../lib/discord'
 import { ProfilePlaces } from './profileParts'
 import { Skeleton } from '../ui/Skeleton'
+import { ErrorNote } from '../ui/ErrorNote'
 
 /** A server tag's badge on Discord's CDN, at the size Discord asks for it (14 px shown from its 16 px file). */
 export const tagBadgeUrl = (guildId: string, badge: string) => `https://cdn.discordapp.com/clan-badges/${guildId}/${badge}.png?size=16`
@@ -70,7 +71,7 @@ function GuildTagCard({ guildId, tag, badge, at, onClose }: { guildId: string; t
         </span>
       </div>
       {profile ? <TagCardAbout profile={profile} /> : null}
-      {error ? <p className="exo-dc-note is-bad" role="alert">{error}</p> : null}
+      {error ? <ErrorNote className="exo-dc-note is-bad" message={error} /> : null}
       {profile || error ? null : <Skeleton label="Loading the server" rows={2} />}
       {member ? <button type="button" className="exo-set-btn is-primary" onClick={() => { onClose(); openServer(guildId) }}>Go to server</button> : null}
     </div>

@@ -125,6 +125,8 @@ internal static class SteamStateFlags
     /// </summary>
     public static bool IsBusy(string? raw, long? bytesToDownload, long? bytesDownloaded)
     {
+        // A finished preload keeps UpdateStarted until the game releases: nothing moves.
+        if (IsPreloaded(raw, bytesToDownload, bytesDownloaded)) return false;
         // Paused bytes describe unfinished work, not a transfer moving now.
         if (TryParse(raw, out var pausedFlags) && (pausedFlags & UpdatePaused) != 0 &&
             (pausedFlags & (UpdateRunning | Downloading | Staging | Committing)) == 0)
@@ -136,6 +138,20 @@ internal static class SteamStateFlags
         if ((f & BusyMask) != 0) return true;
         return false;
     }
+
+    private const int MovingMask =
+        UpdateRunning | Uninstalling | BackupRunning | Reconfiguring | Validating | AddingFiles | Preallocating |
+        Downloading | Staging | Committing | UpdateStopping;
+
+    /// <summary>
+    /// A download Steam finished but won't install yet: a preload before its game releases. Steam leaves it at
+    /// UpdateRequired|UpdateStarted (1026), every byte downloaded and nothing running ("Finished preloading (Not
+    /// released)" in its content log); it installs by itself on release day. Not a download in progress, and asking
+    /// Steam to install it only fails ("Missing configuration").
+    /// </summary>
+    public static bool IsPreloaded(string? raw, long? bytesToDownload, long? bytesDownloaded) =>
+        TryParse(raw, out var f) && (f & UpdateStarted) != 0 && (f & (FullyInstalled | MovingMask)) == 0 &&
+        bytesToDownload is > 0 && bytesDownloaded >= bytesToDownload;
 
     /// <summary>Install/update watch considers the title ready.</summary>
     public static bool IsReady(string? raw) =>

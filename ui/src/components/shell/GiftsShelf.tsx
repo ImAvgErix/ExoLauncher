@@ -5,6 +5,7 @@ import { notify } from '../../lib/notify'
 import { report } from '../../lib/report'
 import { confirm } from '../ui/Dialog'
 import { Spinner } from '../ui/Spinner'
+import { ErrorNote } from '../ui/ErrorNote'
 
 type Busy = 'accept' | 'decline'
 
@@ -68,7 +69,7 @@ function GiftCard({ gift, onDone }: { gift: StoreGift; onDone: () => void }) {
         <strong>{gift.title}</strong>
         {gift.sender ? <span>From {gift.sender}</span> : null}
         {gift.message ? <p className="exo-gift-message">{gift.message}</p> : null}
-        {error ? <p className="exo-gift-line is-bad" role="alert">{error}</p> : null}
+        {error ? <ErrorNote className="exo-gift-line is-bad" message={error} /> : null}
       </div>
       <div className="exo-gift-actions">
         <button type="button" className="exo-set-btn" disabled={busy !== null} onClick={() => void answer(false)}>

@@ -1,14 +1,14 @@
 // Big screens and other monitors, the way 3.13.3 broke: Exo restarted as if on a 1440p or 4K screen (EXO_PAGE_SCREEN),
 // each time checked on the screen itself (the whole page shows), clicked for real (the tabs are where they're drawn),
 // resized, and moved to each monitor. Restarts Exo; runs last.
-import { sleep } from '../cdp.mjs'
+import { literal, sleep } from '../cdp.mjs'
 import { screenMatchesPage } from './shell.mjs'
 import { roomsLayout } from './layout.mjs'
 
 /** A real mouse click on a page element: its place in the page, times the zoom, from the window's client corner. */
 async function realClick(t, finder, ...args) {
   const r = await t.shell.call((f, a) => null, null) // keeps the page session warm
-  const box = await t.shell.eval(`(() => { const el = (${finder.toString()})(...${JSON.stringify(args)}); if (!el) return null; const r = el.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2, vw: innerWidth } })()`)
+  const box = await t.shell.eval(`(() => { const el = (${finder.toString()})(...${literal(args)}); if (!el) return null; const r = el.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2, vw: innerWidth } })()`)
   if (!box) return false
   const w = await t.win.window()
   const zoom = w.client.w / box.vw

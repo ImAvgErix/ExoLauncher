@@ -51,17 +51,6 @@
   font-weight: 600;
 }
 
-.exo-action-copy small {
-  overflow: hidden;
-  max-width: 100%;
-  margin-top: 3px;
-  font-size: calc(12px * var(--exo-scale, 1));
-  font-weight: 500;
-  line-height: 1;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  opacity: 0.68;
-}
 
 .exo-primary-action.is-active .exo-action-idle,
 .exo-update-action.is-active .exo-action-idle {

@@ -6,7 +6,7 @@ namespace ExoLauncher.Adapters;
 /// and over a developer's opt-in; app 413080 is Steam's desktop layout (the controller as mouse and keyboard outside
 /// Steam games). Steam rewrites the file as it exits, so it is written with the overlay switch, while Steam is closed.
 ///
-/// With Games read it themselves on, every installed Steam game whose store page lists PlayStation controller support
+/// Always (Devices > controller > Games read it themselves), every installed Steam game whose store page lists PlayStation controller support
 /// (category 57) reads the controller itself, and the desktop layout is off. A game that reads only Xbox controllers
 /// keeps Steam Input: without it a DualSense does nothing there, and Exo adds no layer of its own. A game picked in Exo
 /// gets what was picked. Exo records each value it replaced (none: the line wasn't there) and puts it back exactly when

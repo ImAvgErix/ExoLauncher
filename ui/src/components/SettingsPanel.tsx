@@ -105,7 +105,6 @@ export const SettingsPanel = memo(function SettingsPanel({
     saveQueue.current = queued
     return queued
   }, [onSettings])
-  const save = useCallback(async (patch: Partial<LauncherSettings>) => await saveWithReason(patch) === null, [saveWithReason])
 
   const refreshLibrary = useCallback(() => {
     void host.storesMatrix().then(next => onStores?.(next)).catch(() => undefined)
@@ -214,8 +213,6 @@ export const SettingsPanel = memo(function SettingsPanel({
                 onCheckStores={checkStores}
                 onConnect={connectStore}
                 onOpen={openStore}
-                settings={settings}
-                onSave={save}
                 active={active}
               />
               <AppsSection />

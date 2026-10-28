@@ -1,31 +1,21 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { host, onHostEvent, type ControllerPolling, type ControllerRead, type ControllerState, type Peripheral, type StickEdge, type StickRest } from '../../lib/host'
 import { report } from '../../lib/report'
-import { Row, State, SwitchRow } from '../settings/parts'
+import { Row, State } from '../settings/parts'
 import { Spinner } from '../ui/Spinner'
 import { CalibrationRows } from './Calibration'
 import { DeviceColumn, DevicePage, DevicePanel as Panel } from './DevicePage'
-import { ProfileRows } from './EdgeProfiles'
+import { GameProfileRows } from './GameProfiles'
+import { ControllerSoundRow, PadSettingsRows } from './PadSettings'
 import { chipWords, portWords } from './ports'
 
-/** An Edge's profiles by slot, as its Fn buttons name them. */
-const PROFILE: Record<number, string> = { 1: 'Default', 2: 'Square', 3: 'Cross', 4: 'Circle' }
-
-/** What the link gives, by model, before measuring: the Edge 1000 a second on USB, a DualSense or DualShock 4 250; Bluetooth about 800. */
-function expected(model: string | null, link: Peripheral['connection']) {
-  if (model === 'xbox') return 'Windows gives an Xbox controller’s readings as they change: move both sticks while it measures.'
-  if (model !== 'dualsense' && model !== 'dualsense-edge' && model !== 'dualshock4') return 'Move a stick while it measures.'
-  if (link === 'bluetooth') return 'Bluetooth gives about 700 to 800 a second, with more jitter than a cable.'
-  if (model === 'dualsense-edge') return 'An Edge on a cable sends 1000 a second.'
-  return `A ${model === 'dualshock4' ? 'DualShock 4' : 'DualSense'} on a cable sends 250 a second. Bluetooth gives about 800.`
-}
-
 /**
- * A controller's page (DESIGN.md › Devices): the Controller Lab. The hero holds its picture, its link and charge, a
- * DualSense's firmware and an Edge's active profile. Beside it: its sticks and triggers live and a two-step stick test,
- * and on a DualSense or Edge the controller's own calibration; an Edge's on-board profiles; how it reports (measured);
- * the USB port it's on; and what sits between it and games, with the one switch that lets games read it themselves
- * instead of through Steam Input. What changes a controller does so over USB, never during a game, and can be undone.
+ * A controller's page (DESIGN.md › Devices): the Controller Lab, on one screen. The hero holds its picture, its link and
+ * charge and a DualSense's firmware. Beside it, in two columns sized so neither scrolls: its sticks and triggers live,
+ * a two-step stick test and on a DualSense or Edge the controller's own calibration; how it reports (measured); game
+ * profiles; then its light and sound; the USB port it's on; and what sits between it and games, with the one switch that
+ * lets games read it themselves instead of through Steam Input. Game profiles stand in for an Edge's on-board profiles.
+ * What changes a controller does so over USB, never during a game, and can be undone.
  */
 export function ControllerPage({ card, name, status, art, visible }: { card: Peripheral; name: string; status: string; art: ReactNode; visible: boolean }) {
   const [read, setRead] = useState<ControllerRead | null>(null)
@@ -41,24 +31,27 @@ export function ControllerPage({ card, name, status, art, visible }: { card: Per
   const usb = card.connection === 'usb'
   const firmware = read?.firmware
   return (
-    <DevicePage name={name} status={withCharge(status, card, live)} art={art} stats={[
-      { label: 'Firmware', value: firmware?.version ?? null },
-      { label: 'Profile', value: edge ? profileName(live?.profile) : null },
-    ]}>
+    <DevicePage name={name} status={withCharge(status, card, live)} art={art} stats={[{ label: 'Firmware', value: firmware?.version ?? null }]}>
       <DeviceColumn>
-        <Panel title="Sticks">
+        <Panel title="Sticks and triggers">
           <Sticks id={card.id} live={live} />
           {sony ? <CalibrationRows id={card.id} edge={edge} usb={usb} live={live} state={read?.calibration ?? undefined} onChanged={() => setReadAt(n => n + 1)} /> : null}
+          <Triggers live={live} />
         </Panel>
-        <Panel title="Triggers"><Triggers live={live} /></Panel>
-        {edge ? <Panel title="Profiles"><ProfileRows id={card.id} usb={usb} active={live?.profile} /></Panel> : null}
+        <Panel title="Polling"><Polling id={card.id} /></Panel>
+        {sony ? <Panel title="Game profiles"><GameProfileRows /></Panel> : null}
       </DeviceColumn>
       <DeviceColumn>
-        <Panel title="Polling"><Polling id={card.id} hint={expected(card.model, card.connection)} /></Panel>
+        {read ? (
+          <Panel title="Lights and sound">
+            {sony ? <PadSettingsRows key={card.id} id={card.id} usb={usb} settings={read.settings} /> : null}
+            <ControllerSoundRow on={read.sound} />
+          </Panel>
+        ) : null}
         {card.port ? <Panel title="USB port"><PortRows port={card.port} /></Panel> : null}
         {firmware?.current === false ? (
           <Panel title="Firmware">
-            <Row label={`Firmware ${firmware.latest} is out`} detail="Sony's PlayStation Accessories app updates it. Exo never changes a controller's firmware.">
+            <Row label={`Firmware ${firmware.latest} is out`}>
               <button type="button" className="exo-set-btn" onClick={() => void host.openUrl('https://www.playstation.com/support/hardware/ps5-controller-update/')}>How to update</button>
             </Row>
           </Panel>
@@ -74,8 +67,6 @@ function withCharge(status: string, card: Peripheral, live: ControllerState | nu
   if (card.battery != null || live?.battery == null) return status
   return `${status} · ${live.battery}%${live.charging && live.battery < 100 ? ', charging' : ''}`
 }
-
-const profileName = (slot: number | null | undefined) => slot ? PROFILE[slot] ?? `Profile ${slot}` : null
 
 /**
  * The controller's state, at most 60 a second, only while its page is on screen, focused or not (Devices stays
@@ -150,7 +141,7 @@ function Sticks({ id, live }: { id: string; live: ControllerState | null }) {
         <StickView x={live?.lx} y={live?.ly} label="Left stick" />
         <StickView x={live?.rx} y={live?.ry} label="Right stick" />
       </div>
-      <Row label={asked ?? 'Stick test'} detail={asked ? undefined : 'Center, wander, reach and roundness'} error={error}>
+      <Row label={asked ?? 'Stick test'} error={error}>
         <button type="button" className="exo-set-btn" disabled={step !== 'idle'} onClick={() => void run()}>
           {step !== 'idle' ? <Spinner label="Testing the sticks" /> : null}{result.edge ? 'Test again' : 'Test'}
         </button>
@@ -204,7 +195,7 @@ function Triggers({ live }: { live: ControllerState | null }) {
 }
 
 /** How it reports, measured over three seconds: rate, fresh readings, the slowest gaps, jitter and repeats. */
-function Polling({ id, hint }: { id: string; hint: string }) {
+function Polling({ id }: { id: string }) {
   const [polling, setPolling] = useState<ControllerPolling | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -224,14 +215,14 @@ function Polling({ id, hint }: { id: string; hint: string }) {
   }
   return (
     <>
-      <Row label="Polling rate" detail={polling ? polling.fresh != null ? `${polling.fresh} a second carry a new reading` : undefined : hint} error={error}>
+      <Row label="Polling rate" detail={polling?.fresh != null ? `${polling.fresh} a second carry a new reading` : undefined} error={error}>
         {polling ? <State on>{polling.rate} Hz</State> : null}
         <button type="button" className="exo-set-btn" disabled={busy} onClick={() => void measure()}>{busy ? <Spinner label="Measuring" /> : null}{polling ? 'Again' : 'Measure'}</button>
       </Row>
       {polling ? (
         <>
           <Row label="Slowest 1%" detail={`Jitter ${polling.jitter} ms`}><State>{polling.p99} ms</State></Row>
-          {polling.repeats != null ? <Row label="Repeats" detail="Reports that brought nothing new"><State on={polling.repeats < 5}>{polling.repeats}%</State></Row> : null}
+          {polling.repeats != null ? <Row label="Repeats"><State on={polling.repeats < 5}>{polling.repeats}%</State></Row> : null}
         </>
       ) : null}
     </>
@@ -243,9 +234,9 @@ function PortRows({ port }: { port: NonNullable<Peripheral['port']> }) {
   return (
     <>
       <Row label="Port" detail={port.chips ? chipWords(port) : undefined}><State on={port.where === 'cpu' && port.hubs === 0}>{portWords(port)}</State></Row>
-      {port.interrupts ? <Row label="Interrupts" detail="Set in PC › Performance"><State on={port.interrupts === 'msi'}>{port.interrupts === 'msi' ? 'MSI' : 'Shared line'}</State></Row> : null}
-      {port.better === 'free' ? <Row label="A shorter way in" detail="A free port on the processor’s own USB takes one chip out of the way" /> : null}
-      {port.better === 'hub' ? <Row label="A shorter way in" detail="Plug it straight into the PC, not into a hub" /> : null}
+      {port.interrupts ? <Row label="Interrupts"><State on={port.interrupts === 'msi'}>{port.interrupts === 'msi' ? 'MSI' : 'Shared line'}</State></Row> : null}
+      {port.better === 'free' ? <Row label="Use a free port on the processor’s own USB" /> : null}
+      {port.better === 'hub' ? <Row label="Plug it straight into the PC, not into a hub" /> : null}
     </>
   )
 }
@@ -260,46 +251,35 @@ function LayerRows({ layers }: { layers: NonNullable<ControllerRead['layers']> }
     <>
       <SteamInputRow />
       {layers.tools.map(tool => (
-        <Row key={tool.name} label={tool.name} detail={tool.running ? 'Running: it may translate the controller into another one' : 'Installed'}>
+        <Row key={tool.name} label={tool.name}>
           <State on={!tool.running}>{tool.running ? 'Running' : 'Not running'}</State>
         </Row>
       ))}
       {layers.pollingDriver ? (
-        <Row label="Polling driver" detail={layers.memoryIntegrity ? 'hidusbf is installed; with Memory Integrity on it can’t change the rate' : 'hidusbf is installed and Memory Integrity is off, which some anti-cheats refuse'}>
+        <Row label="Polling driver" detail={layers.memoryIntegrity ? 'With Memory Integrity on it can’t change the rate' : undefined}>
           <State>Installed</State>
         </Row>
       ) : null}
-      {layers.tools.length === 0 && !layers.pollingDriver && layers.steamPlayStation === null ? <Row label="Nothing in the way" detail="Games read the controller itself" /> : null}
+      {layers.tools.length === 0 && !layers.pollingDriver && layers.steamPlayStation === null ? <Row label="Nothing in the way" /> : null}
     </>
   )
 }
 
-/** Steam Input off for every Steam game that reads the controller itself; Steam closes for a moment to take it. */
+/**
+ * Steam Input, always off in every Steam game that reads the controller itself (Exo sets it when Steam next closes, or
+ * closes Steam for a moment); a game's own pick in its Properties wins.
+ */
 function SteamInputRow() {
   const [state, setState] = useState<Awaited<ReturnType<typeof host.steamInputState>> | null>(null)
-  const [busy, setBusy] = useState(false)
   useEffect(() => {
     let current = true
     host.steamInputState().then(next => { if (current) setState(next) }, (error: unknown) => report(error, 'ControllerPage.steamInput', { level: 'warn' }))
     return () => { current = false }
   }, [])
   if (!state?.steam) return null
-  const detail = state.on
-    ? `${state.native} ${state.native === 1 ? 'game reads' : 'games read'} it without Steam Input${state.translated ? `; ${state.translated} that read only Xbox controllers keep it` : ''}`
-    : 'Steam Input off in every Steam game that reads a PlayStation controller itself'
   return (
-    <SwitchRow id="ctl-native" label="Games read it themselves" detail={detail} checked={state.on} disabled={busy} onChange={async on => {
-      setBusy(true)
-      try {
-        const result = await host.steamInputSet(on)
-        setState(await host.steamInputState())
-        return result.ok ? result.message ?? null : result.message ?? 'Steam didn’t take it.'
-      } catch (cause) {
-        report(cause, 'ControllerPage.steamInputSet')
-        return 'Steam didn’t take it. Try again.'
-      } finally {
-        setBusy(false)
-      }
-    }} />
+    <Row label="Games read it themselves" detail={state.translated ? `${state.translated} that read only Xbox controllers keep Steam Input` : undefined}>
+      <State on>{state.native} {state.native === 1 ? 'game' : 'games'}</State>
+    </Row>
   )
 }

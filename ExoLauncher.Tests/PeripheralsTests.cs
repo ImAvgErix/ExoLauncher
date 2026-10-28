@@ -15,7 +15,9 @@ namespace ExoLauncher.Tests;
 /// - a Bluetooth device that is paired but off shows, or a connected one loses its battery;
 /// - jack headphones are named after the driver ("High Definition Audio Device") or called speakers;
 /// - a laptop's own keyboard shows beside a USB one, or vanishes when it is the only one;
-/// - a DualSense's serial or a Wooting's layout byte is misread into the wrong color or layout.
+/// - a DualSense's serial or a Wooting's layout byte is misread into the wrong color or layout;
+/// - a keyboard's button opens the wrong app (a Wooting on Atmel's ids without Wootility, a Vial board sent to VIA, an
+///   MX Keys to G HUB, a mouse given a keyboard's app), an app's page isn't https, or "iCUE Uninstall" passes for iCUE.
 /// </summary>
 public sealed class PeripheralsTests
 {
@@ -210,6 +212,7 @@ public sealed class PeripheralsTests
     [InlineData("A1B201C3D4E5F6", "Midnight Black")]
     [InlineData("A1B200C3D4E5F6", "White")]
     [InlineData("A1B2Z2C3D4E5F6", "Spider-Man 2")]
+    [InlineData("F65C1338F10524318", "Techno Red")]        // an owner's Techno Red, as reported
     [InlineData("A1B2ZZC3D4E5F6", null)]
     public void DualSenseColorIsSerialCharactersFourAndFive(string serial, string? color) => Assert.Equal(color, ColorOf(serial));
 
@@ -273,4 +276,48 @@ public sealed class PeripheralsTests
     [InlineData(0x1221, "full")]
     [InlineData(0x1500, null)]
     public void WootingSizeComesFromItsBaseProductId(int pid, string? size) => Assert.Equal(size, WootingSize(pid));
+
+    private static string? AppId(string vidPid, string serial, string name, params (int Mi, int Col, int Page, int Usage)[] more) =>
+        AppOf(Assert.Single(Run(Usb(vidPid, serial, name, [(0, 0, 0x01, 0x06), .. more]))))?.Id;
+
+    [Theory]
+    [InlineData("VID_31E3&PID_1342", "Wooting 60HE v2", "wootility")]
+    [InlineData("VID_03EB&PID_FF01", "Wooting One", "wootility")]
+    [InlineData("VID_03EB&PID_2FF4", "Atmel keyboard", null)]
+    [InlineData("VID_3434&PID_0121", "Keychron Q1 Pro", "keychron")]
+    [InlineData("VID_1532&PID_02A5", "Razer Huntsman V3 Pro TKL", "synapse")]
+    [InlineData("VID_046D&PID_C33E", "G915 TKL", "ghub")]
+    [InlineData("VID_046D&PID_B35B", "MX Keys", "options")]
+    [InlineData("VID_1B1C&PID_1B49", "Corsair K70 RGB", "icue")]
+    [InlineData("VID_1038&PID_1630", "SteelSeries Apex Pro TKL", "gg")]
+    [InlineData("VID_04D9&PID_0169", "USB Keyboard", null)]
+    public void KeyboardAppComesFromItsVendor(string vidPid, string name, string? app) => Assert.Equal(app, AppId(vidPid, "S1", name));
+
+    [Fact]
+    public void QmkBoardsGoToVialByItsSerialElseToViaByItsRawChannel()
+    {
+        const string vidPid = "VID_FEED&PID_6060";
+        Assert.Equal("vial", AppId(vidPid, "vial:f64c2b3c", "Planck", (1, 0, 0xFF60, 0x61)));
+        Assert.Equal("via", AppId(vidPid, "4A3B2C", "Planck", (1, 0, 0xFF60, 0x61)));
+        Assert.Null(AppId(vidPid, "4A3B2C", "Planck", (1, 0, 0xFF00, 0x01)));
+    }
+
+    [Fact]
+    public void OnlyKeyboardsHaveAnApp()
+    {
+        var mouse = Assert.Single(Run(Usb("VID_1532&PID_00B7", "2", "Razer DeathAdder V3 Pro", (0, 0, 0x01, 0x02))));
+        Assert.Null(AppOf(mouse));
+        Assert.All(KeyboardApps, app => Assert.StartsWith("https://", app.Url));
+        Assert.Equal(KeyboardApps.Length, KeyboardApps.Select(app => app.Id).Distinct().Count());
+    }
+
+    [Theory]
+    [InlineData("Razer Synapse", true)]
+    [InlineData("Razer Synapse 3", true)]
+    [InlineData("iCUE 5.2", true)]
+    [InlineData("iCUE Uninstall", false)]
+    [InlineData("Uninstall Razer Synapse", false)]
+    [InlineData("Razer Synapse Service", false)]
+    public void MakersAppIsFoundByItsShortcutName(string link, bool found) =>
+        Assert.Equal(found, ShortcutNamed(link, [.. Synapse.Shortcuts!, .. Icue.Shortcuts!]));
 }

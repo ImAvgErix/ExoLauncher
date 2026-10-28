@@ -2170,4 +2170,9 @@ public sealed class EpicAdapter : IStoreAdapter, IStoreClientPresence, IStoreAcc
 
     internal static string? ResolveEpicLauncher() =>
         OfficialClientLocator.Resolve(EpicClientDefinition)?.FileName;
+
+    /// <summary>This PC has the old Epic Games Launcher (under Portal\Binaries) and not Epic's new one (2026) yet.</summary>
+    internal static bool OnLegacyLauncher() =>
+        ResolveEpicLauncher() is { } launcher && launcher.Contains(@"\Portal\Binaries\", StringComparison.OrdinalIgnoreCase)
+        && !File.Exists(EpicClientDefinition.DefaultPaths[0]);
 }

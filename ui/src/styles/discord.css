@@ -1947,6 +1947,25 @@ video.exo-dc-media {
   font-weight: 500;
 }
 
+/* A thread you're in, under its channel: in past the channel's glyph, a thin curved line from the channel to it. */
+.exo-dc-thread-item {
+  position: relative;
+  min-height: 28px;
+  padding-left: 32px;
+}
+
+.exo-dc-thread-spine {
+  position: absolute;
+  top: -6px;
+  left: 15px;
+  width: 11px;
+  height: calc(50% + 6px);
+  border-bottom: 1px solid var(--dc-line);
+  border-left: 1px solid var(--dc-line);
+  border-bottom-left-radius: 8px;
+  pointer-events: none;
+}
+
 /* Friends and Shop: the glyph centered in a conversation's 32px picture slot, so every label starts on one line. */
 .exo-dc-item.is-big > svg {
   box-sizing: content-box;
@@ -2145,6 +2164,37 @@ video.exo-dc-media {
   left: 8px;
 }
 
+/* A device menu opens over its own arrow's end of the panel. */
+.exo-dc-menu.is-status:is(.is-input, .is-output) {
+  right: 8px;
+  left: auto;
+}
+
+/* The arrow beside Mute and Deafen: half a button, as Discord's. */
+.exo-dc-icon-btn.is-caret {
+  width: 16px;
+  margin-left: -4px;
+}
+
+/* A reading inside a menu: when a status ends, or why something didn't take. */
+.exo-dc-menu-note {
+  padding: 4px 8px;
+  color: var(--dc-muted);
+  font-size: calc(12px * var(--exo-scale, 1));
+}
+
+.exo-dc-menu-note.is-bad {
+  color: var(--color-bad);
+}
+
+/* A volume inside a menu: its name over the slider. */
+.exo-dc-menu-slider {
+  display: grid;
+  gap: 6px;
+  padding: 6px 8px;
+  color: var(--dc-text);
+}
+
 .exo-dc-menu.is-message {
   top: calc(100% + 4px);
   right: 0;
@@ -2309,7 +2359,7 @@ video.exo-dc-media {
     bottom: 0;
     z-index: 15;
     max-width: 85%;
-    box-shadow: inset 0 0 0 1px var(--exo-float-line), var(--glassy-shadow-raised);
+    box-shadow: var(--glassy-shadow-raised);
   }
 }
 
@@ -4155,6 +4205,12 @@ textarea.exo-dc-modal-input {
   color: var(--dc-muted);
 }
 
+/* Listen along, under a friend's song. */
+.exo-dc-active-listen {
+  align-self: flex-start;
+  margin: -4px 0 0 12px;
+}
+
 /* Discord's × on a DM row. */
 .exo-dc-dm-row {
   position: relative;
@@ -4875,18 +4931,33 @@ button.exo-dc-pf-badge {
   width: 40px;
   height: 40px;
   border-radius: 12px;
+  transition: background-color var(--dur-base) var(--ease-out), box-shadow var(--dur-base) var(--ease-out), scale var(--dur-quick) var(--ease-out);
+}
+
+.exo-dc .exo-dc-guild:not(.exo-glass) {
   background: var(--color-bg);
   box-shadow: inset 0 0 0 1px var(--dc-line);
-  transition: background-color var(--dur-base) var(--ease-out), box-shadow var(--dur-base) var(--ease-out), scale var(--dur-quick) var(--ease-out);
+}
+
+/* A tile that isn't a picture (Home's mark, Add a server, a folder, a server with no icon) is small Liquid Glass, as
+   every control: clear over the glass's blur and tone inside its one even line, hover and current lifting the glass
+   (a solid gray square stood out of the rail as the one thing in it not glass). */
+.exo-dc .exo-dc-guild.exo-glass {
+  background-color: var(--exo-fill);
+  box-shadow: var(--exo-glass-rim);
 }
 
 .exo-dc .exo-dc-guild:hover {
   background: var(--hover-fill);
 }
 
-.exo-dc .exo-dc-guild[aria-current="true"] {
+.exo-dc .exo-dc-guild:not(.exo-glass)[aria-current="true"] {
   background: var(--dc-selected);
   box-shadow: inset 0 0 0 1px rgb(var(--exo-ink-rgb) / 0.23);
+}
+
+.exo-dc .exo-dc-guild.exo-glass[aria-current="true"] {
+  background-color: var(--exo-selected);
 }
 
 .exo-dc .exo-dc-guild .exo-company-logo {
@@ -4943,7 +5014,7 @@ button.exo-dc-pf-badge {
 /* Fields: Exo's one field (system.css), in every Discord search: Find or start a conversation, Friends,
    the header's search, a forum's and Browse Channels', and the pickers'. A 32px filled capsule, 13px words
    at Inter's normal line-height with no padding above or below, so the placeholder sits on the true
-   center; the icon faint beside them; keyboard focus is the white ring. */
+   center; the icon and the placeholder in Muted, as the quiet icon buttons beside them; keyboard focus is the white ring. */
 .exo-dc .exo-dc-find,
 .exo-dc .exo-dc-search,
 .exo-dc .exo-dc-friend-search,
@@ -4954,7 +5025,7 @@ button.exo-dc-pf-badge {
   border: 0;
   border-radius: 999px;
   outline: none;
-  color: var(--color-faint);
+  color: var(--color-muted);
   font-size: calc(13px * var(--exo-scale, 1));
   font-weight: 400;
   line-height: normal;
@@ -4977,7 +5048,7 @@ button.exo-dc-pf-badge {
 }
 
 .exo-dc :is(.exo-dc-find, .exo-dc-picker-search, .exo-dc-search input, .exo-dc-friend-search input)::placeholder {
-  color: var(--color-faint);
+  color: var(--color-muted);
   opacity: 1;
 }
 
@@ -6349,6 +6420,33 @@ button.exo-dc-gifv {
 .exo-dc-voice-join:disabled {
   opacity: 0.5;
   cursor: default;
+}
+
+/* The Jam box above the voice bar: one 48px row (system.css counts it in the dock's height), its picture in line with yours. */
+.exo-dc .exo-dc-dock > .exo-dc-jam {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  height: 48px;
+  padding: 0 8px 0 7px;
+}
+
+.exo-dc .exo-dc-dock > .exo-dc-jam > .exo-dc-me-names {
+  flex: 1;
+}
+
+/* The song's cover, the size of the pictures beside it. */
+.exo-dc-jam-art {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  object-fit: cover;
+}
+
+.exo-dc .exo-dc-dock > .exo-dc-jam + :is(.exo-dc-voice, .exo-dc-me) {
+  border-top: 1px solid var(--exo-float-line);
 }
 
 /* The voice bar: where the call is (opens it), and hang up. */

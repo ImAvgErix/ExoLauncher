@@ -1,3 +1,4 @@
+import { CopyLogs } from '../ui/ErrorNote'
 import { Button } from '../ui/Button'
 import { Menu } from '../ui/Menu'
 import { CHECK_PATH, ChevronDown, FolderPlus, Gamepad, Key, Plus, Refresh, Settings } from '../../brand/icons'
@@ -103,6 +104,7 @@ export function LibraryEmpty({ error, onRetry, onAddGame, onActivateKey, onStore
         <Button type="button" size="sm" className="exo-set-btn is-primary" onPress={onRetry}>
           Retry
         </Button>
+        <CopyLogs error={error} />
       </div>
     )
   }

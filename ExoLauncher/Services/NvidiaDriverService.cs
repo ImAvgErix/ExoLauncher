@@ -40,14 +40,9 @@ internal static partial class NvidiaDriverService
     private static readonly Lock Gate = new();
     /// <summary>The newest driver per card and branch, so the header's Game Ready read and the row's Studio read don't evict each other.
     /// Kept on disk too, so a restart doesn't ask NVIDIA again (PRIVACY.md: at most once an hour).</summary>
-    private static readonly Dictionary<string, (DateTime At, Latest? Value)> Cache = [];
-    /// <summary>One lookup at a time per card and branch; everyone asking meanwhile shares it.</summary>
-    private static readonly Dictionary<string, Task<Latest?>> Fetching = [];
-    private static bool _cacheLoaded;
-    /// <summary>Until when NVIDIA asked Exo to wait (a 429 or 503, its Retry-After).</summary>
-    private static DateTime _backoffUntil;
-    private static string CachePath => Path.Combine(PathHelper.AppDataDir, "nvidia-drivers.json");
-    private sealed record Saved(DateTime At, Latest? Value);
+    private static readonly LatestCache<Latest> Drivers = new("NVIDIA's driver list", TimeSpan.FromHours(1), "nvidia-drivers.json");
+    /// <summary>What NVIDIA's download server had of hotfixes newer than a version: asked at most every six hours per version.</summary>
+    private static readonly LatestCache<Latest> ServerHotfixes = new("NVIDIA's hotfix packages", TimeSpan.FromHours(6));
     private static Progress _progress = new("idle", 0, null);
     private static Task? _running;
 
@@ -131,80 +126,52 @@ internal static partial class NvidiaDriverService
 
     /// <summary>The newest driver for this card on the branch (game or studio; a workstation card has one), from NVIDIA (cached an hour); null when it can't tell.</summary>
     /// <remarks>An answer older than the hour shows at once while NVIDIA is asked again (System's first showing never
-    /// waits on the network; the row reads again each time it shows); <paramref name="fresh"/> (an update) waits for it.</remarks>
-    internal static async Task<Latest?> LatestAsync(string branch, CancellationToken ct, bool fresh = false)
+    /// waits on the network; the row reads again each time it shows); <paramref name="fresh"/> (an update) waits for it.
+    /// Kept, retried and slowed down as every version check is (<see cref="LatestCache{T}"/>).</remarks>
+    internal static Task<Latest?> LatestAsync(string branch, CancellationToken ct, bool fresh = false)
     {
         SweepUnpacked();
-        if (Card() is not { } card) return null;
+        if (Card() is not { } card) return Task.FromResult<Latest?>(null);
         var workstation = Workstation(card);
         var studio = !workstation && branch == "studio";
         var hardwareId = NvidiaAdapter("MatchingDeviceId");
         var hotfix = !workstation && !studio && CurrentBranches(hardwareId);
         var key = card + "|" + hardwareId + "|" + (workstation ? "workstation" : studio ? "studio" : "game");
-        Task<Latest?>? task;
-        lock (Gate)
-        {
-            LoadCacheLocked();
-            var waiting = DateTime.UtcNow < _backoffUntil;
-            var known = Cache.TryGetValue(key, out var c);
-            if (known && (waiting || DateTime.UtcNow - c.At < TimeSpan.FromHours(1))) return c.Value;
-            if (waiting) return null;
-            if (!Fetching.TryGetValue(key, out task))
-                Fetching[key] = task = Task.Run(() => FetchAsync(card, key, workstation, studio, hotfix));
-            if (known && !fresh) return c.Value;
-        }
-        return await task.WaitAsync(ct).ConfigureAwait(false);
+        return Drivers.GetAsync(key, lookup => FetchAsync(card, workstation, studio, hotfix, lookup), ct, fresh);
     }
 
-    /// <summary>Asks NVIDIA (shared by everyone waiting on this key, so one caller leaving doesn't stop it) and keeps the answer an hour.</summary>
-    private static async Task<Latest?> FetchAsync(string card, string key, bool workstation, bool studio, bool hotfix)
+    /// <summary>Asks NVIDIA for the card's newest driver on the branch (a failure throws: the cache keeps the last answer).</summary>
+    private static async Task<Latest?> FetchAsync(string card, bool workstation, bool studio, bool hotfix, CancellationToken ct)
     {
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(45));
-        var ct = timeout.Token;
         Latest? latest = null;
-        try
+        var products = await ProductsAsync(card, ct).ConfigureAwait(false);
+        if (products.Count == 0) AppLog.Info($"Driver: NVIDIA lists no product named \"{Plain(card)}\".");
+        foreach (var (series, product) in products)
         {
-            var products = await ProductsAsync(card, ct).ConfigureAwait(false);
-            if (products.Count == 0) AppLog.Info($"Driver: NVIDIA lists no product named \"{Plain(card)}\".");
-            foreach (var (series, product) in products)
+            // Studio drivers are listed without NVIDIA's WHQL flag; betas are skipped either way.
+            var url = "https://gfwsl.geforce.com/services_toolkit/services/com/nvidia/services/AjaxDriverService.php?func=DriverManualLookup" +
+                $"&psid={series}&pfid={product}&osID=57&languageCode=1033&isWHQL={(studio ? 0 : 1)}&dch=1&upCRD={(studio ? 1 : 0)}&sort1=0&numberOfResults=3";
+            using var doc = JsonDocument.Parse(await GetTextAsync(url, ct).ConfigureAwait(false));
+            if (!doc.RootElement.TryGetProperty("IDS", out var ids) || ids.ValueKind != JsonValueKind.Array) continue;
+            foreach (var entry in ids.EnumerateArray())
             {
-                // Studio drivers are listed without NVIDIA's WHQL flag; betas are skipped either way.
-                var url = "https://gfwsl.geforce.com/services_toolkit/services/com/nvidia/services/AjaxDriverService.php?func=DriverManualLookup" +
-                    $"&psid={series}&pfid={product}&osID=57&languageCode=1033&isWHQL={(studio ? 0 : 1)}&dch=1&upCRD={(studio ? 1 : 0)}&sort1=0&numberOfResults=3";
-                using var doc = JsonDocument.Parse(await GetTextAsync(url, ct).ConfigureAwait(false));
-                if (!doc.RootElement.TryGetProperty("IDS", out var ids) || ids.ValueKind != JsonValueKind.Array) continue;
-                foreach (var entry in ids.EnumerateArray())
-                {
-                    var info = entry.GetProperty("downloadInfo");
-                    if (info.TryGetProperty("IsBeta", out var beta) && beta.GetString() == "1") continue;
-                    var version = info.GetProperty("Version").GetString();
-                    var download = info.GetProperty("DownloadURL").GetString();
-                    if (version is null || download is null || !download.StartsWith("https://us.download.nvidia.com/", StringComparison.OrdinalIgnoreCase)) continue;
-                    var released = info.TryGetProperty("ReleaseDateTime", out var r) ? r.GetString() : null;
-                    var size = info.TryGetProperty("DownloadURLFileSize", out var sz) && double.TryParse(sz.GetString()?.Split(' ')[0],
-                        System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var mb) ? (long)(mb * 1_000_000) : 0;
-                    // A card NVIDIA's Game Ready drivers left (GTX 10 series and older) gets its security updates instead.
-                    var security = info.TryGetProperty("Name", out var n) && n.GetString()?.Contains("Security", StringComparison.OrdinalIgnoreCase) == true;
-                    if (latest is null || Compare(version, latest.Version) > 0)
-                        latest = new Latest(version, download, size, released, workstation ? "workstation" : studio ? "studio" : security ? "security" : "game");
-                    break;
-                }
+                var info = entry.GetProperty("downloadInfo");
+                if (info.TryGetProperty("IsBeta", out var beta) && beta.GetString() == "1") continue;
+                var version = info.GetProperty("Version").GetString();
+                var download = info.GetProperty("DownloadURL").GetString();
+                if (version is null || download is null || !download.StartsWith("https://us.download.nvidia.com/", StringComparison.OrdinalIgnoreCase)) continue;
+                var released = info.TryGetProperty("ReleaseDateTime", out var r) ? r.GetString() : null;
+                var size = info.TryGetProperty("DownloadURLFileSize", out var sz) && double.TryParse(sz.GetString()?.Split(' ')[0],
+                    System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var mb) ? (long)(mb * 1_000_000) : 0;
+                // A card NVIDIA's Game Ready drivers left (GTX 10 series and older) gets its security updates instead.
+                var security = info.TryGetProperty("Name", out var n) && n.GetString()?.Contains("Security", StringComparison.OrdinalIgnoreCase) == true;
+                if (latest is null || Compare(version, latest.Version) > 0)
+                    latest = new Latest(version, download, size, released, workstation ? "workstation" : studio ? "studio" : security ? "security" : "game");
+                break;
             }
-            if (products.Count > 0 && hotfix && await HotfixAsync(card, ct).ConfigureAwait(false) is { } newer && (latest is null || Compare(newer.Version, latest.Version) > 0))
-                latest = newer;
         }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or System.Xml.XmlException or KeyNotFoundException or InvalidOperationException)
-        {
-            AppLog.Info("Driver: NVIDIA's driver list could not be read: " + ex.Message);
-            lock (Gate) Fetching.Remove(key);
-            return null;
-        }
-        lock (Gate)
-        {
-            Fetching.Remove(key);
-            Cache[key] = (DateTime.UtcNow, latest);
-            SaveCacheLocked();
-        }
+        if (products.Count > 0 && hotfix && await HotfixAsync(card, latest?.Version, ct).ConfigureAwait(false) is { } newer && (latest is null || Compare(newer.Version, latest.Version) > 0))
+            latest = newer;
         return latest;
     }
 
@@ -212,41 +179,9 @@ internal static partial class NvidiaDriverService
     private static async Task<string> GetTextAsync(string url, CancellationToken ct)
     {
         using var response = await Http.GetAsync(url, ct).ConfigureAwait(false);
-        if (response.StatusCode is System.Net.HttpStatusCode.TooManyRequests or System.Net.HttpStatusCode.ServiceUnavailable)
-        {
-            var after = response.Headers.RetryAfter is { } retry ? retry.Delta ?? retry.Date - DateTimeOffset.UtcNow : null;
-            var wait = after is { } a && a > TimeSpan.Zero ? (a < TimeSpan.FromDays(1) ? a : TimeSpan.FromDays(1)) : TimeSpan.FromHours(1);
-            lock (Gate) if (DateTime.UtcNow + wait > _backoffUntil) _backoffUntil = DateTime.UtcNow + wait;
-            AppLog.Info($"Driver: NVIDIA asked Exo to wait ({(int)response.StatusCode}); next look in {wait.TotalMinutes:0} min.");
-        }
+        Drivers.SlowDown(response);
         response.EnsureSuccessStatusCode();
         return await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
-    }
-
-    private static void LoadCacheLocked()
-    {
-        if (_cacheLoaded) return;
-        _cacheLoaded = true;
-        try
-        {
-            if (File.Exists(CachePath) && JsonSerializer.Deserialize<Dictionary<string, Saved>>(File.ReadAllText(CachePath)) is { } saved)
-                foreach (var (key, entry) in saved) Cache[key] = (entry.At, entry.Value);
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException or NotSupportedException)
-        {
-            AppLog.Debug("Driver: the saved driver list is unreadable: " + ex.Message);
-        }
-    }
-
-    private static void SaveCacheLocked()
-    {
-        var temp = CachePath + ".tmp";
-        try
-        {
-            File.WriteAllText(temp, JsonSerializer.Serialize(Cache.ToDictionary(item => item.Key, item => new Saved(item.Value.At, item.Value.Value))));
-            File.Move(temp, CachePath, overwrite: true);
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { AppLog.Debug("Driver: the driver list was not saved: " + ex.Message); }
     }
 
     /// <summary>
@@ -282,29 +217,77 @@ internal static partial class NvidiaDriverService
     private const string ForumsApi = "https://api-forums.nvidia.com/forums-api/1.0";
 
     /// <summary>
-    /// The newest GeForce hotfix driver, from NVIDIA's GeForce forums, where NVIDIA announces every hotfix
-    /// (its support site's list misses some, such as 617.70); null when there is none or it can't be read.
-    /// The newest few hotfix topics NVIDIA's own staff opened are read for NVIDIA's download link, which
-    /// names the version. Hotfixes are GeForce-only and one package covers desktops and laptops.
+    /// The newest GeForce hotfix driver newer than the Game Ready one (<paramref name="gameReady"/>); null when there is none
+    /// or it can't be read. Two places, as either can be late: NVIDIA's GeForce forums, where NVIDIA announces every hotfix
+    /// (its support site's list misses some, such as 617.70; the newest few topics NVIDIA's own staff opened are read for
+    /// NVIDIA's download link, which names the version), and NVIDIA's download server itself (the forum's search showed
+    /// nothing of 621.12 the day it came out). Hotfixes are GeForce-only and one package covers desktops and laptops.
     /// </summary>
-    private static async Task<Latest?> HotfixAsync(string card, CancellationToken ct)
+    private static async Task<Latest?> HotfixAsync(string card, string? gameReady, CancellationToken ct)
     {
         if (!card.Contains("GeForce", StringComparison.OrdinalIgnoreCase)) return null;
+        Latest? newest = null;
         try
         {
             var search = await GetTextAsync(ForumsApi + "/search?query=hotfix%20driver&order=created&_pageSize=20&_page=1", ct).ConfigureAwait(false);
-            Latest? newest = null;
             foreach (var id in HotfixTopics(search).Take(3))
                 if (HotfixIn(await GetTextAsync(ForumsApi + "/topics?id=" + id, ct).ConfigureAwait(false)) is { } found
                     && (newest is null || Compare(found.Version, newest.Version) > 0))
                     newest = found;
-            return newest;
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
         {
             AppLog.Info("Driver: NVIDIA's hotfix announcements could not be read: " + ex.Message);
-            return null;
         }
+        var known = newest is not null && (gameReady is null || Compare(newest.Version, gameReady) > 0) ? newest.Version : gameReady;
+        if (known is not null && await HotfixOnServerAsync(known, ct).ConfigureAwait(false) is { } posted) newest = posted;
+        return newest is not null && (gameReady is null || Compare(newest.Version, gameReady) > 0) ? newest : null;
+    }
+
+    /// <summary>
+    /// A hotfix newer than <paramref name="newest"/> on NVIDIA's download server: each package name a hotfix could take is
+    /// asked for its headers only (nothing downloads), newest first, eight at a time, until one is there. At most every
+    /// six hours per version (<see cref="ServerHotfixes"/>), so at most ~130 small requests a quarter of a day.
+    /// </summary>
+    private static Task<Latest?> HotfixOnServerAsync(string newest, CancellationToken ct) =>
+        ServerHotfixes.GetAsync(newest, async lookup =>
+        {
+            foreach (var batch in HotfixCandidates(newest).Chunk(8))
+            {
+                var answers = await Task.WhenAll(batch.Select(version => HotfixPackageAsync(version, lookup))).ConfigureAwait(false);
+                if (answers.FirstOrDefault(a => a is not null) is not { } hit) continue;
+                AppLog.Info($"Driver: hotfix {hit.Version} is on NVIDIA's download server.");
+                return hit;
+            }
+            return null;
+        }, ct);
+
+    /// <summary>
+    /// The versions a hotfix newer than this one could take, newest first: the start of the next hundred (595.97's hotfix
+    /// was 596.02), then the rest of its own (616.64's was 616.86).
+    /// </summary>
+    internal static List<string> HotfixCandidates(string newest)
+    {
+        var parts = newest.Split('.');
+        if (parts.Length != 2 || !int.TryParse(parts[0], out var major) || !int.TryParse(parts[1], out var minor) || minor is < 0 or > 99) return [];
+        var candidates = new List<string>();
+        for (var m = 30; m >= 0; m--) candidates.Add($"{major + 1}.{m:D2}");
+        for (var m = 99; m > minor; m--) candidates.Add($"{major}.{m:D2}");
+        return candidates;
+    }
+
+    /// <summary>NVIDIA's download link for a GeForce hotfix (one package for desktops and laptops).</summary>
+    internal static string HotfixUrl(string version) =>
+        $"https://international.download.nvidia.com/Windows/{version}hf/{version}-desktop-notebook-win10-win11-64bit-international-dch.hf.exe";
+
+    /// <summary>The hotfix package for a version when NVIDIA's server has one (a driver's hundreds of MB), from its headers.</summary>
+    private static async Task<Latest?> HotfixPackageAsync(string version, CancellationToken ct)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Head, HotfixUrl(version));
+        using var response = await Http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
+        if (!response.IsSuccessStatusCode || response.Content.Headers.ContentLength is not { } size || size < 100_000_000) return null;
+        var released = response.Content.Headers.LastModified?.ToString("ddd MMM d, yyyy", CultureInfo.InvariantCulture);
+        return new Latest(version, HotfixUrl(version), size, released, "hotfix");
     }
 
     /// <summary>The forum search's topics that NVIDIA staff opened with "hotfix" in the title, newest first.</summary>
@@ -349,12 +332,8 @@ internal static partial class NvidiaDriverService
     [System.Text.RegularExpressions.GeneratedRegex(@"https://(?:international|us)\.download\.nvidia\.com/Windows/(\d{3}\.\d{2})hf/[\w.-]+\.hf\.exe")]
     private static partial System.Text.RegularExpressions.Regex HotfixLink();
 
-    /// <summary>Compares "617.42"-style versions.</summary>
-    internal static int Compare(string a, string b)
-    {
-        static (int, int) Parse(string v) { var p = v.Split('.'); return (int.TryParse(p[0], out var x) ? x : 0, p.Length > 1 && int.TryParse(p[1], out var y) ? y : 0); }
-        return Parse(a).CompareTo(Parse(b));
-    }
+    /// <summary>Compares "617.42"-style versions, as every version check does (<see cref="VersionNumber"/>).</summary>
+    internal static int Compare(string a, string b) => VersionNumber.Compare(a, b);
 
     /// <summary>Why an update can't start now (a game, a Discord call, an Exo Shaders compile: <see cref="GpuDriverUpdate.Busy"/>), or null.</summary>
     internal static string? Blocked() => _running is { IsCompleted: false } ? "A driver update is already running." : GpuDriverUpdate.Busy();
@@ -444,7 +423,7 @@ internal static partial class NvidiaDriverService
 
             // NvAPI in this process still points at the driver that was removed: load it again for the new one.
             NvidiaProfiles.Reinitialize();
-            lock (Gate) { Cache.Clear(); SaveCacheLocked(); }
+            Drivers.Clear();
             // Done before the profile is read: while the stage says installing, GpuProfileService answers "being installed".
             Report("done", 100, $"Driver {latest.Version} installed");
             try

@@ -239,6 +239,43 @@ float HalfToFloat(uint16_t h)
     memcpy(&f, &bits, sizeof(f));
     return f;
 }
+
+/// Light where 1.0 is SDR white as an sRGB byte, through a table: a 4K screen is 25 million channels.
+uint8_t Srgb(float v)
+{
+    static const std::vector<uint8_t> encode = [] {
+        std::vector<uint8_t> t(16384);
+        for (size_t i = 0; i < t.size(); ++i)
+        {
+            double l = static_cast<double>(i) / (t.size() - 1);
+            double s = l <= 0.0031308 ? 12.92 * l : 1.055 * std::pow(l, 1 / 2.4) - 0.055;
+            t[i] = static_cast<uint8_t>(std::clamp(s * 255 + 0.5, 0.0, 255.0));
+        }
+        return t;
+    }();
+    return encode[static_cast<size_t>(std::clamp(v, 0.f, 1.f) * (encode.size() - 1) + 0.5f)];
+}
+
+/// Brighter than SDR white (an HDR game or video): the highlights roll off above a knee so the brightest pixel (peak)
+/// lands on white, instead of clipping flat. Hue holds: all three channels scale.
+void RollOff(float& r, float& g, float& b, float peak)
+{
+    const float knee = 0.75f;
+    float m = std::max({ r, g, b });
+    if (peak <= 1.001f || m <= knee) return;
+    const float range = (peak - knee) / (1 - knee);
+    float u = (m - knee) / (1 - knee);
+    float k = (knee + (1 - knee) * u * (1 + u / (range * range)) / (1 + u)) / m;
+    r *= k; g *= k; b *= k;
+}
+
+/// PQ's signal (SMPTE ST 2084), 0 to 1, as light in scRGB: 1.0 is 80 nits.
+float FromPq(float e)
+{
+    const float m1 = 2610.f / 16384, m2 = 2523.f / 4096 * 128, c1 = 3424.f / 4096, c2 = 2413.f / 4096 * 32, c3 = 2392.f / 4096 * 32;
+    float p = std::pow(std::clamp(e, 0.f, 1.f), 1 / m2);
+    return 10000.f / 80 * std::pow(std::max(p - c1, 0.f) / (c2 - c3 * p), 1 / m1);
+}
 }
 
 bool CaptureHdrMonitor(HMONITOR monitor, std::vector<uint8_t>& bgra, RECT& bounds)
@@ -316,39 +353,14 @@ bool CaptureHdrMonitor(HMONITOR monitor, std::vector<uint8_t>& bgra, RECT& bound
         }
         context->Unmap(staging.get(), 0);
 
-        // Brighter than SDR white (an HDR game or video): roll the highlights off above a knee so the
-        // brightest pixel lands on white, instead of clipping them flat. Hue holds: all three channels scale.
-        const float knee = 0.75f;
-        const float range = (peak - knee) / (1 - knee);
-        auto toneMap = [&](float m) {
-            float u = (m - knee) / (1 - knee);
-            return knee + (1 - knee) * u * (1 + u / (range * range)) / (1 + u);
-        };
-        // sRGB encoding through a table: a 4K screen is 25 million channels.
-        static const std::vector<uint8_t> encode = [] {
-            std::vector<uint8_t> t(16384);
-            for (size_t i = 0; i < t.size(); ++i)
-            {
-                double v = static_cast<double>(i) / (t.size() - 1);
-                double s = v <= 0.0031308 ? 12.92 * v : 1.055 * std::pow(v, 1 / 2.4) - 0.055;
-                t[i] = static_cast<uint8_t>(std::clamp(s * 255 + 0.5, 0.0, 255.0));
-            }
-            return t;
-        }();
-        auto q = [&](float v) { return encode[static_cast<size_t>(std::clamp(v, 0.f, 1.f) * (encode.size() - 1) + 0.5f)]; };
         bgra.resize(static_cast<size_t>(w) * h * 4);
         for (size_t p = 0, n = static_cast<size_t>(w) * h; p < n; ++p)
         {
             float r = linear[p * 3], g = linear[p * 3 + 1], b = linear[p * 3 + 2];
-            float m = std::max({ r, g, b });
-            if (peak > 1.001f && m > knee)
-            {
-                float k = toneMap(m) / m;
-                r *= k; g *= k; b *= k;
-            }
-            bgra[p * 4] = q(b);
-            bgra[p * 4 + 1] = q(g);
-            bgra[p * 4 + 2] = q(r);
+            RollOff(r, g, b, peak);
+            bgra[p * 4] = Srgb(b);
+            bgra[p * 4 + 1] = Srgb(g);
+            bgra[p * 4 + 2] = Srgb(r);
             bgra[p * 4 + 3] = 255;
         }
         return true;
@@ -1023,9 +1035,11 @@ void CaptureSession::StartWindows(const Options& options)
     m_session = m_pool.CreateCaptureSession(m_item);
     try { m_session.IsCursorCaptureEnabled(options.cursor); } catch (...) {}
     if (Borderless()) { try { m_session.IsBorderRequired(false); } catch (...) {} }
-    // Windows hands over no more frames than the clip keeps: a game drawing faster costs nothing extra.
-    // A stream asks for twice its rate, so every tick of its clock finds a picture newer than the last.
-    const int64_t every = options.realtime ? m_interval / 2 : m_interval * 9 / 10;
+    // Every tick of the stream's or clip's clock (Repeat) finds a picture newer than the last: Windows hands one over at
+    // most twice a frame for a stream (each is converted), four times for a clip (only the one a tick takes is), so the
+    // picture a clip keeps is at most a few ms old and its motion stays even. At 0.9 of a frame, a clip's frames drifted
+    // off its beat and every few were lost: a 60 fps clip of a game at 150 came out near 55.
+    const int64_t every = options.realtime ? m_interval / 2 : m_interval / 4;
     try { m_session.MinUpdateInterval(winrt::Windows::Foundation::TimeSpan(every)); } catch (...) {}
     m_item.Closed([this](auto&&, auto&&) { m_closed = true; });
     m_pool.FrameArrived([this](Direct3D11CaptureFramePool const& pool, auto&&) {
@@ -1081,6 +1095,7 @@ CaptureSession::~CaptureSession()
     {
         std::lock_guard lock(m_convert);
         m_closed = true;
+        m_held = nullptr;
         if (m_session) { try { m_session.Close(); } catch (...) {} }
         if (m_pool) { try { m_pool.Close(); } catch (...) {} }
         m_inputs.clear();
@@ -1112,16 +1127,23 @@ void CaptureSession::OnFrame(Direct3D11CaptureFramePool const& pool)
         m_poolSize = size;
         pool.Recreate(m_gpu->winrt, m_hdr ? DirectXPixelFormat::R16G16B16A16Float : DirectXPixelFormat::B8G8R8A8UIntNormalized, 2, size);
     }
-    int64_t time = frame.SystemRelativeTime().count();
-    // Hold the frame rate: the game may draw faster than the clip records. A stream takes every
-    // picture; its clock picks the newest (Repeat).
+    std::lock_guard lock(m_convert);
+    if (m_closed) return;
+    // A clip keeps the newest picture for its clock, which makes one frame of it each tick: evenly spaced at the clip's
+    // rate whatever the game draws at, and only those converted. The one it replaces goes back to Windows unused.
     if (!m_options.realtime)
     {
-        if (m_lastFrame && time < m_lastFrame - m_interval / 8) return;
-        if (time - m_lastFrame > m_interval) m_lastFrame = time;
-        m_lastFrame += m_interval;
+        m_held = frame;
+        m_heldReady.notify_one();
+        return;
     }
+    // A stream converts every picture; its clock sends the newest.
+    ConvertFrame(frame, frame.SystemRelativeTime().count());
+}
 
+void CaptureSession::ConvertFrame(Direct3D11CaptureFrame const& frame, int64_t time)
+{
+    auto size = frame.ContentSize();
     auto access = frame.Surface().as<::Windows::Graphics::DirectX::Direct3D11::IDirect3DDxgiInterfaceAccess>();
     com_ptr<ID3D11Texture2D> texture;
     Check(access->GetInterface(IID_PPV_ARGS(texture.put())), "frame texture");
@@ -1129,9 +1151,6 @@ void CaptureSession::OnFrame(Direct3D11CaptureFramePool const& pool)
     texture->GetDesc(&desc);
     UINT cw = std::min<UINT>(std::max(size.Width, 1), desc.Width);
     UINT ch = std::min<UINT>(std::max(size.Height, 1), desc.Height);
-
-    std::lock_guard lock(m_convert);
-    if (m_closed) return;
     EnsureProcessor(desc.Width, desc.Height, desc.Format);
     m_content = { static_cast<LONG>(cw), static_cast<LONG>(ch) };
     Convert(time, InputFor(texture.get(), cw, ch));
@@ -1356,12 +1375,13 @@ void CaptureSession::Submit(int index, int64_t time)
 void CaptureSession::Repeat()
 {
     // A still picture sends no frames. For a clip the last one is repeated ten times a second, so key
-    // frames keep coming and the sound stays in step. Go Live runs on its own clock instead: a frame
-    // exactly every 1/30 or 1/60 s, each the newest picture (a new one when the screen changed, the
-    // last one again when it did not), so viewers get a steady rate, never one that drifts with the
-    // monitor's or the game's.
+    // frames keep coming and the sound stays in step. Go Live and a clip through Windows run on their
+    // own clock: a frame exactly every 1/30, 1/60 or 1/120 s, each the newest picture, so the rate is
+    // steady and never drifts with the monitor's or the game's. A stream sends the last one again when
+    // nothing changed; a clip leaves that tick out. A clip from inside the game keeps Pump's beat.
     const bool live = m_options.realtime;
-    const int64_t step = live ? m_interval : 500'000;
+    const bool paced = live || !m_hook;
+    const int64_t step = paced ? m_interval : 500'000;
     HANDLE timer = CreateWaitableTimerExW(nullptr, nullptr, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS);
     int64_t next = Now100ns();
     while (!m_stop)
@@ -1378,11 +1398,24 @@ void CaptureSession::Repeat()
             else Sleep(static_cast<DWORD>(std::max<int64_t>(1, wait / 10'000)));
         }
         if (m_stop) break;
-        std::lock_guard lock(m_convert);
-        if (m_closed || m_lastIndex < 0) continue;
-        const int64_t time = std::max(live ? next : Now100ns(), m_lastSubmit + 1);
+        std::unique_lock lock(m_convert);
+        if (m_closed) continue;
+        // A clip waits up to half a frame for its picture: a game drawing at the clip's own rate lands either side of the
+        // tick, and each of its frames still takes a tick of its own.
+        if (!live && paced && !m_held)
+            m_heldReady.wait_for(lock, std::chrono::microseconds(m_interval / 20), [this] { return m_held || m_stop || m_closed; });
+        if (m_stop || m_closed) continue;
+        const int64_t time = std::max(paced ? next : Now100ns(), m_lastSubmit + 1);
         try
         {
+            if (!live && m_held)
+            {
+                auto frame = std::move(m_held);
+                m_held = nullptr;
+                ConvertFrame(frame, time);
+                continue;
+            }
+            if (m_lastIndex < 0) continue;
             if (live && m_pending >= 0)
             {
                 int index = m_pending;
@@ -1411,7 +1444,7 @@ bool CaptureSession::LastFrame(std::vector<uint8_t>& pixels, UINT& width, UINT& 
     RECT r{};
     {
         std::lock_guard lock(m_convert);
-        if (m_hdr || m_lastIndex < 0) return false;
+        if (m_lastIndex < 0) return false;
         m_targets[m_lastIndex].texture->GetDesc(&desc);
         desc.Usage = D3D11_USAGE_STAGING;
         desc.BindFlags = 0;
@@ -1423,7 +1456,7 @@ bool CaptureSession::LastFrame(std::vector<uint8_t>& pixels, UINT& width, UINT& 
     }
     D3D11_MAPPED_SUBRESOURCE mapped{};
     if (FAILED(m_gpu->context->Map(staging.get(), 0, D3D11_MAP_READ, 0, &mapped))) return false;
-    // The newest converted (NV12) frame's picture area as BGRA, sampled to at most maxWidth across:
+    // The newest converted (NV12, or P010 in HDR) frame's picture area as BGRA, sampled to at most maxWidth across:
     // it only becomes a thumbnail or a preview.
     UINT fullW = static_cast<UINT>(r.right - r.left), fullH = static_cast<UINT>(r.bottom - r.top);
     UINT step = std::max(1u, (fullW + maxWidth - 1) / std::max(1u, maxWidth));
@@ -1432,6 +1465,45 @@ bool CaptureSession::LastFrame(std::vector<uint8_t>& pixels, UINT& width, UINT& 
     pixels.resize(static_cast<size_t>(width) * height * 4);
     auto* base = static_cast<const uint8_t*>(mapped.pData);
     const uint8_t* chroma = base + static_cast<size_t>(mapped.RowPitch) * desc.Height;
+    if (m_hdr)
+    {
+        // PQ in BT.2020, studio range, ten bits at the top of each 16. Back to light where 1.0 is SDR white (the
+        // screen's, as the game was recorded on it), into BT.709, its highlights rolled off as an HDR snip's are.
+        HMONITOR monitor = m_options.window ? MonitorFromWindow(m_options.window, MONITOR_DEFAULTTONEAREST) : m_options.monitor;
+        float white = SdrWhite(monitor);
+        if (white <= 0) white = 2.5f; // 200 nits
+        std::vector<float> linear(static_cast<size_t>(width) * height * 3);
+        float peak = 0;
+        for (UINT y = 0; y < height; ++y)
+        {
+            UINT sy = r.top + y * step;
+            auto* luma = reinterpret_cast<const uint16_t*>(base + static_cast<size_t>(mapped.RowPitch) * sy);
+            auto* uv = reinterpret_cast<const uint16_t*>(chroma + static_cast<size_t>(mapped.RowPitch) * (sy / 2));
+            float* out = linear.data() + static_cast<size_t>(y) * width * 3;
+            for (UINT x = 0; x < width; ++x)
+            {
+                UINT sx = r.left + x * step;
+                float Y = ((luma[sx] >> 6) - 64) / 876.f;
+                float U = ((uv[sx & ~1u] >> 6) - 512) / 896.f, V = ((uv[(sx & ~1u) + 1] >> 6) - 512) / 896.f;
+                float R = FromPq(Y + 1.4746f * V) / white, G = FromPq(Y - 0.16455f * U - 0.57135f * V) / white, B = FromPq(Y + 1.8814f * U) / white;
+                out[x * 3 + 0] = std::max(0.f, 1.6605f * R - 0.5876f * G - 0.0728f * B);
+                out[x * 3 + 1] = std::max(0.f, -0.1246f * R + 1.1329f * G - 0.0083f * B);
+                out[x * 3 + 2] = std::max(0.f, -0.0182f * R - 0.1006f * G + 1.1187f * B);
+                peak = std::max({ peak, out[x * 3], out[x * 3 + 1], out[x * 3 + 2] });
+            }
+        }
+        m_gpu->context->Unmap(staging.get(), 0);
+        for (size_t p = 0, n = static_cast<size_t>(width) * height; p < n; ++p)
+        {
+            float cr = linear[p * 3], cg = linear[p * 3 + 1], cb = linear[p * 3 + 2];
+            RollOff(cr, cg, cb, peak);
+            pixels[p * 4] = Srgb(cb);
+            pixels[p * 4 + 1] = Srgb(cg);
+            pixels[p * 4 + 2] = Srgb(cr);
+            pixels[p * 4 + 3] = 255;
+        }
+        return width > 0 && height > 0;
+    }
     auto clamp = [](double v) { return static_cast<uint8_t>(std::clamp(v, 0.0, 255.0)); };
     for (UINT y = 0; y < height; ++y)
     {

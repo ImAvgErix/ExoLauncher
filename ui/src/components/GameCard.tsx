@@ -1,8 +1,8 @@
-import { resolvePrimaryAction, type Game, type InstallProgress } from '../lib/host'
-import { cn, transferPercent } from '../lib/utils'
+import { isPreloaded, resolvePrimaryAction, type Game, type InstallProgress } from '../lib/host'
+import { cn } from '../lib/utils'
 import { useJustFinished } from '../lib/useJustFinished'
 import { CoverArt } from './CoverArt'
-import { Progress } from './ui/Progress'
+import { WorkingWord } from './ui/WorkingWord'
 import { memo, useSyncExternalStore, type CSSProperties, type MouseEvent } from 'react'
 import type { GameMenuAt } from './shell/GameMenu'
 import { CHECK_PATH, Check } from '../brand/icons'
@@ -11,6 +11,10 @@ type Transfer = Partial<InstallProgress> | null
 
 type CardState = {
   installed: boolean
+  /** Downloaded for its release day: on this PC, with its own badge. */
+  preloaded: boolean
+  /** Not on this PC: neither installed nor preloaded. */
+  dim: boolean
   hasUpdate: boolean
   isPlaying: boolean
   transferring: boolean
@@ -21,19 +25,22 @@ function cardState(game: Game, transfer: Transfer): CardState {
   const variants = game.variants ?? []
   return {
     installed: !!game.installed,
+    preloaded: isPreloaded(game),
+    dim: !game.installed && !isPreloaded(game),
     hasUpdate: resolvePrimaryAction(game) === 'update' || !!game.updateAvailable || variants.some((v) => v.updateAvailable),
     isPlaying: !!(game.canStop || game.isRunning || variants.some((v) => v.canStop || v.isRunning)),
     transferring: !!transfer,
-    phase: transfer?.phase === "installing" ? "Installing" : transfer?.phase === "finalizing" ? "Finalizing" : "Downloading",
+    phase: transfer?.phase === "installing" ? "Installing" : transfer?.phase === "finalizing" ? "Finalizing" : game.installed ? "Updating" : "Downloading",
   }
 }
 
-/** One badge at most. Playing beats Downloading beats Update beats Queued. How far a download is, the bar says. */
-function badgeFor(state: CardState, queued: boolean): { text: string; tone: string } | null {
+/** One badge at most. Playing beats Downloading beats Update beats Queued beats Preloaded. A download's word has moving dots; how far it is, Downloads says. */
+function badgeFor(state: CardState, queued: boolean): { text: string; tone: string; working?: boolean } | null {
   if (state.isPlaying) return { text: 'Playing', tone: 'is-good' }
-  if (state.transferring) return { text: state.phase, tone: 'is-update' }
+  if (state.transferring) return { text: state.phase, tone: 'is-update', working: true }
   if (state.hasUpdate && state.installed) return { text: 'Update', tone: 'is-update' }
   if (queued) return { text: 'Queued', tone: '' }
+  if (state.preloaded) return { text: 'Preloaded', tone: '' }
   return null
 }
 
@@ -43,6 +50,7 @@ function ariaLabelFor(title: string, state: CardState, queued: boolean): string 
   if (state.transferring) return `${title} (${state.phase.toLowerCase()})`
   if (state.hasUpdate && state.installed) return `${title} (update)`
   if (queued) return `${title} (queued)`
+  if (state.preloaded) return `${title} (preloaded)`
   return title
 }
 
@@ -94,7 +102,6 @@ export const GameCard = memo(function GameCard({
   picked?: boolean | null
 }) {
   const state = cardState(game, transfer)
-  const percent = transferPercent(transfer)
   const badge = badgeFor(state, queued)
   // Done (DESIGN.md › Motion): a download or update that lands on an installed, current game.
   const finished = useJustFinished(state.transferring, state.installed && !state.hasUpdate)
@@ -110,7 +117,7 @@ export const GameCard = memo(function GameCard({
         arriveIndex != null && 'exo-motion-arrive',
         selected && 'is-selected',
         picked && 'is-picked',
-        !state.installed && 'is-dim',
+        state.dim && 'is-dim',
         state.hasUpdate && !state.isPlaying && 'is-update',
         state.isPlaying && 'is-playing',
       )}
@@ -140,15 +147,12 @@ export const GameCard = memo(function GameCard({
       >
         <div className="exo-tile-frame" data-vt-art>
           <span className={cn('exo-tile-media', shining && 'exo-shine')} aria-hidden="true">
-            <CoverArt game={game} preload={preload} dim={!state.installed} className="absolute inset-0 h-full w-full" />
+            <CoverArt game={game} preload={preload} dim={state.dim} className="absolute inset-0 h-full w-full" />
           </span>
           <TileDone finished={finished} />
-          {state.transferring && (
-            <Progress edge size="small" value={percent == null ? null : percent / 100} label={`${state.phase} ${game.title}`} />
-          )}
           {badge && (
             <div className="absolute left-2 top-2 z-[5]">
-              <span className={cn('exo-badge', badge.tone)}>{badge.text}</span>
+              <span className={cn('exo-badge', badge.tone)}>{badge.working ? <WorkingWord word={badge.text} /> : badge.text}</span>
             </div>
           )}
           <TileCheck picked={picked} />

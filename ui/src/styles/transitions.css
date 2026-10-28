@@ -174,8 +174,18 @@
 :root[data-exo-vt='morph']:not([data-exo-vt-back])::view-transition-old(exo-capture),
 :root[data-exo-vt='morph']:not([data-exo-vt-back])::view-transition-old(exo-dc-image),
 :root[data-exo-vt='morph']:not([data-exo-vt-back])::view-transition-old(exo-folder),
-:root[data-exo-vt='morph']:not([data-exo-vt-back])::view-transition-old(exo-device) {
+:root[data-exo-vt='morph']:not([data-exo-vt-back])::view-transition-old(exo-device-art) {
   animation-duration: 120ms;
+}
+
+/* A device's picture flies whole: its card's frame and its page's are different shapes, so each picture is fitted
+ * inside the flying box, centred, never stretched or cropped (laid along the box's width, as a snapshot is by default,
+ * the page's picture started off its place and snapped into it at the end). */
+::view-transition-old(exo-device-art),
+::view-transition-new(exo-device-art) {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
 }
 
 /* Closing, the picture you return to shows as it lands, not while the page is still its size: the page's picture
@@ -192,8 +202,8 @@
 :root[data-exo-vt='morph'][data-exo-vt-back]::view-transition-new(exo-dc-image),
 :root[data-exo-vt='morph'][data-exo-vt-back]::view-transition-old(exo-folder),
 :root[data-exo-vt='morph'][data-exo-vt-back]::view-transition-new(exo-folder),
-:root[data-exo-vt='morph'][data-exo-vt-back]::view-transition-old(exo-device),
-:root[data-exo-vt='morph'][data-exo-vt-back]::view-transition-new(exo-device) {
+:root[data-exo-vt='morph'][data-exo-vt-back]::view-transition-old(exo-device-art),
+:root[data-exo-vt='morph'][data-exo-vt-back]::view-transition-new(exo-device-art) {
   animation-delay: calc(var(--dur-flight) - 140ms);
   animation-duration: 140ms;
   animation-fill-mode: both;

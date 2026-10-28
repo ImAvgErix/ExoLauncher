@@ -23,13 +23,16 @@ export async function run(t) {
   await run.check('devices', 'grid', 'each device is a card with its picture; ones Exo does not set up yet say Coming soon and open nothing', async (c) => {
     if (!grid) c.skip('no devices found on this PC')
     await t.shell.waitFor(() => document.querySelectorAll('[data-device-card] .exo-device-card-art > *').length === document.querySelectorAll('[data-device-card]').length || null, { timeoutMs: 15000 })
-    const cards = await t.shell.eval(`[...document.querySelectorAll('[data-device-card]')].map(card => ({ id: card.dataset.deviceCard, soon: card.classList.contains('is-soon'), button: card.tagName === 'BUTTON', label: card.querySelector('.exo-device-soon')?.textContent ?? null, picture: !!card.querySelector('.exo-device-card-art > *'), name: card.querySelector('strong')?.textContent ?? '' }))`)
+    // A picture from the catalog loads (or fails) before it is judged; one that fails is a broken picture, not drawn art.
+    await t.shell.waitFor(() => [...document.querySelectorAll('[data-device-card] img.exo-device-render')].every(i => i.complete) || null, { timeoutMs: 15000 })
+    const cards = await t.shell.eval(`[...document.querySelectorAll('[data-device-card]')].map(card => ({ id: card.dataset.deviceCard, soon: card.classList.contains('is-soon'), button: card.tagName === 'BUTTON', label: card.querySelector('.exo-device-soon')?.textContent ?? null, picture: !!card.querySelector('.exo-device-card-art > *'), render: (img => img ? (img.naturalWidth > 0 ? img.naturalWidth + 'x' + img.naturalHeight : 'broken') : 'drawn')(card.querySelector('.exo-device-card-art img.exo-device-render')), name: card.querySelector('strong')?.textContent ?? '' }))`)
     const head = await t.shell.eval(`document.querySelector('.exo-devices-head')?.innerText ?? ''`)
-    c.evidence.cards = cards.map(({ id, soon, picture }) => ({ id, soon, picture }))
+    c.evidence.cards = cards.map(({ id, soon, picture, render }) => ({ id, soon, picture, render }))
     await c.shot('grid', t.shell)
     const failures = []
     for (const card of cards) {
       if (!card.picture) failures.push(`${card.name} has no picture`)
+      if (card.render === 'broken') failures.push(`${card.name}'s picture did not load`)
       if (card.soon && (card.button || card.label !== 'Coming soon')) failures.push(`${card.name} is coming soon but opens or doesn't say so`)
     }
     if (/found/i.test(head)) failures.push('a line under the heading counts the devices')
@@ -75,24 +78,20 @@ export async function run(t) {
     return failures
   })
 
-  await run.check('devices', 'ports', "a device off the processor's own USB is named above the cards, and Find them shows where each card is plugged in", async (c) => {
+  await run.check('devices', 'ports', "each card on USB says which USB it's on, green where it's best, and a mouse, keyboard or controller with a free processor port says to move", async (c) => {
     const list = await t.host('devices.list')
-    const ports = { cpu: list.cpuPorts ?? null, devices: list.devices.map(d => ({ kind: d.kind, name: d.name, port: d.port ?? null })) }
+    const ports = { cpu: list.cpuPorts ?? null, devices: list.devices.map(d => ({ id: d.id, kind: d.kind, name: d.name, port: d.port ?? null })) }
     c.evidence.ports = ports
-    const line = await t.shell.eval(`document.querySelector('.exo-devices-ports')?.innerText ?? null`)
-    c.evidence.line = line
-    const wanting = ports.devices.filter(d => d.port?.better === 'free' && ['mouse', 'keyboard', 'controller'].includes(d.kind))
-    const failures = []
     if (!ports.devices.some(d => d.port)) c.skip('no device on USB')
-    if (wanting.length && ports.cpu?.free > 0 && !line) failures.push(`${wanting.map(d => d.name).join(', ')} would gain from the processor's own USB, and nothing says so`)
-    if (!line) return failures
-    await t.shell.click(() => [...document.querySelectorAll('.exo-devices-ports button')].find(b => b.textContent.trim() === 'Find them'))
-    await sleep(400)
-    const finding = await t.shell.eval(`[...document.querySelectorAll('[data-device-card] .exo-device-card-text span')].map(s => s.textContent)`)
-    c.evidence.finding = finding
-    await c.shot('finding', t.shell)
-    if (!finding.some(text => /processor|chipset|USB chip|dock|Bluetooth/i.test(text))) failures.push('Find them left every card saying how it is linked, not where it is plugged in')
-    await t.shell.click(() => [...document.querySelectorAll('.exo-devices-ports button')].find(b => b.textContent.trim() === 'Done'))
+    const tags = await t.shell.eval(`Object.fromEntries([...document.querySelectorAll('[data-device-card]')].map(c => [c.dataset.deviceCard, c.querySelector('.exo-device-port') ? { text: c.querySelector('.exo-device-port').textContent, good: c.querySelector('.exo-device-port').classList.contains('is-good') } : null]))`)
+    c.evidence.tags = tags
+    await c.shot('ports', t.shell)
+    const failures = []
+    if (await t.shell.eval(`[...document.querySelectorAll('.exo-devices-head button')].some(b => /find/i.test(b.textContent))`)) failures.push('a Find ports button is back: the cards say where they are')
+    for (const d of ports.devices.filter(d => d.port && ['mouse', 'keyboard', 'controller'].includes(d.kind) && d.port.better === 'free')) {
+      const tag = Object.entries(tags).find(([id]) => id === d.id || id.includes(d.id))?.[1]
+      if (tag && (tag.good || tag.text !== 'Move to CPU USB')) failures.push(`${d.name} has a free processor port and its card says "${tag.text}"`)
+    }
     return failures
   })
 
@@ -123,12 +122,10 @@ export async function run(t) {
     return failures
   })
 
-  await run.check('devices', 'controller-setup', "a DualSense's calibration and an Edge's profiles open, fit and close without writing anything; games' Steam Input is one switch", async (c) => {
+  await run.check('devices', 'controller-setup', "a DualSense's calibration opens and closes without writing anything; no on-board profiles; games read it themselves, always", async (c) => {
     const pad = (await t.host('devices.list')).devices.find(d => d.kind === 'controller' && /^dualsense/.test(d.model ?? ''))
     if (!pad) c.skip('no DualSense on this PC')
-    const edge = pad.model === 'dualsense-edge'
     const failures = []
-    const before = edge && pad.connection === 'usb' ? await t.host('controller.profiles', { id: pad.id }) : null
     await t.shell.click((card) => document.querySelector(`button[data-device-card="${CSS.escape(card)}"]`), pad.id)
     await t.shell.waitFor(() => document.querySelector('.exo-device-page-hero') || null, { timeoutMs: 8000 })
     const rows = await t.shell.waitFor(() => {
@@ -137,34 +134,19 @@ export async function run(t) {
     }, { timeoutMs: 8000 })
     c.evidence.rows = rows
     if (!rows) failures.push('no Calibration row in Sticks')
-    if (edge && pad.connection === 'usb') {
-      const slots = await t.shell.waitFor(() => { const n = document.querySelectorAll('.exo-device-page-panel[aria-label="Profiles"] .exo-set-item').length; return n === 4 ? n : null }, { timeoutMs: 15000 })
-      if (!slots) failures.push("the Edge's four profile slots aren't listed")
-      if (await t.shell.click(() => [...document.querySelectorAll('.exo-device-page-panel[aria-label="Profiles"] button')].find(b => /^(Create|Edit)$/.test(b.textContent.trim())))) {
-        const dialog = await t.shell.waitFor(() => { const d = document.querySelector('.exo-profile-dialog'); return d ? { scroll: d.scrollHeight - d.clientHeight, sticks: d.querySelectorAll('.exo-profile-curve').length } : null }, { timeoutMs: 5000 })
-        c.evidence.editor = dialog
-        await c.shot('profile-editor', t.shell)
-        if (!dialog) failures.push("the profile editor didn't open")
-        else if (dialog.scroll > 0 || dialog.sticks !== 2) failures.push(`the profile editor scrolls (${dialog.scroll}px) or lacks a stick's curve`)
-        await t.shell.click(() => [...document.querySelectorAll('.exo-profile-dialog button')].find(b => b.textContent.trim() === 'Cancel'))
-        await sleep(500)
-      }
-    }
-    if (await t.shell.click(() => [...document.querySelectorAll('.exo-device-page-panel[aria-label="Sticks"] button')].find(b => /^(Calibrate|Again)$/.test(b.textContent.trim())))) {
+    if (await t.shell.eval(`!!document.querySelector('.exo-device-page-panel[aria-label="Profiles"]')`)) failures.push("an Edge's on-board profiles still show")
+    if (await t.shell.click(() => [...document.querySelectorAll('.exo-device-page-panel[aria-label="Sticks and triggers"] button')].find(b => /^(Calibrate|Again)$/.test(b.textContent.trim())))) {
       const intro = await t.shell.waitFor(() => document.querySelector('.exo-calibrate h2')?.textContent ?? null, { timeoutMs: 5000 })
       if (intro !== 'Calibrate the sticks') failures.push(`calibration opened on "${intro}", not its first step`)
       await t.shell.click(() => [...document.querySelectorAll('.exo-calibrate button')].find(b => b.textContent.trim() === 'Cancel'))
       await sleep(500)
     }
     if (await t.shell.eval(`document.querySelectorAll('.exo-dialog').length`)) failures.push('a dialog stayed open after Cancel')
-    if (before?.ok) {
-      const after = await t.host('controller.profiles', { id: pad.id })
-      const same = JSON.stringify(after.profiles?.map(p => [p.slot, p.assigned, p.name, p.updated])) === JSON.stringify(before.profiles?.map(p => [p.slot, p.assigned, p.name, p.updated]))
-      if (!same) failures.push('looking at the profiles changed them')
-    }
     const steam = await t.host('steamInput.state')
     c.evidence.steamInput = steam
-    if (steam.steam && !await t.shell.eval(`!!document.getElementById('ctl-native')`)) failures.push('no "Games read it themselves" switch with Steam installed')
+    const native = await t.shell.eval(`[...document.querySelectorAll('.exo-device-page-panel .exo-set-item-label')].some(l => l.textContent === 'Games read it themselves')`)
+    if (steam.steam && !native) failures.push('no "Games read it themselves" row with Steam installed')
+    if (await t.shell.eval(`!!document.getElementById('ctl-native')`)) failures.push('"Games read it themselves" is still a switch')
     await t.shell.click(() => document.querySelector('.exo-devices-back button'))
     await sleep(800)
     return failures

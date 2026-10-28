@@ -85,7 +85,7 @@ const theme = () => document.documentElement.dataset.exoTheme ?? 'void'
 
 type Request = {
   exo?: string; id?: number; method?: string; params?: Record<string, unknown>
-  notice?: unknown; state?: { name?: unknown; battery?: unknown; charging?: unknown; low?: unknown; image?: unknown; wireless?: unknown } | null; profile?: unknown
+  notice?: unknown; state?: { name?: unknown; maker?: unknown; battery?: unknown; charging?: unknown; low?: unknown; image?: unknown; wireless?: unknown } | null; profile?: unknown
 }
 
 /** A notice is one short line; anything longer or not text is dropped. */
@@ -112,7 +112,8 @@ function fromModule(m: Request) {
   // A picture only from OpenMouse's render server, by a plain file name: the frame can't point Exo anywhere else.
   const image = typeof m.state.image === 'string' && /^https:\/\/img\.openmouse\.app\/[a-z0-9-]+\.(png|webp)$/.test(m.state.image) ? m.state.image : null
   const wireless = typeof m.state.wireless === 'boolean' ? m.state.wireless : null
-  publishMouseState({ name: m.state.name.slice(0, 60), battery, charging: m.state.charging === true, low: m.state.low === true, image, wireless })
+  const maker = typeof m.state.maker === 'string' && m.state.maker.trim() ? m.state.maker.trim().slice(0, 40) : null
+  publishMouseState({ name: m.state.name.slice(0, 60), maker, battery, charging: m.state.charging === true, low: m.state.low === true, image, wireless })
 }
 
 let relaying = false

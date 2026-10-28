@@ -5,6 +5,7 @@ import { Choice } from '../settings/Choice'
 import { admin, colorOf, Confirm, Field, PickChips, ReadError, useAdmin } from './admin'
 import { Spinner } from '../ui/Spinner'
 import { Skeleton } from '../ui/Skeleton'
+import { ErrorNote } from '../ui/ErrorNote'
 
 type Action = { type: number; metadata?: { custom_message?: string; channel_id?: string; duration_seconds?: number } }
 type Meta = { keyword_filter?: string[]; regex_patterns?: string[]; allow_list?: string[]; presets?: number[]; mention_total_limit?: number; mention_raid_protection_enabled?: boolean }
@@ -137,7 +138,7 @@ function RuleEditor({ rule, roles, channels, busy, error, onCancel, onSave }: {
         <PickChips label="Allow in these channels" ids={draft.exempt_channels} options={channels.filter(c => c.kind !== 'category').map(c => ({ id: c.id, name: `#${c.name}` }))}
           onChange={exempt_channels => setDraft(d => ({ ...d, exempt_channels }))} />
       ) : null}
-      {error ? <p className="exo-dc-field-error" role="alert">{error}</p> : null}
+      {error ? <ErrorNote className="exo-dc-field-error" message={error} /> : null}
       <div className="exo-dc-modal-row">
         <button type="button" className="exo-dc-tab" onClick={onCancel}>Cancel</button>
         <button type="button" className="exo-set-btn is-primary" disabled={!ready || busy} onClick={() => onSave(draft)}>

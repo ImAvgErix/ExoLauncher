@@ -153,6 +153,13 @@ public sealed partial class MainWindow
     /// <summary>Exo Capture for Discord's Go Live (pictures of windows and screens, and the stream itself); null when it isn't installed.</summary>
     internal Services.CaptureAddon? StreamCapture => CaptureAddon;
 
+    /// <summary>A text file Windows opened with Exo while it runs: in Captures › Notes, or once the page is up.</summary>
+    internal void OpenNoteFromWindows(string path)
+    {
+        if (_bridge is { } bridge) bridge.OpenNoteFromWindows(path);
+        else Services.WebHostBridge.QueueNoteFromWindows(path);
+    }
+
     /// With the connected rooms: Exo Capture, so its hotkeys work from the start.
     private Task PrewarmCapture() => CaptureAddon is { } addon ? Task.Run(() =>
     {
@@ -302,10 +309,12 @@ public sealed partial class MainWindow
                 try { SaveCaptureIndex(); } catch (Exception ex) { AppLog.Warn("Capture index: " + ex.Message); }
                 _ = Task.Run(EnforceCaptureLimits);
                 var kind = data["kind"]?.GetValue<string>();
-                if (ItemFor(path) is { } item) _bridge?.PostCaptureEvent("capture.saved", new { item, kind });
+                // A snip opens in the page's editor, Exo in front for it; one taken over the game leaves the game in
+                // front (Exo Capture said it was saved) and waits in Captures.
+                var edit = kind == "snip" && data["inGame"]?.GetValue<bool>() != true;
+                if (ItemFor(path) is { } item) _bridge?.PostCaptureEvent("capture.saved", new { item, edit });
                 if (kind != "snip") ScheduleShrink(Services.CaptureShrink.Settle + TimeSpan.FromSeconds(5));
-                // The page opens a snip in its editor on capture.saved; Exo comes to the front for it.
-                if (kind == "snip") DispatcherQueue.TryEnqueue(RestoreAndActivate);
+                if (edit) DispatcherQueue.TryEnqueue(RestoreAndActivate);
                 break;
         }
     }
@@ -382,7 +391,7 @@ public sealed partial class MainWindow
                 switch (prop.Name)
                 {
                     case "quality" when n is { } quality: s.Quality = Math.Clamp(quality, 0, 100); break;
-                    case "replaySeconds" when n is { } seconds: s.ReplaySeconds = Math.Clamp(seconds, 30, 300); break;
+                    case "replaySeconds" when n is { } seconds: s.ReplaySeconds = Math.Clamp(seconds, 30, 600); break;
                     case "maxFps" when n is { } fps: s.MaxFps = fps >= 120 ? 120 : 60; break;
                     case "replayMode" when v.ValueKind == JsonValueKind.String && v.GetString() is "games" or "always" or "off": s.ReplayMode = v.GetString()!; break;
                     case "cursor" when v.ValueKind is JsonValueKind.True or JsonValueKind.False: s.Cursor = v.GetBoolean(); break;
@@ -782,7 +791,7 @@ public sealed partial class MainWindow
     [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
     private static extern int SHFileOperationW(ref ShFileOp op);
 
-    private static bool RecycleFile(string path)
+    internal static bool RecycleFile(string path)
     {
         const uint FO_DELETE = 3;
         const ushort FOF_ALLOWUNDO = 0x40, FOF_NOCONFIRMATION = 0x10, FOF_NOERRORUI = 0x400, FOF_SILENT = 0x4;

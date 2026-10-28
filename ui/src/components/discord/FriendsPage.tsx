@@ -3,6 +3,7 @@ import { host, onHostEvent } from '../../lib/host'
 import { report } from '../../lib/report'
 import { useGlide } from '../../lib/glide'
 import type { DiscordFriend } from '../../lib/discord'
+import { canListenAlong, listenAlong } from '../../lib/listenAlong'
 import { Icons } from './icons'
 import { Avatar } from './presence'
 import { Nameplate, StyledName } from './collectibles'
@@ -12,6 +13,7 @@ import { usePageActive } from '../../lib/pageActivity'
 import { useDismiss } from '../../lib/dismiss'
 import { GuildTag } from './guildTag'
 import { DictateButton } from '../ui/DictateButton'
+import { ErrorNote } from '../ui/ErrorNote'
 
 type Tab = 'online' | 'all' | 'pending' | 'add'
 
@@ -86,7 +88,7 @@ export function FriendsPage({ onOpenDm }: { onOpenDm: (channelId: string) => voi
             <DictateButton target={search} />
           </label>
           <p className="exo-dc-side-label">{heading} — {shown.length}</p>
-          {error ? <p className="exo-dc-note" role="alert">{error}</p> : null}
+          {error ? <ErrorNote className="exo-dc-note" message={error} /> : null}
           {shown.map(friend => (
             <div key={friend.id} className={`exo-dc-friend${friend.look?.nameplate ? ' has-nameplate' : ''}`} data-dc-user={friend.id} data-dc-name={friend.name} data-dc-username={friend.username ?? undefined}>
               <Nameplate look={friend.look} scope=".exo-dc-friend" />
@@ -236,23 +238,30 @@ function ActiveCard({ friend, now, onOpen }: { friend: DiscordFriend; now: numbe
   const sub = spotify ? rich.state : rich.details ? rich.state : null
   const Icon = KIND_ICONS[rich.type]
   return (
-    <button type="button" className="exo-dc-active-card" onClick={() => onOpen(friend)}>
-      <span className="exo-dc-active-who">
-        <Avatar src={friend.avatar} name={friend.name} status={friend.status} size={32} look={friend.look} scope=".exo-dc-active-card" />
-        <span className="exo-dc-friend-names"><strong>{friend.name}</strong><span>{head}</span></span>
-        {Icon ? <Icon size={18} className="exo-dc-active-kind" /> : null}
-      </span>
-      {/* What they are in, when there is more to it than the line above (a plain game's name and time already are). */}
-      {spotify || rich.image || rich.details ? (
-        <span className="exo-dc-active-what">
-          {rich.image ? <img src={rich.image} alt="" draggable={false} onError={event => { event.currentTarget.hidden = true }} /> : Icon ? <span className="exo-dc-active-art"><Icon size={22} /></span> : null}
-          <span className="exo-dc-friend-names">
-            <strong>{title}</strong>
-            {sub ? <span>{sub}</span> : null}
-            {!spotify && rich.start ? <span>{elapsed(rich.start, now)}</span> : null}
-          </span>
+    <>
+      <button type="button" className="exo-dc-active-card" onClick={() => onOpen(friend)}>
+        <span className="exo-dc-active-who">
+          <Avatar src={friend.avatar} name={friend.name} status={friend.status} size={32} look={friend.look} scope=".exo-dc-active-card" />
+          <span className="exo-dc-friend-names"><strong>{friend.name}</strong><span>{head}</span></span>
+          {Icon ? <Icon size={18} className="exo-dc-active-kind" /> : null}
         </span>
+        {/* What they are in, when there is more to it than the line above (a plain game's name and time already are). */}
+        {spotify || rich.image || rich.details ? (
+          <span className="exo-dc-active-what">
+            {rich.image ? <img src={rich.image} alt="" draggable={false} onError={event => { event.currentTarget.hidden = true }} /> : Icon ? <span className="exo-dc-active-art"><Icon size={22} /></span> : null}
+            <span className="exo-dc-friend-names">
+              <strong>{title}</strong>
+              {sub ? <span>{sub}</span> : null}
+              {!spotify && rich.start ? <span>{elapsed(rich.start, now)}</span> : null}
+            </span>
+          </span>
+        ) : null}
+      </button>
+      {/* A song, on any service: Exo plays it here on yours (lib/listenAlong.ts), in a call too. */}
+      {canListenAlong(rich) ? (
+        <button type="button" className="exo-set-btn is-compact exo-dc-active-listen"
+          onClick={() => listenAlong({ id: friend.id, name: friend.name, avatar: friend.avatar }, rich)}>Listen along</button>
       ) : null}
-    </button>
+    </>
   )
 }

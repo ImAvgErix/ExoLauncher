@@ -141,8 +141,7 @@ export function AppsStep({ onFeedback }: { onFeedback: (feedback: Feedback) => v
           const canInstall = (app.state === 'notInstalled' || app.state === 'error' || store) && installing !== app.id
           const Icon = app.id === 'discord' ? Discord : SERVICES.find(item => item.id === app.id)?.Icon ?? Discord
           return (
-            <Row key={app.id} label={app.title} icon={<Icon size={22} />}
-              detail={store ? 'Can’t play inside Exo. Your account and library stay when you switch' : undefined}>
+            <Row key={app.id} label={app.title} icon={<Icon size={22} />}>
               {app.state === 'loading' ? <SkeletonWord label={`Checking ${app.title}`} /> : (
                 <State on={app.state === 'installed' || app.state === 'running' || app.state === 'closed'}>
                   {app.state === 'installing' ? <><Spinner label={`Installing ${app.title}`} /> </> : null}{STATE_LABEL[app.state] ?? app.state}

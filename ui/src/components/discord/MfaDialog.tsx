@@ -4,6 +4,7 @@ import { host } from '../../lib/host'
 import { onMfaAsk, useLayer, type AdminReply, type MfaAsk } from './admin'
 import { ModalBack } from './SettingsLayer'
 import { Spinner } from '../ui/Spinner'
+import { ErrorNote } from '../ui/ErrorNote'
 
 type Waiting = { ask: MfaAsk; done: (reply: AdminReply<unknown>) => void }
 
@@ -101,7 +102,7 @@ function CodeForm({ ask, way, onElse, onDone }: { ask: MfaAsk; way: Way; onElse:
           placeholder={way === 'backup' ? '8-digit backup code' : way === 'password' ? undefined : '6-digit authentication code'}
           onChange={event => { setCode(event.target.value); setError(null) }} />
       </label>
-      {error ? <p className="is-bad" role="alert">{error}</p> : null}
+      {error ? <ErrorNote className="is-bad" message={error} /> : null}
       <div className="exo-dc-modal-row">
         {onElse ? <button type="button" className="exo-dc-tab" onClick={onElse}>Verify with something else</button> : null}
         <button type="submit" className="exo-set-btn is-primary" disabled={!ready || busy}>Confirm</button>

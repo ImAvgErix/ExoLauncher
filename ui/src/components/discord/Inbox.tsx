@@ -7,6 +7,7 @@ import { Icons } from './icons'
 import { Markdown, MarkdownLine, type MarkdownContext } from './markdown'
 import { Result, useOutside } from './results'
 import { Skeleton } from '../ui/Skeleton'
+import { ErrorNote } from '../ui/ErrorNote'
 
 type Tab = 'forYou' | 'unreads' | 'mentions' | 'bookmarks' | 'reminders'
 const TABS: [Tab, string][] = [['forYou', 'For you'], ['unreads', 'Unreads'], ['mentions', 'Mentions'], ['bookmarks', 'Bookmarks'], ['reminders', 'Reminders']]
@@ -78,7 +79,7 @@ function SavedList({ kind, ctx, here, onClose }: { kind: 'bookmarks' | 'reminder
   }
   return (
     <div className="exo-dc-popover-list" onScroll={event => { if (more && !busy && items.length && nearFoot(event)) load(items[items.length - 1].save_data.saved_at) }}>
-      {error ? <p className="exo-dc-note" role="alert">{error}</p> : null}
+      {error ? <ErrorNote className="exo-dc-note" message={error} /> : null}
       {!busy && !error && items.length === 0 ? <p className="exo-dc-note">{kind === 'bookmarks' ? 'Bookmark a message from its menu to find it here.' : 'Set a reminder from a message\'s menu, and it shows here.'}</p> : null}
       {items.map(item => item.message ? (
         <div key={item.save_data.message_id} className="exo-dc-saved">
@@ -138,7 +139,7 @@ function Mentions({ ctx, here, onClose }: { ctx: MarkdownContext; here: string; 
         <button type="button" className="exo-dc-tab" aria-pressed={roles} onClick={() => setRoles(v => !v)}>Role mentions</button>
       </div>
       <div className="exo-dc-popover-list" onScroll={event => { if (more && !busy && messages.length && nearFoot(event)) load(messages[messages.length - 1].id) }}>
-        {error ? <p className="exo-dc-note" role="alert">{error}</p> : null}
+        {error ? <ErrorNote className="exo-dc-note" message={error} /> : null}
         {!busy && !error && messages.length === 0 ? <p className="exo-dc-note">You're all caught up.</p> : null}
         {messages.map(message => <Result key={message.id} message={message} place={places[message.channel_id] ?? null} here={here} ctx={ctx} onJumped={onClose} onRemove={() => remove(message)} />)}
         {busy ? <Skeleton label="Loading mentions" avatar /> : null}
@@ -188,7 +189,7 @@ function Unreads({ ctx, onClose }: { ctx: MarkdownContext; onClose: () => void }
   const visible = channels?.slice(0, shown) ?? []
   return (
     <div className="exo-dc-popover-list" onScroll={event => { if (channels && shown < channels.length && nearFoot(event)) setShown(n => n + UNREAD_PAGE) }}>
-      {error ? <p className="exo-dc-note" role="alert">{error}</p> : null}
+      {error ? <ErrorNote className="exo-dc-note" message={error} /> : null}
       {channels === null ? <Skeleton label="Loading unread channels" /> : null}
       {channels?.length === 0 ? <p className="exo-dc-note">You're all caught up.</p> : null}
       {groupByServer(visible).map(group => (
@@ -276,7 +277,7 @@ function ForYou({ onClose }: { onClose: () => void }) {
   const empty: MarkdownContext = { users: new Map(), channelName: () => null, meId: null, guildId: null, colors: new Map() }
   return (
     <div className="exo-dc-popover-list" onScroll={event => { if (more && !busy && items.length && nearFoot(event)) load(items[items.length - 1].id) }}>
-      {error ? <p className="exo-dc-note" role="alert">{error}</p> : null}
+      {error ? <ErrorNote className="exo-dc-note" message={error} /> : null}
       {!busy && !error && items.length === 0 ? <p className="exo-dc-note">Nothing new for you.</p> : null}
       {items.map(item => {
         const target = linkTarget(item.deeplink)

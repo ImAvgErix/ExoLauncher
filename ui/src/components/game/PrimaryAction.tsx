@@ -1,10 +1,10 @@
 import { Button } from '../ui/Button'
 import { confirm } from '../ui/Dialog'
-import { Progress } from '../ui/Progress'
+import { WorkingWord } from '../ui/WorkingWord'
 import { Download, ExternalLink, Play, Stop } from '../../brand/icons'
 import { host, primaryCtaLabel, type Game, type InstallProgress, type PrimaryAction as ActionKind } from '../../lib/host'
 import { buyLabel } from '../../lib/social'
-import { installProgressLabel, transferMetaLine, transferPercent } from '../../lib/utils'
+import { installVerb, transferMetaLine, transferPercent } from '../../lib/utils'
 
 export type PrimaryActionProps = {
   selected: Game
@@ -26,11 +26,12 @@ function ctaLabelFor(selected: Game, action: ActionKind, buyUrl: string | null):
   return selected.entitlementState === 'notOwned' ? 'Buy again' : buyLabel(selected.store)
 }
 
+/** The button's word while a download runs: the work alone, with moving dots; how far it is, Downloads says. */
 function activeLabelFor(progress: InstallProgress | null, action: ActionKind): string {
-  if (progress) return installProgressLabel(progress, action === 'update' ? 'update' : 'download')
-  if (action === 'update') return 'Updating…'
-  if (action === 'install') return 'Installing…'
-  return 'Working…'
+  if (progress) return installVerb(progress, action === 'update' ? 'update' : 'download')
+  if (action === 'update') return 'Updating'
+  if (action === 'install') return 'Installing'
+  return 'Working'
 }
 
 function stateLabelFor(
@@ -41,9 +42,9 @@ function stateLabelFor(
   cta: string,
 ): string {
   if (active) return active
-  if (statusMsg && /clos/i.test(statusMsg)) return 'Closing…'
-  if (selected.canStop) return 'Running…'
-  return busy ? 'Preparing…' : cta
+  if (statusMsg && /clos/i.test(statusMsg)) return 'Closing'
+  if (selected.canStop) return 'Running'
+  return busy ? 'Preparing' : cta
 }
 
 /**
@@ -58,9 +59,7 @@ function ariaLabelFor(
   action: ActionKind,
   cta: string,
 ): string {
-  const verb = progress
-    ? installProgressLabel({ phase: progress.phase, status: progress.status }, action === 'update' ? 'update' : 'download').replace('…', '')
-    : ''
+  const verb = progress ? installVerb(progress, action === 'update' ? 'update' : 'download') : ''
   if (progress?.canCancel) return `Cancel ${verb.toLocaleLowerCase()} ${selected.title}`
   if (progress) return `${verb} ${selected.title}`
   if (busy) return `${selected.canStop ? 'Closing' : 'Preparing'} ${selected.title}`
@@ -107,7 +106,10 @@ function pillView({ selected, action, buyUrl, busy, statusMsg, progress, waiting
   }
 }
 
-/** Play | Install | Update | Stop | Buy — one pill, the Exo bar along its foot while it works. */
+/**
+ * Play | Install | Update | Stop | Buy — one pill. A download or update carries the Exo bar along its foot; a launch,
+ * which has no measure, says Preparing with its dots, then the pill turns to Stop.
+ */
 export function PrimaryAction({
   selected,
   action,
@@ -174,13 +176,11 @@ export function PrimaryAction({
           <span className="exo-action-content exo-action-active" aria-hidden={!inFlight}>
             <span className="exo-action-copy">
               <span>
-                {stateLabel}
+                <WorkingWord word={stateLabel} />
               </span>
-              {progress && <small>{transferMetaLine(progress, false)}</small>}
             </span>
           </span>
         </span>
-        {inFlight ? <Progress edge value={percent == null ? null : percent / 100} label={`${selected.title} progress`} /> : null}
       </Button>
       {reason ? <p className="exo-action-reason">{reason}</p> : null}
       {/* A button's insides are not read as their own parts: screen readers get the download's figures here. */}

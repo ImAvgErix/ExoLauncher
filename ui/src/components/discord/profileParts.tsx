@@ -13,6 +13,7 @@ import { pressedArt, transition, visible } from '../../lib/viewTransition'
 import { Decoration, effectSkuOf, lookOf, ProfileEffect, StyledName, themeStyle } from './collectibles'
 import { GuildTag } from './guildTag'
 import { Skeleton } from '../ui/Skeleton'
+import { ErrorNote } from '../ui/ErrorNote'
 
 /** A profile as every surface shows it: Discord's reply, what Exo adds (roles, presence), and your note. */
 export type Loaded = { profile: DiscordProfile; extras: DiscordProfileExtras | null; note: string | null }
@@ -340,7 +341,7 @@ export function RoleList({ data, guildId }: { data: Loaded; guildId: string | nu
           </div>
         </div>
       ) : null}
-      {error ? <p className="exo-dc-note is-bad" role="alert">{error}</p> : null}
+      {error ? <ErrorNote className="exo-dc-note is-bad" message={error} /> : null}
     </Section>
   )
 }
@@ -465,7 +466,7 @@ export function NoteField({ userId, note }: { userId: string; note: string | nul
     <Section title="Note">
       <textarea className="exo-dc-pf-note" value={text} maxLength={256} rows={1} placeholder="Click to add a note" aria-label="Note (only visible to you)"
         onChange={event => setText(event.target.value)} onBlur={save} />
-      {error ? <p className="exo-dc-note is-bad" role="alert">{error}</p> : null}
+      {error ? <ErrorNote className="exo-dc-note is-bad" message={error} /> : null}
     </Section>
   )
 }

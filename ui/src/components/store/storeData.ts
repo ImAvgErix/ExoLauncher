@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
-import { host, onHostEvent, type Game, type StoreArt, type StoreGame, type StoreOffer, type StoreTile, type WishItem } from '../../lib/host'
+import { host, onHostEvent, type Game, type StoreArt, type StoreGame, type StoreOtherOffers, type StoreRecentReviews, type StoreTile, type WishItem } from '../../lib/host'
 import { report } from '../../lib/report'
 import { titleIdentity } from '../../lib/utils'
 
@@ -49,9 +49,16 @@ export function artSources(game: { appId: string; art?: StoreArt | null }, kinds
 }
 
 /** GG.deals compares official stores and key shops; its search lands on the game, for people who buy keys. */
+/**
+ * The game's own page on GG.deals, its PC prices (gg.deals/game/elden-ring/), not a search: GG.deals names a game's page
+ * by its title in lowercase words joined by dashes, accents and marks dropped, apostrophes closed up ("Baldur's Gate 3"
+ * → baldurs-gate-3). A title with nothing to make a name of falls back to the search.
+ */
 export function ggDealsUrl(title: string): string {
   const clean = title.replace(/[™®©]/g, '').replace(/\s+/g, ' ').trim()
-  return `https://gg.deals/search/?title=${encodeURIComponent(clean)}`
+  const slug = clean.normalize('NFKD').replace(/[̀-ͯ]/g, '').toLowerCase()
+    .replace(/['’]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
+  return slug ? `https://gg.deals/game/${slug}/` : `https://gg.deals/search/?title=${encodeURIComponent(clean)}`
 }
 
 /** "In your library": the Steam app the library owns, or the same title owned on any store. */
@@ -75,13 +82,57 @@ export function reviewText(review?: string | null, percent?: number | null): str
   return percent != null ? `${review} · ${percent}%` : review
 }
 
+/**
+ * Steam's seasonal sales as Steam published them on "Upcoming Steam Events"
+ * (partner.steamgames.com/doc/marketing/upcoming_events, read Oct 27, 2026; Autumn 2027 was still TBD there). Each
+ * starts and ends at 10 AM Pacific. Copied by hand: add the next one when Steam publishes it.
+ */
+const STEAM_SALES: readonly { name: string; from: string; to: string }[] = [
+  { name: 'Steam Winter Sale', from: '2026-12-17T10:00-08:00', to: '2027-01-04T10:00-08:00' },
+  { name: 'Steam Spring Sale', from: '2027-03-18T10:00-07:00', to: '2027-03-25T10:00-07:00' },
+  { name: 'Steam Summer Sale', from: '2027-06-24T10:00-07:00', to: '2027-07-08T10:00-07:00' },
+]
+
+/** A day as the calendar keys it: the local date, yyyy-mm-dd. */
+export function localDay(at: Date): string {
+  return `${at.getFullYear()}-${String(at.getMonth() + 1).padStart(2, '0')}-${String(at.getDate()).padStart(2, '0')}`
+}
+
+const shortDay = (at: number) => new Date(at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+
+/** The Store's top line while a Steam sale is on ("Steam Winter Sale until Jan 4") or in the week before it ("… from Dec 17"). */
+export function steamSaleNow(now = Date.now()): string | null {
+  for (const sale of STEAM_SALES) {
+    const from = Date.parse(sale.from)
+    const to = Date.parse(sale.to)
+    if (now >= from && now < to) return `${sale.name} until ${shortDay(to)}`
+    if (now < from && from - now < 7 * 86_400_000) return `${sale.name} from ${shortDay(from)}`
+  }
+  return null
+}
+
+/** The calendar's marks between two local days (yyyy-mm-dd, both in): each Steam sale's first and last day. */
+export function steamSaleMarks(first: string, last: string): Map<string, string[]> {
+  const marks = new Map<string, string[]>()
+  const mark = (at: string, words: string) => {
+    const day = localDay(new Date(at))
+    if (day >= first && day <= last) marks.set(day, [...(marks.get(day) ?? []), words])
+  }
+  for (const sale of STEAM_SALES) {
+    mark(sale.from, `${sale.name} starts`)
+    mark(sale.to, `${sale.name} ends`)
+  }
+  return marks
+}
+
 // A game's page, asked for once: a card on screen warms it, the click then draws the same answer at once.
 const GAME_KEEP_MS = 10 * 60_000
 /** Each entry holds a whole game's page; a long browse is capped or it would hold them all. Oldest-inserted go first. */
 const KEEP_MAX_ENTRIES = 96
 type Kept<T> = { at: number; answer: Promise<T>; value?: T }
 const games = new Map<string, Kept<StoreGame>>()
-const offers = new Map<string, Kept<{ ok: boolean; offers: StoreOffer[] }>>()
+const offers = new Map<string, Kept<StoreOtherOffers>>()
+const reviews = new Map<string, Kept<StoreRecentReviews>>()
 
 /** One answer per game, shared with any warm-up still on its way; a failed answer is never kept. */
 function keep<T>(cache: Map<string, Kept<T>>, appId: string, fresh: boolean, ask: () => Promise<T>, ok: (value: T) => boolean): Promise<T> {
@@ -108,9 +159,12 @@ const peek = <T,>(cache: Map<string, Kept<T>>, appId: string) => {
 export const loadGame = (appId: string, fresh = false) => keep(games, appId, fresh, () => host.storeGame(appId), g => g.ok)
 /** Steam's page if it already arrived, so the game page draws whole from its first frame. */
 export const peekGame = (appId: string) => peek(games, appId)
-/** The other official launchers' offers; kept only when CheapShark answered, so a slow answer is asked again next time. */
-export const loadOffers = (appId: string) => keep(offers, appId, false, () => host.storeGameOffers(appId), res => res.ok).then(res => (res.ok ? res.offers ?? [] : null))
-export const peekOffers = (appId: string) => peek(offers, appId)?.offers ?? null
+/** The other official launchers' offers and the lowest price ever; kept only when CheapShark answered, so a slow answer is asked again next time. */
+export const loadOffers = (appId: string) => keep(offers, appId, false, () => host.storeGameOffers(appId), res => res.ok)
+export const peekOffers = (appId: string) => peek(offers, appId)
+/** Steam's Recent reviews, only for a page that opened (never to warm one); kept only when Steam answered. */
+export const loadReviews = (appId: string) => keep(reviews, appId, false, () => host.storeGameReviews(appId), res => res.ok)
+export const peekReviews = (appId: string) => peek(reviews, appId)
 
 const images = new Set<string>()
 /** Only what a duplicate preload test needs; capped so a long browse does not grow it. */

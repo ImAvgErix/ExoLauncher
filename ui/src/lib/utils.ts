@@ -1,5 +1,5 @@
 import { clsx, type ClassValue } from 'clsx'
-import type { Game, SortMode } from './host'
+import { isPreloaded, type Game, type SortMode } from './host'
 
 /** Joins class names. No Tailwind conflict merging: no call site passes conflicting utilities. */
 export function cn(...inputs: ClassValue[]) {
@@ -92,6 +92,14 @@ export function installProgressLabel(
   if (phase === 'installing') return action === 'update' ? 'Applying…' : 'Installing…'
   if (phase === 'finalizing') return 'Finalizing…'
   return `${verb}…`
+}
+
+/** The work a transfer is doing in one word ("Updating", "Applying", "Waiting"), for a working word's moving dots. */
+export function installVerb(
+  progress: { phase?: string | null; status?: string | null } | null | undefined,
+  action: 'install' | 'update' | 'download',
+): string {
+  return installProgressLabel(progress && { phase: progress.phase, status: progress.status }, action).replace(/….*$/, '')
 }
 
 /**
@@ -222,10 +230,12 @@ export function sortGames(games: Game[], mode: SortMode | string, recent: string
     case 'store':
       ordered = [...rest].sort((a, b) => a.store.localeCompare(b.store) || cmpTitle(a, b))
       break
-    case 'installed':
-      // What you can play now first, A to Z; then what you own but haven't installed, A to Z.
-      ordered = [...rest].sort((a, b) => Number(b.installed) - Number(a.installed) || cmpTitle(a, b))
+    case 'installed': {
+      // What's on this PC first (installed, or preloaded for its release), A to Z; then what you own but haven't installed.
+      const here = (game: Game) => Number(game.installed || isPreloaded(game))
+      ordered = [...rest].sort((a, b) => here(b) - here(a) || cmpTitle(a, b))
       break
+    }
     case 'name':
     default:
       ordered = [...rest].sort(cmpTitle)

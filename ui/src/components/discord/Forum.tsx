@@ -3,12 +3,14 @@ import { host, onHostEvent } from '../../lib/host'
 import { report } from '../../lib/report'
 import { avatarUrl, displayName, snowflakeTime, type DiscordChannel, type DiscordForumTag, type DiscordMessage, type DiscordThread } from '../../lib/discord'
 import { Icons } from './icons'
-import { emojiUrl, formatTimestamp, MarkdownLine, type MarkdownContext } from './markdown'
+import { formatTimestamp, MarkdownLine, type MarkdownContext } from './markdown'
+import { openThreadMenu, TagLabel } from './ThreadMenu'
 import { sized } from './Attachments'
 import { Topic } from './ChatHeader'
 import { isAfter } from './messageCache'
 import { Skeleton } from '../ui/Skeleton'
 import { DictateButton } from '../ui/DictateButton'
+import { ErrorNote } from '../ui/ErrorNote'
 
 type Page = { threads: DiscordThread[]; first: Map<string, DiscordMessage>; tags: DiscordForumTag[]; error: string | null; done: boolean; loading: boolean }
 
@@ -66,7 +68,7 @@ export function ForumView({ channel, guildId, channelName, active, onOpen }: {
         {writing ? <NewPost channelId={channel.id} tags={page.tags} onCancel={() => setWriting(false)} onPosted={thread => { setWriting(false); open(thread) }} /> : null}
         {shown.map(thread => <PostCard key={thread.id} thread={thread} first={page.first.get(thread.id)} tags={page.tags} ctx={ctx} onOpen={() => open({ id: thread.id, name: thread.name, locked: thread.thread_metadata?.locked })} />)}
         {page.loading ? <Skeleton label="Loading posts" rows={4} avatar /> : null}
-        {page.error ? <p className="exo-dc-note" role="alert">{page.error}</p> : null}
+        {page.error ? <ErrorNote className="exo-dc-note" message={page.error} /> : null}
         {!page.loading && !page.error && page.done && shown.length === 0 ? <p className="exo-dc-note">{q || tag ? 'No posts match.' : 'No posts yet.'}</p> : null}
       </div>
     </section>
@@ -130,15 +132,6 @@ function usePosts(channelId: string, guildId: string) {
   return { page, more: () => void load() }
 }
 
-function TagLabel({ tag }: { tag: DiscordForumTag }) {
-  return (
-    <>
-      {tag.emojiId ? <img src={emojiUrl(tag.emojiId, false, 32)} alt="" draggable={false} /> : tag.emojiName ? <span aria-hidden="true">{tag.emojiName}</span> : null}
-      {tag.name}
-    </>
-  )
-}
-
 function PostCard({ thread, first, tags, ctx, onOpen }: { thread: DiscordThread; first?: DiscordMessage; tags: DiscordForumTag[]; ctx: MarkdownContext; onOpen: () => void }) {
   const image = first?.attachments.find(a => a.content_type?.startsWith('image/'))
   // Its picture from Discord's media proxy at the size that covers the 88 px square, not the original (often 4K, megabytes).
@@ -147,7 +140,8 @@ function PostCard({ thread, first, tags, ctx, onOpen }: { thread: DiscordThread;
   const thumb = image ? sized(image.proxy_url ?? image.url, w, h, cover ? { width: w * cover, height: h * cover } : undefined) : null
   const applied = tags.filter(t => thread.applied_tags?.includes(t.id))
   return (
-    <button type="button" className="exo-dc-forum-post" onClick={onOpen}>
+    <button type="button" className="exo-dc-forum-post" onClick={onOpen}
+      onContextMenu={event => { event.preventDefault(); openThreadMenu(thread.id, event.clientX, event.clientY) }}>
       <span className="exo-dc-forum-post-body">
         {applied.length ? <span className="exo-dc-forum-tags">{applied.map(t => <span key={t.id} className="exo-dc-tag-chip is-static"><TagLabel tag={t} /></span>)}</span> : null}
         <strong>{thread.name}</strong>
@@ -216,7 +210,7 @@ function NewPost({ channelId, tags, onCancel, onPosted }: {
         </div>
       ) : null}
       <div className="exo-dc-forum-new-foot">
-        {error ? <p className="exo-dc-forum-error" role="alert">{error}</p> : <span />}
+        {error ? <ErrorNote className="exo-dc-forum-error" message={error} /> : <span />}
         <button type="button" className="exo-dc-tab" onClick={onCancel}>Cancel</button>
         <button type="button" className="exo-set-btn is-primary" disabled={busy || !name.trim() || !content.trim()} onClick={() => void post()}>Post</button>
       </div>

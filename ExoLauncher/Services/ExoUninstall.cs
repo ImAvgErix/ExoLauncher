@@ -69,6 +69,8 @@ internal static class ExoUninstall
         {
             AppLog.Warn("Uninstall: Steam's offline mode not put back: " + ex.GetType().Name);
         }
+        // Exo offered for text files (Notes): out of Open with and Default apps again.
+        NoteTextFiles.Withdraw();
         ExoComponents.RemoveAll();
         var app = AppContext.BaseDirectory.TrimEnd('\\');
         var scan = new LeftoverScan(LeftoverScan.ThisPc());

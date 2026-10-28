@@ -100,7 +100,7 @@ function RebuildCachesRow() {
   return (
     <Row
       label="Clear caches"
-      detail={note && !note.error ? note.text : 'Fixes wrong game sizes or upscaler versions.'}
+      detail={note && !note.error ? note.text : undefined}
       error={note?.error ? note.text : null}
     >
       <button type="button" className="exo-set-btn" disabled={busy} onClick={() => void rebuild()}>

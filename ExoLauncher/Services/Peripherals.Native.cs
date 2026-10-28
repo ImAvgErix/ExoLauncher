@@ -24,7 +24,7 @@ internal static partial class Peripherals
         var cards = Classify(Tree(), DefaultEndpoints(), PcHealth.Laptop(PcHealth.NativePower.HasBattery(), null));
         var present = cards.Select(c => c.Source).OfType<string>().ToHashSet(StringComparer.OrdinalIgnoreCase);
         foreach (var gone in Answers.Keys.Where(k => !present.Contains(k))) Answers.TryRemove(gone, out _);
-        return [.. cards.Select(card => Answered(card, gameRunning))];
+        return [.. cards.Select(card => WithApp(Answered(card, gameRunning)))];
     }
 
     // ------------------------------------------------------------------ the device tree
@@ -134,8 +134,8 @@ internal static partial class Peripherals
     // ------------------------------------------------------------------ what a device answers
 
     private static readonly Guid HidInterface = new("4d1e55b2-f16f-11cf-88cb-001111000030"); // GUID_DEVINTERFACE_HID
-    /// <summary>Per product instance while it is plugged in: its color or layout, null when it gave none.</summary>
-    private static readonly ConcurrentDictionary<string, string?> Answers = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>Per product instance while it is plugged in: its color or layout (null when it gave none) and a DualSense's unit.</summary>
+    private static readonly ConcurrentDictionary<string, (string? Answer, string? Unit)> Answers = new(StringComparer.OrdinalIgnoreCase);
     private static readonly object AskGate = new();
 
     private static Peripheral Answered(Peripheral card, Func<bool> gameRunning)
@@ -143,19 +143,19 @@ internal static partial class Peripherals
         var color = card is { Connection: "usb", VendorId: 0x054C, ProductId: 0x0CE6 or 0x0DF2 };
         var layout = card is { Kind: "keyboard", Connection: "usb", VendorId: 0x31E3 };
         if (!color && !layout || card.Source is not { } source) return card;
-        if (!Answers.TryGetValue(source, out var answer))
+        if (!Answers.TryGetValue(source, out var known))
         {
             if (Playing(gameRunning)) return card; // asked again once the game is closed
             lock (AskGate)
-                if (!Answers.TryGetValue(source, out answer))
+                if (!Answers.TryGetValue(source, out known))
                 {
-                    answer = Bounded(() => color
-                        ? DualSenseSerial(card) is { } serial ? ColorOf(serial) : null
-                        : WootingConfig(card) is { } config && LayoutByte(config) is { } value ? LayoutOf(value) : null);
-                    Answers[source] = answer;
+                    known = color
+                        ? Bounded(() => DualSenseSerial(card)) is { } serial ? (ColorOf(serial), UnitOf(card, serial)) : (null, null)
+                        : (Bounded(() => WootingConfig(card) is { } config && LayoutByte(config) is { } value ? LayoutOf(value) : null), null);
+                    Answers[source] = known;
                 }
         }
-        return color ? card with { Color = answer } : card with { Layout = answer };
+        return color ? card with { Color = known.Answer, Unit = known.Unit } : card with { Layout = known.Answer };
     }
 
     private static bool Playing(Func<bool> gameRunning)

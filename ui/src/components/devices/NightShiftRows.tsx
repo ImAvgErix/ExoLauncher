@@ -50,12 +50,12 @@ export function NightShiftRows({ active }: { active: boolean }) {
   if (!lucid) return null
   return (
     <>
-      <Row label="Night Shift" labelId="pc-night-shift" detail="Lucid plays your headphones warmer late at night" error={errorFor('nightShift')}>
+      <Row label="Night Shift" labelId="pc-night-shift" error={errorFor('nightShift')}>
         <Switch checked={lucid.nightShift} labelledBy="pc-night-shift" onChange={on => change('nightShift', { nightShift: on }, { nightShift: on })} />
       </Row>
       {lucid.nightShift ? (
         <>
-          <Row label="Follow Windows Night light" labelId="pc-night-sync" detail="Starts and ends with Night light's schedule" error={errorFor('nightSync')}>
+          <Row label="Follow Windows Night light" labelId="pc-night-sync" error={errorFor('nightSync')}>
             <Switch checked={lucid.nightSync} labelledBy="pc-night-sync" onChange={on => change('nightSync', { nightSync: on }, { nightSync: on })} />
           </Row>
           {lucid.nightSync ? null : (

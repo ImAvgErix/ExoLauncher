@@ -22,6 +22,7 @@ import { SoundPanel } from './SoundPanel'
 import { PlaylistSheet } from './PlaylistSheet'
 import { PlayerContext, loadView, onPlayerChanged, pageFor, runAction, usePlayer, useView, type Page, type Player, type PlaylistEdit } from './playerContext'
 import { useTopOnChange } from '../../lib/topOnChange'
+import { CopyLogs, ErrorNote } from '../ui/ErrorNote'
 
 type Panel = 'now' | 'queue' | 'devices' | 'friends' | 'jam' | 'sound' | 'credits' | null
 
@@ -298,7 +299,7 @@ function Main({ page, query, depth, artFrom, canBack, onSettled, onBack }: {
     <div className="exo-music-main" ref={scroller}>
       {!songs && !error && (!shown || !fresh) ? <PageWait first={!shown} query={settled} name={adapter.name} /> : null}
       {canBack ? <button type="button" className="exo-set-btn exo-music-back" onClick={onBack} aria-label="Back"><ChevronLeft size={18} /></button> : null}
-      {error && !songs ? <p className="exo-music-error" role="alert">{error}</p> : null}
+      {error && !songs ? <ErrorNote className="exo-music-error" message={error} /> : null}
       {songs ? (
         <div key="songs" className="exo-motion-switch"><SongsPage scroller={scroller} /></div>
       ) : shown && !stale ? (
@@ -489,11 +490,12 @@ function LibraryNote({ error, loaded, failed, onRetry }: {
     return (
       <p className="exo-music-error exo-music-retry" role="alert">{error}
         <button type="button" className="exo-set-btn" onClick={onRetry}>Retry</button>
+        <CopyLogs error={error} />
       </p>
     )
   }
   if (!loaded) return <Waiting label="Loading your library" />
-  return failed ? <p className="exo-music-error" role="alert">{failed}</p> : null
+  return failed ? <ErrorNote className="exo-music-error" message={failed} /> : null
 }
 
 /**
@@ -620,7 +622,7 @@ function PlayerBar({ playback, player, panel, onPanel, onChanged }: {
           <span className="exo-music-row-title">{playback?.title || player?.title || 'Nothing playing'}</span>
           {/* The badge rides the artist line, so the title never gives up room when it appears. */}
           <span className="exo-music-bar-sub">
-            {failed ? <span className="exo-music-row-sub is-failed" role="alert">{failed}</span> : <span className="exo-music-row-sub">{playback?.artist}</span>}
+            {failed ? <ErrorNote as="span" className="exo-music-row-sub is-failed" message={failed} /> : <span className="exo-music-row-sub">{playback?.artist}</span>}
             <QualityBadge playing={!!(playback?.title || player?.title)} />
           </span>
         </span>
@@ -675,9 +677,10 @@ function BarControls({ playback, player, change, onFail }: {
 
 function BarSide({ panel, onPanel, children }: { panel: Panel; onPanel: (panel: Exclude<Panel, null>) => void; children?: ReactNode }) {
   const { has } = usePlayer()
-  // Spotify's own panels: one button each, or one menu of them on a narrow window (system.css).
+  // Jam (listen along on every service, Spotify's Jam too there) and Spotify's own panels: one button each, or one menu
+  // of them on a narrow window (system.css).
   const extra = ([['jam', <Jam size={16} />], ['friends', <Users size={16} />], ['devices', <Devices size={16} />]] as const)
-    .filter(([name]) => has(name))
+    .filter(([name]) => name === 'jam' || has(name))
   return (
       <div className="exo-music-bar-side">
         {children}

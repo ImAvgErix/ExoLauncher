@@ -9,6 +9,7 @@ import { emojiUrl } from './markdown'
 import { ModalBack } from './SettingsLayer'
 import { useLayer } from './admin'
 import { Skeleton } from '../ui/Skeleton'
+import { ErrorNote } from '../ui/ErrorNote'
 
 /** One chip under a message: a reaction's normal count, or its super reactions on a chip of their own, as Discord shows them. */
 type Chip = { reaction: DiscordReaction; burst: boolean; count: number; mine: boolean }
@@ -176,7 +177,7 @@ export function ReactionsDialog({ message, first, onClose }: { message: DiscordM
           const el = event.currentTarget
           if (more && !busy && el.scrollTop + el.clientHeight > el.scrollHeight - 80 && users.length) load(users[users.length - 1].id)
         }}>
-          {error ? <p className="exo-dc-note" role="alert">{error}</p> : null}
+          {error ? <ErrorNote className="exo-dc-note" message={error} /> : null}
           {users.map(user => (
             <div key={user.id} className="exo-dc-reactor">
               <img className="exo-dc-avatar" src={avatarUrl(user, 32)} alt="" draggable={false} loading="lazy" />

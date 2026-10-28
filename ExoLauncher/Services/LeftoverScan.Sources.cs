@@ -262,56 +262,69 @@ internal sealed partial class LeftoverScan
 
     // ---- scheduled tasks (Task Scheduler 2.0, as this user sees them) ----
 
+    // Read in a helper process: .NET's late-bound COM crashed Exo outright inside the Task Scheduler's type info (an
+    // access violation no catch stops) while a Microsoft Edge removal ran. A crash or hang there now costs only the helper.
+    private const string TaskScript =
+        "$ErrorActionPreference='Stop';[Console]::OutputEncoding=[Text.UTF8Encoding]::new($false);" +
+        "$s=New-Object -ComObject Schedule.Service;$s.Connect();" +
+        "function W($f,$d){if($d -gt 6){return};try{foreach($t in $f.GetTasks(1)){try{foreach($a in $t.Definition.Actions){" +
+        "if($a.Type -eq 0 -and $a.Path){[Console]::Out.WriteLine($t.Path+[char]9+$a.Path)}}}catch{}};" +
+        "foreach($g in $f.GetFolders(0)){W $g ($d+1)}}catch{}};W ($s.GetFolder('\\')) 0";
+
     private static List<(string Path, string Exe)> ReadTasks()
     {
-        var tasks = new List<(string, string)>();
-        try
-        {
-            if (Type.GetTypeFromProgID("Schedule.Service") is not { } type) return tasks;
-            dynamic service = Activator.CreateInstance(type)!;
-            service.Connect();
-            Walk(service.GetFolder("\\"), 0);
-        }
-        catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException or UnauthorizedAccessException or Microsoft.CSharp.RuntimeBinder.RuntimeBinderException or InvalidCastException)
-        {
-            AppLog.Debug("Leftovers: tasks unreadable: " + ex.GetType().Name);
-        }
+        var (_, output) = RunHelper(PowerShell, ["-NoProfile", "-NonInteractive", "-EncodedCommand",
+            Convert.ToBase64String(Encoding.Unicode.GetBytes(TaskScript))], TimeSpan.FromSeconds(15));
+        var tasks = ParseTasks(output);
+        if (output is null) AppLog.Debug("Leftovers: tasks unreadable.");
         return tasks;
-
-        void Walk(dynamic folder, int depth)
-        {
-            if (depth > 6) return;
-            try
-            {
-                foreach (dynamic task in folder.GetTasks(1))
-                {
-                    try
-                    {
-                        foreach (dynamic action in task.Definition.Actions)
-                            if ((int)action.Type == 0 && action.Path is string exe && exe.Length > 0) tasks.Add(((string)task.Path, exe));
-                    }
-                    catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException or UnauthorizedAccessException) { }
-                }
-                foreach (dynamic sub in folder.GetFolders(0)) Walk(sub, depth + 1);
-            }
-            catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException or UnauthorizedAccessException) { }
-        }
     }
 
-    private static bool TaskExists(string path)
+    /// <summary>The helper's lines, a task's path (from \) and the program it runs with a tab between: anything else is left out.</summary>
+    internal static List<(string Path, string Exe)> ParseTasks(string? output)
     {
+        var tasks = new List<(string, string)>();
+        foreach (var line in (output ?? "").Split('\n'))
+        {
+            var tab = line.IndexOf('\t');
+            if (tab <= 0 || line[0] != '\\') continue;
+            var exe = line[(tab + 1)..].TrimEnd('\r');
+            if (exe.Length > 0) tasks.Add((line[..tab], exe));
+        }
+        return tasks;
+    }
+
+    /// <summary>Whether a task is there: schtasks' exit code, the same in every Windows language.</summary>
+    private static bool TaskExists(string path) => RunHelper(SchTasks, ["/query", "/tn", path], TimeSpan.FromSeconds(10)).ExitCode == 0;
+
+    private static string PowerShell => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "WindowsPowerShell", "v1.0", "powershell.exe");
+    private static string SchTasks => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "schtasks.exe");
+
+    /// <summary>A Windows tool run hidden, its UTF-8 output read; (-1, null) when it couldn't start or ran past <paramref name="budget"/>.</summary>
+    private static (int ExitCode, string? Output) RunHelper(string file, string[] args, TimeSpan budget)
+    {
+        var start = new System.Diagnostics.ProcessStartInfo(file)
+        {
+            UseShellExecute = false, CreateNoWindow = true,
+            RedirectStandardOutput = true, RedirectStandardError = true, StandardOutputEncoding = new UTF8Encoding(false),
+        };
+        foreach (var arg in args) start.ArgumentList.Add(arg);
         try
         {
-            if (Type.GetTypeFromProgID("Schedule.Service") is not { } type) return false;
-            dynamic service = Activator.CreateInstance(type)!;
-            service.Connect();
-            var slash = path.LastIndexOf('\\');
-            dynamic folder = service.GetFolder(slash <= 0 ? "\\" : path[..slash]);
-            return folder.GetTask(path[(slash + 1)..]) is not null;
+            using var process = System.Diagnostics.Process.Start(start);
+            if (process is null) return (-1, null);
+            var output = process.StandardOutput.ReadToEndAsync();
+            _ = process.StandardError.ReadToEndAsync();
+            if (!process.WaitForExit(budget))
+            {
+                try { ProcessTermination.Kill(process, entireProcessTree: true); } catch { }
+                return (-1, null);
+            }
+            return (process.ExitCode, output.Wait(TimeSpan.FromSeconds(2)) ? output.Result : null);
         }
-        catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException or UnauthorizedAccessException or Microsoft.CSharp.RuntimeBinder.RuntimeBinderException or System.IO.FileNotFoundException)
+        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException or IOException)
         {
-            return false;
+            return (-1, null);
         }
     }
 

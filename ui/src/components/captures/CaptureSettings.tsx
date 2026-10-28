@@ -15,6 +15,7 @@ const LENGTHS = [
   { value: '60', label: '1 min' },
   { value: '120', label: '2 min' },
   { value: '300', label: '5 min' },
+  { value: '600', label: '10 min' },
 ] as const
 const RATES = [
   { value: '60', label: '60 fps' },
@@ -93,7 +94,7 @@ export const CaptureSettingsView = memo(function CaptureSettingsView() {
   if (state && !state.present) {
     return (
       <div className="exo-set-list exo-capture-settings">
-        <Row label="Exo Capture" detail="Instant replay, recording and snips">
+        <Row label="Exo Capture">
           <State>Not installed</State>
         </Row>
       </div>
@@ -141,7 +142,7 @@ function useRowErrors() {
 function encoderLine(state: CaptureState | null): string | undefined {
   if (!state?.codec) return undefined
   const gpu = state.encoder?.replace(/ (HEVC|H\.?264|AV1) Encoder MFT$/i, '')
-  return `${state.codec}${gpu ? ` on ${gpu}` : ''}, at the game's own size`
+  return `${state.codec}${gpu ? ` on ${gpu}` : ''}`
 }
 
 function ReplayRows({ state, settings }: { state: CaptureState | null; settings: CaptureSettings | null }) {
@@ -152,7 +153,7 @@ function ReplayRows({ state, settings }: { state: CaptureState | null; settings:
   const shown = quality ?? settings?.quality ?? 50
   return (
     <>
-      <Row label="Instant replay" labelId="set-capture-mode" detail="Keeps the last moments in memory so you can save them" error={errors.of('mode')}>
+      <Row label="Instant replay" labelId="set-capture-mode" error={errors.of('mode')}>
         <Choice
           label="Instant replay"
           value={settings?.replayMode ?? 'games'}
@@ -170,7 +171,7 @@ function ReplayRows({ state, settings }: { state: CaptureState | null; settings:
           onChange={value => void save({ replaySeconds: Number(value) }).then(errors.set('length'))}
         />
       </Row>
-      <Row label="Frame rate" labelId="set-capture-fps" detail="60 is lighter on the game; 120 only where your screen runs that fast" error={errors.of('fps')}>
+      <Row label="Frame rate" labelId="set-capture-fps" error={errors.of('fps')}>
         <Choice
           label="Frame rate"
           value={String(settings?.maxFps ?? 60)}
@@ -206,7 +207,7 @@ function PrintScreenRow({ state, settings }: { state: CaptureState | null; setti
     <SwitchRow
       id="set-capture-prtsc"
       label="Print Screen snips"
-      detail={printBlocked ? 'Windows keeps Print Screen for Snipping Tool. Turn that off in Windows Settings > Accessibility > Keyboard.' : 'The Print Screen key opens Exo’s snip'}
+      detail={printBlocked ? 'Windows keeps Print Screen for Snipping Tool. Turn that off in Windows Settings > Accessibility > Keyboard.' : undefined}
       checked={settings?.printScreen === true}
       disabled={!settings}
       onChange={value => save({ printScreen: value })}
@@ -219,7 +220,6 @@ function ShrinkRow({ settings }: { settings: CaptureSettings | null }) {
     <SwitchRow
       id="set-capture-shrink"
       label="Make recordings smaller"
-      detail="While you aren’t playing and the PC is plugged in, Exo re-saves your recordings, older ones too, at about a third of the size, with audio untouched. It checks every file looks the same first, and keeps the original if not."
       checked={settings?.autoShrink !== false}
       disabled={!settings}
       onChange={value => save({ autoShrink: value })}
@@ -249,7 +249,7 @@ function StorageRows({ settings }: { settings: CaptureSettings | null }) {
       <Row label="Save folder" detail={settings?.folder} error={errors.of('folder')}>
         <button type="button" className="exo-set-btn" disabled={disabled || picking} onClick={() => void browse()}>Change</button>
       </Row>
-      <Row label="Keep up to" labelId="set-capture-gb" detail="Oldest first; favorites are never deleted" error={errors.of('gb')}>
+      <Row label="Keep up to" labelId="set-capture-gb" error={errors.of('gb')}>
         <Choice label="Keep up to" value={String(settings?.keepGb ?? 0)} choices={KEEP_GB} disabled={disabled} onChange={value => void save({ keepGb: Number(value) }).then(errors.set('gb'))} />
       </Row>
       <Row label="Delete after" labelId="set-capture-days" error={errors.of('days')}>

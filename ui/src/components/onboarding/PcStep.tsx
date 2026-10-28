@@ -17,25 +17,16 @@ export function PcStep({ profile, tune, onTune, lucid, onLucid }: {
   lucid: LucidState | null
   onLucid: (next: LucidState) => void
 }) {
-  const screen = profile ? (profile.screen.name ? `${profile.screen.name} at ${profile.screen.hz} Hz` : `${profile.screen.hz} Hz`) : ''
   return (
     <div className="exo-set-list">
       {profile ? (
-        <Row label={`Exo's profile for ${profile.gpu ?? 'your graphics card'}`} labelId="ob-nvidia"
-          detail={`Lowest input latency and ${syncName(profile)} for ${screen}. Undo any time in PC › Graphics.`}>
+        <Row label={`Exo's profile for ${profile.gpu ?? 'your graphics card'}`} labelId="ob-nvidia">
           <Switch checked={tune} labelledBy="ob-nvidia" onChange={onTune} />
         </Row>
       ) : null}
       {lucid ? <LucidRows lucid={lucid} onLucid={onLucid} /> : null}
     </div>
   )
-}
-
-// The sync the profile sets, in its maker's words.
-function syncName(profile: GpuProfile): string {
-  if (profile.vendor === 'nvidia') return profile.gsync ? 'G-SYNC' : 'fixed refresh'
-  if (!profile.screen.vrr) return 'fixed refresh'
-  return profile.vendor === 'amd' ? 'FreeSync' : 'Adaptive Sync'
 }
 
 function LucidRows({ lucid, onLucid }: { lucid: LucidState; onLucid: (next: LucidState) => void }) {
@@ -49,7 +40,7 @@ function LucidRows({ lucid, onLucid }: { lucid: LucidState; onLucid: (next: Luci
   }
   if (!lucid.found) {
     return (
-      <Row label="Lucid" detail="Optional headphone EQ that switches with your device and your game" error={error}>
+      <Row label="Lucid" error={error}>
         <button type="button" className="exo-set-btn" disabled={busy} onClick={() => run(host.lucid('get'), "The browser didn't open.")}>Get Lucid</button>
       </Row>
     )
@@ -57,12 +48,12 @@ function LucidRows({ lucid, onLucid }: { lucid: LucidState; onLucid: (next: Luci
   const setUp = lucid.settings?.headphone.chosen === true
   return (
     <>
-      <Row label="Start Lucid with Exo" labelId="ob-lucid" detail="Lucid, your headphone EQ, out of sight" error={error}>
+      <Row label="Start Lucid with Exo" labelId="ob-lucid" error={error}>
         <Switch checked={lucid.startWithExo} disabled={busy} labelledBy="ob-lucid"
           onChange={on => run(host.lucid('set', { on }), "Lucid couldn't be changed.")} />
       </Row>
       {setUp ? null : (
-        <Row label="Set up Lucid" detail="Its audio engine and your headphones, in Lucid's own window">
+        <Row label="Set up Lucid">
           <button type="button" className="exo-set-btn" disabled={busy} onClick={() => run(host.lucid('open'), "Lucid didn't open.")}>Set up</button>
         </Row>
       )}

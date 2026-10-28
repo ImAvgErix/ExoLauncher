@@ -319,32 +319,37 @@ internal static class AppleMusicNative
             for (var i = 0; i < parts.length; i++) t = t * 60 + parts[i];
             return t * 1000;
           }
-          // Word timing (the syllable TTML): each timed span is a word, the text after it its trailing space.
+          // Word timing (the syllable TTML): each timed span is a word, the text after it its trailing space. Words under
+          // a ttm:role="x-bg" span are the background vocals, kept apart (bg) rather than run into the main line.
           function words(p) {
             var out = [];
-            (function walk(n) {
+            (function walk(n, bg) {
               [].forEach.call(n.childNodes, function (c) {
                 if (c.nodeType === 3) { if (out.length) out[out.length - 1].text += c.textContent; return; }
                 if (c.nodeType !== 1) return;
+                var inBg = bg || c.getAttribute('ttm:role') === 'x-bg';
                 var b = c.getAttribute('begin');
-                if (b && !c.querySelector('[begin]')) out.push({ start: Math.round(lyricTime(b)), end: Math.round(lyricTime(c.getAttribute('end'))), text: c.textContent || '' });
-                else walk(c);
+                if (b && !c.querySelector('[begin]')) out.push({ start: Math.round(lyricTime(b)), end: Math.round(lyricTime(c.getAttribute('end'))), text: c.textContent || '', bg: inBg });
+                else walk(c, inBg);
               });
-            })(p);
+            })(p, false);
             return out.length > 1 && out.length < 120 && out.every(function (x) { return isFinite(x.start) && isFinite(x.end); })
-              ? out.map(function (x) { return { start: x.start, end: x.end, text: s(x.text.replace(/\s+/g, ' '), 80) }; }) : null;
+              ? out.map(function (x) { var w = { start: x.start, end: x.end, text: s(x.text.replace(/\s+/g, ' '), 80) }; if (x.bg) w.bg = true; return w; }) : null;
           }
           function ttmlLines(ttml) {
             var doc = new DOMParser().parseFromString(String(ttml), 'application/xml');
             var root = doc.documentElement, timing = root && (root.getAttribute('itunes:timing') || '');
             var ps = [].slice.call(doc.getElementsByTagName('p'), 0, 400);
+            // Who sings each line (ttm:agent, "v1", "v2"…): a duet's other singer is drawn from the right.
             var lines = ps.map(function (n) {
-              return { start: lyricTime(n.getAttribute('begin')), text: s((n.textContent || '').replace(/\s+/g, ' ').trim(), 300), words: timing === 'Word' ? words(n) : null };
+              return { start: lyricTime(n.getAttribute('begin')), text: s((n.textContent || '').replace(/\s+/g, ' ').trim(), 300), words: timing === 'Word' ? words(n) : null,
+                agent: s(n.getAttribute('ttm:agent') || '', 12) };
             });
             var synced = timing !== 'None' && lines.length > 0 && lines.every(function (l) { return isFinite(l.start); });
             return { synced: synced, lines: lines.map(function (l) {
               var line = { start: synced ? Math.max(0, Math.round(l.start)) : 0, text: l.text };
               if (synced && l.words) line.words = l.words;
+              if (l.agent) line.agent = l.agent;
               return line;
             }) };
           }

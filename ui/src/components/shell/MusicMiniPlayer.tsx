@@ -6,6 +6,7 @@ import { MusicVolume } from './MusicVolume'
 import { onPageActivityChanged, pageIsActive, pageIsVisible } from '../../lib/pageActivity'
 import { BarCapsule } from './BarCapsule'
 import { Slider } from '../ui/Slider'
+import { ErrorNote } from '../ui/ErrorNote'
 
 /** anchor: performance.now() at which playback.positionMs was true. floor: the
     position already on screen when a resync arrived slightly behind it; the
@@ -238,7 +239,7 @@ export function MusicMiniPlayer({ service, onOpen, hidden = false }: { service: 
         )}
       </MusicClock>
       <MusicVolume key={service} volume={volume.level} onRefresh={() => refresh.current()} />
-      {error && <span className="exo-mini-error" role="alert">{error}</span>}
+      {error && <ErrorNote as="span" className="exo-mini-error" message={error} />}
     </div>
     </BarCapsule>
   )
@@ -330,6 +331,6 @@ function MusicSeek({ position, duration, enabled, onPreview }: { position: numbe
       onChange={event => { const next = Number(event.target.value); setDraft(next); if (!dragging.current) void commit(next) }}
       onPointerUp={event => { dragging.current = false; void commit(Number(event.currentTarget.value)) }}
       onPointerCancel={() => { dragging.current = false; setDraft(null) }} />
-    {error && <span className="exo-mini-error" role="alert">{error}</span>}
+    {error && <ErrorNote as="span" className="exo-mini-error" message={error} />}
   </>
 }

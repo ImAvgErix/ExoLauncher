@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { host, onHostEvent, type RuntimeItem, type RuntimeResult, type RuntimesProgress } from '../../lib/host'
 import { report } from '../../lib/report'
 import { confirm } from '../ui/Dialog'
+import { CopyLogs } from '../ui/ErrorNote'
 import { Progress } from '../ui/Progress'
 import { Skeleton } from '../ui/Skeleton'
 import { Row, State } from '../settings/parts'
@@ -212,7 +213,7 @@ function Head({ items, run, note, canceling, onStart, onCancel }: {
   }
   return (
     <div className="exo-runtimes-head">
-      <span className={note?.error ? 'exo-runtimes-status is-bad' : 'exo-runtimes-status'} role="status">{note?.text ?? status(items)}</span>
+      <Status items={items} note={note} />
       <div className="exo-runtimes-actions">
         {missing.length + outdated.length > 0 ? <button type="button" className="exo-set-btn is-primary" onClick={() => onStart('update')}>{action}</button> : null}
         <button type="button" className="exo-set-btn" onClick={() => onStart('repair')}>Repair all</button>
@@ -222,11 +223,34 @@ function Head({ items, run, note, canceling, onStart, onCancel }: {
 }
 
 /**
+ * Where the runtimes stand. A run that went well says so for a few seconds, then the line is what's left to do again
+ * (a "7 installed" that stayed read as all done beside an Install button); one that failed stays, with Copy logs and
+ * what's left beside it.
+ */
+function Status({ items, note }: { items: RuntimeItem[]; note: { text: string; error: boolean } | null }) {
+  const [shown, setShown] = useState(note)
+  useEffect(() => {
+    setShown(note)
+    if (!note || note.error) return
+    const timer = window.setTimeout(() => setShown(null), 6000)
+    return () => window.clearTimeout(timer)
+  }, [note])
+  if (!shown?.error) return <span className="exo-runtimes-status" role="status">{shown?.text ?? status(items)}</span>
+  const left = todo(items)
+  return (
+    <span className="exo-runtimes-status is-bad" role="status">
+      {shown.text}{left.missing.length + left.outdated.length > 0 ? ` ${status(items)}.` : ''} <CopyLogs error={shown.text} />
+    </span>
+  )
+}
+
+/**
  * A runtime's versions, each fact once: one that's current says its version, an older one its version and the newest,
- * and a missing one nothing its state doesn't say already. Microsoft's end of support always shows.
+ * and a missing one nothing its state doesn't say already. Microsoft's end of support always shows. Of the host's info
+ * lines only Direct3D 12's is a reading (what this PC's graphics does); the others restate the state beside them.
  */
 function versionsOf(item: RuntimeItem) {
-  if (item.state === 'info') return item.detail ?? item.installed ?? ''
+  if (item.state === 'info') return (item.id === 'd3d12' ? item.detail : item.installed) ?? ''
   const version = item.state === 'outdated' ? [item.installed, `latest ${item.latest}`].filter(Boolean).join(' · ') : item.state === 'current' ? item.installed : null
   return [version, item.endOfSupport ? 'End of support' : null].filter(Boolean).join(' · ')
 }

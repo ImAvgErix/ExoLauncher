@@ -18,7 +18,7 @@
   border: 0;
   border-radius: 999px;
   background: transparent;
-  color: var(--color-muted);
+  color: var(--color-fg);
   font-size: var(--exo-type-control);
   font-weight: 500;
   line-height: 28px;
@@ -103,18 +103,6 @@
   }
 }
 
-@media (max-width: 580px) {
-  .exo-top-rooms {
-    gap: 1px;
-  }
-
-  .exo-settings-btn,
-  .exo-winbtn,
-  .exo-titlebar-button {
-    width: 28px;
-  }
-}
-
 /* Library › Refresh covers: the + button's shape; its glyph turns while the library and every cover refresh, at full
    color (busy, not unavailable). */
 .exo-refresh-covers:disabled {
@@ -173,13 +161,9 @@
   height: 30px;
 }
 
-/* The current room: a lit capsule (the glide's pill), the selected gray, no rim. */
-.exo-titlebar .exo-top-rooms.exo-glide::before {
-  background: var(--exo-selected);
-}
-
+/* The current room: the glide's clear capsule (tokens.css), its one thin line; every room's name is white. */
 .exo-titlebar .exo-nav-btn.is-on {
-  background: var(--exo-selected);
+  box-shadow: var(--glassy-ring);
 }
 
 .exo-titlebar .exo-nav-btn.is-on .exo-glyph {

@@ -283,7 +283,7 @@ public static class PlaytimeService
         var steamRoot = ResolveSteamRoot();
         IReadOnlyDictionary<string, SteamPlaytime.Entry> steam = steamRoot is null
             ? new Dictionary<string, SteamPlaytime.Entry>()
-            : SteamPlaytime.LoadHours(steamRoot, SettingsService.CountHoursAcrossAccounts);
+            : SteamPlaytime.LoadHours(steamRoot, allAccounts: true);
         var gogSnapshot = GogPlaytime.LoadSnapshot();
         var gog = gogSnapshot.Minutes;
         var gogLast = gogSnapshot.LastPlayed;

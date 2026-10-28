@@ -39,7 +39,7 @@ internal static partial class EpicPlaytime
     /// it in the background instead.
     /// </summary>
     internal static IReadOnlyDictionary<string, int> GetCachedMinutes() =>
-        GetCachedMinutes(Services.SettingsService.CountHoursAcrossAccounts);
+        GetCachedMinutes(allAccounts: true);
 
     /// <summary>
     /// The active account's reading, or with <paramref name="allAccounts"/> the
@@ -97,12 +97,12 @@ internal static partial class EpicPlaytime
     internal static string? GetHoursScope()
     {
         var scope = GetActiveAccountScope();
-        return scope is not null && Services.SettingsService.CountHoursAcrossAccounts ? "all:" + scope : scope;
+        return scope is not null ? "all:" + scope : scope;
     }
 
     internal static void RefreshCachedMinutes()
     {
-        if (Services.SettingsService.CountHoursAcrossAccounts) EpicAccounts.RefreshAddedInBackground();
+        EpicAccounts.RefreshAddedInBackground();
         var scope = GetActiveAccountScope();
         if (string.IsNullOrWhiteSpace(scope)) { Cache.Clear(); return; }
         _ = Cache.RefreshIfStaleAsync(scope);

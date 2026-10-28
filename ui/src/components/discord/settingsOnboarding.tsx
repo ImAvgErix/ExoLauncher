@@ -8,6 +8,7 @@ import { ReactionEmoji } from './Reactions'
 import { Dialog } from './settingsAccess'
 import { EmojiField, ServerGuide, guideState, type Guide } from './settingsGuide'
 import { Skeleton } from '../ui/Skeleton'
+import { ErrorNote } from '../ui/ErrorNote'
 
 /**
  * Discord's Onboarding (a Community server's, for Manage Server and Manage Roles): on or off, Advanced Server Setup,
@@ -149,7 +150,7 @@ function Overview({ place, data, veryHigh, onEdit, onChanged }: { place: Onboard
       <GuidePart place={place} guide={data.guide} enabled={setup.enabled} busy={busy} onEdit={() => onEdit('guide')}
         onShow={on => void run(() => admin('saveGuide', { guildId: place.guildId, guide: { ...data.guide, enabled: on } }))} />
       {!setup.enabled && veryHigh ? <p className="exo-dc-note">Once enabled, getting a role will not bypass a member through verification and rules. To verify members yourself, use Verify member on someone or the Members page.</p> : null}
-      {error ? <p className="exo-dc-note is-bad" role="alert">{error}</p> : null}
+      {error ? <ErrorNote className="exo-dc-note is-bad" message={error} /> : null}
     </>
   )
 }
@@ -310,7 +311,7 @@ function Questions({ place, setup, onBack, onSaved }: { place: OnboardingPlace; 
       <p className="exo-dc-note">Members will be asked these questions after they join your server, on the Channels & Roles page. Use them to assign roles that members can pick later, like vanity roles.</p>
       {list.filter(q => !q.in_onboarding).map(card)}
       {list.length < MAX_QUESTIONS ? <span className="exo-dc-settings-buttons"><button type="button" className="exo-set-btn" onClick={() => add(false)}>Add a question</button></span> : null}
-      {error ? <p className="exo-dc-note is-bad" role="alert">{error}</p> : null}
+      {error ? <ErrorNote className="exo-dc-note is-bad" message={error} /> : null}
       {editing && question ? (
         <AnswerDialog index={list.indexOf(question)} question={question} answer={question.options[editing.answer]} place={place} roles={roles.data?.roles ?? []} prompts={list}
           onSave={answer => put(question.id, { options: editing.answer < 0 ? [...question.options, answer] : question.options.map((o, i) => i === editing.answer ? answer : o) })}
@@ -340,7 +341,7 @@ function QuestionCard({ question, index, first, errors, onChange, onMoveUp, onSw
           onChange={event => onChange({ title: event.target.value })} />
       </Field>
       <h3>{n >= DROPDOWN_FROM ? `Available answers — ${n} of ${MAX_ANSWERS} shown in a dropdown list` : `Available answers — ${n} of ${MAX_ANSWERS}`}</h3>
-      {errors?.options ? <p className="exo-dc-note is-bad" role="alert">{errors.options}</p> : null}
+      {errors?.options ? <ErrorNote className="exo-dc-note is-bad" message={errors.options} /> : null}
       <ol className="exo-dc-rule-list">
         {question.options.map((answer, i) => (
           <li key={answer.id}>
@@ -407,7 +408,7 @@ function AnswerDialog({ index, question, answer, place, roles, prompts, onSave, 
       <PickChips label="2. Assign channels and/or roles" detail="@everyone must have View permission for channels used in answers." ids={draft.channel_ids ?? []} options={channels}
         onChange={channel_ids => set({ channel_ids })} />
       <PickChips label="Roles" detail="Members will receive all channels granted by these roles." ids={draft.role_ids ?? []} options={picks} onChange={role_ids => set({ role_ids })} />
-      {errors.roles ? <p className="exo-dialog-error" role="alert">{errors.roles}</p> : null}
+      {errors.roles ? <ErrorNote className="exo-dialog-error" message={errors.roles} /> : null}
       <Field label="3. Pick an emoji" detail="Optional, but why not add some fun?"><EmojiField emoji={draft.emoji ?? null} onChange={emoji => set({ emoji })} /></Field>
     </Dialog>
   )

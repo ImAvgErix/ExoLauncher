@@ -81,10 +81,24 @@ export function useAppUpdate(): AppUpdate {
       setPercent(visibleInstallPercent(d?.percent))
       if (typeof d?.status === 'string') setStatus(d.status)
     })
+    // A release that came out while Exo was open (the host's version watch): offered as the startup check offers one.
+    const offFound = onHostEvent('app.updateFound', () => {
+      if (installing.current) return
+      void host.checkUpdate().then((r) => {
+        if (installing.current || !r.ok || !r.updateAvailable) return
+        const version = r.latest ?? ''
+        if (version && sessionStorage.getItem(DISMISSED_KEY) === version) return
+        setBanner(r.message || (version ? `Version ${version} is available.` : 'An update is available.'))
+        setLatest(version || null)
+        setUpcoming(r.upcoming ? toRelease(r.upcoming) : null)
+        setPhase(current => current === 'installing' || current === 'restarting' ? current : 'available')
+      }).catch((e: unknown) => report(e, 'useAppUpdate.found', { level: 'warn' }))
+    })
     return () => {
       checkGeneration.current = Symbol()
       window.clearTimeout(holdTimer)
       off()
+      offFound()
     }
   }, [])
 

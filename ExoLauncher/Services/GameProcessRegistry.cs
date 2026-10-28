@@ -255,10 +255,21 @@ internal sealed class GameProcessRegistry
 
         // The close request is graceful first. This reaches windows which do not
         // expose a MainWindowHandle without touching children or store clients.
+        // A game gets 20 s to quit: it saves and signs out of its servers as it
+        // goes, and one stopped sooner or closed by a hidden window of its own
+        // looks crashed to it (Call of Duty then offers safe mode, which resets
+        // its settings, at the next start).
+        // Its main window first, as its own close button; every window of it only if it is still running 8 s on.
         ProcessHelper.RequestCloseProcesses(candidates.Select(candidate => candidate.ProcessId));
-        var graceDeadline = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(3);
+        DateTimeOffset? askAgain = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(8);
+        var graceDeadline = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(20);
         while (DateTimeOffset.UtcNow < graceDeadline)
         {
+            if (askAgain is { } again && DateTimeOffset.UtcNow >= again)
+            {
+                askAgain = null;
+                ProcessHelper.RequestCloseProcesses(FindStillValid(game, candidates).Select(candidate => candidate.ProcessId), everyWindow: true);
+            }
             cancellationToken.ThrowIfCancellationRequested();
             if (FindStillValid(game, candidates).Count == 0 && FindCandidates(game).Count == 0)
             {

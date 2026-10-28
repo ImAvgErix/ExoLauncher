@@ -19,6 +19,7 @@ import { notify } from '../../lib/notify'
 import { Dialog } from '../ui/Dialog'
 import { Spinner } from '../ui/Spinner'
 import { Skeleton } from '../ui/Skeleton'
+import { ErrorNote } from '../ui/ErrorNote'
 
 /** Discord's rows over a server's channels, opened in place of a channel. */
 export const PAGES = { guide: 'page:guide', browse: 'page:browse', members: 'page:members' } as const
@@ -118,7 +119,7 @@ function Guide({ guildId, list, onPick, side }: { guildId: string; list: Discord
   const { data, error } = useServer(guildId, 'guide')
   const [opened, setOpened] = useState<string | null>(null)
   const guide = data?.guide
-  if (error) return <p className="exo-dc-note" role="alert">{error}</p>
+  if (error) return <ErrorNote className="exo-dc-note" message={error} />
   if (!data) return <Skeleton label="Loading the server guide" />
   const channel = opened ? list?.channels.find(c => c.id === opened) : undefined
   return (
@@ -377,7 +378,7 @@ export function Members({ guildId, canPrune }: { guildId: string; canPrune: bool
   // The next page past what's loaded asks Discord for the next chunk.
   const needMore = !!loaded && !loaded.done && !error && (at + 1) * size >= all.length
   useEffect(() => { if (needMore) more() })
-  if (error && !loaded) return <p className="exo-dc-note" role="alert">{error}</p>
+  if (error && !loaded) return <ErrorNote className="exo-dc-note" message={error} />
   if (!loaded) return <Skeleton label="Loading members" rows={8} avatar />
   const roles = loaded.roles
   return (
@@ -403,7 +404,7 @@ export function Members({ guildId, canPrune }: { guildId: string; canPrune: bool
           {canPrune ? <button type="button" className="exo-dc-tab is-raised is-danger" onClick={() => setPanel('prune')}>Prune</button> : null}
         </span>
       </div>
-      {error ? <p className="exo-dc-note is-bad" role="alert">{error}</p> : null}
+      {error ? <ErrorNote className="exo-dc-note is-bad" message={error} /> : null}
       {all.length === 0 ? <p className="exo-dc-note">No members were found.</p> : null}
       {panel === 'prune' ? <Prune guildId={guildId} onClose={() => setPanel(null)} onPruned={() => { setPanel(null); setReload(r => r + 1) }} /> : null}
       <div className="exo-dc-table" role="table" aria-label="Members">
@@ -555,7 +556,7 @@ export function ServerPrivacy({ guildId, name, onClose }: { guildId: string; nam
           <Switch checked={on('activityJoiningRestrictedGuildIds')} label="Activity joining" onChange={value => set('activityJoiningRestrictedGuildIds', value)} />
         </span>
       </div>
-      {error ? <p className="exo-dialog-error" role="alert">{error}</p> : null}
+      {error ? <ErrorNote className="exo-dialog-error" message={error} /> : null}
     </Dialog>
   )
 }
@@ -602,7 +603,7 @@ export function CreateChannel({ guildId, parentId, category, asCategory = false,
         <label className="exo-dc-side-label" htmlFor="exo-dc-new-channel">{asCategory ? 'Category name' : 'Channel name'}</label>
         <input id="exo-dc-new-channel" className="exo-dc-modal-input" placeholder={asCategory ? 'New category' : 'new-channel'} value={name} autoFocus
           onChange={event => setName(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') void create() }} />
-        {error ? <p className="is-bad" role="alert">{error}</p> : null}
+        {error ? <ErrorNote className="is-bad" message={error} /> : null}
         <div className="exo-dc-modal-row">
           <button type="button" className="exo-dc-tab" onClick={onClose}>Cancel</button>
           <button type="button" className="exo-set-btn is-primary" disabled={!name.trim() || busy} onClick={() => void create()}>Create {what}</button>

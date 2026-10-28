@@ -12,22 +12,27 @@ namespace ExoLauncher.Services;
 /// (<see cref="UninstallRun"/>), then the deep clean's find (<see cref="LeftoverScan"/>) handed to the page to look at;
 /// apps.scan: the same find for a program whose uninstaller is gone (Revo's forced uninstall); apps.clean: what the
 /// user chose of a find deleted. A find stays on this side under a token: the page only names which of its items go, so
-/// nothing the page says becomes a path. Removing and deleting are each asked in Exo's own window.
+/// nothing the page says becomes a path. Removing and deleting are each asked in Exo's own window; apps.confirm asks once
+/// for several apps and hands back a pass that apps.uninstall takes in place of asking each one again.
 /// </summary>
 public sealed partial class WebHostBridge
 {
     private static readonly SemaphoreSlim AppsGate = new(1, 1);
     private static readonly ConcurrentDictionary<string, (string Name, List<Leftover> Items, DateTime At)> Finds = new();
     private static readonly ConcurrentDictionary<string, string?> Icons = new(StringComparer.OrdinalIgnoreCase);
+    // Several apps the user agreed to uninstall at once (apps.confirm), each taken off as it goes; a pass lasts two hours.
+    private static readonly ConcurrentDictionary<string, (HashSet<string> Ids, DateTime At)> Passes = new();
 
     private object AppsList()
     {
         var programs = Programs();
         // Sizes the entries don't give, measured once (a few seconds at most), then the list again with them.
         if (InstalledPrograms.Measure(programs, TimeSpan.FromSeconds(3))) programs = Programs();
+        var needs = KeepNeeds();
+        var runs = AppsUsage.Read();
         return new
         {
-            ok = true, programs = programs.Select(Shown), cleared = ClearedLog.All().Select(pair => new { name = ClearedName(pair.Key), summary = pair.Value }),
+            ok = true, programs = programs.Select(program => Shown(program, needs, runs)), cleared = ClearedLog.All().Select(pair => new { name = ClearedName(pair.Key), summary = pair.Value }),
             // Edge is gone and Edge Update is told not to bring it back: Allow Edge again takes that back.
             edgeRemoved = EdgeRemoval.Blocked() && !programs.Any(EdgeRemoval.IsEdge),
         };
@@ -49,20 +54,44 @@ public sealed partial class WebHostBridge
         program.Key is { } key && new[] { @"\Steam App ", @"\Uplay Install " }.Any(store => key.Contains(store, StringComparison.OrdinalIgnoreCase)) ||
         program.Location is { } folder && games.Any(game => (folder.TrimEnd('\\') + '\\').StartsWith(game, StringComparison.OrdinalIgnoreCase));
 
-    private static object Shown(InstalledProgram program) => new
+    // What the games here and Lucid need (AppsKeep), read again after five minutes: a game's runtimes come from its files.
+    private (DateTime At, AppsKeep.Needs Needs)? _keepNeeds;
+
+    private AppsKeep.Needs KeepNeeds()
     {
-        id = program.Id,
-        name = program.Name,
-        publisher = program.Publisher,
-        version = program.Version,
-        installedOn = program.InstalledOn,
-        bytes = program.Bytes is > 0 ? program.Bytes : null,
-        store = program.Store,
-        removable = program.Removable,
-        uninstaller = program.Store || program.Uninstall is not null && UninstallerThere(program.Uninstall),
-        care = program.Care,
-        replaces = program.Replaces,
-    };
+        if (_keepNeeds is { } known && DateTime.UtcNow - known.At < TimeSpan.FromMinutes(5)) return known.Needs;
+        var installed = _services.Library.PeekCachedLibrary().Where(game => game.Installed).ToList();
+        var runtimes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var game in installed)
+            foreach (var id in DependencyService.RuntimesFor(game)) runtimes.TryAdd(id, game.Title);
+        var needs = new AppsKeep.Needs(installed.GroupBy(game => game.Store).ToDictionary(group => group.Key, group => group.Count()), runtimes,
+            LucidCompanion.Locate(_services.Settings.Current.LucidPath) is not null);
+        _keepNeeds = (DateTime.UtcNow, needs);
+        return needs;
+    }
+
+    /// <summary>One program as the page lists it: why it stays (<see cref="AppsKeep"/>), why it's bloatware, when it was last opened.</summary>
+    private static object Shown(InstalledProgram program, AppsKeep.Needs needs, AppsUsage.Runs runs)
+    {
+        var kept = AppsKeep.Why(program, needs);
+        return new
+        {
+            id = program.Id,
+            name = program.Name,
+            publisher = program.Publisher,
+            version = program.Version,
+            installedOn = program.InstalledOn,
+            bytes = program.Bytes is > 0 ? program.Bytes : null,
+            store = program.Store,
+            removable = program.Removable && kept is null,
+            kept,
+            bloat = kept is null ? AppsBloat.Why(program) : null,
+            lastOpened = AppsUsage.LastOpened(program, runs)?.ToLocalTime().ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture),
+            uninstaller = program.Store || program.Uninstall is not null && UninstallerThere(program.Uninstall),
+            care = program.Care,
+            replaces = program.Replaces,
+        };
+    }
 
     private static string ClearedName(string key) =>
         ReplacedApps.Known.FirstOrDefault(app => app.Id == key)?.Name ?? (key.StartsWith("app:", StringComparison.Ordinal) ? key[4..] : key);
@@ -141,18 +170,47 @@ public sealed partial class WebHostBridge
             .FirstOrDefault() ?? path;
     }
 
-    private async Task<object> AppsUninstallAsync(string id, CancellationToken ct)
+    /// <summary>apps.confirm: several apps uninstalled one after another, asked once; the ones that can go, and a pass for them.</summary>
+    private async Task<object> AppsConfirmAsync(JsonElement p, bool hasParams)
+    {
+        var ids = hasParams && p.ValueKind == JsonValueKind.Object && p.TryGetProperty("ids", out var list) && list.ValueKind == JsonValueKind.Array
+            ? list.EnumerateArray().Where(id => id.ValueKind == JsonValueKind.String).Select(id => id.GetString()!).Take(50).ToHashSet() : [];
+        var needs = KeepNeeds();
+        var apps = (await Task.Run(InstalledPrograms.List).ConfigureAwait(true))
+            .Where(program => ids.Contains(program.Id) && program.Removable && AppsKeep.Why(program, needs) is null && program.Replaces is null
+                && (program.Store || program.Uninstall is { } command && UninstallerThere(command)))
+            .ToList();
+        if (apps.Count == 0) return new { ok = false, message = "None of those can be uninstalled here." };
+        var names = string.Join(", ", apps.Take(8).Select(app => app.Name)) + (apps.Count > 8 ? $", and {apps.Count - 8} more" : "");
+        var careful = apps.Where(app => app.Care is not null || EdgeRemoval.IsEdge(app)).Select(app => app.Name).ToList();
+        if (App.MainAppWindow is not { } asker || !await asker.ConfirmNativeAsync($"Uninstall {apps.Count} apps?",
+                $"{names}. Each one's own uninstaller opens in turn; finish each in its window. Then Exo shows what each left behind before anything goes." +
+                (careful.Count > 0 ? $" Games or apps may need {string.Join(", ", careful)}." : ""), "Uninstall", danger: true).ConfigureAwait(true))
+            return new { ok = false, declined = true, message = "Nothing was removed." };
+        foreach (var (old, pass) in Passes) if (DateTime.UtcNow - pass.At > TimeSpan.FromHours(2)) Passes.TryRemove(old, out _);
+        var token = Guid.NewGuid().ToString("N");
+        Passes[token] = (apps.Select(app => app.Id).ToHashSet(), DateTime.UtcNow);
+        return new { ok = true, token, ids = apps.Select(app => app.Id).ToArray() };
+    }
+
+    /// <summary>Whether <paramref name="pass"/> (apps.confirm's) covers this app; used once.</summary>
+    private static bool Passed(string? pass, string id) =>
+        pass is not null && Passes.TryGetValue(pass, out var agreed) && DateTime.UtcNow - agreed.At < TimeSpan.FromHours(2) && agreed.Ids.Remove(id);
+
+    private async Task<object> AppsUninstallAsync(string id, string? pass, CancellationToken ct)
     {
         if (!await AppsGate.WaitAsync(0, ct).ConfigureAwait(false)) return new { ok = false, message = "Another app is being removed." };
         try
         {
             if (await Task.Run(() => InstalledPrograms.Find(id), ct).ConfigureAwait(true) is not { } program) return new { ok = false, message = "That app isn't on this PC anymore." };
             if (!program.Removable) return new { ok = false, message = Why(program) };
+            if (AppsKeep.Why(program, KeepNeeds()) is { } kept) return new { ok = false, message = kept + ": it stays." };
             var edge = EdgeRemoval.IsEdge(program);
             var how = program.Store ? "Windows removes it" : edge ? "Edge's own setup removes it (Windows asks once)" : $"{program.Name}'s own uninstaller opens";
-            if (App.MainAppWindow is not { } asker || !await asker.ConfirmNativeAsync($"Uninstall {program.Name}?",
+            // Agreed to with others at once (apps.confirm): not asked again.
+            if (!Passed(pass, program.Id) && (App.MainAppWindow is not { } asker || !await asker.ConfirmNativeAsync($"Uninstall {program.Name}?",
                     $"{how}. When it's done, Exo looks for what it left behind: its folders, registry entries, " +
-                    $"shortcuts and what Windows keeps about it, and shows you before anything goes.{Warning(program)}", "Uninstall", danger: true).ConfigureAwait(true))
+                    $"shortcuts and what Windows keeps about it, and shows you before anything goes.{Warning(program)}", "Uninstall", danger: true).ConfigureAwait(true)))
                 return new { ok = false, declined = true, message = "Nothing was removed." };
             var trail = await Task.Run(() => TrailFor(program), ct).ConfigureAwait(true);
             AppLog.Info($"Apps: uninstalling {program.Name} ({(program.Store ? "Store" : program.ProductCode is null ? "own uninstaller" : "MSI")}).");
@@ -173,6 +231,35 @@ public sealed partial class WebHostBridge
         finally { AppsGate.Release(); }
     }
 
+    /// <summary>junk.scan: the junk on this PC by kind (<see cref="JunkFiles"/>), with sizes.</summary>
+    private static async Task<object> JunkScanAsync() =>
+        new { ok = true, items = (await Task.Run(JunkFiles.Scan).ConfigureAwait(true)).Select(found => new { id = found.Id, name = found.Name, detail = found.Detail, bytes = found.Bytes, files = found.Files }) };
+
+    /// <summary>junk.clean: the chosen kinds deleted, asked once in Exo's window; what went.</summary>
+    private static async Task<object> JunkCleanAsync(JsonElement p, bool hasParams)
+    {
+        var ids = hasParams && p.ValueKind == JsonValueKind.Object && p.TryGetProperty("ids", out var list) && list.ValueKind == JsonValueKind.Array
+            ? list.EnumerateArray().Where(id => id.ValueKind == JsonValueKind.String).Select(id => id.GetString()!).Take(10).ToHashSet() : [];
+        var found = (await Task.Run(JunkFiles.Scan).ConfigureAwait(true)).Where(item => ids.Contains(item.Id)).ToList();
+        if (found.Count == 0) return new { ok = true, bytes = 0L, files = 0 };
+        var what = string.Join(", ", found.Select(item => item.Name.ToLowerInvariant()));
+        if (App.MainAppWindow is not { } asker || !await asker.ConfirmNativeAsync($"Delete {Size(found.Sum(item => item.Bytes))} of junk?",
+                $"Exo deletes {what}. Files in use stay. Deleted files don't go to the Recycle Bin.", "Delete", danger: true).ConfigureAwait(true))
+            return new { ok = false, declined = true, message = "Nothing was deleted." };
+        long bytes = 0;
+        var files = 0;
+        foreach (var item in found)
+        {
+            var (gone, count) = await Task.Run(() => JunkFiles.Clean(item.Id)).ConfigureAwait(true);
+            bytes += gone;
+            files += count;
+        }
+        AppLog.Info($"Junk: deleted {files} files ({bytes / 1_000_000} MB) of {what}.");
+        return new { ok = true, bytes, files };
+    }
+
+    private static string Size(long bytes) => bytes >= 1_000_000_000 ? $"{bytes / 1e9:0.0} GB" : $"{Math.Max(1, bytes / 1_000_000)} MB";
+
     /// <summary>apps.allowEdge: Edge Update may install Edge again (Exo told it not to when Edge was removed here).</summary>
     private static async Task<object> AppsAllowEdgeAsync(CancellationToken ct)
     {
@@ -185,10 +272,11 @@ public sealed partial class WebHostBridge
     }
 
     /// <summary>A program whose uninstaller is gone: what is left of it, found as after an uninstall (its folder included).</summary>
-    private static async Task<object> AppsScanAsync(string id, CancellationToken ct)
+    private async Task<object> AppsScanAsync(string id, CancellationToken ct)
     {
         if (await Task.Run(() => InstalledPrograms.Find(id), ct).ConfigureAwait(true) is not { } program) return new { ok = false, message = "That app isn't on this PC anymore." };
         if (!program.Removable) return new { ok = false, message = Why(program) };
+        if (AppsKeep.Why(program, KeepNeeds()) is { } kept) return new { ok = false, message = kept + ": it stays." };
         if (program.Store || program.Uninstall is { } command && UninstallerThere(command))
             return new { ok = false, message = $"{program.Name} still has its uninstaller: uninstall it instead." };
         var trail = await Task.Run(() => TrailFor(program) with { Entries = program.Key is { } key ? [key] : [] }, ct).ConfigureAwait(true);

@@ -8,6 +8,7 @@ import { Icons } from './icons'
 import { LANGUAGES } from './settings/AppPages'
 import type { PageGuild } from './settingsPages'
 import { Skeleton } from '../ui/Skeleton'
+import { ErrorNote } from '../ui/ErrorNote'
 
 /**
  * Discord's Access, as its web client draws and saves it: how people join (Invite only, Apply to join, Discoverable),
@@ -300,7 +301,7 @@ function QuestionDialog({ field, onSave, onClose }: { field: FormField; onSave: 
           {list.length < MAX_CHOICES ? <span className="exo-dc-settings-buttons"><button type="button" className="exo-set-btn" onClick={() => setList([...list, ''])}>Add an option</button></span> : null}
         </>
       ) : null}
-      {error ? <p className="exo-dialog-error" role="alert">{error}</p> : null}
+      {error ? <ErrorNote className="exo-dialog-error" message={error} /> : null}
     </Dialog>
   )
 }

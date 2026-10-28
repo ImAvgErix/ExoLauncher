@@ -7,10 +7,12 @@ namespace ExoLauncher.Services;
 /// system.health: System > This PC (<see cref="PcHealth"/>). No action reads the checks; apply and undo
 /// switch to Exo's power plan for this PC's processor and back (<see cref="PowerPlan"/>); chipset starts the AMD or
 /// Intel chipset update now (<see cref="ChipsetUpdate"/>); gamemode and gpusched open Windows' Game Mode and Graphics settings. Each answer
-/// carries the checks as they are after it.
+/// carries the checks as they are after it. system.about: PC › Overview's About card (<see cref="PcAbout"/>), read only.
 /// </summary>
 public sealed partial class WebHostBridge
 {
+    private static async Task<object> SystemAboutAsync(CancellationToken ct) => await Task.Run(PcAbout.Read, ct).ConfigureAwait(false);
+
     private async Task<object> SystemHealthAsync(JsonElement p, bool hasParams, CancellationToken ct)
     {
         var action = ReadString(p, hasParams, "action");

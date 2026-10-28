@@ -257,7 +257,7 @@ public sealed class InterruptModeTests : IDisposable
         Restart(devices, stay: @"PCI\VEN_8086&DEV_125C&SUBSYS_00000000&REV_04\4&9&0&00E0");
         var state = mode.Read();
         Assert.False(state.Restart);
-        Assert.Equal("Your graphics card and 3 USB controllers now use MSI mode. Your network adapter didn't switch: its driver keeps a shared line.", state.Result);
+        Assert.Equal("Your network adapter didn't switch: its driver keeps a shared line.", state.Result);   // what worked says nothing
         Assert.Equal(Plan.Done, PlanOf(mode, Gpu));
         Assert.True(state.CanUndo);
 
@@ -276,7 +276,7 @@ public sealed class InterruptModeTests : IDisposable
         var (mode, devices, _) = Make(GpuOnLine());
         Assert.Null(mode.Apply());
         Restart(devices);
-        Assert.Equal("Your graphics card now uses MSI mode.", mode.Read().Result);
+        Assert.Null(mode.Read().Result);   // it took: nothing to say
     }
 
     // ---- Priority ----
@@ -306,7 +306,7 @@ public sealed class InterruptModeTests : IDisposable
         Assert.Equal(Plan.Done, PlanOf(mode, Usb1));
 
         Restart(devices);
-        Assert.Equal("Your graphics card now has high interrupt priority.", mode.Read().Result);
+        Assert.Null(mode.Read().Result);   // it took: nothing to say
         Assert.Equal(Plan.Done, PlanOf(mode, Gpu));
 
         Assert.Null(mode.Undo(null));

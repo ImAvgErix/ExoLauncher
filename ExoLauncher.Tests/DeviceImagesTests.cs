@@ -47,26 +47,50 @@ public sealed class DeviceImagesTests
     [InlineData("controller", "dualsense-edge", "DualSense Edge Wireless Controller", "Sony", null, null, "DualSense Edge", "White")]
     [InlineData("controller", "dualsense", "DualSense Wireless Controller", "Sony", "Fortnite", null, "DualSense", "White")]
     [InlineData("controller", "dualsense", "DualSense Wireless Controller", "Sony", "Cosmic Red", null, "DualSense", "Cosmic Red")]
+    [InlineData("controller", "dualsense", "DualSense Wireless Controller", "Sony", "Techno Red", null, "DualSense", "Techno Red")]
     [InlineData("controller", null, "DualSense Edge Wireless Controller", "Sony", "Midnight Black", null, "DualSense Edge", "Midnight Black")]
-    [InlineData("keyboard", "60", "Wooting 60HE v2", "Wooting", null, "iso-split", "60HE v2", "ansi-split")]
-    [InlineData("keyboard", "60", "Wooting 60HE v2", "Wooting", null, "iso", "60HE v2", "ansi")]
+    [InlineData("keyboard", "60", "Wooting 60HE v2", "Wooting", null, "iso-split", "60HE v2", "iso-split")]
+    [InlineData("keyboard", "60", "Wooting 60HE v2", "Wooting", null, "jis", "60HE v2", "ansi")]
     [InlineData("keyboard", "60", "Wooting 60HE v2", "Wooting", null, null, "60HE v2", "ansi")]
     // The longest name wins: 60HE+ is not the 60HE, the 60HE (ARM) is.
-    [InlineData("keyboard", "60", "Wooting 60HE+", "Wooting", null, "ansi", "60HE+", null)]
-    [InlineData("keyboard", "60", "Wooting 60HE (ARM)", "Wooting", null, null, "60HE", null)]
-    [InlineData("keyboard", "tkl", "Wooting 80HE", "Wooting", null, null, "80HE", null)]
+    [InlineData("keyboard", "60", "Wooting 60HE+", "Wooting", null, "iso", "60HE+", "iso")]
+    [InlineData("keyboard", "60", "Wooting 60HE (ARM)", "Wooting", null, null, "60HE", "ansi")]
+    [InlineData("keyboard", "tkl", "Wooting 80HE", "Wooting", null, null, "80HE", "ansi")]
+    [InlineData("keyboard", "tkl", "Wooting 80HE+", "Wooting", null, "ansi", "80HE+", "ansi")]
+    // The Two is not the Two HE.
+    [InlineData("keyboard", "full", "Wooting Two", "Wooting", null, null, "Two", null)]
+    [InlineData("keyboard", "full", "Razer Huntsman V3 Pro", "Razer", null, null, "Huntsman V3 Pro", null)]
+    [InlineData("keyboard", "tkl", "Razer Huntsman V3 Pro TKL", "Razer", null, null, "Huntsman V3 Pro TKL", null)]
+    // The 75% is its own board, not the full-size V4's or the V4 Pro 75%'s.
+    [InlineData("keyboard", "75", "Razer BlackWidow V4 75%", "Razer", null, null, "BlackWidow V4 75%", null)]
+    [InlineData("keyboard", "75", "Razer BlackWidow V4 Pro 75%", "Razer", null, null, "BlackWidow V4 Pro 75%", null)]
+    [InlineData("keyboard", "full", "Wooting Two HE", "Wooting", null, null, "Two HE", "ansi")]
     // devices.list's model ids.
     [InlineData("controller", "xbox", "Xbox Wireless Controller", "Microsoft", null, null, "Xbox Wireless Controller", "Carbon Black")]
     [InlineData("controller", "xbox", "Xbox Wireless Controller", "Microsoft", "Robot White", null, "Xbox Wireless Controller", "Robot White")]
     [InlineData("controller", "dualshock4", "Wireless Controller", "Sony", null, null, "DualShock 4", "Jet Black")]
     [InlineData("controller", "switch-pro", "Pro Controller", "Nintendo", null, null, "Switch Pro Controller", null)]
+    // A mouse by the render Exo Mouse picked for it, whatever it calls itself.
+    [InlineData("mouse", "logitech-pro-x-superlight-2c", "PRO X Wireless", "Logitech", null, null, "Pro X Superlight", null)]
+    [InlineData("mouse", "logitech-g502-x-plus", "G502 X PLUS", "Logitech", null, null, "G502 X PLUS", null)]
+    [InlineData("mouse", "logitech-pro-x-superlight-2c", "PRO X SUPERLIGHT 2", "Logitech", null, null, "Pro X Superlight", null)]
+    // A render several models share: the name naming another of the maker's models more exactly wins.
+    [InlineData("mouse", "razer-deathadder-v2", "Razer DeathAdder V2 X HyperSpeed", "Razer", null, null, "DeathAdder V2 X HyperSpeed", null)]
+    // The longest name wins: the XE-S and the One X Mini are their own.
+    [InlineData("mouse", null, "VAXEE XE Wireless", "VAXEE", null, null, "XE", null)]
+    [InlineData("mouse", null, "VAXEE XE-S Wireless", "VAXEE", null, null, "XE-S", null)]
+    [InlineData("keyboard", null, "Ducky One X Mini Wireless", "Ducky", null, null, "One X Mini", null)]
+    // No maker given: a name starting with one matches its models, or a model named after it.
+    [InlineData("audio", null, "Drop HD 6XX", null, null, null, "HD 6XX", null)]
+    [InlineData("keyboard", null, "ROG Strix Scope NX TKL Deluxe", null, null, null, "ROG Strix Scope NX TKL", null)]
     // Lucid's names, and the kind keeping a headset from a mouse of a similar name.
-    [InlineData("audio", "Zero:Red", "Truthear Zero:Red", "Truthear", null, null, "Zero:Red", null)]
+    [InlineData("audio", "Zero:Red", "Truthear Zero:Red", "Truthear", null, null, "Zero:RED", null)]
+    [InlineData("audio", null, "Truthear Zero", "Truthear", null, null, "Zero:BLUE", null)] // the blue Zero is not the Zero:Red
     [InlineData("audio", null, "7Hz Zero", "7Hz", null, null, "Salnotes Zero", null)]
     [InlineData("audio", null, "PRO X 2 LIGHTSPEED", "Logitech", null, null, "Pro X 2 Lightspeed", null)]
     [InlineData("mouse", null, "PRO X2 SUPERSTRIKE", "Logitech", null, null, "Pro X2 Superstrike", null)]
     [InlineData("audio", null, "Sennheiser HD 650", "Sennheiser", null, null, "HD 650", null)]
-    public void ModelsVariantsAndNamesResolve(string kind, string? model, string name, string maker, string? color, string? layout,
+    public void ModelsVariantsAndNamesResolve(string kind, string? model, string name, string? maker, string? color, string? layout,
         string expectedModel, string? expectedVariant)
     {
         var entry = Resolve(kind, model, name, maker, color, layout);
@@ -76,12 +100,12 @@ public sealed class DeviceImagesTests
     }
 
     [Theory]
-    [InlineData("audio", null, "Truthear Zero", "Truthear")]           // the blue Zero is not the Zero:Red
     [InlineData("audio", null, "Zero", null)]                          // a short alias needs its maker
     [InlineData("audio", null, "Lush", "Moondrop")]                    // another maker's Lush is not Ziigaat's
-    [InlineData("keyboard", "full", "Razer Huntsman V3 Pro", "Razer")] // not in the list
-    [InlineData("keyboard", "60", "Wooting Two", "Wooting")]           // the Two is not the Two HE
+    [InlineData("keyboard", "tkl", "Razer DeathStalker V3 Pro TKL", "Razer")] // not the DeathStalker V2's picture
     [InlineData("mouse", null, "Wooting 60HE v2", "Wooting")]          // the kind has to agree
+    [InlineData("mouse", null, "Delux M600 Pro (Wireless)", null)]     // not Logitech's PRO Wireless
+    [InlineData("mouse", null, "Delux M600 Pro (Wireless)", "Delux")]
     public void NothingLooseMatches(string kind, string? model, string name, string? maker) =>
         Assert.Null(Resolve(kind, model, name, maker));
 
@@ -179,6 +203,67 @@ public sealed class DeviceImagesTests
         // Before the 1 px Gaussian it is 50%; after, between its neighbors' and still well short of opaque.
         Assert.InRange(Alpha(p, 60, 9, 20), 80, 175);
         Assert.True(Red(p, 60, 9, 20) <= 45, $"un-premultiplied color {Red(p, 60, 9, 20)}");
+    }
+
+    [Fact]
+    public void AWhiteShellBesideAFlatWhiteStays()
+    {
+        // A dark product whose left third is a white shell (245) touching a pure white background.
+        var p = Fill(60, 40, 255, 255, 255);
+        Rect(p, 60, 10, 10, 49, 29, 30, 30, 30);
+        Rect(p, 60, 10, 10, 22, 29, 245, 245, 245);
+        Assert.True(DeviceImages.RemoveBackground(p, 60, 40));
+        Assert.Equal(0, Alpha(p, 60, 5, 20));
+        Assert.Equal(255, Alpha(p, 60, 15, 20));
+    }
+
+    [Fact]
+    public void ANoisyBackgroundStillGoesWhole()
+    {
+        // A JPEG's noisy white (every other pixel 238): the cut reaches as far as the noise does.
+        var p = Fill(60, 40, 255, 255, 255);
+        for (var i = 0; i < 60 * 40; i += 2) Rect(p, 60, i % 60, i / 60, i % 60, i / 60, 238, 238, 238);
+        Rect(p, 60, 10, 10, 49, 29, 30, 30, 30);
+        Assert.True(DeviceImages.RemoveBackground(p, 60, 40));
+        Assert.Equal(0, Alpha(p, 60, 4, 20));
+        Assert.Equal(0, Alpha(p, 60, 5, 20));
+    }
+
+    [Fact]
+    public void AHalfSeeThroughRimIsNotACut()
+    {
+        // A white photo a converter left with its outer pixels 90% opaque is still a white photo to cut.
+        var p = ProductWithWhiteInside(255, 255, 255);
+        for (var x = 0; x < 60; x++) { p[x * 4 + 3] = 230; p[(39 * 60 + x) * 4 + 3] = 230; }
+        for (var y = 0; y < 40; y++) { p[y * 60 * 4 + 3] = 230; p[(y * 60 + 59) * 4 + 3] = 230; }
+        Assert.True(DeviceImages.RemoveBackground(p, 60, 40));
+        Assert.Equal(0, Alpha(p, 60, 5, 20));
+        Assert.Equal(255, Alpha(p, 60, 15, 20));
+    }
+
+    [Fact]
+    public void AProductCroppedTightStillLosesItsBackground()
+    {
+        // A keyboard touching the left, right and bottom: white only above it.
+        var p = Fill(60, 40, 255, 255, 255);
+        Rect(p, 60, 0, 12, 59, 39, 30, 30, 30);
+        Assert.True(DeviceImages.RemoveBackground(p, 60, 40));
+        Assert.Equal(0, Alpha(p, 60, 30, 5));
+        Assert.Equal(255, Alpha(p, 60, 30, 25));
+    }
+
+    [Fact]
+    public void SpecksGoAndTheSecondEarpieceStays()
+    {
+        // Transparent: two earpieces (40x40 each) and a 2x2 speck far off in a corner.
+        var p = Fill(300, 100, 0, 0, 0, 0);
+        Rect(p, 300, 20, 20, 59, 59, 30, 30, 30);
+        Rect(p, 300, 80, 20, 119, 59, 30, 30, 30);
+        Rect(p, 300, 290, 90, 291, 91, 30, 30, 30);
+        DeviceImages.DropSpecks(p, 300, 100);
+        Assert.Equal(0, Alpha(p, 300, 290, 90));
+        Assert.Equal(255, Alpha(p, 300, 100, 40));
+        Assert.Equal((20, 20, 119, 59), DeviceImages.ContentBounds(p, 300, 100));
     }
 
     [Fact]

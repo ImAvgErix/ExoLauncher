@@ -9,7 +9,9 @@ namespace ExoLauncher.Services;
 /// </summary>
 public sealed partial class WebHostBridge
 {
-    private Task<object> RuntimesListAsync(CancellationToken ct) => _services.Dependencies.ListAsync(ct);
+    // The installed games say which of XNA, OpenAL and PhysX are worth installing.
+    private Task<object> RuntimesListAsync(CancellationToken ct) =>
+        _services.Dependencies.ListAsync([.. _services.Library.AllSourceEntries().Where(game => game.Installed)], ct);
 
     private async Task<object> RuntimesInstallAsync(JsonElement p, bool hasParams, CancellationToken ct)
     {

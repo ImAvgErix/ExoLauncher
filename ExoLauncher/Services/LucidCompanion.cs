@@ -163,7 +163,7 @@ internal static class LucidCompanion
                 }
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { AppLog.Warn("Lucid: Lucid Voice's switch not changed: " + ex.Message); }
-            if (VoiceOn() && Locate(settings.Current.LucidPath) is { } lucid) _ = ChangeAsync(lucid, new LucidSettings.Change { VoiceOff = true });
+            if (VoiceOn() && Locate(settings.Current.LucidPath) is { } lucid) _ = ChangeAsync(lucid, new LucidSettings.Change { VoiceOff = true }, now: true);
         }
     }
 
@@ -260,8 +260,25 @@ internal static class LucidCompanion
     /// Changes Lucid's settings. Changes made close together are written in one go after a short pause, so a few
     /// switches cost Lucid one restart. Null when they took, else why not.
     /// </summary>
-    internal static Task<string?> ChangeAsync(string lucid, LucidSettings.Change change)
+    /// <summary>
+    /// Whether a game is playing (Exo's host says). A change waits for the last game to end: Lucid starts again to take
+    /// one, and the EQ drops out for about 3 seconds while it does. Lucid Voice going off for Exo Voice doesn't wait.
+    /// </summary>
+    internal static Func<bool> Playing { get; set; } = () => false;
+
+    private static LucidSettings.Change? _held;
+
+    /// <summary>The change waiting for the game to end, if one is.</summary>
+    internal static LucidSettings.Change? Held { get { lock (PendingGate) return _held; } }
+
+    internal static Task<string?> ChangeAsync(string lucid, LucidSettings.Change change, bool now = false)
     {
+        if (!now && Playing())
+        {
+            lock (PendingGate) _held = _held is null ? change : _held.Then(change);
+            AppLog.Info("Lucid: a change waits for the game to end.");
+            return Task.FromResult<string?>(null);
+        }
         lock (PendingGate)
         {
             _pending = _pending is null ? change : _pending.Then(change);
@@ -275,6 +292,16 @@ internal static class LucidCompanion
                 finally { ChangeGate.Release(); }
             });
         }
+    }
+
+    /// <summary>The last game ended: the change that waited for it goes in now.</summary>
+    internal static void ReleaseHeld(string? lucidPath)
+    {
+        LucidSettings.Change? held;
+        lock (PendingGate) { held = _held; _held = null; }
+        if (held is null || Locate(lucidPath) is not { } lucid) return;
+        AppLog.Info("Lucid: the game ended; the change that waited goes in.");
+        _ = ChangeAsync(lucid, held);
     }
 
     private static async Task<string?> WriteAsync(string lucid, LucidSettings.Change change)
@@ -302,7 +329,7 @@ internal static class LucidCompanion
         return error;
     }
 
-    private static string? HeadphoneName(string lucid, string id) =>
+    internal static string? HeadphoneName(string lucid, string id) =>
         LucidCatalog.Read(lucid)?.FirstOrDefault(h => string.Equals(h.Id, id, StringComparison.OrdinalIgnoreCase)) is { } headphone &&
         headphone.Id != LucidSettings.LucidIems ? headphone.Name : null;
 
@@ -404,7 +431,8 @@ internal static class LucidCompanion
     /// <summary>The version feed Lucid's own updater reads (Updater.VersionUrl).</summary>
     internal const string UpdateFeed = "https://raw.githubusercontent.com/tekkusai/Lucid/main/app.latest";
     private static readonly HttpClient UpdateHttp = CreateUpdateHttp();
-    private static (DateTime At, Version? Latest)? _feed;
+    /// <summary>The feed's text, read at most once a day and retried as every version check is (<see cref="LatestCache{T}"/>).</summary>
+    private static readonly LatestCache<string> Feed = new("Lucid's version feed", TimeSpan.FromDays(1));
 
     private static HttpClient CreateUpdateHttp()
     {
@@ -420,13 +448,9 @@ internal static class LucidCompanion
     internal static async Task<Version?> AvailableUpdateAsync(string lucid)
     {
         if (FileVersion(lucid) is not { } current) return null;
-        if (_feed is not { } feed || DateTime.UtcNow - feed.At >= TimeSpan.FromDays(1))
-        {
-            try { feed = (DateTime.UtcNow, Loose(await UpdateHttp.GetStringAsync(UpdateFeed).ConfigureAwait(false))); }
-            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException) { return null; }
-            _feed = feed;
-        }
-        return feed.Latest is { } latest && latest > current ? latest : null;
+        var feed = await Feed.GetAsync("lucid", async ct => await UpdateHttp.GetStringAsync(UpdateFeed, ct).ConfigureAwait(false), CancellationToken.None).ConfigureAwait(false);
+        // Compared by Lucid's own rule (Loose), so Exo offers what Lucid's updater would.
+        return feed is not null && Loose(feed) is { } latest && latest > current ? latest : null;
     }
 
     /// <summary>Lucid's Updater.FileVersion: the exe's file version, null when it has none.</summary>

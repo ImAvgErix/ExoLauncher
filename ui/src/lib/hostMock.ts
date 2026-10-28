@@ -3,6 +3,7 @@ import { mockAdmin, mockAppMessages, mockApps, mockChannels, mockFriends, mockHo
 /** Browser development fixtures. Dynamically loaded only outside the packaged host. */
 import type { Game, GameProperties, LauncherSettings, InstallProgress, InstalledApp, ReplacedApp, RuntimeItem, StoreGift } from './host'
 import type { CaptureItem } from './capture'
+import type { NoteInfo } from './notes'
 import { emitHostEvent } from './host'
 const MOCK_GAMES: Game[] = [
   {
@@ -181,7 +182,6 @@ const mockSettings: LauncherSettings = {
   riotHoursImported: false,
   recent: [],
   showLibraryTools: false,
-  countHoursAcrossAccounts: false,
   hdrForGames: false,
     hdrSdrGamma: true,
     discordNoiseSuppression: true,
@@ -651,6 +651,19 @@ const mockCaptureSettings: Record<string, unknown> = {
   folder: 'C:\\Users\\Player\\Videos\\Exo Captures', keepGb: 0, keepDays: 0,
 }
 
+/** Exo Notes in the browser: notes kept in memory, one to start from. */
+const mockNotes = new Map<string, { info: NoteInfo; text: string }>()
+const mockNote = (id: string, text: string, kind: NoteInfo['kind'] = 'text') => {
+  const [title = 'New note', ...rest] = text.split('\n').map(line => line.replace(/^[#\s-]*(\[[ x]\] )?/, '').trim()).filter(Boolean)
+  const info: NoteInfo = {
+    id, title, snippet: rest.join(' ').slice(0, 140), kind, name: `${title}.${kind === 'markdown' ? 'md' : 'txt'}`, edited: new Date().toISOString(),
+    size: text.length, pinned: mockNotes.get(id)?.info.pinned ?? false, external: false, unsaved: false, gameId: null, encoding: 'utf-8', eol: 'crlf', spelling: true,
+  }
+  mockNotes.set(id, { info, text })
+  return info
+}
+mockNote('mock-raid', '# Raid night\n- [x] Repair gear\n- [ ] Bring potions\n\nBoss two: **stack** at the pillar.', 'markdown')
+
 /** One Store game with Steam's longest kind of page (a long description and requirements), to lay the game page out against. */
 const MOCK_STORE_TILE = { appId: '1091500', name: 'Cyberpunk 2077', final: 2999, initial: 5999, discount: 50, currency: 'USD', priceText: '$29.99', wasText: '$59.99' }
 function mockStoreGame() {
@@ -661,6 +674,8 @@ function mockStoreGame() {
     developers: ['CD PROJEKT RED'], publishers: ['CD PROJEKT RED'], genres: ['RPG'], metacritic: 86,
     reviewWord: 'Very Positive', reviewPercent: 88, reviewCount: 812345,
     tags: ['Cyberpunk', 'Open World', 'RPG', 'Sci-fi', 'Singleplayer', 'Story Rich', 'Atmospheric'],
+    controller: 'full', playStation: true, drm: null, account: null,
+    languages: ['English', 'French', 'Italian', 'German', 'Spanish - Spain', 'Japanese', 'Korean', 'Polish', 'Portuguese - Brazil', 'Russian', 'Simplified Chinese'],
     offers: [{ store: '1', name: 'Steam', final: 2999, initial: 5999, discount: 50, currency: 'USD', priceText: '$29.99', wasText: '$59.99', url: 'https://store.steampowered.com/app/1091500' }],
     media: [],
     screenshots: Array.from({ length: 10 }, (_, i) => `${art(i % 2 ? 'library_hero.jpg' : 'header.jpg')}?${i}`),
@@ -755,6 +770,34 @@ const MOCK_HANDLERS: Record<string, MockHandler> = {
   'capture.item': mockCaptureItem,
   'capture.edit': () => ({ ok: false, message: 'Mock: no capture add-on.' }),
   'capture.saveImage': () => ({ ok: false, message: 'Mock: no capture add-on.' }),
+  'notes.list': (params) => {
+    const query = typeof params?.query === 'string' ? params.query.toLowerCase() : ''
+    return { ok: true, notes: [...mockNotes.values()].filter(note => !query || note.text.toLowerCase().includes(query)).map(note => note.info), tabs: [], active: null }
+  },
+  'notes.read': (params) => {
+    const note = mockNotes.get(String(params?.id))
+    return note ? { ok: true, text: note.text, note: note.info } : { ok: false, message: 'That note is gone.' }
+  },
+  'notes.save': (params) => {
+    const id = typeof params?.id === 'string' ? params.id : `mock-${mockNotes.size + 1}`
+    const kind = params?.markdown === true ? 'markdown' : mockNotes.get(id)?.info.kind ?? 'text'
+    return { ok: true, note: mockNote(id, String(params?.text ?? ''), kind) }
+  },
+  'notes.act': (params) => {
+    const id = String(params?.id)
+    const note = mockNotes.get(id)
+    if (params?.action === 'delete') { mockNotes.delete(id); return { ok: true } }
+    if (!note) return { ok: params?.action === 'folder' }
+    if (params?.action === 'pin' || params?.action === 'unpin') note.info = { ...note.info, pinned: params.action === 'pin' }
+    if (params?.action === 'markdown' || params?.action === 'text') note.info = { ...note.info, kind: params.action }
+    return { ok: true, note: note.info }
+  },
+  'notes.session': () => ({ ok: true }),
+  'notes.open': () => ({ ok: false, cancelled: true }),
+  'notes.saveAs': () => ({ ok: false, message: 'Mock: no save dialog in the browser.' }),
+  'notes.pending': () => ({ id: null }),
+  'notes.spell': (params) => ({ ok: true, wrong: params?.word === 'teh', suggestions: params?.word === 'teh' ? ['the', 'tech'] : [] }),
+  'notes.textFiles': () => ({ ok: true, offered: false, isDefault: false }),
   'shell.pickProgram': () => ({ ok: false, cancelled: true }),
   'shaders.call': (params) => {
     if (!mockShaders) return { ok: false, message: 'Mock: no shader add-on.' }
@@ -994,9 +1037,12 @@ const MOCK_HANDLERS: Record<string, MockHandler> = {
       headphone: { id: 'lucid_iems', name: 'Lucid IEMs', chosen: true }, favorites: [], gameMode: true, keepOnAltTab: false,
       onlyWhileGaming: false,
       nightShift: false, nightStart: '21:00', nightEnd: '06:00', nightSync: false, notifications: false, discord: false,
+      hotkey: { modifiers: 0, key: 122 }, eqOn: true,
     },
+    eq: { on: 'Headphones (High Definition Audio Device)', playing: 'Headphones (High Definition Audio Device)', covered: true },
   }),
   'devices.image': () => ({ ok: false, url: null }),
+  'devices.openApp': mockOk,
   'lucid.update': () => ({ version: null }),
   'dictation.state': mockDictationState,
   'dictation.prepare': mockOk,
@@ -1007,11 +1053,13 @@ const MOCK_HANDLERS: Record<string, MockHandler> = {
     ok: true,
     devices: [
       { id: 'usb-361d-0300-747353800033', kind: 'mouse', name: 'StarlightX Dongle', maker: 'Finalmouse', model: null, connection: 'wireless', role: null, battery: null, color: null, layout: null },
-      { id: 'usb-31e3-1342-95be6909a013', kind: 'keyboard', name: 'Wooting 60HE v2', maker: 'Wooting', model: '60', connection: 'usb', role: null, battery: null, color: null, layout: 'ansi-split' },
+      { id: 'usb-31e3-1342-95be6909a013', kind: 'keyboard', name: 'Wooting 60HE v2', maker: 'Wooting', model: '60', connection: 'usb', role: null, battery: null, color: null, layout: 'ansi-split',
+        port: { where: 'chipset', chips: 1, hubs: 0, interrupts: 'msi', better: 'free' }, app: { id: 'wootility', name: 'Wootility', where: 'web' } },
       { id: 'usb-054c-0df2-5f24d70ab9bc', kind: 'controller', name: 'DualSense Edge Wireless Controller', maker: 'Sony', model: 'dualsense-edge', connection: 'usb', role: null, battery: null, color: 'Midnight Black', layout: null },
       { id: '{0.0.0.00000000}.{9709e4ab-6969-4817-ad38-1704eab1c079}', kind: 'audio', name: 'Headphones', maker: null, model: 'headphones', connection: 'jack', role: 'output', battery: null, color: null, layout: null },
       { id: '{0.0.1.00000000}.{0deb347c-90b6-43d6-b549-63e63b1b23a9}', kind: 'audio', name: 'fifine Microphone', maker: 'Fifine', model: 'microphone', connection: 'usb', role: 'input', battery: null, color: null, layout: null },
     ],
+    cpuPorts: { free: 2, total: 4, freeTypeC: false },
   }),
   'lucid.headphones': () => ({
     ok: true,
@@ -1032,6 +1080,18 @@ const MOCK_HANDLERS: Record<string, MockHandler> = {
     status: p?.action === 'apply' ? 'applied' : 'ready', gsync: p?.action === 'apply' && p.gsync === true,
     canUndo: p?.action === 'apply', driverUpdated: false, items: [],
   },
+  'system.about': () => ({
+    name: 'Erix-PC', processor: mockIntelCpu ? 'Intel Core i7-14700K' : 'AMD Ryzen 5 5600X', cores: mockIntelCpu ? 20 : 6, threads: mockIntelCpu ? 28 : 12,
+    graphics: 'NVIDIA GeForce RTX 3070', videoMemoryGb: 8, directX: '12 Ultimate', resizableBar: true,
+    memoryGb: 16, memoryType: 'DDR4', memorySpeed: 3600, memoryRated: 3600, memorySlotsUsed: 2, memorySlots: 4,
+    motherboard: 'ASUS ROG STRIX B550-F GAMING WIFI II', bios: '3636', biosDate: '2026-01-04',
+    windows: 'Windows 11 Pro', windowsVersion: '26H2', build: '26300.9711', secureBoot: true, tpm: '2.0', memoryIntegrity: false,
+    drives: [
+      { letter: 'C:', model: 'Samsung SSD 990 PRO with Heatsink 2TB', kind: 'NVMe SSD', totalGb: 1862.4, freeGb: 1203.7 },
+      { letter: 'D:', model: 'WDC WD20EZRZ-00Z5HB0', kind: 'Hard drive', totalGb: 1863, freeGb: 412.2 },
+    ],
+    network: 'Ethernet', networkMbps: 2500,
+  }),
   'system.health': (p) => {
     const cpu = mockIntelCpu ? 'Core i7-14700K' : 'Ryzen 5 5600X'
     const [label, from, to, drop] = mockIntelCpu
@@ -1041,7 +1101,7 @@ const MOCK_HANDLERS: Record<string, MockHandler> = {
       ok: true,
       items: [
         p?.action === 'apply'
-          ? { key: 'power', label: 'Power plan', detail: `Exo's plan, tuned for your ${cpu}`, applied: true, canUndo: true }
+          ? { key: 'power', label: 'Power plan', detail: "Exo's plan", applied: true, canUndo: true }
           : { key: 'power', label: 'Power plan', detail: `Your PC uses “Nexus LiteOS Power Plan”. Exo's plan is tuned for your ${cpu}.`, cpu },
         p?.action === 'chipset'
           ? { key: 'chipset', label, detail: `Updating to ${to}. ${drop} for a moment`, busy: true }
@@ -1064,6 +1124,7 @@ const MOCK_HANDLERS: Record<string, MockHandler> = {
   'stores.quiet': () => ({ ok: true, message: null }),
   'hdr.state': () => ({ supported: true, on: false, name: 'Mock OLED', peakNits: 1000, calibrated: false, verdict: 'great' }),
   'hdr.game': (p) => ({ ok: true, hdr: 'true', mode: typeof p?.mode === 'string' ? p.mode : 'auto' }),
+  'game.settings': () => ({ ok: true, supported: false }),
   'gpu.display': (p) => ({
     ok: true,
     pending: p?.action === 'set' ? { display: 'DISPLAY1', seconds: 15 } : null,
@@ -1105,7 +1166,8 @@ const MOCK_HANDLERS: Record<string, MockHandler> = {
   'store.gameOffers': () => ({ ok: true, offers: [
     { store: '25', name: 'Epic Games Store', final: 2999, initial: 5999, discount: 50, currency: 'USD', url: 'https://store.epicgames.com/' },
     { store: '7', name: 'GOG', final: 2999, initial: 5999, discount: 50, currency: 'USD', url: 'https://www.gog.com/' },
-  ] }),
+  ], lowest: { final: 1979, at: '2026-06-25T17:00:00Z' } }),
+  'store.gameReviews': () => ({ ok: true, word: 'Mostly Positive', percent: 78, count: 1025 }),
   'store.game': mockStoreGame,
   'store.wishlist': () => ({ ok: true, items: [] }),
   'twitch.connect': () => ({ ok: false, message: 'Twitch sign-in is not available in the browser mock.' }),

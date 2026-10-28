@@ -61,7 +61,7 @@ function driverDetail(state: DriverState, vendor: Vendor, progress: DriverProgre
     return `${progress.message ?? STAGE[progress.stage]}${progress.stage === 'downloading' ? ` · ${downloaded(progress.percent, latest?.size)}` : ''}`
   if (progress?.stage === 'done' || progress?.stage === 'failed') return trimStop(progress.message) || STAGE[progress.stage]
   if (!latest) return `${state.installed ?? 'No driver'} installed · ${vendor === 'nvidia' ? "NVIDIA's driver list couldn't be reached" : `${VENDOR[vendor].name}'s newest driver for this card couldn't be found`}`
-  if (!state.update) return `${state.installed} · the newest ${KIND[latest.kind]} for your card`
+  if (!state.update) return `${state.installed} · newest`
   const released = day(latest.released)
   return `${state.installed ?? 'No driver'} installed · ${KIND[latest.kind]} ${latest.version} available${released ? `, ${released}` : ''}`
 }
@@ -184,9 +184,9 @@ function DriverConsent({ vendor, latest, update, onCancel, onInstall }: {
         {restores && <li><span>Afterwards</span><span className="exo-graphics-import-value">Exo puts your GPU profile back</span></li>}
       </ul>
       <p className="exo-graphics-import-extra">
-        Windows asks for administrator permission. Installing means you accept {vendor === 'nvidia' ? link(NVIDIA_LICENSE, "NVIDIA's license")
+        Installing means you accept {vendor === 'nvidia' ? link(NVIDIA_LICENSE, "NVIDIA's license")
           : vendor === 'amd' ? link(AMD_LICENSE, "AMD's license")
-            : <>the license on {latest.page ? link(latest.page, "Intel's download page") : "Intel's download page"}</>}. The screen may go black for a moment.
+            : <>the license on {latest.page ? link(latest.page, "Intel's download page") : "Intel's download page"}</>}.
       </p>
     </ConfirmDialog>
   )

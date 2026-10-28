@@ -4,6 +4,7 @@ import { report } from '../../lib/report'
 import type { DiscordMessage, DiscordPoll } from '../../lib/discord'
 import { emojiUrl } from './markdown'
 import { Icons } from './icons'
+import { ErrorNote } from '../ui/ErrorNote'
 
 /** "3 hours left", "1 day left", or "Poll closed". */
 function timeLeft(poll: DiscordPoll, now: number) {
@@ -109,7 +110,7 @@ export function Poll({ message, meId }: { message: DiscordMessage; meId: string 
           {!showing ? <button type="button" className="exo-dc-tab is-raised" disabled={busy || picked.size === 0} onClick={() => send([...picked])}>Vote</button> : null}
         </span>
       </footer>
-      {error ? <p className="exo-dc-note" role="alert">{error}</p> : null}
+      {error ? <ErrorNote className="exo-dc-note" message={error} /> : null}
     </section>
   )
 }

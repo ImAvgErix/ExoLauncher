@@ -11,6 +11,10 @@ namespace ExoLauncher.Tests;
 /// - a profile writes a value the spec doesn't (idle states off, sleep off on a laptop, battery values on a laptop) or
 ///   leaves one out; X3D or Zen 5 dual-CCD keeps min cores 100 or min state 100; an Intel hybrid's P-core values go to
 ///   the E-cores' class (efficiency class 1 is the P-cores, class 0 the E-cores);
+/// - a profile writes a gaming-plan knob with no measured effect (idle promote/demote, the check interval, throttle
+///   states, increase/decrease tuning) or an NVMe value that points the wrong way (NOPPME off) or means nothing documented
+///   (idle timeout 0), or lets the NVMe drive idle (a latency tolerance above 0);
+/// - Control Panel stops showing a setting worth tuning, or starts showing the folklore ones;
 /// - Apply edits Balanced itself instead of a copy, loses the plan it replaced, makes a second Exo plan each time, or
 ///   leaves Undo after Windows refused the switch;
 /// - Auto switches a custom plan, switches again after Undo or after the user picked another plan, or doesn't make the
@@ -128,15 +132,12 @@ public sealed class PowerPlanTests : IDisposable
             ["PCIe Link State Power Management"] = 0,
             ["USB selective suspend"] = 0,
             ["USB 3 Link Power Management"] = 0,
-            ["NVMe NOPPME"] = 0,
-            ["Primary NVMe Idle Timeout"] = 0,
             ["Primary NVMe Power State Transition Latency Tolerance"] = 0,
-            ["Secondary NVMe Idle Timeout"] = 0,
             ["Secondary NVMe Power State Transition Latency Tolerance"] = 0,
             ["AHCI Link Power Management - HIPM/DIPM"] = 0,
             ["AHCI Link Power Management - Adaptive"] = 0,
             ["Turn off hard disk after"] = 0,
-            ["Turn off display after"] = 0,
+            ["Turn off display after"] = 1800,
             ["Sleep after"] = 0,
             ["Hibernate after"] = 0,
         }, values);
@@ -181,6 +182,25 @@ public sealed class PowerPlanTests : IDisposable
         Assert.Equal(0u, values[new Guid("48e6b7a6-50f5-4782-a5d4-53bb8f07e226")]); // USB selective suspend
     }
 
+    // Gaming-plan knobs Exo leaves as Balanced has them: idle promote/demote, autonomous mode, the plan's personality, the
+    // check interval, throttle states, and the increase/decrease thresholds, times and policies (inert once the processor
+    // picks its own clocks).
+    private static readonly Guid[] LeftAlone =
+    [
+        new("7b224883-b3cc-4d79-819f-8374152cbe7c"), // IDLEPROMOTE
+        new("4b92d758-5a24-4851-a470-815d78aee119"), // IDLEDEMOTE
+        new("8baa4a8a-14c6-4451-8e8b-14bdbd197537"), // PERFAUTONOMOUS
+        new("245d8541-3943-4422-b025-13a784f679b7"), // PERSONALITY
+        new("4d2b0152-7d5c-498b-88e2-34345392a2c5"), // PERFCHECK
+        new("3b04d4fd-1cc7-4f23-ab1c-d1337819c4bb"), // THROTTLING
+        new("06cadf0e-64ed-448a-8927-ce7bf90eb35d"), // PERFINCTHRESHOLD
+        new("12a0ab44-fe28-4fa9-b3bd-4b64f44960a6"), // PERFDECTHRESHOLD
+        new("984cf492-3bed-4488-a8f9-4286c97bf5aa"), // PERFINCTIME
+        new("d8edeb9b-95cf-4f95-a73c-b061973693c8"), // PERFDECTIME
+        new("465e1f50-b610-473a-ab58-00d1077dc418"), // PERFINCPOL
+        new("40fbefc7-2e9d-4d25-a185-0cfd8574bac6"), // PERFDECPOL
+    ];
+
     [Fact]
     public void NoProfileTurnsIdleStatesOffOrHoldsThemShallow()
     {
@@ -190,11 +210,43 @@ public sealed class PowerPlanTests : IDisposable
             {
                 var values = PowerProfiles.For(cpu, laptop).Values;
                 Assert.All(values.Where(v => v.Setting == idleDisable), v => Assert.Equal(0u, v.Ac));
-                // Idle promote/demote, autonomous mode, the plan's personality and the check interval stay Balanced's.
-                Assert.DoesNotContain(values, v => v.Setting == new Guid("7b224883-b3cc-4d79-819f-8374152cbe7c") || v.Setting == new Guid("4b92d758-5a24-4851-a470-815d78aee119")
-                    || v.Setting == new Guid("8baa4a8a-14c6-4451-8e8b-14bdbd197537") || v.Setting == new Guid("245d8541-3943-4422-b025-13a784f679b7")
-                    || v.Setting == new Guid("4d2b0152-7d5c-498b-88e2-34345392a2c5"));
+                Assert.DoesNotContain(values, v => LeftAlone.Contains(v.Setting));
             }
+    }
+
+    [Fact]
+    public void TheNvmeDriveNeverIdlesThroughDocumentedValuesOnly()
+    {
+        var tolerances = new[] { new Guid("fc95af4d-40e7-4b6d-835a-56d131dbc80e"), new Guid("dbc9e238-6de9-49e3-92cd-8c2b4946b472") };
+        var notWritten = new[]
+        {
+            new Guid("fc7372b6-ab2d-43ee-8797-15e9841f2cca"), // NOPPME: off only forbids background work inside an idle state
+            new Guid("d639518a-e56d-4345-8af2-b9f32fb26109"), // primary idle timeout: 0 is undocumented, and moot at tolerance 0
+            new Guid("d3d55efd-c1ff-424e-9dc3-441be7833010"), // secondary idle timeout
+        };
+        foreach (var cpu in Enum.GetValues<Class>())
+            foreach (var laptop in new[] { false, true })
+            {
+                var values = PowerProfiles.For(cpu, laptop).Values;
+                if (values.Count == 0) continue; // a laptop Exo doesn't know keeps Balanced
+                // StorNVMe picks the deepest idle state whose entry plus exit latency fits the tolerance: 0 fits none.
+                Assert.All(tolerances, t => Assert.Equal(0u, Assert.Single(values, v => v.Setting == t).Ac));
+                Assert.DoesNotContain(values, v => notWritten.Contains(v.Setting));
+            }
+    }
+
+    [Fact]
+    public void ControlPanelShowsWhatsWorthTuningAndNotTheFolklore()
+    {
+        var shown = PowerPlan.WorthSeeing.Select(w => w.Setting).ToList();
+        Assert.Equal(shown.Count, shown.Distinct().Count());
+        // Boost, a hybrid's P-cores (efficiency class 1) and a three-class chip's class 2 are reachable on every class.
+        Assert.Contains(new Guid("be337238-0d82-4146-a960-4f3749d470c7"), shown); // boost mode
+        Assert.Contains(new Guid("36687f9e-e3a5-4dbf-b1dc-15eb381c6864"), shown); // EPP, class 1
+        Assert.Contains(new Guid("36687f9e-e3a5-4dbf-b1dc-15eb381c6865"), shown); // EPP, class 2
+        Assert.Contains(new Guid("0cc5b647-c1df-4637-891a-dec35c318584"), shown); // core parking min cores, class 1
+        Assert.DoesNotContain(shown, s => LeftAlone.Contains(s) && s != new Guid("8baa4a8a-14c6-4451-8e8b-14bdbd197537")); // autonomous mode is worth seeing
+        Assert.All(PowerPlan.WorthSeeing, w => Assert.Contains(w.Subgroup, new[] { PowerProfiles.Processor, PowerProfiles.Usb }));
     }
 
     [Theory]
@@ -218,10 +270,10 @@ public sealed class PowerPlanTests : IDisposable
         Assert.Empty(PowerProfiles.For(Class.Unknown, laptop: true).Values); // Balanced as it is
         // A desktop never sleeps by itself, on a UPS too.
         Assert.All(PowerProfiles.For(Class.AmdSingleCcd, laptop: false).Values.Where(v => v.Subgroup == PowerProfiles.Sleep), v => Assert.True(v.Dc));
-        // Every plan keeps the screen on: a desktop on battery too, a laptop on AC only.
-        Assert.Contains(laptop.Values, v => v.Subgroup == PowerProfiles.Display && v.Ac == 0 && !v.Dc);
+        // Every plan turns the screen off after 30 minutes (an OLED's burn-in): a desktop on battery too, a laptop on AC only.
+        Assert.Contains(laptop.Values, v => v.Subgroup == PowerProfiles.Display && v.Ac == 1800 && !v.Dc);
         foreach (var cpu in PowerProfiles.Keys.Keys.Where(c => c != Class.Unknown))
-            Assert.Contains(PowerProfiles.For(cpu, laptop: false).Values, v => v.Subgroup == PowerProfiles.Display && v.Ac == 0 && v.Dc);
+            Assert.Contains(PowerProfiles.For(cpu, laptop: false).Values, v => v.Subgroup == PowerProfiles.Display && v.Ac == 1800 && v.Dc);
     }
 
     // ---- Exo's plan, on a fake Windows ----
@@ -300,7 +352,9 @@ public sealed class PowerPlanTests : IDisposable
         // Every value went into Exo's copy, none into Balanced; each is shown in Control Panel.
         Assert.All(ThisPc.Values, v => Assert.Equal(v.Ac, windows.Written[(exo, v.Setting, false)]));
         Assert.DoesNotContain(windows.Written.Keys, key => key.Scheme == PowerPlan.Balanced);
-        Assert.Equal(ThisPc.Values.Select(v => v.Setting).ToHashSet(), windows.Shown);
+        // Shown too: Windows' other hidden settings worth tuning, which Exo doesn't change.
+        Assert.Equal(ThisPc.Values.Select(v => v.Setting).Concat(PowerPlan.WorthSeeing.Select(w => w.Setting)).ToHashSet(), windows.Shown);
+        Assert.DoesNotContain(windows.Written.Keys, key => PowerPlan.WorthSeeing.Any(w => w.Setting == key.Setting && !ThisPc.Values.Any(v => v.Setting == w.Setting)));
         Assert.Equal(0u, windows.Written[(exo, new Guid("29f6c1db-86da-48c5-9fdb-f2b67b1f44da"), true)]); // desktop: no sleep on battery either
         Assert.True(plan.Read()!.CanUndo);
 

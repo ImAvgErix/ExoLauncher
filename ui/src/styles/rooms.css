@@ -360,4 +360,22 @@
     left: 0;
     width: 100%;
   }
+
+  .exo-mini-lcd {
+    min-width: 36px;
+  }
+}
+
+/* Past its smallest (a page under 720px wide): mute, then the cover, so play stays whole instead of a capsule cut
+   off mid-control; a slot too narrow even for play drops the song (system.css › bar-live). */
+@container music-transport (max-width: 116px) {
+  .exo-music-mini .exo-mini-volume {
+    display: none;
+  }
+}
+
+@container music-transport (max-width: 84px) {
+  .exo-music-mini .exo-mini-lcd {
+    display: none;
+  }
 }

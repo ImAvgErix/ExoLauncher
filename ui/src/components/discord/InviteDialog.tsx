@@ -9,6 +9,7 @@ import { Confirm, useLayer } from './admin'
 import { Avatar } from './presence'
 import { ModalBack } from './SettingsLayer'
 import { EXPIRES, USES } from './settingsModeration'
+import { ErrorNote } from '../ui/ErrorNote'
 
 type Link = { maxAge: number; maxUses: number; temporary: boolean }
 const FIRST: Link = { maxAge: 604800, maxUses: 0, temporary: false }
@@ -54,7 +55,7 @@ export function InviteDialog({ name, channelId, channelName, onClose }: { name: 
             <button type="button" className="exo-set-btn is-primary" disabled={!url} onClick={copy}>Copy</button>
           </span>
         </label>
-        {error ? <p className="is-bad" role="alert">{error}</p> : null}
+        {error ? <ErrorNote className="is-bad" message={error} /> : null}
         <p className="exo-dc-note">{lasts(link)} <button type="button" className="exo-dc-link" onClick={() => setEditing(true)}>Edit invite link.</button></p>
       </div>
     </ModalBack>
@@ -85,7 +86,7 @@ function InviteFriends({ url }: { url: string | null }) {
           <li key={friend.id}>
             <Avatar src={friend.avatar} name={friend.name} status={null} size={32} look={friend.look} />
             <span className="exo-dc-invite-who"><strong>{friend.name}</strong>{friend.username ? <span>{friend.username}</span> : null}</span>
-            {failed === friend.id ? <span className="is-bad" role="alert">Not sent</span> : null}
+            {failed === friend.id ? <ErrorNote as="span" className="is-bad" message="Not sent" /> : null}
             <button type="button" className="exo-set-btn" disabled={!url || sent.has(friend.id)} onClick={() => void invite(friend)}>{sent.has(friend.id) ? 'Sent' : 'Invite'}</button>
           </li>
         ))}

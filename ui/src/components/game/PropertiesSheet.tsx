@@ -81,6 +81,7 @@ function sectionsFor(props: GameProperties): { id: SectionId; title: string }[] 
   return [
     // General only with something in it (a Riot game has none of these).
     ...(props.launchOptions !== null || props.language !== null || props.cloud !== null || props.cloudSync || props.overlay !== null || props.storeProperties
+      || props.throughSteam != null
       ? [{ id: 'general' as const, title: 'General' }] : []),
     { id: 'files' as const, title: 'Installed files' },
     ...(props.autoUpdate !== null || props.background !== null ? [{ id: 'updates' as const, title: 'Updates' }] : []),
@@ -258,10 +259,7 @@ export function PropertiesSheet({ game, artwork, upscalers: upscalerStatus, onUp
         </nav>
         <div className="exo-props-pane">
           <header className="exo-props-head">
-            <div className="exo-props-title">
-              <h2 id="exo-props-title">{current.title}</h2>
-              <span>{game.title}</span>
-            </div>
+            <h2 id="exo-props-title" className="exo-props-title">{current.title}</h2>
             {props?.running ? <State>Playing</State> : null}
             <button type="button" className="exo-props-close" aria-label="Close" onClick={onClose}><Close size={16} /></button>
           </header>
@@ -273,7 +271,7 @@ export function PropertiesSheet({ game, artwork, upscalers: upscalerStatus, onUp
               {current.id === 'betas' && <BetasSection {...rows} />}
               {current.id === 'content' && <ContentSection {...rows} pending={pending} />}
               {current.id === 'artwork' && (
-                <PropRow label="Cover" detail={artwork.custom ? 'Your own picture.' : 'The store\'s art.'} line={null}>
+                <PropRow label="Cover" line={null}>
                   <ArtworkTools artwork={artwork} disabled={false} className="exo-set-btn" />
                 </PropRow>
               )}
@@ -337,18 +335,22 @@ function GeneralSection({ props, locked, busy, arm, apply, line }: Rows) {
         </PropRow>
       )}
       {props.overlay !== null && (
-        <PropRow label="Steam overlay" detail="Off saves frames. Steam closes for a moment to change it." line={line('overlay')}>
+        <PropRow label="Steam overlay" line={line('overlay')}>
           <Working on={busy === 'overlay'} label="Changing the Steam overlay" />
           <Switch checked={props.overlay} label="Steam overlay" disabled={busy !== null} onChange={on => void apply('overlay', on ? 'on' : 'off')} />
         </PropRow>
       )}
       {props.controller != null && (
-        <PropRow label="Controller" line={line('controller')} detail={props.readsPlayStation
-          ? 'It reads a PlayStation controller itself. Steam closes for a moment to change it.'
-          : 'It reads Xbox controllers only: a PlayStation controller needs Steam Input here.'}>
+        <PropRow label="Controller" line={line('controller')}>
           <Working on={busy === 'controller'} label="Changing Steam Input" />
           <Choice label="Controller" value={props.controller} choices={CONTROLLER} disabled={busy !== null}
             onChange={value => void apply('controller', value)} />
+        </PropRow>
+      )}
+      {props.throughSteam != null && (
+        <PropRow label="Steam Input" line={line('throughSteam')}>
+          <Working on={busy === 'throughSteam'} label="Changing Steam Input" />
+          <Switch checked={props.throughSteam} label="Steam Input" disabled={busy !== null} onChange={on => void apply('throughSteam', on ? 'on' : 'off')} />
         </PropRow>
       )}
       {props.storeProperties && (
@@ -388,6 +390,7 @@ function FilesSection({ props, locked, busy, arm, line, gameId, game, upscalers 
           </button>
         </PropRow>
       )}
+      <ShadersRow bytes={props.shaderCacheBytes} title={game.title} locked={locked} busy={busy} arm={arm} line={line} />
       {folders && (
         <PropRow label="Library folder" line={line('folder')}>
           {props.moving ? <><State>Moving</State><Progress size="small" value={props.moving.done / Math.max(1, props.moving.total)} label="Moving the game" /></> : (
@@ -402,7 +405,7 @@ function FilesSection({ props, locked, busy, arm, line, gameId, game, upscalers 
         </PropRow>
       )}
       {view.antiCheatName && (view.consent === 'available' || view.consent === 'given') && (
-        <PropRow label="Upscaler changes" detail={`This game uses ${view.antiCheatName}.`} line={line('consent')}>
+        <PropRow label="Upscaler changes" line={line('consent')}>
           <Working on={busy === 'consent'} label="Saving your choice" />
           <State>{view.consent === 'given' ? 'Allowed' : 'Not allowed'}</State>
           <button
@@ -425,7 +428,7 @@ function FilesSection({ props, locked, busy, arm, line, gameId, game, upscalers 
         </PropRow>
       )}
       {view.restorable > 0 && (
-        <PropRow label="Upscaler files" detail="Exo keeps the game's own files when it updates them." line={line('restore')}>
+        <PropRow label="Upscaler files" line={line('restore')}>
           <Working on={busy === 'restore'} label="Putting the original files back" />
           <button
             type="button"
@@ -439,6 +442,28 @@ function FilesSection({ props, locked, busy, arm, line, gameId, game, upscalers 
         </PropRow>
       )}
     </>
+  )
+}
+
+/** Call of Duty's shader cache: its size, and Rebuild shaders, which deletes it so the game builds it again as it starts. */
+function ShadersRow({ bytes, title, locked, busy, arm, line }: Pick<Rows, 'locked' | 'busy' | 'arm' | 'line'> & { bytes?: number | null; title: string }) {
+  if (bytes == null) return null
+  return (
+    <PropRow label="Shaders" line={line('shaders')}>
+      <Working on={busy === 'shaders'} label="Clearing the shaders" />
+      <State>{bytes > 0 ? formatSize(bytes) : 'Builds at next start'}</State>
+      <button
+        type="button"
+        className="exo-set-btn"
+        disabled={locked || busy !== null || bytes === 0}
+        onClick={() => arm({
+          key: 'shaders', value: '', verb: 'Rebuild', title: 'Rebuild shaders?',
+          body: `Deletes ${formatSize(bytes)} of shaders. ${title} builds them again as it starts, which takes a few minutes.`,
+        })}
+      >
+        Rebuild shaders
+      </button>
+    </PropRow>
   )
 }
 

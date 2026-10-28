@@ -6,6 +6,7 @@ import { Switch } from '../Switch'
 import { admin, Confirm, dropUpload, Field, pickFile, ReadError, useAdmin } from './admin'
 import { uploadFile } from './Chat'
 import { BadgeArtwork, tagBadgeUrl, type BadgeArt } from './guildTag'
+import { ErrorNote } from '../ui/ErrorNote'
 
 /**
  * Server Settings pages Discord has beyond the server's own fields, each as Discord's (read from its web client) in
@@ -291,7 +292,7 @@ export function ServerTemplate({ guild }: { guild: PageGuild }) {
           <button type="button" className="exo-set-btn is-primary" disabled={busy || !name.trim()} onClick={() => void act('createTemplate', { name: name.trim(), description: description.trim() })}>Generate template</button>
         </>
       ) : null}
-      {error ? <p className="exo-dc-note is-bad" role="alert">{error}</p> : null}
+      {error ? <ErrorNote className="exo-dc-note is-bad" message={error} /> : null}
     </>
   )
 }
@@ -429,7 +430,7 @@ export function Community({ guild, channels, onSaved }: { guild: PageGuild; chan
       <Field label="Community updates channel" detail="Where Discord sends updates for moderators.">
         <Choice label="Community updates channel" value={updates} choices={community ? text : choices} onChange={setUpdates} />
       </Field>
-      {error ? <p className="exo-dc-note is-bad" role="alert">{error}</p> : null}
+      {error ? <ErrorNote className="exo-dc-note is-bad" message={error} /> : null}
       <button type="button" className="exo-set-btn is-primary" disabled={busy || (community && rules === (guild.rules_channel_id ?? '') && updates === (guild.public_updates_channel_id ?? ''))}
         onClick={() => void save()}>{community ? 'Save changes' : 'Enable community'}</button>
     </>

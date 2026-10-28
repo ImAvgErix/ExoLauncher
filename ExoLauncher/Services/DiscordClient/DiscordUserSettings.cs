@@ -92,6 +92,8 @@ internal static class DiscordUserSettings
         new("quests3pDataOptedOut", Kind.Bool, [8, 30], false),
         new("profileVisibility", Kind.Enum, [8, 32], 0, Max: 3),
         new("hideFriendRequestNotes", Kind.Bool, [8, 33], false),
+        // Server Web Pages (SWP): true keeps what you send in Discoverable channels off them.
+        new("swpMessagePromotionOptedOut", Kind.Bool, [8, 35], false),
         // 11 status
         new("showCurrentGame", Kind.Bool, [11, 3], true),
         // 12 localization
@@ -115,8 +117,13 @@ internal static class DiscordUserSettings
         foreach (var (id, stream) in AudioUsers(proto, StreamMap)) streams[id] = new JsonObject { ["muted"] = stream.Muted, ["volume"] = stream.Volume };
         values["audioStreams"] = streams;
         values["customStatus"] = CustomStatus(proto, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+        values["statusExpiresAtMs"] = StatusExpiresAt(proto);
         return values;
     }
+
+    // status (11) > status_expires_at_ms (4, fixed64): when a status chosen For 15 minutes … For 3 days goes back to Online.
+    private static long? StatusExpiresAt(byte[] proto) =>
+        Leaf(proto, [11, 4]).LastOrDefault(f => f.Wire == 1 && f.Value.Length == 8) is { Value: { } value } && BitConverter.ToInt64(value) is > 0 and var at ? at : null;
 
     // status (11) > custom_status (2): CustomStatus {1 text, 2 fixed64 emoji_id, 3 emoji_name, 4 fixed64 expires_at_ms,
     // 5 fixed64 created_at_ms}, as Discord's client keeps it. An empty or expired one is none, as Discord reads it.
@@ -330,6 +337,16 @@ internal static class DiscordUserSettings
                 if (AudioChanges(value) is not { } people) return null;
                 full = Rewrite(full, [16], 0, AudioPatch(full, people, key == "audioStreams" ? StreamMap : UserMap));
                 sections.Add(16);
+                continue;
+            }
+            if (key == "statusExpiresAtMs")
+            {
+                // A time, or null for none (Forever, or Online).
+                var expiry = new List<byte>();
+                if (value.ValueKind == JsonValueKind.Number && value.TryGetInt64(out var until) && until > 0) { WriteTag(expiry, 4, 1); expiry.AddRange(BitConverter.GetBytes((ulong)until)); }
+                else if (value.ValueKind != JsonValueKind.Null) return null;
+                full = Rewrite(full, [11, 4], 0, [.. expiry]);
+                sections.Add(11);
                 continue;
             }
             if (key == "customStatus")

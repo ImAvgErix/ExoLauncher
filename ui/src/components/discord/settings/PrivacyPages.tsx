@@ -8,6 +8,7 @@ import { connectionLabel } from '../profileParts'
 import { Confirm } from '../admin'
 import { AccountToggle, Category, ChoiceRow, LinkRow, LoadError, Row, ToggleRow, useLoad } from './parts'
 import { useAccount } from './AccountPages'
+import { CopyLogs, ErrorNote } from '../../ui/ErrorNote'
 
 const REDACTION = { show: 1, blur: 2, block: 3 } as const
 
@@ -93,10 +94,6 @@ export function MessagingPage({ guilds }: { guilds: DiscordHome['guilds'] }) {
         <AccountToggle label="Show personalized messages" detail="Show personalized messages on incoming friend requests. If you accept, the message will still appear in your DMs."
           settings={settings} field="hideFriendRequestNotes" invert />
       </Category>
-      <Category title="Messaging in connected games">
-        <AccountToggle label="Allow friends from games to send direct messages and invites" detail="Let friends from connected games send DMs and invite me to play games, even when the game we play isn't open."
-          settings={settings} field="allowGameFriendDmsInDiscord" />
-      </Category>
       <IgnoreAndBlock />
     </>
   )
@@ -136,7 +133,7 @@ function RestrictedList({ title, people, action, run, onDone }: { title: string;
         <div key={person.id} className="exo-dc-settings-row">
           <span className="exo-dc-settings-person">
             <Avatar src={person.avatar} name={person.name} status={null} size={32} />
-            <span className="exo-dc-settings-copy"><strong>{person.name}</strong>{person.username ? <span>{person.username}</span> : null}{error?.id === person.id ? <em role="alert">{error.message}</em> : null}</span>
+            <span className="exo-dc-settings-copy"><strong>{person.name}</strong>{person.username ? <span>{person.username}</span> : null}{error?.id === person.id ? <em role="alert">{error.message} <CopyLogs error={error.message} /></em> : null}</span>
           </span>
           <button type="button" className="exo-set-btn" disabled={busy === person.id} onClick={() => act(person.id)}>{action}</button>
         </div>
@@ -151,51 +148,20 @@ function useAdult() {
   return useAccount().me?.nsfwAllowed ?? true
 }
 
-type Consent = 'usage_statistics' | 'personalization'
-// Discord's question before each consent is turned off.
-const TURN_OFF: Record<Consent, { title: string; body: string }> = {
-  usage_statistics: {
-    title: 'Turn off use data to improve Discord?',
-    body: "If you turn this off, we'll stop processing new data for analytics. You will lose access to new experimental features and usage-based improvements to features.",
-  },
-  personalization: {
-    title: 'Turn off personalization?',
-    body: "By turning this off you lose access to things like personalized recommendations and suggestions. You won't be able to recover them in the future!",
-  },
-}
-
-/** Discord settings > Data & Privacy: how Discord uses your data, sponsored content, and who sees your full profile. */
+/**
+ * Discord settings > Data & Privacy: who sees your full profile, and your data by email. Discord's data-use, sponsored
+ * content, web pages and profile-update switches aren't here: Exo keeps them all off (DiscordSession.Privacy.cs).
+ */
 export function DataPrivacyPage() {
   const settings = useAccountSettings()
-  const consent = useLoad('consent', () => host.discordAccount('consent'), data => data as { usageStatistics: boolean; personalization: boolean })
-  const setConsent = (kind: Consent, on: boolean) => host.discordAccount('setConsent', on ? { grant: [kind] } : { revoke: [kind] })
-    .then(result => { consent.reload(); return result.ok ? null : result.message ?? "Discord didn't save that." }, () => "Discord didn't save that.")
-  // Turning one on saves at once; turning one off asks Discord's question first.
-  const change = async (kind: Consent, on: boolean) => (on || await confirm({ ...TURN_OFF[kind], action: 'Turn off', danger: true })) ? setConsent(kind, on) : null
   return (
     <>
       <h1>Data & privacy</h1>
-      <Category title="How Discord uses my data">
-        <LoadError error={consent.error} onRetry={consent.reload} />
-        <Row label="Use data to make Discord work" detail="Discord needs to store and process some data in order to provide you the basic Discord service, such as your messages, what servers you're in and your Direct Messages." />
-        <ToggleRow label="Use data to improve Discord" detail="Allow Discord to use and process my information to understand and improve Discord's services."
-          checked={consent.value?.usageStatistics ?? false} disabled={!consent.value}
-          onChange={value => change('usage_statistics', value)} />
-        <ToggleRow label="Use data to personalize my Discord experience" detail="Allows Discord to use information, such as who you talk to and what games you play, to personalize Discord for you."
-          checked={consent.value?.personalization ?? false} disabled={!consent.value}
-          onChange={value => change('personalization', value)} />
-        <AccountToggle label="Use my Discord activity to personalize sponsored content" detail="Allows Discord to personalize sponsored content, like Quests, using your Discord activity, such as the games you play."
-          settings={settings} field="dropsOptedOut" invert />
-        <AccountToggle label="Use third-party data to personalize sponsored content" detail="Allows Discord to personalize sponsored content, like Quests, using data Discord receives from advertisers and third-party data providers."
-          settings={settings} field="quests3pDataOptedOut" invert disabled={settings.dropsOptedOut} />
-        <LinkRow label="Request my data" detail="Get a copy of the data Discord keeps for your account, by email." button="Request data" url="https://discord.com/settings/data-and-privacy" />
-      </Category>
-      <Category title="Profile privacy" detail="Control who can see your profile info — like your bio and connected accounts.">
+      <Category title="Profile privacy">
         <ChoiceRow label="Share my full profile with" value={settings.profileVisibility === 0 ? 3 : settings.profileVisibility}
           onChange={value => changeAccountSettings({ profileVisibility: value })}
           choices={[{ value: 3, label: 'Friends & all servers' }, { value: 2, label: 'Friends & small servers only' }, { value: 1, label: 'Friends only' }]} />
-        <AccountToggle label="Share when I update my profile" detail="Allow friends to receive a push notification when you update your profile."
-          settings={settings} field="notifyFriendsOnProfileUpdate" />
+        <LinkRow label="Request my data" button="Request data" url="https://discord.com/settings/data-and-privacy" />
       </Category>
     </>
   )
@@ -214,7 +180,6 @@ export function ActivityPage() {
     <>
       <h1>Activity privacy</h1>
       <Category title="What activity I share">
-        <AccountToggle label="Share my activity" detail="Display the game or app you're using as your status." settings={settings} field="showCurrentGame" />
         <AccountToggle label="Share when I come online" detail="Allow friends to receive a push notification when you come online." settings={settings} field="notifyFriendsOnComeOnline" />
         <AccountToggle label="Share when I start streaming" detail="Allow members that you interact with the most to get a notification when you start streaming in small servers."
           settings={settings} field="notifyServerMembersOnGoLive" />
@@ -265,7 +230,7 @@ export function ConnectedAppsPage() {
       </Category>
       <Category title="Authorized apps" detail="These include third-party services you've given permission to access your Discord account. You can review what each app can do and revoke access anytime.">
         <LoadError error={apps.error} onRetry={apps.reload} />
-        {failed ? <p className="exo-dc-settings-note" role="alert">{failed}</p> : null}
+        {failed ? <ErrorNote className="exo-dc-settings-note" message={failed} /> : null}
         {apps.value?.length === 0 ? <p className="exo-dc-settings-note">You haven&apos;t authorized any apps.</p> : null}
         {apps.value?.map(app => (
           <Row key={app.id} label={app.name ?? 'App'} detail={app.scopes.join(', ')}>

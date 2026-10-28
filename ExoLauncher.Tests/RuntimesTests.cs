@@ -156,6 +156,13 @@ public sealed class RuntimesTests : IDisposable
         var repair = Plan(statuses, "repair", null).Select(s => s.Runtime.Id).ToList();
         Assert.Equal(statuses.Where(s => s.Runtime.IsVisualCpp).OrderBy(s => s.Runtime.Order).Select(s => s.Runtime.Id), repair);
         Assert.Contains("vc14-x86", repair); // up to date, installed again
+
+        // XNA, OpenAL and PhysX only when a game here needs one: "Install what's missing" put PhysX Legacy on a PC no game wanted it on.
+        var forGames = Plan(statuses, "missing", null, new HashSet<string> { "openal" }).Select(s => s.Runtime.Id).ToList();
+        Assert.Contains("openal", forGames);
+        Assert.DoesNotContain(forGames, id => id is "xna40" or "physx" or "physx-legacy");
+        Assert.Contains("vc2005-x86", forGames);   // Visual C++, DirectX and .NET as before
+        Assert.Equal(["physx-legacy"], Plan(statuses, "missing", ["physx-legacy"], new HashSet<string>()).Select(s => s.Runtime.Id)); // asked by name
     }
 
     [Fact]
@@ -204,6 +211,33 @@ public sealed class RuntimesTests : IDisposable
         Assert.Equal(["x64", "x86"], release.Files.Keys.Order());
         Assert.Equal("https://builds.dotnet.microsoft.com/dotnet/WindowsDesktop/10.0.14/windowsdesktop-runtime-10.0.14-win-x64.exe", release.Files["x64"].Url);
         Assert.StartsWith("337DACAB", release.Files["x64"].Sha512);
+    }
+
+    [Fact]
+    public void AZipIsCheckedByItsHashAndItsInstallerBySignature()
+    {
+        // A zip is never signed: asking it for its maker's signature failed OpenAL (and GameInput) before they were unzipped.
+        var openal = Catalog.Single(r => r.Id == "openal");
+        var zip = Path.Combine(Path.GetTempPath(), $"exo-zip-{Guid.NewGuid():N}.zip");
+        File.WriteAllBytes(zip, [0x50, 0x4B, 0x05, 0x06, .. new byte[18]]);
+        try
+        {
+            Verify(zip, openal, HashOf(zip, SHA256.Create()), null);
+            Assert.Throws<InvalidDataException>(() => Verify(zip, openal, new string('0', 64), null));
+            Assert.Throws<InvalidDataException>(() => RequireSigned(zip, openal));   // what comes out of it must be signed
+        }
+        finally { File.Delete(zip); }
+    }
+
+    [Fact]
+    public void AReleaseWithoutItsOwnRecordIsFoundInItsChannelsList()
+    {
+        // .NET 6.0.36 has no 6.0/6.0.36/release.json: its channel's releases.json holds it among the others.
+        var release = ReleaseSample[(ReleaseSample.IndexOf("\"release\": ", StringComparison.Ordinal) + 11)..^1];
+        var list = $$"""{ "releases": [ { "release-version": "10.0.13", "windowsdesktop": { "version": "10.0.13", "files": [] } }, {{release}} ] }""";
+        Assert.Equal("10.0.14", ParseDotnetReleases(list, "10.0.14", endOfSupport: true)!.Version);
+        Assert.True(ParseDotnetReleases(list, "10.0.14", endOfSupport: true)!.EndOfSupport);
+        Assert.Null(ParseDotnetReleases(list, "10.0.15", endOfSupport: false));
     }
 
     [Theory]

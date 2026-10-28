@@ -1,3 +1,4 @@
+import { CopyLogs } from './ui/ErrorNote'
 import type { ReactNode, RefObject } from 'react'
 import { Button } from './ui/Button'
 
@@ -34,6 +35,7 @@ export function HostedRoom({ name, surface, label, state, message, installLabel,
           <div className="exo-hosted-room-state" role="alert">
             <p>{message ?? (state === 'closed' ? `${name} closed.` : `${name} could not load.`)}</p>
             <Button size="sm" className="exo-set-btn" onPress={onRetry}>{retryLabel}</Button>
+            <CopyLogs error={message ?? (state === 'closed' ? `${name} closed.` : `${name} could not load.`)} />
             {extra}
           </div>
         ) : state === 'loading' ? (

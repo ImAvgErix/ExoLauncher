@@ -104,7 +104,7 @@ public sealed class AppUpdateService
             }
 
             var remote = Normalize(release.Tag);
-            if (!Version.TryParse(local, out var lv) || !Version.TryParse(remote, out var rv))
+            if (VersionNumber.Parse(local) is null || VersionNumber.Parse(remote) is null)
             {
                 return new CheckResult
                 {
@@ -114,7 +114,8 @@ public sealed class AppUpdateService
                 };
             }
 
-            if (lv > rv)
+            var order = VersionNumber.Compare(local, remote);
+            if (order > 0)
             {
                 return new CheckResult
                 {
@@ -125,7 +126,7 @@ public sealed class AppUpdateService
                 };
             }
 
-            if (lv == rv)
+            if (order == 0)
             {
                 return new CheckResult
                 {

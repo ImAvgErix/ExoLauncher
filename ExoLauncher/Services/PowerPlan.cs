@@ -128,9 +128,40 @@ internal sealed class PowerPlan(PcHealth.IPowerApi api, string statePath)
             // Shown in Control Panel's advanced settings (Windows hides several); needs an administrator, so a refusal only hides it.
             api.Show(value.Subgroup, value.Setting);
         }
+        // Windows' other hidden settings worth tuning, shown too (left as they are unless the profile wrote them above).
+        foreach (var (subgroup, setting) in WorthSeeing) api.Show(subgroup, setting);
         // A PC without the device (no SATA, no second NVMe) has no such setting: Windows refuses those, and that's fine.
         if (refused.Count > 0) AppLog.Info("Power plan: not on this PC: " + string.Join(", ", refused) + ".");
     }
+
+    private static readonly Guid ProcessorGroup = new("54533251-82be-4824-96c1-47b60b740d00"), UsbGroup = new("2a737441-1930-4402-8d77-b2bebba308a3");
+
+    /// <summary>
+    /// Hidden settings worth tuning, shown in Control Panel without being changed where the profile doesn't write them:
+    /// boost, a frequency cap, every efficiency class's energy preference, state limits and parking (class 1 is a hybrid's
+    /// P-cores), autonomous mode, how a hybrid places long and short threads and which policy is in effect, the latency
+    /// hint, and USB 3 link power. Left hidden: what gaming plans turn without a measured effect (idle promote/demote, the
+    /// check interval, throttle states) and what Windows stops using once the processor picks its own clocks (increase and
+    /// decrease thresholds, times and policies).
+    /// </summary>
+    internal static readonly (Guid Subgroup, Guid Setting)[] WorthSeeing =
+    [
+        (ProcessorGroup, new("be337238-0d82-4146-a960-4f3749d470c7")), // boost mode (PERFBOOSTMODE)
+        (ProcessorGroup, new("75b0ae3f-bce0-45a7-8c89-c9611c25e100")), // maximum frequency, MHz (PROCFREQMAX)
+        (ProcessorGroup, new("36687f9e-e3a5-4dbf-b1dc-15eb381c6863")), // energy preference (PERFEPP)
+        (ProcessorGroup, new("36687f9e-e3a5-4dbf-b1dc-15eb381c6864")), // energy preference, efficiency class 1 (PERFEPP1)
+        (ProcessorGroup, new("36687f9e-e3a5-4dbf-b1dc-15eb381c6865")), // energy preference, efficiency class 2 (PERFEPP2)
+        (ProcessorGroup, new("893dee8e-2bef-41e0-89c6-b55d0929964d")), // minimum state, efficiency class 1 (PROCTHROTTLEMIN1)
+        (ProcessorGroup, new("bc5038f7-23e0-4960-96da-33abaf5935ed")), // maximum state, efficiency class 1 (PROCTHROTTLEMAX1)
+        (ProcessorGroup, new("0cc5b647-c1df-4637-891a-dec35c318584")), // core parking min cores, efficiency class 1 (CPMINCORES1)
+        (ProcessorGroup, new("ea062031-0e34-4ff1-9b6d-eb1059334028")), // core parking max cores (CPMAXCORES)
+        (ProcessorGroup, new("8baa4a8a-14c6-4451-8e8b-14bdbd197537")), // autonomous mode (PERFAUTONOMOUS)
+        (ProcessorGroup, new("7f2f5cfa-f10c-4823-b5e1-e93ae85f46b5")), // heterogeneous policy in effect (HETEROPOLICY)
+        (ProcessorGroup, new("93b8b6dc-0698-4d1c-9ee4-0644e900c85d")), // heterogeneous thread scheduling (SCHEDPOLICY)
+        (ProcessorGroup, new("bae08b81-2d5e-4688-ad6a-13243356654b")), // short running threads (SHORTSCHEDPOLICY)
+        (ProcessorGroup, new("619b7505-003b-4e82-b7a6-4dd29c300971")), // latency sensitivity hint (LATENCYHINTPERF)
+        (UsbGroup, new("d4e98f31-5ffe-4ce1-be31-1b38b384c009")),       // USB 3 link power management
+    ];
 
     private Saved Load()
     {

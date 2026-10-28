@@ -1,3 +1,4 @@
+import { CopyLogs } from '../ui/ErrorNote'
 import { useEffect, useState } from 'react'
 import { CompanyLogo } from '../../brand/CompanyLogo'
 import { host, onHostEvent } from '../../lib/host'
@@ -55,6 +56,7 @@ export function NativeDiscordRoom({ active }: { active: boolean }) {
         <div className="exo-hosted-room-state" role="alert">
           <p>{message ?? 'Discord could not be reached.'}</p>
           <button type="button" className="exo-set-btn is-primary" onClick={retry}>Try again</button>
+          <CopyLogs error={message ?? 'Discord could not be reached.'} />
         </div>
       ) : <Skeleton label="Connecting to Discord" rows={10} avatar className="exo-hosted-room-wait" />}
     </main>

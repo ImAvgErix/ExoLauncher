@@ -6,6 +6,7 @@ import { uploadFile } from './Chat'
 import { Icons } from './icons'
 import { Avatar } from './presence'
 import { Skeleton } from '../ui/Skeleton'
+import { ErrorNote } from '../ui/ErrorNote'
 
 type Emoji = { id: string; name: string; animated?: boolean; roles?: string[]; user?: DiscordUser | null }
 type Sticker = { id: string; name: string; tags?: string; description?: string | null; format_type: number; user?: DiscordUser | null }
@@ -63,7 +64,7 @@ export function Emoji({ guildId, tier }: { guildId: string; tier: number }) {
         <button type="button" className="exo-set-btn is-primary" disabled={busy || full} onClick={() => void add()}>Upload emoji</button>
         <span className="exo-dc-mod-meta">{list.filter(e => !e.animated).length} of {slots} emoji, {list.filter(e => e.animated).length} of {slots} animated</span>
       </div>
-      {error ? <p className="exo-dc-note is-bad" role="alert">{error}</p> : null}
+      {error ? <ErrorNote className="exo-dc-note is-bad" message={error} /> : null}
       <ReadError error={emojis.error} onRetry={emojis.reload} />
       {!emojis.data && !emojis.error ? <Skeleton label="Loading emoji" avatar /> : null}
       {emojis.data && list.length === 0 ? <p className="exo-dc-note">No emoji yet.</p> : null}
@@ -75,7 +76,7 @@ export function Emoji({ guildId, tier }: { guildId: string; tier: number }) {
               onBlur={event => rename(emoji, event.target.value.trim())} onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur() }} />
             <Uploader user={emoji.user} />
             <button type="button" className="exo-dc-icon-btn is-danger" aria-label={`Delete ${emoji.name}`} onClick={() => remove(emoji)}><Close size={14} /></button>
-            {failed?.id === emoji.id ? <span className="exo-dc-field-error exo-dc-row-error" role="alert">{failed.message}</span> : null}
+            {failed?.id === emoji.id ? <ErrorNote as="span" className="exo-dc-field-error exo-dc-row-error" message={failed.message} /> : null}
           </li>
         ))}
       </ul>

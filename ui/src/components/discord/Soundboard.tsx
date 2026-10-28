@@ -6,6 +6,7 @@ import { emojiUrl } from './emojiUrl'
 import { Icons } from './icons'
 import { useDismiss } from '../../lib/dismiss'
 import { Skeleton } from '../ui/Skeleton'
+import { ErrorNote } from '../ui/ErrorNote'
 
 type Sound = { sound_id: string; name: string; volume?: number; emoji_id?: string | null; emoji_name?: string | null; guild_id?: string | null; available?: boolean }
 
@@ -67,7 +68,7 @@ export function SoundboardButton({ guildId, channelId }: { guildId: string | nul
       </button>
       {open ? (
         <div ref={box} className="exo-dc-soundboard-pop" role="dialog" aria-label="Soundboard">
-          {error ? <p className="exo-dc-note" role="alert">{error}</p> : null}
+          {error ? <ErrorNote className="exo-dc-note" message={error} /> : null}
           {sounds === null && !error ? <Skeleton label="Loading sounds" tiles={8} /> : null}
           {sounds?.guild.length ? (
             <section>

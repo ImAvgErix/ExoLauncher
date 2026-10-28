@@ -65,7 +65,7 @@ internal static partial class PcHealth
             var cpu = ShortCpu(r.Cpu) ?? "processor";
             if (power.Exo)
             {
-                if (power.CanUndo) items.Add(new("power", "Power plan", $"Exo's plan, tuned for your {cpu}", Applied: true, CanUndo: true));
+                if (power.CanUndo) items.Add(new("power", "Power plan", "Exo's plan", Applied: true, CanUndo: true));
             }
             else if (HeldBack(power, parked, x3d) is { } why)
                 items.Add(new("power", "Power plan", $"{why} Exo's plan keeps your {cpu} at full speed{(x3d ? " and games on its V-Cache cores" : "")}.", Cpu: cpu));
@@ -110,7 +110,7 @@ internal static partial class PcHealth
                 return new("chipset", label, $"Updating to {installing.Version}. {(vendor == "amd" ? "USB and sound may drop" : "Devices may reset")} for a moment", Busy: true);
         }
         if (!ChipsetBehind(r.ChipsetInstalled, r.ChipsetLatest))
-            return r is { ChipsetInstalled: { } installed, ChipsetLatest: not null } ? new("chipset", label, $"{installed} installed, {maker}'s newest", Current: true) : null;
+            return r is { ChipsetInstalled: { } installed, ChipsetLatest: not null } ? new("chipset", label, $"{installed} · newest", Current: true) : null;
         var now = $"{r.ChipsetInstalled} installed · {r.ChipsetLatest}";
         if (r.ChipsetUpdate is { Phase: Services.ChipsetUpdate.Phase.Failed } failed)
             return new("chipset", label, $"{now} available. {failed.Reason}", Url: vendor == "amd" ? Services.ChipsetUpdate.AmdPage : Services.ChipsetUpdate.IntelPage);
@@ -212,12 +212,11 @@ internal static partial class PcHealth
     /// </summary>
     internal static bool ReBarOff(GpuBar? gpu) => gpu is { Uma: false, UploadHeap: false } && ReBarCard().IsMatch(gpu.Name);
 
-    internal static bool ChipsetBehind(string? installed, string? latest) =>
-        Version.TryParse(installed, out var have) && Version.TryParse(latest, out var newest) && newest > have;
+    internal static bool ChipsetBehind(string? installed, string? latest) => VersionNumber.Behind(installed, latest);
 
     /// <summary>The newest chipset package AMD's page links to (its installer is named after its version), else null.</summary>
     internal static string? LatestChipset(string html) =>
-        ChipsetLink().Matches(html).Select(m => m.Groups[1].Value).Where(v => Version.TryParse(v, out _)).MaxBy(Version.Parse);
+        ChipsetLink().Matches(html).Select(m => m.Groups[1].Value).Where(v => VersionNumber.Parse(v) is not null).Max(VersionNumber.Order);
 
     /// <summary>Game Mode is off only when its Settings switch wrote 0; Windows 11 has it on until then.</summary>
     internal static bool GameModeOff(object? value) => value is int i && i == 0;
@@ -228,13 +227,13 @@ internal static partial class PcHealth
     /// </summary>
     internal static bool HagsOff(object? value) => value is int i && i == 1;
 
-    private delegate void Visit(int type, ReadOnlySpan<byte> structure, List<string> strings);
+    internal delegate void Visit(int type, ReadOnlySpan<byte> structure, List<string> strings);
 
     /// <summary>
     /// Each structure in SMBIOS's raw table (GetSystemFirmwareTable's 'RSMB' block: an 8-byte header, then the
     /// structures) with its strings. A cut-off or malformed table ends the walk where it breaks.
     /// </summary>
-    private static void Walk(ReadOnlySpan<byte> raw, Visit visit)
+    internal static void Walk(ReadOnlySpan<byte> raw, Visit visit)
     {
         if (raw.Length < 8) return;
         var table = raw[8..];
@@ -287,8 +286,8 @@ internal static partial class PcHealth
         return chassis;
     }
 
-    private static int U16(ReadOnlySpan<byte> s, int offset) => s.Length >= offset + 2 ? BinaryPrimitives.ReadUInt16LittleEndian(s[offset..]) : 0;
-    private static uint U32(ReadOnlySpan<byte> s, int offset) => s.Length >= offset + 4 ? BinaryPrimitives.ReadUInt32LittleEndian(s[offset..]) : 0;
+    internal static int U16(ReadOnlySpan<byte> s, int offset) => s.Length >= offset + 2 ? BinaryPrimitives.ReadUInt16LittleEndian(s[offset..]) : 0;
+    internal static uint U32(ReadOnlySpan<byte> s, int offset) => s.Length >= offset + 4 ? BinaryPrimitives.ReadUInt32LittleEndian(s[offset..]) : 0;
 
     // ---- Reading this PC ----
 
@@ -296,6 +295,12 @@ internal static partial class PcHealth
     private static readonly Lazy<IReadOnlyList<Dimm>> Memory = new(() => ParseDimms(Smbios.Value), LazyThreadSafetyMode.ExecutionAndPublication);
     private static readonly Lazy<HybridGpu?> Hybrid = new(ReadHybrid, LazyThreadSafetyMode.ExecutionAndPublication);
     private static readonly Lazy<GpuBar?> Gpu = new(() => WithSmartAccessMemory(ReadGpu()), LazyThreadSafetyMode.ExecutionAndPublication);
+
+    /// <summary>The SMBIOS table, read once; PC › Overview reads the processor and memory from it too (<see cref="PcAbout"/>).</summary>
+    internal static byte[] SmbiosRaw() => Smbios.Value;
+
+    /// <summary>The main graphics card as the Resizable BAR check reads it, once.</summary>
+    internal static GpuBar? MainGpu() => Gpu.Value;
 
     /// <summary>
     /// On a Radeon, AMD's own answer (ADLX's Smart Access Memory, AMD's Resizable BAR) wins over Direct3D 12's upload

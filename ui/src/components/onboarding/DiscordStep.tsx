@@ -28,7 +28,7 @@ export function DiscordStep() {
     </div>
   ) : (
     <div className="exo-ob-discord">
-      <p>Open Discord on your phone, go to You › Scan QR code, and point it here. Exo never sees your password.</p>
+      <p>Open Discord on your phone, go to You › Scan QR code, and point it here.</p>
       <DiscordQrSignIn />
     </div>
   )

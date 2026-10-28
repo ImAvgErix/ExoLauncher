@@ -106,7 +106,7 @@ internal sealed partial class MouseCore
             }
         }
 
-        private static Topology ReadTopology()
+        internal static Topology ReadTopology()
         {
             var logical = (int)GetActiveProcessorCount(0xFFFF); // ALL_PROCESSOR_GROUPS
             uint length = 0;

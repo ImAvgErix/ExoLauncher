@@ -7,6 +7,7 @@ import { Choice } from '../settings/Choice'
 import { Slider } from '../ui/Slider'
 import { Waiting } from './pages'
 import { runAction, usePlayer, useView } from './playerContext'
+import { ErrorNote } from '../ui/ErrorNote'
 
 /** Spotify's own audio settings, as its audio view reads them. */
 export type SpotifyAudio = {
@@ -57,11 +58,11 @@ function ServiceQuality() {
   const { data, error } = useView('audio', { offset: tick })
   const [picked, setPicked] = useState<string | null>(null)
   const [failed, setFailed] = useState(false)
-  if (!data?.qualities?.length) return error ? <p className="exo-music-error" role="alert">{error}</p> : <Waiting label="Loading audio quality" />
+  if (!data?.qualities?.length) return error ? <ErrorNote className="exo-music-error" message={error} /> : <Waiting label="Loading audio quality" />
   const value = picked ?? data.quality ?? ''
   return (
     <div className="exo-music-sound">
-      {failed ? <p className="exo-music-error" role="alert">{adapter.name} did not take that. Try again.</p> : null}
+      {failed ? <ErrorNote className="exo-music-error" message={`${adapter.name} did not take that. Try again.`} /> : null}
       <Row label="Audio quality" detail={data.qualities.find(option => option.id === value)?.detail}>
         <Choice label="Audio quality" value={value} choices={data.qualities.map(option => ({ value: option.id, label: option.name }))}
           onChange={next => {
@@ -81,7 +82,7 @@ function SpotifySound() {
   const [audio, setAudio] = useState<SpotifyAudio | null>(null)
   const [failed, setFailed] = useState<string | null>(null)
   useEffect(() => { if (data) setAudio(data as unknown as SpotifyAudio) }, [data])
-  if (!audio) return error ? <p className="exo-music-error" role="alert">{error}</p> : <Waiting label="Loading sound settings" />
+  if (!audio) return error ? <ErrorNote className="exo-music-error" message={error} /> : <Waiting label="Loading sound settings" />
   const set = (setting: string, options: { index?: number; on?: boolean; uid?: string }, next: Partial<SpotifyAudio>) => {
     setAudio(current => current && { ...current, ...next })
     setFailed(null)
@@ -93,7 +94,7 @@ function SpotifySound() {
   const qualities = audio.lossless ? QUALITIES : QUALITIES.filter(q => q.value !== '5')
   return (
     <div className="exo-music-sound">
-      {failed ? <p className="exo-music-error" role="alert">{failed}</p> : null}
+      {failed ? <ErrorNote className="exo-music-error" message={failed} /> : null}
       <Row label="Audio quality" detail={audio.quality === 5 ? 'Up to 24-bit/44.1 kHz FLAC' : audio.lossless ? 'Lossless is on your plan' : undefined}>
         <Choice label="Audio quality" value={String(audio.quality)} choices={qualities}
           onChange={value => set('quality', { index: Number(value) }, { quality: Number(value) })} />
@@ -181,7 +182,7 @@ function Speed() {
             void runAction(adapter, 'speed', { index: Number(value) }).then(ok => { if (!ok) { setFailed(true); setSpeed(null) } })
           }} />
       </Row>
-      {failed ? <p className="exo-music-error" role="alert">{adapter.name} did not take that. Try again.</p> : null}
+      {failed ? <ErrorNote className="exo-music-error" message={`${adapter.name} did not take that. Try again.`} /> : null}
     </>
   )
 }

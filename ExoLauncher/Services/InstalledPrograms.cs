@@ -48,6 +48,8 @@ internal static class InstalledPrograms
     private static readonly string[] HiddenPackages = ["Microsoft.MicrosoftEdge.Stable", "Microsoft.MicrosoftEdge"];
 
     private static readonly ConcurrentDictionary<string, long> Measured = new(StringComparer.OrdinalIgnoreCase);
+    // Game libraries a store keeps inside its own folder: measured as the games they are, not as the store's app.
+    private static readonly string[] GameLibraries = ["steamapps"];
 
     internal static List<InstalledProgram> List()
     {
@@ -166,10 +168,15 @@ internal static class InstalledPrograms
                 program =>
                 {
                     long total = 0;
-                    foreach (var file in new DirectoryInfo(program.Location!).EnumerateFiles("*", new EnumerationOptions { RecurseSubdirectories = true, IgnoreInaccessible = true, AttributesToSkip = FileAttributes.ReparsePoint }))
+                    var flat = new EnumerationOptions { IgnoreInaccessible = true, AttributesToSkip = FileAttributes.ReparsePoint };
+                    var folders = new Stack<DirectoryInfo>([new DirectoryInfo(program.Location!)]);
+                    while (folders.TryPop(out var folder))
                     {
                         if (stop.IsCancellationRequested) return;
-                        total += file.Length;
+                        foreach (var file in folder.EnumerateFiles("*", flat)) total += file.Length;
+                        // A store's game library inside its folder (Steam's steamapps) is the games, not the app.
+                        foreach (var sub in folder.EnumerateDirectories("*", flat))
+                            if (!GameLibraries.Contains(sub.Name, StringComparer.OrdinalIgnoreCase)) folders.Push(sub);
                     }
                     Measured[program.Location!] = total;
                     any = true;

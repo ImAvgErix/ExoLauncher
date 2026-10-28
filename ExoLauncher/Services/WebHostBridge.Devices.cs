@@ -16,8 +16,10 @@ public sealed partial class WebHostBridge
         Peripherals.Watch(() =>
         {
             PostEvent("devices.changed", new { });
+            HideControllerSoundSoon();
             ReapplyCalibrationsSoon();
         });
+        HideControllerSoundSoon();
         ReapplyCalibrationsSoon();
     }
 
@@ -39,4 +41,8 @@ public sealed partial class WebHostBridge
     }
 
     private static Peripherals.Peripheral Labbed(Peripherals.Peripheral card) => card.Kind == "controller" ? card with { Lab = ControllerLab.FamilyOf(card) is not null } : card;
+
+    /// <summary>devices.openApp: a keyboard's own settings app, by the id its card carries (<see cref="Peripherals.OpenKeyboardApp"/>).</summary>
+    private static object DevicesOpenApp(System.Text.Json.JsonElement p, bool hasParams) =>
+        Peripherals.OpenKeyboardApp(ReadString(p, hasParams, "app")) is { } failed ? new { ok = false, message = failed } : new { ok = true };
 }

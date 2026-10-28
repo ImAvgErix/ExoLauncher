@@ -4,8 +4,7 @@ using System.Text.Json.Nodes;
 namespace ExoLauncher.Adapters;
 
 /// <summary>
-/// Settings > Game stores > Notifications and sounds: Steam's own switches for its pop-ups and sounds, all off, for
-/// every account on this PC. Where Steam keeps them (its steamui settings pages and SteamUI.dll's names):
+/// Steam's own switches for its pop-ups and sounds, kept off for every account on this PC. Where Steam keeps them (its steamui settings pages and SteamUI.dll's names):
 /// - userdata/&lt;id&gt;/7/remote/sharedconfig.vdf › UserRoamingConfigStore: Settings > Notifications (toasts never
 ///   shown, no sound with one, each client toast and sound: achievements, controllers, other users signed in), and
 ///   Software/Valve/Steam/FriendsUI › FriendsUIJSON, the friends list's settings as JSON;

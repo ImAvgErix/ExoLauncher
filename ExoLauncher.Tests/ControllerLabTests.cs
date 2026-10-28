@@ -182,7 +182,8 @@ public sealed class ControllerLabTests
     [InlineData(0x80, "01 01")]            // the test channel's reset
     [InlineData(0x80, "0C 01 00")]         // a fine-tune write without its 24 bytes
     [InlineData(0x82, "02 01 03")]         // a calibration step that isn't one
-    [InlineData(0x68, "01")]               // clearing the Edge's default slot
+    [InlineData(0x68, "02")]               // clearing an Edge's profile slot: Exo leaves its on-board profiles alone
+    [InlineData(0x61, "")]                 // writing one
     [InlineData(0x80, "03 02 65 32 40 0D")] // an unlock with the wrong key
     public void WhatCouldHarmAControllerIsNeverSent(int id, string payload) =>
         Assert.False(ControllerLab.Allowed((byte)id, Hex(payload), set: true, edge: true));
@@ -193,11 +194,9 @@ public sealed class ControllerLabTests
         Assert.True(ControllerLab.Allowed(0x80, ControllerLab.FinetuneRead(edge: true), set: true, edge: true));
         Assert.True(ControllerLab.Allowed(0x80, ControllerLab.FinetunePayload(new ushort[12]), set: true, edge: false));
         Assert.True(ControllerLab.Allowed(0x82, ControllerLab.RangeEnd, set: true, edge: false));
-        Assert.True(ControllerLab.Allowed(0x61, new byte[63], set: true, edge: true));
-        Assert.True(ControllerLab.Allowed(0x7B, [], set: false, edge: true));
-        // A plain DualSense has no profile slots: neither written nor read.
-        Assert.False(ControllerLab.Allowed(0x61, new byte[63], set: true, edge: false));
-        Assert.False(ControllerLab.Allowed(0x70, [], set: false, edge: false));
+        // An Edge's on-board profiles are neither written nor read: game profiles stand in for them.
+        Assert.False(ControllerLab.Allowed(0x61, new byte[63], set: true, edge: true));
+        Assert.False(ControllerLab.Allowed(0x70, [], set: false, edge: true));
     }
 
     [Theory]
@@ -211,6 +210,39 @@ public sealed class ControllerLabTests
     [InlineData(0x83010312u, 2, true, true, false)]    // that answer is the centers', not the range's
     public void EndsAreReadPerModel(uint answer, int target, bool edge, bool second, bool ended) =>
         Assert.Equal(ended, ControllerLab.Ended(answer, target, edge, second));
+
+    [Fact]
+    public void ARangeCalibrationLeavesAMarginSoANormalPushReachesFullOutput()
+    {
+        // The user's Edge (October 26, 2026): its factory values, then what its own range routine recorded.
+        ushort[] factory = [494, 697, 592, 652, 3325, 3414, 3471, 3414, 1972, 2086, 2001, 2066];
+        ushort[] ranged = [442, 670, 530, 646, 3413, 3517, 3495, 3503, 1959, 2080, 1992, 2082];
+        var trimmed = ControllerLab.WithMargin(ranged)!;
+        Assert.Equal((518, 3340), ((int)trimmed[0], (int)trimmed[4]));   // left X: 5% of each half in from the hardest push
+        Assert.Equal(ranged[8..], trimmed[8..]);                        // centers stay
+        for (var axis = 0; axis < 4; axis++)
+        {
+            // A push 96% of the way to where the routine saw the edge now gives full output, on both sides.
+            Assert.True(0.96 * (ranged[axis + 8] - ranged[axis]) >= trimmed[axis + 8] - trimmed[axis]);
+            Assert.True(0.96 * (ranged[axis + 4] - ranged[axis + 8]) >= trimmed[axis + 4] - trimmed[axis + 8]);
+        }
+        Assert.True(ControllerLab.RangeMoved(ranged, factory));
+        Assert.False(ControllerLab.RangeMoved([.. factory[..8], 1960, 2081, 1990, 2080], factory));   // centers alone
+        Assert.Null(ControllerLab.WithMargin(new ushort[12]));                                        // nothing odd is written
+    }
+
+    [Fact]
+    public void AControllerInAnotherPortIsKnownByItsOwnValues()
+    {
+        // The user's Edge moved ports (October 26, 2026): Windows named it anew, and its calibration looked gone.
+        ushort[] factory = [494, 697, 592, 652, 3325, 3414, 3471, 3414, 1972, 2086, 2001, 2066];
+        ushort[] calibrated = [494, 697, 592, 652, 3325, 3414, 3471, 3414, 1942, 2090, 1987, 2080];
+        var saved = ControllerLab.Saved.Empty with { Original = factory, Calibrated = calibrated };
+        Assert.True(ControllerLab.Holds(factory, saved));       // replugged: an Edge's own values are back
+        Assert.True(ControllerLab.Holds(calibrated, saved));    // Exo's already put back
+        ushort[] another = [480, 702, 600, 640, 3300, 3420, 3460, 3400, 1980, 2070, 2010, 2060];
+        Assert.False(ControllerLab.Holds(another, saved));      // another Edge never takes this one's calibration
+    }
 
     [Fact]
     public void FinetuneComesBackAsItWent()

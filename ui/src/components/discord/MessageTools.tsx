@@ -6,6 +6,7 @@ import { Icons } from './icons'
 import { ModalBack } from './SettingsLayer'
 import { useLayer } from './admin'
 import { Skeleton } from '../ui/Skeleton'
+import { ErrorNote } from '../ui/ErrorNote'
 
 type Target = { id: string; name: string; place: string | null; avatar: string | null; dm: boolean }
 
@@ -74,7 +75,7 @@ export function ForwardDialog({ message, onClose }: { message: DiscordMessage; o
         </div>
         <input className="exo-dc-modal-input" placeholder="Add an optional message" value={note} maxLength={4000} aria-label="Optional message"
           onChange={event => setNote(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') void send() }} />
-        {error ? <p className="is-bad" role="alert">{error}</p> : null}
+        {error ? <ErrorNote className="is-bad" message={error} /> : null}
         <footer className="exo-dc-delete-foot">
           <button type="button" className="exo-dc-tab" onClick={onClose}>Cancel</button>
           <button type="button" className="exo-set-btn is-primary" disabled={busy || picked.length === 0} onClick={() => void send()}>
@@ -107,7 +108,7 @@ export function NewThreadDialog({ message, onClose, onCreated }: { message: Disc
         <h2>Create thread</h2>
         <input className="exo-dc-modal-input" value={name} maxLength={100} autoFocus aria-label="Thread name"
           onChange={event => setName(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') void create() }} />
-        {error ? <p className="is-bad" role="alert">{error}</p> : null}
+        {error ? <ErrorNote className="is-bad" message={error} /> : null}
         <footer className="exo-dc-delete-foot">
           <button type="button" className="exo-dc-tab" onClick={onClose}>Cancel</button>
           <button type="button" className="exo-set-btn is-primary" disabled={busy || !name.trim()} onClick={() => void create()}>Create</button>

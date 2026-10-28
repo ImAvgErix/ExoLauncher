@@ -12,9 +12,8 @@ type KeyField =
   | 'igdbTwitchClientSecret'
 
 /** A saved key reads as a state; the field only opens to add or replace one. */
-function KeyRow({ label, detail, field, saved, getUrl, onSettings }: {
+function KeyRow({ label, field, saved, getUrl, onSettings }: {
   label: string
-  detail: string
   field: KeyField
   saved: boolean
   getUrl?: string
@@ -42,7 +41,7 @@ function KeyRow({ label, detail, field, saved, getUrl, onSettings }: {
 
   const open = editing || !saved
   return (
-    <Row label={label} detail={detail} error={error}>
+    <Row label={label} error={error}>
       {open ? (
         <form
           className="exo-set-key-form"
@@ -109,7 +108,7 @@ function RiotIdRow({ settings, onSettings }: {
   return (
     <Row
       label="Riot ID"
-      detail={note && !note.error ? note.text : 'VALORANT and League hours'}
+      detail={note && !note.error ? note.text : undefined}
       error={note?.error ? note.text : null}
     >
       <form className="exo-set-key-form" onSubmit={event => { event.preventDefault(); if (valid) void save(draft.trim()) }}>
@@ -144,7 +143,7 @@ function IgdbConnect({ settings, onSettings }: {
   const ready = settings?.igdbTwitchClientIdSet === true && settings?.igdbTwitchClientSecretSet === true
   const connected = settings?.igdbTwitchConnected === true
   return (
-    <Row label="IGDB game details" detail="Developer build only." error={error}>
+    <Row label="IGDB game details" error={error}>
       <State on={connected}>{connected ? 'Connected' : ready ? 'Not verified' : 'Needs both values'}</State>
       <button
         type="button"
@@ -176,7 +175,6 @@ export const KeysSection = memo(function KeysSection({ settings, onSettings }: {
     <Group id="keys" title="Optional keys">
       <KeyRow
         label="Steam Web API key"
-        detail="Optional. Games and achievements without Steam open"
         field="steamWebApiKey"
         saved={settings?.steamWebApiKeySet === true}
         getUrl="https://steamcommunity.com/dev/apikey"
@@ -184,7 +182,6 @@ export const KeysSection = memo(function KeysSection({ settings, onSettings }: {
       />
       <KeyRow
         label="itch.io API key"
-        detail="Lists games you own on itch.io."
         field="itchApiKey"
         saved={settings?.itchApiKeySet === true}
         getUrl="https://itch.io/user/settings/api-keys"
@@ -192,7 +189,6 @@ export const KeysSection = memo(function KeysSection({ settings, onSettings }: {
       />
       <KeyRow
         label="SteamGridDB API key"
-        detail="Better cover art for games outside Steam."
         field="steamGridDbKey"
         saved={settings?.steamGridDbKeySet === true}
         getUrl="https://www.steamgriddb.com/profile/preferences/api"
@@ -204,7 +200,6 @@ export const KeysSection = memo(function KeysSection({ settings, onSettings }: {
         <>
           <KeyRow
             label="Twitch client ID"
-            detail="Exo's IGDB app."
             field="igdbTwitchClientId"
             saved={settings?.igdbTwitchClientIdSet === true}
             getUrl="https://dev.twitch.tv/console/apps"
@@ -212,7 +207,6 @@ export const KeysSection = memo(function KeysSection({ settings, onSettings }: {
           />
           <KeyRow
             label="Twitch client secret"
-            detail="Exo's IGDB app."
             field="igdbTwitchClientSecret"
             saved={settings?.igdbTwitchClientSecretSet === true}
             onSettings={onSettings}

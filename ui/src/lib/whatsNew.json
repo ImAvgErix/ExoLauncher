@@ -1,5 +1,60 @@
 [
   {
+    "version": "3.17.0",
+    "items": [
+      {
+        "icon": "Chats",
+        "title": "Report and every right-click menu",
+        "detail": "Report a message, a person, a server or an event with Discord's own questions, and right-click a server, thread or post for its full menu."
+      },
+      {
+        "icon": "MusicNotes",
+        "title": "Listen along",
+        "detail": "Play what a Discord friend is listening to, in time, on your own Spotify, Apple Music or YouTube Music."
+      },
+      {
+        "icon": "Live",
+        "title": "Steady 60 fps clips",
+        "detail": "Clips and recordings keep an even 60 fps, so a replay no longer drops frames."
+      },
+      {
+        "icon": "Notes",
+        "title": "Notes in Captures",
+        "detail": "Notes that save as you type, any text file opened in tabs that come back after a restart, and find, spelling and Markdown."
+      },
+      {
+        "icon": "Download",
+        "title": "New drivers found for you",
+        "detail": "Exo checks for new graphics drivers, NVIDIA hotfixes and its own updates in the background and tells you once."
+      },
+      {
+        "icon": "GraphicsCard",
+        "title": "Optimize Modern Warfare 4",
+        "detail": "One press sets MW4's own settings for your PC, where guides, benchmarks and shared configs agree."
+      },
+      {
+        "icon": "Monitor",
+        "title": "Fits every screen",
+        "detail": "A screen stood on end, a 16:10 screen or a narrow window gets a layout that fits, and nothing in the Bar overlaps."
+      },
+      {
+        "icon": "Gamepad",
+        "title": "Your controller's light and sound",
+        "detail": "Set its light bar, speaker, mic and vibration, and change them for the games you link."
+      },
+      {
+        "icon": "Devices",
+        "title": "A picture for every device",
+        "detail": "The maker's own picture of your mouse, keyboard, headset and controller."
+      },
+      {
+        "icon": "StoreBag",
+        "title": "Judge a game before you buy",
+        "detail": "Store pages show recent reviews, controller support, languages, extra accounts and DRM."
+      }
+    ]
+  },
+  {
     "version": "3.16.0",
     "items": [
       {

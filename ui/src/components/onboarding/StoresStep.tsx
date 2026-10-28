@@ -82,9 +82,9 @@ export function StoresStep({
       {storeCheckState === 'checking' && storeRows.length === 0 ? (
         <Skeleton label="Looking for stores on this PC" avatar />
       ) : storeCheckState === 'error' && storeRows.length === 0 ? (
-        <Row label="Could not check for store apps" detail="You can keep going. Exo checks again from Settings, under Accounts and keys." />
+        <Row label="Could not check for store apps" />
       ) : storeRows.length === 0 ? (
-        <Row label="No store apps found" detail="Add a game folder below, or install Steam, Epic or another store and Exo picks it up." />
+        <Row label="No store apps found" />
       ) : storeRows.map(store => (
         <StoreRow
           key={store.store}
@@ -104,7 +104,7 @@ export function StoresStep({
         </Row>
       ) : null}
       {canAddFolder ? (
-        <Row label="Games outside a store" detail="A folder of games Exo adds to your library">
+        <Row label="Games outside a store">
           <button type="button" className="exo-set-btn" disabled={folderBusy} onClick={onAddFolder}>
             {folderBusy ? <Spinner label="Adding a game folder" /> : null}Add a folder
           </button>

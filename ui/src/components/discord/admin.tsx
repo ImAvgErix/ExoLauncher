@@ -4,6 +4,7 @@ import { useLayer } from '../../lib/layer'
 import { report } from '../../lib/report'
 import { Spinner } from '../ui/Spinner'
 import { ConfirmDialog } from '../ui/Dialog'
+import { CopyLogs, ErrorNote } from '../ui/ErrorNote'
 
 /** Discord wants the person to verify first: the check's id (the ticket stays in Exo's host) and the ways Discord offers. */
 export type MfaAsk = { id: string; methods: string[] }
@@ -58,7 +59,7 @@ export function dropUpload(uploadId: string | undefined) {
 /** A read that failed: why, and Try Again. A page keeps showing what it had. */
 export function ReadError({ error, onRetry }: { error: string | null; onRetry: () => void }) {
   if (!error) return null
-  return <p className="exo-dc-note is-bad" role="alert">{error} <button type="button" className="exo-dc-tab is-raised" onClick={onRetry}>Try again</button></p>
+  return <p className="exo-dc-note is-bad" role="alert">{error} <button type="button" className="exo-dc-tab is-raised" onClick={onRetry}>Try again</button> <CopyLogs error={error} /></p>
 }
 
 /** The page's layers (lib/layer.ts): kept here too, where the Discord room has always found it. */
@@ -87,7 +88,7 @@ export function Field({ label, detail, children, stacked, error }: { label: stri
   return (
     <div className={`exo-dc-settings-row${stacked ? ' is-stacked' : ''}`}>
       <span className="exo-dc-settings-copy"><strong>{label}</strong>{detail ? <span>{detail}</span> : null}</span>
-      {error ? <span className="exo-dc-control">{children}<span className="exo-dc-field-error" role="alert">{error}</span></span> : children}
+      {error ? <span className="exo-dc-control">{children}<ErrorNote as="span" className="exo-dc-field-error" message={error} /></span> : children}
     </div>
   )
 }

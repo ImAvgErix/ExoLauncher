@@ -142,6 +142,32 @@ public sealed class LucidSettingsTests : IDisposable
     }
 
     [Fact]
+    public void The_on_off_key_changes_and_clears_as_Lucids_own_hotkeys_store_it()
+    {
+        Assert.Equal((0, 122), LucidSettings.Read(LucidSettings.Load(File_)!) is var view ? (view.HotkeyModifiers, view.HotkeyKey) : default);
+        Assert.Null(Change(new LucidSettings.Change { Hotkey = (2 | 1, 'L') }));   // Ctrl+Alt+L
+        var after = LucidSettings.Load(File_)!;
+        Assert.Equal((3, 76), (after["HotkeyModifiers"]!.GetValue<int>(), after["HotkeyVirtualKey"]!.GetValue<int>()));
+        Assert.Null(Change(new LucidSettings.Change { Hotkey = (2, 0) }));          // Clear: no key, no modifier left behind
+        after = LucidSettings.Load(File_)!;
+        Assert.Equal((0, 0), (after["HotkeyModifiers"]!.GetValue<int>(), after["HotkeyVirtualKey"]!.GetValue<int>()));
+        Assert.NotNull(Change(new LucidSettings.Change { Hotkey = (0, 300) }));
+    }
+
+    [Fact]
+    public void The_EQ_is_on_the_output_Lucids_block_names()
+    {
+        // This PC's config.txt (Oct 27, 2026): Lucid's block names the jack, then gives the rest of the file back to all.
+        const string config = "# Equalizer APO Configuration\r\n\r\n# Lucid EQ begin\r\nDevice: {9709e4ab-6969-4817-ad38-1704eab1c079}\r\nInclude: lucid_temp.txt\r\nDevice: all\r\n# Lucid EQ end\r\n";
+        var jack = LucidOutput.LucidDevices(config);
+        Assert.False(jack?.All);
+        Assert.Equal(["{9709e4ab-6969-4817-ad38-1704eab1c079}"], jack?.Guids ?? []);
+        Assert.True(LucidOutput.LucidDevices("# Lucid EQ begin\nDevice: all\nInclude: lucid_temp.txt\n# Lucid EQ end")?.All);
+        Assert.Null(LucidOutput.LucidDevices("Device: {9709e4ab-6969-4817-ad38-1704eab1c079}\nInclude: other.txt"));   // not Lucid's
+        Assert.Null(LucidOutput.LucidDevices("# Lucid EQ begin\nInclude: lucid_temp.txt\n# Lucid EQ end"));              // no output named
+    }
+
+    [Fact]
     public void Values_Lucid_would_reset_are_refused()
     {
         Assert.NotNull(Change(new LucidSettings.Change { NightStart = "21:15" }));

@@ -1,12 +1,12 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Bookmark, Check, CHECK_PATH, Close, ExternalLink, Library, Play } from '../../brand/icons'
-import { host, type StoreGame, type StoreOffer, type StoreTile } from '../../lib/host'
+import { host, type StoreGame, type StoreOffer, type StoreOtherOffers, type StoreRecentReviews, type StoreTile } from '../../lib/host'
 import { report } from '../../lib/report'
-import { useLens } from '../../lib/glass'
 import { Spinner } from '../ui/Spinner'
-import { Price, SteamImage } from './StoreCard'
-import { artSources, ggDealsUrl, loadGame, loadOffers, peekGame, peekOffers, reviewText, steamArt, useDone } from './storeData'
+import { Price } from './StoreCard'
+import { ggDealsUrl, loadGame, loadOffers, loadReviews, peekGame, peekOffers, peekReviews, reviewText, steamArt, useDone } from './storeData'
 import { TrailerPlayer } from './TrailerPlayer'
+import { CopyLogs, ErrorNote } from '../ui/ErrorNote'
 
 /** GG.deals: the browser. */
 function open(url: string): Promise<unknown> {
@@ -24,11 +24,11 @@ type Shown = { kind: 'trailer'; index: number } | { kind: 'shot'; index: number 
 /**
  * A game's page in the Store: a viewer for its trailers and screenshots with Details under it; beside it its logo and
  * tags, Get on each official launcher that sells it, Wishlist and GG.deals, About and the system requirements against
- * this PC, over Steam's hero art (DESIGN.md › Store). One fixed layout for every game: each block has its place and
+ * this PC, on the window's own glass with no art behind it (DESIGN.md › Store). One fixed layout for every game: each block has its place and
  * its size from the first frame (placeholders until the details land), so nothing moves when they do; what arrives
  * fades in where it belongs. Steam's part comes first; the other launchers fill in when they answer.
  */
-export function StoreGamePage({ seed, onScreen, owned, wished, onWish, onOpenLibrary, onClose }: {
+export function StoreGamePage({ seed, onScreen, owned, wished, onWish, onOpenLibrary }: {
   seed: StoreTile
   /** The Store room is on screen: a trailer plays only then. */
   onScreen: boolean
@@ -36,28 +36,18 @@ export function StoreGamePage({ seed, onScreen, owned, wished, onWish, onOpenLib
   wished: boolean
   onWish: (on: boolean) => void
   onOpenLibrary: () => void
-  onClose: () => void
 }) {
   const game = useStoreGame(seed.appId)
-  const { offers: others, failed: othersFailed } = useOtherOffers(seed.appId)
+  const { offers: others } = useOtherOffers(seed.appId)
+  const recent = useRecentReviews(seed.appId)
   const name = game.data?.name ?? seed.name
-  const hero = artSources({ appId: seed.appId, art: game.data?.art ?? seed.art }, ['hero', 'header', 'capsule'])
   const data = game.data
-  const close = useRef<HTMLButtonElement>(null)
-  useLens(close)
   return (
     <section className="exo-sgp" aria-labelledby="exo-sgp-title" tabIndex={-1} data-autofocus>
-      <button ref={close} type="button" className="exo-game-close exo-glass" aria-label="Close" onClick={onClose}><Close size={16} /></button>
-      <div className="exo-sgp-backdrop" aria-hidden="true">
-        <SteamImage key={hero[0]?.src} eager sources={hero} />
-      </div>
-      <header className="exo-sgp-hero">
-        <SteamImage key={hero[0]?.src} eager sources={hero} className="exo-motion-switch" />
-      </header>
       <div className="exo-sgp-body">
         <div className="exo-sgp-left">
           <Media game={game} onScreen={onScreen} />
-          <Facts game={data} />
+          <Facts game={data} recent={recent} />
         </div>
         <div className="exo-sgp-side">
           <div className="exo-sgp-head">
@@ -65,7 +55,7 @@ export function StoreGamePage({ seed, onScreen, owned, wished, onWish, onOpenLib
             <h2 id="exo-sgp-title" className="sr-only">{name}</h2>
             <Pills tags={data?.tags ?? null} />
           </div>
-          <BuyPanel game={data} loading={!data && !game.error} others={others} othersFailed={othersFailed} seed={seed} owned={owned} wished={wished} onWish={onWish} onOpenLibrary={onOpenLibrary} />
+          <BuyPanel game={data} loading={!data && !game.error} others={others} seed={seed} owned={owned} wished={wished} onWish={onWish} onOpenLibrary={onOpenLibrary} />
           <About text={data ? data.description ?? '' : null} />
           <Specs specs={data ? data.specs ?? [] : null} fit={data?.fit ?? null} />
         </div>
@@ -83,6 +73,7 @@ function Media({ game, onScreen }: { game: ReturnType<typeof useStoreGame>; onSc
         <div className="exo-store-error" role="alert">
           <p>{game.error}</p>
           <button type="button" className="exo-set-btn" onClick={game.retry}>Retry</button>
+          <CopyLogs error={game.error} />
         </div>
       ) : null}
       {!game.data && !game.error ? <MediaSkeleton /> : null}
@@ -110,11 +101,10 @@ function HeroLogo({ appId, name }: { appId: string; name: string }) {
  * reserved row while they are asked), Wishlist, GG.deals, and the library
  * game when it is owned.
  */
-function BuyPanel({ game, loading, others, othersFailed, seed, owned, wished, onWish, onOpenLibrary }: {
+function BuyPanel({ game, loading, others, seed, owned, wished, onWish, onOpenLibrary }: {
   game: StoreGame | null
   loading: boolean
   others: StoreOffer[] | null
-  othersFailed: boolean
   seed: StoreTile
   owned: boolean
   wished: boolean
@@ -134,7 +124,6 @@ function BuyPanel({ game, loading, others, othersFailed, seed, owned, wished, on
       <div className="exo-sgp-others">
         {others === null ? <span className="exo-sgp-offer is-loading exo-shine" role="status" aria-label="Checking other stores" /> : null}
         {(others ?? []).map(offer => <OfferRow key={offer.store} offer={offer} primary={false} free={false} soon={soon} />)}
-        {others?.length === 0 ? <span className="exo-sgp-only">{othersFailed ? 'Other stores unavailable' : 'Only on Steam'}</span> : null}
       </div>
       <div className="exo-sgp-tools">
         <button type="button" className={`exo-game-tool${wished ? ' is-on' : ''}`} aria-pressed={wished}
@@ -180,7 +169,7 @@ function OfferRow({ offer, primary, free, soon }: { offer: StoreOffer; primary: 
         {soon ? null : <Price final={offer.final} initial={offer.initial} discount={offer.discount} currency={offer.currency} priceText={offer.priceText} wasText={offer.wasText} free={free} />}
         {busy ? <Spinner label={`Opening ${offer.name}`} /> : <ExternalLink size={14} />}
       </button>
-      {error ? <p className="exo-store-error" role="alert">{error}</p> : null}
+      {error ? <ErrorNote className="exo-store-error" message={error} /> : null}
     </>
   )
 }
@@ -209,15 +198,44 @@ function About({ text }: { text: string | null }) {
   )
 }
 
-/** Reviews, release, developer, publisher and genres: one row of facts under the media, the same five on every page. */
-function Facts({ game }: { game: StoreGame | null }) {
-  const score = game ? reviewText(game.reviewWord, game.reviewPercent) : null
+/** "Very Positive · 94% of 1,025", or a dash when Steam gives no score. */
+function scoreText(word: string | null | undefined, percent: number | null | undefined, count: number | undefined): string {
+  const score = reviewText(word, percent)
+  return score ? `${score}${count ? ` of ${count.toLocaleString()}` : ''}` : '—'
+}
+
+/** Steam's controller support in a few words, as its own page pairs them: "Full · Xbox and PlayStation". */
+function controllerText(game: StoreGame): string {
+  const support = game.controller === 'full' ? 'Full' : game.controller === 'partial' ? 'Partial' : null
+  if (!support) return game.playStation ? 'PlayStation' : '—'
+  return `${support} · Xbox${game.playStation ? ' and PlayStation' : ''}`
+}
+
+/** A short list of languages whole; a long one by its count, which is the useful part of it. */
+function languagesText(languages: string[] | undefined): string {
+  if (!languages?.length) return '—'
+  return languages.length <= 3 ? languages.join(', ') : `${languages.length} languages`
+}
+
+/**
+ * Two rows of facts under the media, the same ten on every page: reviews, release, developer, publisher and genres;
+ * then the last 30 days' reviews (under the all-time score, asked for once the page opens), controller, languages,
+ * the account a game needs besides Steam, and its DRM.
+ */
+function Facts({ game, recent }: { game: StoreGame | null; recent: StoreRecentReviews | null | undefined }) {
+  // A fact is null (a placeholder) until the page lands.
+  const fact = (text: (g: StoreGame) => string) => (game ? text(game) : null)
   const cells: [string, string | null][] = [
-    ['Reviews', game ? (score ? `${score}${game.reviewCount ? ` of ${game.reviewCount.toLocaleString()}` : ''}` : '—') : null],
-    [game?.comingSoon ? 'Release' : 'Released', game ? game.released || '—' : null],
-    ['Developer', game ? game.developers.join(', ') || '—' : null],
-    ['Publisher', game ? game.publishers.join(', ') || '—' : null],
-    ['Genres', game ? game.genres.slice(0, 4).join(', ') || '—' : null],
+    ['Reviews', fact(g => scoreText(g.reviewWord, g.reviewPercent, g.reviewCount))],
+    [game?.comingSoon ? 'Release' : 'Released', fact(g => g.released || '—')],
+    ['Developer', fact(g => g.developers.join(', ') || '—')],
+    ['Publisher', fact(g => g.publishers.join(', ') || '—')],
+    ['Genres', fact(g => g.genres.slice(0, 4).join(', ') || '—')],
+    ['Recent reviews', recent === undefined ? null : scoreText(recent?.word, recent?.percent, recent?.count)],
+    ['Controller', fact(controllerText)],
+    ['Languages', fact(g => languagesText(g.languages))],
+    ['Other account', fact(g => g.account || '—')],
+    ['DRM', fact(g => g.drm || '—')],
   ]
   return (
     <section className="exo-sgp-facts" aria-label="Details">
@@ -322,7 +340,7 @@ function MediaViewer({ game, onScreen }: { game: StoreGame; onScreen: boolean })
         {game.screenshots.map((s, i) => (
           <button key={s} type="button" role="option" aria-selected={shown.kind === 'shot' && shown.index === i} aria-label={`Screenshot ${i + 1}`}
             className="exo-sgp-thumb" onClick={() => setShown({ kind: 'shot', index: i })}>
-            <img src={s} alt="" loading="lazy" decoding="async" />
+            <img src={thumbOf(s)} alt="" loading="lazy" decoding="async" />
           </button>
         ))}
       </div>
@@ -342,6 +360,9 @@ function MediaSkeleton() {
   )
 }
 
+/** Steam's own small copy of a screenshot (600x338) for its thumbnail: the strip decoded eight full 1920x1080 ones as a page opened. */
+const thumbOf = (shot: string) => shot.replace(/\.1920x1080\.jpg/i, '.600x338.jpg')
+
 /** The game's page (already warmed while its card was on screen, so it draws whole at once); Retry asks the host again. */
 function useStoreGame(appId: string) {
   const [state, setState] = useState<{ data: StoreGame | null; error: string | null }>(() => ({ data: peekGame(appId), error: null }))
@@ -360,16 +381,31 @@ function useStoreGame(appId: string) {
   return { ...state, retry }
 }
 
-/** The other launchers' offers, asked for alongside Steam's page; null while they are on their way, empty when there are none, `failed` when they could not be asked. */
+/**
+ * The other launchers' offers, asked for alongside Steam's page; null while they
+ * are on their way, empty when there are none or they could not be asked.
+ */
 function useOtherOffers(appId: string) {
-  const [offers, setOffers] = useState<StoreOffer[] | null>(() => peekOffers(appId))
-  const [failed, setFailed] = useState(false)
+  const [answer, setAnswer] = useState<StoreOtherOffers | null>(() => peekOffers(appId))
   useEffect(() => {
     let live = true
     loadOffers(appId)
-      .then(list => { if (live) { setFailed(list === null); setOffers(list ?? []) } })
-      .catch((e: unknown) => { report(e, 'Store.offers'); if (live) { setFailed(true); setOffers([]) } })
+      .then(res => { if (live) setAnswer(res.ok ? res : { ok: false, offers: [] }) })
+      .catch((e: unknown) => { report(e, 'Store.offers'); if (live) setAnswer({ ok: false, offers: [] }) })
     return () => { live = false }
   }, [appId])
-  return { offers, failed }
+  return { offers: answer ? answer.offers ?? [] : null }
+}
+
+/** Steam's Recent reviews for the open page: undefined while asked, null when Steam did not answer. */
+function useRecentReviews(appId: string) {
+  const [recent, setRecent] = useState<StoreRecentReviews | null | undefined>(() => peekReviews(appId) ?? undefined)
+  useEffect(() => {
+    let live = true
+    loadReviews(appId)
+      .then(res => { if (live) setRecent(res.ok ? res : null) })
+      .catch((e: unknown) => { report(e, 'Store.reviews'); if (live) setRecent(null) })
+    return () => { live = false }
+  }, [appId])
+  return recent
 }

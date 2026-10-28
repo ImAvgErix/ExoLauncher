@@ -88,7 +88,8 @@
 
 /* Gear and window controls: shape lives with the room tabs in styles/shelf.css. */
 
-/* The game sheet's primary action: the 44px white pill. Smaller primaries are .exo-set-btn.is-primary. */
+/* The game sheet's primary action: a 44px capsule in the same control glass as Uninstall and Properties beside it (as
+   the darker art glass it read as a different, heavier button). Smaller primaries are .exo-set-btn.is-primary. */
 .exo-play {
   position: relative;
   overflow: hidden;
@@ -100,21 +101,13 @@
   padding: 0 22px;
   border: none;
   border-radius: 999px;
-  background: var(--color-fg);
-  color: var(--color-bg);
   font-family: var(--exo-font);
+  background: var(--exo-fill);
+  color: var(--color-fg);
+  box-shadow: var(--exo-rim);
   font-size: calc(13px * var(--exo-scale, 1));
   font-weight: 600;
-  box-shadow: none;
   transition: opacity 80ms var(--ease-out), background-color 120ms var(--ease-out), box-shadow 120ms var(--ease-out), scale 120ms var(--ease-out);
-}
-
-/* Hover on a white primary: a touch brighter, never see-through, never a halo (DESIGN.md › Hover). */
-@media (hover: hover) and (pointer: fine) {
-
-  .exo-play:hover:not(:disabled):not(:active) {
-    background-color: var(--exo-primary-hover);
-  }
 }
 
 .exo-play:disabled {
@@ -206,7 +199,7 @@
 }
 
 @media (hover: hover) and (pointer: fine) {
-  :is(.exo-set-btn, .exo-game-tool, .exo-shelf-sort-trigger, .exo-add-game-btn, .exo-game-close):hover:not(:disabled) {
+  :is(.exo-set-btn, .exo-game-tool, .exo-shelf-sort-trigger, .exo-add-game-btn, .exo-game-close, .exo-play):hover:not(:disabled) {
     background-color: var(--hover-fill);
   }
 

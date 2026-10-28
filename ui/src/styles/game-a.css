@@ -126,6 +126,15 @@
   background: var(--exo-pressed);
 }
 
+/* A line that is its own action, done or not doable now (Optimize while it is Applied or the game runs): it reads as
+   itself, not dimmed, and does nothing under the pointer. */
+.exo-game-line-row:disabled {
+  opacity: 1;
+  cursor: default;
+  background: transparent;
+  color: var(--color-muted);
+}
+
 .exo-game-line-name {
   flex: none;
   width: 96px;
@@ -167,8 +176,6 @@
   align-items: center;
   gap: 8px 12px;
   min-width: 0;
-  /* Clear of the sheet's Close button (art.css › .exo-game-close) when a long title runs to the edge. */
-  padding-right: 24px;
 }
 
 .exo-game-stats {

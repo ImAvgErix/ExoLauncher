@@ -4,6 +4,7 @@ import type { WhatsNewRelease } from '../../lib/whatsNew'
 import { useDismiss } from '../../lib/dismiss'
 import { Spinner } from '../ui/Spinner'
 import type { AppUpdate } from './useAppUpdate'
+import { ErrorNote } from '../ui/ErrorNote'
 
 /**
  * What's new in Exo <version>: a sheet of large glass over the dimmed window, its items one under another (an icon in
@@ -69,7 +70,7 @@ function Sheet({ releases, upcoming, update, onClose }: { releases: WhatsNewRele
             </section>
           ))}
         </div>
-        {upcoming && update.error && <p role="alert" className="exo-whats-new-error">{update.error}</p>}
+        {upcoming && update.error && <ErrorNote className="exo-whats-new-error" message={update.error} />}
         <div className="exo-whats-new-foot">
           <button ref={continueButton} type="button" className={`exo-set-btn${upcoming ? '' : ' is-primary'}`} onClick={onClose}>Continue</button>
           {upcoming && (

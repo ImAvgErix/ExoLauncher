@@ -9,6 +9,7 @@ import { ModalBack } from './SettingsLayer'
 import { useDismiss } from '../../lib/dismiss'
 import { useLayer } from './admin'
 import { Spinner } from '../ui/Spinner'
+import { ErrorNote } from '../ui/ErrorNote'
 
 const LENGTHS = [
   { hours: 1, label: '1 hour' }, { hours: 4, label: '4 hours' }, { hours: 8, label: '8 hours' }, { hours: 24, label: '24 hours' },
@@ -81,7 +82,7 @@ export function PollCreator({ channelId, onClose }: { channelId: string; onClose
             {busy ? <Spinner label="Posting the poll" /> : null}Post
           </button>
         </footer>
-        {error ? <p className="exo-dc-note" role="alert">{error}</p> : null}
+        {error ? <ErrorNote className="exo-dc-note" message={error} /> : null}
       </div>
     </ModalBack>
   )

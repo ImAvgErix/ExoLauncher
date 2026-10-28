@@ -31,7 +31,7 @@ public sealed class SettingsCloneTests
 
         // Settings the copy deliberately normalizes to a fixed set of values or rewrites.
         string[] normalized = ["TextColour", "TextSize", "SortMode", "DiscordInputProfile", "MouseBridge", "DefaultInstallRoot",
-            "DiscordInputDevice", "DiscordOutputDevice", "AppVersion"];
+            "DiscordInputDevice", "DiscordOutputDevice", "AppVersion", "NvidiaDriverBranch"];
         var lost = changed.Except(normalized).Where(name =>
         {
             var property = typeof(AppSettings).GetProperty(name)!;

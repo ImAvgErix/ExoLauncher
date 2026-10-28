@@ -1,3 +1,4 @@
+import { useKeepShine } from '../../lib/shine'
 import { cn } from '../../lib/utils'
 
 /**
@@ -13,6 +14,7 @@ export function Skeleton({ label, rows = 3, avatar = false, tiles, className }: 
   tiles?: number
   className?: string
 }) {
+  useKeepShine()
   return (
     <div className={cn('exo-skeleton-list', tiles ? 'is-tiles' : null, className)} role="status" aria-label={label}>
       {tiles

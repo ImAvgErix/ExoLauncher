@@ -30,6 +30,16 @@ public sealed partial class NetworkDestinationsTests
         ["itch.io"] = "browser",
         ["playruneterra.com"] = "browser",
         ["tracker.gg"] = "browser (profile link; also the Origin header of api.tracker.gg requests)",
+        // A keyboard's own app, or its download page, opened in the user's browser (Peripherals.Apps).
+        ["wootility.io"] = "browser",
+        ["launcher.keychron.com"] = "browser",
+        ["usevia.app"] = "browser",
+        ["vial.rocks"] = "browser",
+        ["www.razer.com"] = "browser",
+        ["www.logitechg.com"] = "browser",
+        ["www.logitech.com"] = "browser",
+        ["www.corsair.com"] = "browser",
+        ["steelseries.com"] = "browser",
         // Store sign-in pages hosted in WebView2.
         ["auth.gog.com"] = "WebView sign-in",
         ["accounts.google.com"] = "WebView sign-in",

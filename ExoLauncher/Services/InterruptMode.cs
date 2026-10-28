@@ -198,29 +198,19 @@ internal sealed partial class InterruptMode(InterruptMode.IDevices devices, Inte
         return new Row(Token(d.Id), d.Name, Kind(d), d.Mode, plan, reason, entry is { Reverted: false });
     }
 
-    /// <summary>After the restart: one short paragraph on what switched, what didn't and what Windows or a driver put back.</summary>
+    /// <summary>After the restart: only what didn't take (what didn't switch, what Windows or a driver put back); what worked says nothing.</summary>
     internal static string? Verify(IReadOnlyList<Device> list, Backup backup)
     {
-        var done = new List<string>();
         var stuck = new List<string>();
         var undone = new List<string>();
-        var high = new List<string>();
         foreach (var e in backup.Devices.Where(e => !e.Reverted))
         {
             var d = list.FirstOrDefault(x => Same(x.Id, e.Id));
-            if (!e.WroteMsi)
-            {
-                if (d?.Priority == High) high.Add(e.Kind);
-                else undone.Add(e.Kind);
-            }
-            else if (d?.Mode == Mode.Msi) done.Add(e.Kind);
-            else if (d is null || d.MsiValue != 1) undone.Add(e.Kind);
-            else stuck.Add(e.Kind);
+            if (!e.WroteMsi) { if (d?.Priority != High) undone.Add(e.Kind); }
+            else if (d?.Mode != Mode.Msi) (d is null || d.MsiValue != 1 ? undone : stuck).Add(e.Kind);
         }
         var parts = new List<string>();
-        if (done.Count > 0) parts.Add($"Your {Phrase(done)} now {(done.Count == 1 ? "uses" : "use")} MSI mode.");
         if (stuck.Count > 0) parts.Add($"Your {Phrase(stuck)} didn't switch: {(stuck.Count == 1 ? "its driver keeps" : "their drivers keep")} a shared line.");
-        if (high.Count > 0) parts.Add($"Your {Phrase(high)} now {(high.Count == 1 ? "has" : "have")} high interrupt priority.");
         if (undone.Count > 0) parts.Add($"Windows or a driver update put your {Phrase(undone)} back.");
         return parts.Count == 0 ? null : string.Join(' ', parts);
     }

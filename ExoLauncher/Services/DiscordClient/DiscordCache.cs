@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using GuildFolder = ExoLauncher.Services.DiscordClient.DiscordUserSettings.GuildFolder;
 
 namespace ExoLauncher.Services.DiscordClient;
@@ -43,8 +44,14 @@ internal sealed partial class DiscordCache
         public int RateLimit, UserLimit;
         // A voice channel's status (Set Channel Status), as Discord sends it (CHANNEL_INFO, VOICE_CHANNEL_STATUS_UPDATE).
         public string? Status;
-        // A thread closed to new messages (thread_metadata.locked).
-        public bool Locked;
+        // A thread closed to new messages (thread_metadata.locked), or closed altogether (archived); a forum post's tags.
+        public bool Locked, Archived;
+        public List<string> AppliedTags = [];
+        // Your membership of a thread (DiscordCache.Threads.cs): joined, Discord's member flags (2 all messages, 4 only
+        // @mentions, 8 nothing; none of them: as its channel), and its own mute and when that ends (null: until turned back on).
+        public bool Joined, ThreadMuted;
+        public int MemberFlags;
+        public DateTimeOffset? ThreadMuteEnds;
         // A forum's or media channel's tags: id, name and emoji (a server emoji's id, or a Unicode one).
         public List<(string Id, string Name, string? EmojiId, string? EmojiName)> Tags = [];
         public List<Overwrite> Overwrites = [];
@@ -133,6 +140,9 @@ internal sealed partial class DiscordCache
     // category, then the server, then the server's default), and the servers where @everyone and role mentions don't count.
     private readonly Dictionary<string, int> _notify = [];
     private readonly HashSet<string> _suppressEveryone = [], _suppressRoles = [];
+    // Notification Settings' Suppress Highlights (Discord's notify_highlights 1), Mute New Events, and servers with Mobile
+    // Push Notifications off.
+    private readonly HashSet<string> _noHighlights = [], _muteEvents = [], _noPush = [];
     // Servers whose muted channels the sidebar leaves out (Hide Muted Channels).
     private readonly HashSet<string> _hideMuted = [];
     // Servers whose own-roles changed from a member that arrived, told to the page once the event is applied.
@@ -174,7 +184,7 @@ internal sealed partial class DiscordCache
         lock (_gate)
         {
             _guilds.Clear(); _private.Clear(); _users.Clear(); _read.Clear(); _muted.Clear(); _collapsed.Clear(); _flags.Clear(); _guildFlags.Clear(); _order = []; _unavailable.Clear();
-            _notify.Clear(); _suppressEveryone.Clear(); _suppressRoles.Clear(); _hideMuted.Clear();
+            _notify.Clear(); _suppressEveryone.Clear(); _suppressRoles.Clear(); _hideMuted.Clear(); _noHighlights.Clear(); _muteEvents.Clear(); _noPush.Clear();
             // A new session: DM calls that ended meanwhile are gone (Discord sends a CALL_CREATE for each one still on).
             _calls.Clear();
             Me = ReadUser(d.GetProperty("user"));
@@ -346,6 +356,11 @@ internal sealed partial class DiscordCache
                 case "THREAD_DELETE":
                     OnChannel(type, d, events);
                     break;
+                case "THREAD_LIST_SYNC":
+                case "THREAD_MEMBER_UPDATE":
+                case "THREAD_MEMBERS_UPDATE":
+                    OnThreadMembers(type, d, events);
+                    break;
                 case "GUILD_ROLE_CREATE":
                 case "GUILD_ROLE_UPDATE":
                     if (Str(d, "guild_id") is { } rg && _guilds.TryGetValue(rg, out var rguild) && d.TryGetProperty("role", out var role))
@@ -429,6 +444,16 @@ internal sealed partial class DiscordCache
                 case "PRESENCE_UPDATE":
                     if ((Str(d, "guild_id") is null || Watched(PresenceUser(d))) && ApplyPresence(d) is { } presenceUser)
                         events.Add(("discord.presence", PresenceEvent(presenceUser)));
+                    break;
+                case "SESSIONS_REPLACE":
+                    // Your sessions on every device; Discord merges their activities into the one named "all".
+                    if (d.ValueKind == JsonValueKind.Array && Me?.Id is { } meId)
+                    {
+                        var sessions = d.EnumerateArray().Where(s => s.ValueKind == JsonValueKind.Object).ToList();
+                        var all = sessions.FirstOrDefault(s => Str(s, "session_id") == "all");
+                        if (all.ValueKind != JsonValueKind.Object) all = sessions.FirstOrDefault(s => Bool(s, "active"));
+                        if (all.ValueKind == JsonValueKind.Object) events.AddRange(Mine(ReadPresence(all)));
+                    }
                     break;
                 case "PRESENCES_REPLACE":
                     // Discord resyncs presences this way after READY; friends and DM people only, as everywhere.
@@ -589,7 +614,12 @@ internal sealed partial class DiscordCache
             if (type is "CHANNEL_DELETE" or "THREAD_DELETE") guild.Channels.Remove(channel.Id);
             else
             {
-                if (guild.Channels.TryGetValue(channel.Id, out var old)) channel.LastMessageId ??= old.LastMessageId;
+                if (guild.Channels.TryGetValue(channel.Id, out var old))
+                {
+                    channel.LastMessageId ??= old.LastMessageId;
+                    // A THREAD_UPDATE carries no membership: yours stays as it was.
+                    if (!d.TryGetProperty("member", out _)) KeepMembership(channel, old);
+                }
                 guild.Channels[channel.Id] = channel;
                 // A new post is a forum's newest message, as Discord counts it: the forum lights up, unless the post is the user's own.
                 if (type == "THREAD_CREATE" && channel.ParentId is { } parentId && guild.Channels.TryGetValue(parentId, out var forum)
@@ -736,6 +766,9 @@ internal sealed partial class DiscordCache
                     notify = _notify.TryGetValue(g.Id, out var guildNotify) ? guildNotify : g.DefaultNotifications,
                     suppressEveryone = _suppressEveryone.Contains(g.Id),
                     suppressRoles = _suppressRoles.Contains(g.Id),
+                    suppressHighlights = _noHighlights.Contains(g.Id),
+                    muteEvents = _muteEvents.Contains(g.Id),
+                    mobilePush = !_noPush.Contains(g.Id),
                     owner = Me is not null && g.OwnerId == Me.Id,
                     unread = !IsMuted(g.Id) && visible.Any(Unread),
                     mentions = visible.Sum(c => _read.GetValueOrDefault(c.Id).Mentions),
@@ -836,7 +869,12 @@ internal sealed partial class DiscordCache
             var community = guild.Features.Contains("COMMUNITY");
             // Threads Exo knows (active ones from Discord, and posts opened): a notification or a jump to one opens it in its channel.
             var threads = guild.Channels.Values.Where(c => c.Type is 10 or 11 or 12 && c.ParentId is not null && (Perms(c) & ViewChannel) != 0)
-                .Select(c => new { id = c.Id, name = c.Name ?? "", parentId = c.ParentId, locked = c.Locked }).ToList();
+                // The sidebar lists the joined, open ones under their channel, as Discord does.
+                .Select(c => new
+                {
+                    id = c.Id, name = c.Name ?? "", parentId = c.ParentId, locked = c.Locked, joined = c.Joined, archived = c.Archived,
+                    unread = Unread(c), mentions = _read.GetValueOrDefault(c.Id).Mentions, muted = MutedChannel(c),
+                }).ToList();
             var roles = guild.Styles.Where(r => r.Key != guild.Id)
                 .ToDictionary(r => r.Key, r => new { name = r.Value.Name, color = r.Value.Color > 0 ? DiscordColors.Readable(r.Value.Color) : null });
             return new
@@ -856,6 +894,8 @@ internal sealed partial class DiscordCache
                 optIn = OptInMode(guild.Id),
                 // Hide Muted Channels: the sidebar leaves muted channels out.
                 hideMuted = _hideMuted.Contains(guild.Id),
+                // Discord's feature flags (COMMUNITY, GUILD_SERVER_GUIDE, ...): which Server Settings pages it has.
+                features = guild.Features.ToList(),
                 events = guild.Events.Count,
                 // Discord's rows over the channels: which this server has, and which the user may open.
                 rows = new
@@ -933,10 +973,13 @@ internal sealed partial class DiscordCache
     /// A server's Suppress @everyone and @here, Suppress All Role @mentions and Hide Muted Channels, once Discord took
     /// the change.
     /// </summary>
-    internal void SetSuppress(string guildId, bool? everyone, bool? roles, bool? hideMuted = null)
+    internal void SetSuppress(string guildId, bool? everyone, bool? roles, bool? hideMuted = null, bool? highlights = null, bool? muteEvents = null, bool? mobilePush = null)
     {
         lock (_gate)
         {
+            if (highlights is { } hl) { if (hl) _noHighlights.Add(guildId); else _noHighlights.Remove(guildId); }
+            if (muteEvents is { } me) { if (me) _muteEvents.Add(guildId); else _muteEvents.Remove(guildId); }
+            if (mobilePush is { } mp) { if (mp) _noPush.Remove(guildId); else _noPush.Add(guildId); }
             if (everyone is { } e) { if (e) _suppressEveryone.Add(guildId); else _suppressEveryone.Remove(guildId); }
             if (roles is { } r) { if (r) _suppressRoles.Add(guildId); else _suppressRoles.Remove(guildId); }
             if (hideMuted is { } h) { if (h) _hideMuted.Add(guildId); else _hideMuted.Remove(guildId); }
@@ -1382,6 +1425,26 @@ internal sealed partial class DiscordCache
             Str(a, "url") is { } url && url.StartsWith("https://", StringComparison.Ordinal) ? url : null, Str(a, "sync_id"), hasAssets ? Str(assets, "large_text") : null);
     }
 
+    /// <summary>
+    /// Your own activities as Exo just sent them. Discord sends your presence to everyone but this session, so your own
+    /// rows (a server's member list, your profile) take it from here, as Discord's own client does.
+    /// </summary>
+    internal List<(string Name, object Data)> SetMyActivities(JsonArray activities)
+    {
+        var sent = JsonSerializer.SerializeToElement(new JsonObject { ["activities"] = activities.DeepClone() });
+        lock (_gate) return Me is null ? [] : Mine(ReadPresence(sent));
+    }
+
+    // Under _gate: your presence with your own status, and the events that show it (the lists that have you redraw).
+    private List<(string Name, object Data)> Mine(Presence presence)
+    {
+        var meId = Me!.Id;
+        _presence[meId] = presence with { Status = _myStatus };
+        List<(string Name, object Data)> events = [("discord.presence", PresenceEvent(meId))];
+        foreach (var guild in _guilds.Values.Where(g => g.List.Count > 0)) events.Add(("discord.members", new { guildId = guild.Id }));
+        return events;
+    }
+
     private object PresenceEvent(string userId)
     {
         var p = _presence[userId];
@@ -1410,6 +1473,8 @@ internal sealed partial class DiscordCache
                     var user = ReadUser(u);
                     var roles = Array(member, "roles").Select(Id).OfType<string>().ToList();
                     var presence = member.TryGetProperty("presence", out var p) ? p : default;
+                    // Your own row: what you're doing as Exo knows it, which Discord's list doesn't send this session.
+                    var mine = user.Id == Me?.Id ? _presence.GetValueOrDefault(user.Id) : null;
                     items.Add(new
                     {
                         id = user.Id,
@@ -1425,7 +1490,8 @@ internal sealed partial class DiscordCache
                         look = LookOf(user.Id, ReadLook(member)),
                         bot = Bool(u, "bot"),
                         status = presence.ValueKind == JsonValueKind.Object ? Str(presence, "status") ?? "offline" : "offline",
-                        activity = presence.ValueKind == JsonValueKind.Object ? Array(presence, "activities").Select(a => Int(a, "type") == 4 ? Str(a, "state") : Str(a, "name")).FirstOrDefault(a => a is not null) : null,
+                        activity = mine is not null ? mine.Activity
+                            : presence.ValueKind == JsonValueKind.Object ? Array(presence, "activities").Select(a => Int(a, "type") == 4 ? Str(a, "state") : Str(a, "name")).FirstOrDefault(a => a is not null) : null,
                         // Discord's "In voice" in place of what they're doing: the voice channel they're in on this server.
                         inVoice = guild.Voice.TryGetValue(user.Id, out var talking) && guild.Channels.TryGetValue(talking.ChannelId, out var room) ? room.Name : null,
                     });
@@ -1615,8 +1681,12 @@ internal sealed partial class DiscordCache
         }
     }
 
-    /// <summary>Threads Discord sent (a forum's posts, a channel's threads): kept so they open like channels, with their parent's permissions.</summary>
-    internal void AddThreads(string guildId, JsonElement threads)
+    /// <summary>
+    /// Threads Discord sent (a forum's posts, a channel's threads): kept so they open like channels, with their parent's
+    /// permissions. Your membership stays as Exo had it, or comes from members (Discord's thread members for you, as a
+    /// search sends them).
+    /// </summary>
+    internal void AddThreads(string guildId, JsonElement threads, JsonElement? members = null)
     {
         lock (_gate)
         {
@@ -1624,8 +1694,14 @@ internal sealed partial class DiscordCache
             foreach (var t in threads.ValueKind == JsonValueKind.Array ? threads.EnumerateArray() : Enumerable.Empty<JsonElement>())
             {
                 var thread = ReadChannel(t, guildId);
-                if (thread.Type is 10 or 11 or 12 && thread.ParentId is not null) guild.Channels[thread.Id] = thread;
+                if (thread.Type is not (10 or 11 or 12) || thread.ParentId is null) continue;
+                if (!t.TryGetProperty("member", out _) && guild.Channels.TryGetValue(thread.Id, out var old)) KeepMembership(thread, old);
+                guild.Channels[thread.Id] = thread;
             }
+            if (members is { ValueKind: JsonValueKind.Array } list)
+                foreach (var m in list.EnumerateArray())
+                    if (Str(m, "id") is { } id && guild.Channels.TryGetValue(id, out var joined) && (Str(m, "user_id") is null || Str(m, "user_id") == Me?.Id))
+                        ReadMembership(joined, m);
         }
     }
 
@@ -1858,8 +1934,8 @@ internal sealed partial class DiscordCache
         else _notify.Remove(id);
     }
 
-    // A channel muted itself or by its category; a thread also by its channel's category.
-    private bool MutedChannel(Channel c) => IsMuted(c.Id) || (c.ParentId is { } p && (IsMuted(p)
+    // A channel muted itself or by its category; a thread by its own mute (Mute Thread), its channel or its channel's category.
+    private bool MutedChannel(Channel c) => IsMuted(c.Id) || ThreadMutedNow(c) || (c.ParentId is { } p && (IsMuted(p)
         || (c.Type is 10 or 11 or 12 && Find(p) is { ParentId: { } category } && IsMuted(category))));
 
     private bool IsMuted(string id) => _muted.Contains(id) && (!_muteEnds.TryGetValue(id, out var end) || end > DateTimeOffset.UtcNow);
@@ -1973,6 +2049,12 @@ internal sealed partial class DiscordCache
             Spam = Bool(c, "is_spam"),
             Tags = [.. Array(c, "available_tags").Select(t => (Str(t, "id") ?? "", Str(t, "name") ?? "", Str(t, "emoji_id"), Str(t, "emoji_name")))],
         };
+        if (channel.Type is 10 or 11 or 12)
+        {
+            if (c.TryGetProperty("thread_metadata", out var thread) && thread.ValueKind == JsonValueKind.Object) channel.Archived = Bool(thread, "archived");
+            channel.AppliedTags = [.. Array(c, "applied_tags").Where(t => t.ValueKind == JsonValueKind.String).Select(t => t.GetString()!)];
+            if (c.TryGetProperty("member", out var membership) && membership.ValueKind == JsonValueKind.Object) ReadMembership(channel, membership);
+        }
         foreach (var o in Array(c, "permission_overwrites"))
         {
             var t = o.GetProperty("type");
@@ -2000,6 +2082,10 @@ internal sealed partial class DiscordCache
             if (Bool(entry, "suppress_everyone")) _suppressEveryone.Add(guildId); else _suppressEveryone.Remove(guildId);
             if (Bool(entry, "suppress_roles")) _suppressRoles.Add(guildId); else _suppressRoles.Remove(guildId);
             if (Bool(entry, "hide_muted_channels")) _hideMuted.Add(guildId); else _hideMuted.Remove(guildId);
+            if (Int(entry, "notify_highlights") == 1) _noHighlights.Add(guildId); else _noHighlights.Remove(guildId);
+            if (Bool(entry, "mute_scheduled_events")) _muteEvents.Add(guildId); else _muteEvents.Remove(guildId);
+            // Absent means on, as Discord's default is.
+            if (entry.TryGetProperty("mobile_push", out var push) && push.ValueKind == JsonValueKind.False) _noPush.Add(guildId); else _noPush.Remove(guildId);
             // The entry carries all of the server's overrides: a channel left out is no longer muted or collapsed.
             if (entry.TryGetProperty("channel_overrides", out _) && _guilds.TryGetValue(guildId, out var guild))
                 foreach (var channelId in guild.Channels.Keys)
@@ -2036,6 +2122,12 @@ internal sealed partial class DiscordCache
         if (user.Id.Length == 0) return;
         // A payload without collectibles (a trimmed user) keeps the ones known.
         _users[user.Id] = user.Look is null && _users.GetValueOrDefault(user.Id)?.Look is { } known ? user with { Look = known } : user;
+    }
+
+    /// <summary>You as Switch accounts lists you: id, name and picture; null before Discord says who you are.</summary>
+    internal (string Id, string Name, string? Avatar)? MeCard
+    {
+        get { lock (_gate) return Me is null ? null : (Me.Id, Me.Name, Avatar(Me.Id)); }
     }
 
     private string? Avatar(string userId) =>

@@ -293,6 +293,16 @@ public sealed class LeftoverScanTests : IDisposable
         return Directory.Exists(link) && new DirectoryInfo(link).LinkTarget is not null;
     }
 
+    [Fact]
+    public void TasksAreReadFromTheHelpersLines()
+    {
+        var tasks = LeftoverScan.ParseTasks("\\MicrosoftEdgeUpdateTaskMachineUA\t%ProgramFiles(x86)%\\Microsoft\\EdgeUpdate\\MicrosoftEdgeUpdate.exe\r\n" +
+            "\\Vendor\\Café\tC:\\Users\\José\\app.exe\r\nWARNING: a stray line\r\n\\NoProgram\t\r\n");
+        Assert.Equal([("\\MicrosoftEdgeUpdateTaskMachineUA", "%ProgramFiles(x86)%\\Microsoft\\EdgeUpdate\\MicrosoftEdgeUpdate.exe"),
+            ("\\Vendor\\Café", "C:\\Users\\José\\app.exe")], tasks);
+        Assert.Empty(LeftoverScan.ParseTasks(null));   // the helper didn't run: nothing, not a crash
+    }
+
     private static void Cmd(string command)
     {
         using var cmd = Process.Start(new ProcessStartInfo("cmd.exe", "/d /c " + command)

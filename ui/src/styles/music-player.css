@@ -227,10 +227,12 @@
 }
 
 /* Recently played: up to eight compact tiles above Home's shelves, four across as Spotify lays them, so they fill
-   their rows (auto-fill left four tiles in six columns, the right third empty). */
+   their rows (auto-fill left four tiles in six columns, the right third empty). A column is never under a quarter, so
+   never more than four; in a narrow window (half a screen) never under 200px either, so fewer and wider, each name
+   readable ("Lik..." four across at 960px). */
 .exo-music-recent {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(max(200px, calc(25% - 6px)), 1fr));
   gap: 8px;
 }
 
@@ -1199,6 +1201,60 @@
   color: var(--color-fg);
 }
 
+/* A word being sung fills left to right over its own time: a progress, so linear (DESIGN.md › Motion). Its share
+   (--exo-sung, 0 to 1) moves every 80 ms; registered, it glides between those steps. Reduce motion lights it at once. */
+@property --exo-sung {
+  syntax: '<number>';
+  inherits: false;
+  initial-value: 0;
+}
+
+.exo-music-lyrics.is-synced li.is-active span.is-singing {
+  background: linear-gradient(90deg, var(--color-fg) calc(var(--exo-sung) * 100%), var(--color-muted) calc(var(--exo-sung) * 100%));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  transition: --exo-sung 80ms linear;
+}
+
+html[data-exo-motion="reduce"] .exo-music-lyrics.is-synced li.is-active span.is-singing {
+  background: none;
+  color: var(--color-fg);
+}
+
+/* Background vocals: a smaller row under the line they're sung with, as Apple Music draws them. */
+.exo-music-lyric-bg {
+  display: block;
+  margin-top: 2px;
+  font-size: calc(13px * var(--exo-scale, 1));
+  font-weight: 600;
+}
+
+/* A duet's other singer sings from the right. */
+.exo-music-lyrics li.is-other,
+.exo-music-lyrics li.is-other button {
+  text-align: right;
+}
+
+/* A long wait between lines: three dots that fill as it runs out. */
+.exo-music-lyric-wait {
+  display: flex;
+  gap: 6px;
+  padding: 6px 0;
+}
+
+.exo-music-lyric-wait span {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-faint);
+  transition: background-color 200ms var(--ease-out);
+}
+
+.exo-music-lyric-wait span.is-on {
+  background: var(--color-fg);
+}
+
 /* Moods and genres, charts, new releases: named buttons in rows, raised controls. */
 .exo-music-moods {
   display: flex;
@@ -1499,6 +1555,11 @@
   border-radius: 8px;
 }
 
+/* Listen along: friends listening now, each with Listen; the one followed first, with Stop. */
+.exo-music-along .exo-music-friend {
+  align-items: center;
+}
+
 
 /* The room before its first showing (music/MusicWait.tsx): its own frame (the same floating library pane and player
    capsule, by their own classes), each part a skeleton the size of what comes, so nothing moves when the room lands.
@@ -1564,7 +1625,7 @@
 /* Home's recent grid and shelves, at their sizes (Recently played four across, eight cards to a shelf). */
 .exo-music-cover-recent {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(max(200px, calc(25% - 6px)), 1fr));
   gap: 8px;
   margin-bottom: 32px;
 }

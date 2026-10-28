@@ -67,6 +67,10 @@ export type AccountSettings = {
   /** 0 unset, 1 share in all servers, 2 only in servers of 200 or fewer, 3 in none. */
   defaultGuildsActivityRestrictedV2: number
   quests3pDataOptedOut: boolean
+  /** Your messages in Discoverable channels kept off Discord's server web pages (Data & Privacy). */
+  swpMessagePromotionOptedOut: boolean
+  /** When a status chosen for a while goes back to Online (ms since 1970); null when it's for good. */
+  statusExpiresAtMs: number | null
   /** 0 unset (friends and all servers), 1 friends only, 2 friends and small servers, 3 friends and all servers. */
   profileVisibility: number
   hideFriendRequestNotes: boolean
@@ -165,7 +169,7 @@ const ACCOUNT_DEFAULTS: AccountSettings = {
   defaultGuildsRestricted: false, friendSourceFlags: 14, defaultGuildsActivityRestricted: 0, messageRequestRestrictedGuildIds: [],
   activityRestrictedGuildIds: [], activityJoiningRestrictedGuildIds: [],
   defaultMessageRequestRestricted: false, dropsOptedOut: false, allowGameFriendDmsInDiscord: true, defaultGuildsRestrictedV2: null,
-  defaultGuildsActivityRestrictedV2: 0, quests3pDataOptedOut: false, profileVisibility: 0, hideFriendRequestNotes: false,
+  defaultGuildsActivityRestrictedV2: 0, quests3pDataOptedOut: false, swpMessagePromotionOptedOut: false, statusExpiresAtMs: null, profileVisibility: 0, hideFriendRequestNotes: false,
   showCurrentGame: true, locale: '', developerMode: false, timestampHourCycle: 0, audioUsers: {}, audioStreams: {}, customStatus: null,
 }
 

@@ -316,7 +316,7 @@
 }
 
 .exo-store-hero-pick.is-on {
-  background: var(--exo-selected);
+  box-shadow: var(--glassy-ring);
   color: var(--color-fg);
 }
 
@@ -575,52 +575,6 @@ html[data-exo-motion="reduce"] .exo-game-overlay-stage:has(> .exo-sgp) {
 
 .exo-sgp:focus {
   outline: none;
-}
-
-.exo-sgp > .exo-game-close {
-  position: absolute;
-  z-index: 3;
-}
-
-/* Steam's hero art across the top of the page, whole: as wide as the page at its own shape (Steam's is
-   3840x1240), from its top edge, so nothing of it is cut off; it fades into the black only at its foot
-   (a mask, not a dark layer over it, as the Store's other art: no light rim in the page's corners). */
-.exo-sgp-hero {
-  position: absolute;
-  inset: 0 0 auto;
-  aspect-ratio: 3840 / 1240;
-  max-height: 100%;
-  overflow: hidden;
-  mask-image: linear-gradient(180deg, rgb(0 0 0 / 0.88), rgb(0 0 0 / 0.7) 45%, rgb(0 0 0 / 0.18) 80%, transparent);
-}
-
-/* Under the banner, the page to its foot: the same art blurred and dimmed, so the banner fades into it, not into black. */
-.exo-sgp-backdrop {
-  position: absolute;
-  inset: 0;
-  overflow: hidden;
-  pointer-events: none;
-}
-
-.exo-sgp-backdrop .exo-store-img {
-  filter: blur(48px) saturate(1.2) brightness(0.42);
-  transform: scale(1.15);
-}
-
-/* Under the side column (title, tags, buying) the banner washes into the page, so its words keep 4.5:1 over the
-   brightest art (measured from the screen: "Only on Steam" was at 2.4:1 over a sunset). */
-.exo-sgp-hero::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(90deg, transparent 52%, color-mix(in srgb, var(--color-bg) 72%, transparent) 68%, color-mix(in srgb, var(--color-bg) 80%, transparent) 100%);
-  pointer-events: none;
-}
-
-.exo-sgp-hero .exo-store-img {
-  position: absolute;
-  inset: 0;
-  object-position: center top;
 }
 
 /* One layout for every game: the media on the left, a column of fixed width on the right. Every block has its place
@@ -901,13 +855,6 @@ button.exo-sgp-thumb::after {
   min-width: 0;
 }
 
-.exo-sgp-only {
-  align-self: center;
-  padding: 0 4px;
-  color: var(--color-muted);
-  font-size: calc(13px * var(--exo-scale, 1));
-}
-
 /* Where words will be until the details land: quiet, still bars. */
 .exo-sgp-placeholder {
   display: flex;
@@ -985,7 +932,6 @@ button.exo-sgp-thumb::after {
   gap: 8px;
   margin-top: 4px;
 }
-
 .exo-game-tool.is-on {
   color: var(--color-fg);
 }
@@ -1026,10 +972,11 @@ button.exo-sgp-thumb::after {
   line-height: 20px;
 }
 
-/* Details: one row of five facts under the media, each label over up to two lines of its value (a long developer
-   list has no other place to be read), so the row is one height on every page. */
+/* Details: two rows of five facts under the media, each label over up to two lines of its value (a long developer
+   list has no other place to be read). The card grows into the column's room, so its foot lines up with the
+   requirements' at the right column's bottom. */
 .exo-sgp-facts {
-  flex: none;
+  flex: 1 0 auto;
   padding: 12px 20px;
   border-radius: var(--exo-card-radius);
   background: var(--exo-float);
@@ -1039,7 +986,7 @@ button.exo-sgp-thumb::after {
 .exo-sgp-facts dl {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 20px;
+  gap: 12px 20px;
   margin: 0;
 }
 
@@ -1088,7 +1035,7 @@ button.exo-sgp-thumb::after {
   margin: 0;
   padding: 2px 10px;
   border-radius: 999px;
-  background: rgb(var(--exo-ink-rgb) / 0.08);
+  box-shadow: var(--glassy-ring);
   color: var(--color-fg);
   font-size: calc(12px * var(--exo-scale, 1));
   font-weight: 600;
@@ -1237,14 +1184,7 @@ button.exo-sgp-thumb::after {
   }
 }
 
-/* The calendar: the Store's own grid by day, each card with the reasons it is here for this PC under it (StoreRoom.tsx › Calendar). */
-.exo-cal-note {
-  margin: 0;
-  padding: 4px var(--exo-gutter) 0;
-  color: var(--color-muted);
-  font-size: calc(12px * var(--exo-scale, 1));
-}
-
+/* The calendar: the Store's own grid by day (StoreRoom.tsx › Calendar). */
 .exo-cal-filters {
   display: flex;
   flex-wrap: wrap;
@@ -1301,7 +1241,9 @@ button.exo-sgp-thumb::after {
   min-width: 0;
 }
 
-.exo-cal-why {
+/* Under a game (Early Access), and under a date (a Steam sale's first or last day). */
+.exo-cal-why,
+.exo-cal-mark {
   margin: 0;
   color: var(--color-muted);
   font-size: calc(12px * var(--exo-scale, 1));

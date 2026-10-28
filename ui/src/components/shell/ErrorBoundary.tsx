@@ -1,5 +1,6 @@
 import { Component, type ReactNode } from 'react'
 import { Button } from '../ui/Button'
+import { CopyLogs } from '../ui/ErrorNote'
 import { host } from '../../lib/host'
 import { report } from '../../lib/report'
 
@@ -10,7 +11,7 @@ type ErrorBoundaryProps = {
   className?: string
 }
 
-type ErrorBoundaryState = { failed: boolean }
+type ErrorBoundaryState = { failed: boolean; message?: string }
 
 function fallbackBody(label: string): string {
   if (label === 'Exo') return 'Exo hit an error. Try again, or open the logs to see what happened.'
@@ -24,8 +25,8 @@ function fallbackBody(label: string): string {
 export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
   state: ErrorBoundaryState = { failed: false }
 
-  static getDerivedStateFromError(): ErrorBoundaryState {
-    return { failed: true }
+  static getDerivedStateFromError(error: unknown): ErrorBoundaryState {
+    return { failed: true, message: error instanceof Error ? error.message : String(error) }
   }
 
   componentDidCatch(error: Error): void {
@@ -54,6 +55,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
           <Button type="button" size="sm" className="exo-set-btn" onPress={this.openLogs}>
             Open logs
           </Button>
+          <CopyLogs error={`${this.props.label} stopped: ${this.state.message ?? 'an error'}`} />
         </div>
       </div>
     )

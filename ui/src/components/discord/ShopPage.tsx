@@ -13,6 +13,7 @@ import { AddCard, useConfirmPayment } from './payFrame'
 import { ModalBack } from './SettingsLayer'
 import { Spinner } from '../ui/Spinner'
 import { Skeleton } from '../ui/Skeleton'
+import { CopyLogs, ErrorNote } from '../ui/ErrorNote'
 
 /**
  * Discord's Shop in the Discord room: its catalog by category, one kind of collectible, or what you own, each
@@ -148,7 +149,7 @@ export function ShopPage({ me }: { me: Me | null }) {
         </label>
       </header>
       <div className="exo-dc-shop-body">
-        {error ? <p className="exo-dc-note" role="alert">{error} <button type="button" className="exo-dc-link" onClick={reload}>Try again</button></p> : null}
+        {error ? <p className="exo-dc-note" role="alert">{error} <button type="button" className="exo-dc-link" onClick={reload}>Try again</button> <CopyLogs error={error} /></p> : null}
         {!shop && !error ? <Skeleton label="Loading the shop" tiles={8} className="exo-dc-shop-wait" /> : null}
         {shop && tab === 'featured' ? shop.categories.map(category => {
           const products = category.products.filter(match)
@@ -371,7 +372,7 @@ function ProductDialog({ product, mine, nitro, owned, worn, onClose, onWorn, onB
           {step === 'bought' ? <p className="exo-dc-shop-done">It's yours. Put it on below.</p> : null}
           {yours ? null : <Price product={product} nitro={nitro} large />}
           {step === 'checkout' ? <Checkout product={product} onBack={() => setStep('view')} onBought={() => { setStep('bought'); onBought() }} /> : null}
-          {error ? <p className="exo-dc-note is-bad" role="alert">{error}</p> : null}
+          {error ? <ErrorNote className="exo-dc-note is-bad" message={error} /> : null}
           {step === 'checkout' ? null : (
             <div className="exo-dc-shop-actions">
               <button type="button" className="exo-set-btn" onClick={onClose}>Close</button>
@@ -480,7 +481,7 @@ function Checkout({ product, onBack, onBought }: { product: DiscordShopProduct; 
         <button type="button" className="exo-set-btn" disabled={busy} onClick={() => setAdding(true)}>Add a card</button>
       </div>
       {price?.currency ? <Bill price={price} currency={price.currency} /> : <Skeleton label="Getting Discord’s price" rows={1} />}
-      {error ? <p className="exo-dc-pay-note is-bad" role="alert">{error}</p> : null}
+      {error ? <ErrorNote className="exo-dc-pay-note is-bad" message={error} /> : null}
       <div className="exo-dc-shop-actions">
         <button type="button" className="exo-set-btn" disabled={busy} onClick={onBack}>Back</button>
         <button type="button" className="exo-set-btn is-primary" disabled={busy || !total || !bank.ready} onClick={buy}>

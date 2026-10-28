@@ -6,9 +6,24 @@ namespace ExoLauncher.Services;
 /// lucid: Lucid as Exo knows it and its settings ("state"), Start with Exo ("set", on), Lucid's own window ("open"),
 /// Equalizer APO's device picker ("devices"), a change to its settings ("change", change), and its download page when
 /// this PC has no Lucid ("get"); lucid.headphones lists its headphones; lucid.update names a newer Lucid. Lucid Voice is only read, never changed.
+/// The state also says which output Lucid's EQ is on and whether Windows plays there (<see cref="LucidOutput"/>), and
+/// whether a change waits for a game to end (held), its settings shown as they will be.
 /// </summary>
 public sealed partial class WebHostBridge
 {
+    /// <summary>Lucid's changes wait while a game plays and go in as the last one ends.</summary>
+    private void HoldLucidForGames()
+    {
+        LucidCompanion.Playing = () => _services.Launcher.AnyGameRunning || MainWindow.RunningLibraryGames().Count > 0;
+        _services.Launcher.GameRunStateChanged += ReleaseLucidAfterGames;
+    }
+
+    private void ReleaseLucidAfterGames(string gameId, GameRunState state)
+    {
+        if (state.IsRunning || LucidCompanion.Held is null) return;
+        _ = Task.Run(() => { if (!LucidCompanion.Playing()) LucidCompanion.ReleaseHeld(_services.Settings.Current.LucidPath); });
+    }
+
     private async Task<object> LucidAsync(JsonElement p, bool hasParams)
     {
         var settings = _services.Settings;
@@ -36,7 +51,17 @@ public sealed partial class WebHostBridge
                 break;
         }
         state = LucidCompanion.Read(settings.Current.LucidPath);
-        var lucid = state.Path is null ? null : LucidSettings.Load(LucidSettings.FilePath) is { } root ? LucidSettings.Read(root) : null;
+        var root = state.Path is null ? null : LucidSettings.Load(LucidSettings.FilePath);
+        var held = LucidCompanion.Held;
+        // A change waiting for the game shows as it will be.
+        if (root is not null && held is not null && state.Path is { } lucidPath)
+            LucidSettings.Apply(root, held, id => LucidCompanion.HeadphoneName(lucidPath, id), LucidSettings.WindowsNightLight);
+        var lucid = root is null ? null : LucidSettings.Read(root);
+        var coverage = state.Path is not null ? LucidOutput.Read() : null;
+        // A USB or wireless headset names itself: offer its tuning when Lucid has one and isn't on it.
+        var guess = lucid is not null && state.Path is { } lucidExe && LucidCatalog.Read(lucidExe) is { } catalog
+            && LucidCatalog.Guess(coverage?.Playing, catalog) is { } found && !string.Equals(found.Id, lucid.HeadphoneId, StringComparison.OrdinalIgnoreCase)
+            ? found : null;
         return new
         {
             ok = message is null,
@@ -46,7 +71,10 @@ public sealed partial class WebHostBridge
             running = state.Running,
             voiceOn = state.VoiceOn,
             startWithExo = settings.Current.StartLucidWithExo,
+            held = held is not null,
             devices = state.Path is not null && LucidCompanion.DeviceSelector() is not null,
+            eq = coverage is { } eq ? new { on = eq.On, playing = eq.Playing, covered = eq.Covered } : null,
+            guess = guess is null ? null : new { id = guess.Id, name = guess.Name },
             settings = lucid is null ? null : new
             {
                 headphone = new { id = lucid.HeadphoneId, name = lucid.HeadphoneName, chosen = lucid.HeadphoneChosen },
@@ -62,6 +90,8 @@ public sealed partial class WebHostBridge
                 discord = lucid.Discord,
                 toggleSound = lucid.ToggleSound,
                 detectSound = lucid.DetectSound,
+                hotkey = new { modifiers = lucid.HotkeyModifiers, key = lucid.HotkeyKey },
+                eqOn = lucid.EqOn,
             },
         };
     }
@@ -103,6 +133,9 @@ public sealed partial class WebHostBridge
             Discord = Flag("discord"),
             ToggleSound = ReadDouble(c, true, "toggleSound") is { } toggle ? (int)Math.Round(toggle) : null,
             DetectSound = ReadDouble(c, true, "detectSound") is { } detect ? (int)Math.Round(detect) : null,
+            Hotkey = c.TryGetProperty("hotkey", out var hotkey) && hotkey.ValueKind == JsonValueKind.Object
+                && ReadDouble(hotkey, true, "key") is { } key && ReadDouble(hotkey, true, "modifiers") is { } modifiers
+                ? ((int)modifiers, (int)key) : null,
         };
     }
 }

@@ -59,7 +59,7 @@ public sealed class SteamAdapter : IStoreAdapter, IInstalledSteamManifestSource,
         ScheduleStaleDownloadCleanup(steamRoot);
         var activeAccount = SteamPlaytime.LoadActiveAccount(steamRoot);
         // Ownership below is the active account's; only hours may span accounts.
-        var hours = SteamPlaytime.LoadHours(steamRoot, SettingsService.CountHoursAcrossAccounts);
+        var hours = SteamPlaytime.LoadHours(steamRoot, allAccounts: true);
         IReadOnlySet<string>? authoritativeOwnedAppIds = null;
         IReadOnlySet<string>? previouslyVerified = null;
         IReadOnlySet<string>? webApiOwned = null;
@@ -235,10 +235,11 @@ public sealed class SteamAdapter : IStoreAdapter, IInstalledSteamManifestSource,
                         !lastOwner.Equals(steamId64, StringComparison.OrdinalIgnoreCase))
                         familyShared = true;
                     var playable = ownedByActiveAccount || familyShared;
+                    var preloaded = !installed && SteamStateFlags.IsPreloaded(stateFlags, bytesToDownload, bytesDownloaded);
                     var entitlementStatus = !ownershipVerified && !familyShared
                         ? "Ownership unverified"
                         : playable
-                            ? (installed ? (updateAvailable ? "Update" : "Ready") : "Not installed")
+                            ? (installed ? (updateAvailable ? "Update" : "Ready") : preloaded ? "Preloaded" : "Not installed")
                             : "Buy again";
 
                     presentAppIds.Add(appId);
@@ -255,7 +256,8 @@ public sealed class SteamAdapter : IStoreAdapter, IInstalledSteamManifestSource,
                             : playable
                                 ? EntitlementState.Owned
                                 : EntitlementState.NotOwned,
-                        CanInstall = !installed && playable,
+                        // A preload is downloaded: Steam installs it on release day and refuses before.
+                        CanInstall = !installed && playable && !preloaded,
                         // The manifest is this PC's own word that Steam wants an update. Only a license
                         // known to be gone hides it; Steam closed (no answer on ownership) does not.
                         UpdateAvailable = updateAvailable && (playable || !ownershipVerified),
@@ -1014,6 +1016,13 @@ public sealed class SteamAdapter : IStoreAdapter, IInstalledSteamManifestSource,
     {
         var snap = ReadAppManifestSnapshot(appId);
         return SteamStateFlags.IsBusy(snap.StateFlags, snap.BytesToDownload, snap.BytesDownloaded);
+    }
+
+    /// <summary>Whether Steam has this app downloaded as a preload, waiting for its release (<see cref="SteamStateFlags.IsPreloaded"/>).</summary>
+    internal static bool Preloaded(string appId)
+    {
+        var snap = ReadAppManifestSnapshot(appId);
+        return SteamStateFlags.IsPreloaded(snap.StateFlags, snap.BytesToDownload, snap.BytesDownloaded);
     }
 
     /// <summary>

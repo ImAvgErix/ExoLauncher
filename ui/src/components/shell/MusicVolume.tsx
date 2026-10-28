@@ -1,3 +1,4 @@
+import { ErrorNote } from '../ui/ErrorNote'
 import { useEffect, useRef, useState } from 'react'
 import { host } from '../../lib/host'
 import { Slider } from '../ui/Slider'
@@ -102,6 +103,6 @@ export function MusicVolume({ volume, onRefresh }: { volume: number | null; onRe
     <Slider compact ref={slider} aria-label="Music volume" aria-valuetext={`${Math.round(value)} percent`} min={0} max={100} step={1} disabled={volume === null} value={value}
       onChange={event => change(Number(event.currentTarget.value))} onPointerDown={event => { state.current.dragging = true; event.currentTarget.setPointerCapture?.(event.pointerId) }} onPointerUp={endDrag} onPointerCancel={endDrag} onBlur={endDrag} />
     <output className="exo-mini-volume-value" aria-live="off">{volume === null ? '—' : `${Math.round(value)}%`}</output>
-    {error && <span className="exo-mini-error" role="alert">{error}</span>}
+    {error && <ErrorNote as="span" className="exo-mini-error" message={error} />}
   </div>
 }

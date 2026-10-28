@@ -58,7 +58,8 @@ internal static partial class ControllerLab
 
     private const string FirmwareList = "https://fwupdater.dl.playstation.net/fwupdater/info.json";
     private static readonly HttpClient Http = CreateHttp();
-    private static (DateTime At, JsonDocument? List)? _list;
+    /// <summary>Sony's firmware list, read at most once a day and retried as every version check is (<see cref="LatestCache{T}"/>).</summary>
+    private static readonly LatestCache<string> FirmwareFeed = new("Sony's firmware list", TimeSpan.FromDays(1));
 
     private static HttpClient CreateHttp()
     {
@@ -70,13 +71,15 @@ internal static partial class ControllerLab
     /// <summary>The newest firmware Sony offers for a series, read at most once a day; null offline or when the list doesn't name it.</summary>
     internal static async Task<ushort?> LatestAsync(byte series)
     {
-        if (_list is not { } list || DateTime.UtcNow - list.At >= TimeSpan.FromDays(1))
+        var text = await FirmwareFeed.GetAsync("list", async ct =>
         {
-            try { list = (DateTime.UtcNow, JsonDocument.Parse(await Http.GetStringAsync(FirmwareList).ConfigureAwait(false))); }
-            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException) { return null; }
-            _list = list;
-        }
-        return list.List is { } doc && doc.RootElement.ValueKind == JsonValueKind.Object
+            var json = await Http.GetStringAsync(FirmwareList, ct).ConfigureAwait(false);
+            using var check = JsonDocument.Parse(json);
+            return json;
+        }, CancellationToken.None).ConfigureAwait(false);
+        if (text is null) return null;
+        using var doc = JsonDocument.Parse(text);
+        return doc.RootElement.ValueKind == JsonValueKind.Object
             && doc.RootElement.TryGetProperty(LatestKey(series), out var value) && value.ValueKind == JsonValueKind.String
             ? ParseVersion(value.GetString()) : null;
     }
@@ -127,7 +130,7 @@ internal static partial class ControllerLab
         catch (Exception ex) when (ex is System.Security.SecurityException or UnauthorizedAccessException or IOException) { return false; }
     }
 
-    private static bool? MemoryIntegrityOn()
+    internal static bool? MemoryIntegrityOn()
     {
         try
         {

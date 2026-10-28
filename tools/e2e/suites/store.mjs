@@ -60,7 +60,7 @@ export async function run(t) {
     // The finder runs in the page, so its name goes as an argument (a closure's would be undefined there).
     const chip = (name) => [...document.querySelectorAll('.exo-store-top .exo-shelf-chip')].find(b => b.textContent.trim() === name) ?? null
     if (!await t.shell.click(chip, 'Calendar')) return ['the Store has no Calendar view']
-    const state = await t.shell.waitFor(() => document.querySelector('.exo-cal-note') ? 'ready' : document.querySelector('.exo-store-error') ? 'error' : null, { timeoutMs: 30000 })
+    const state = await t.shell.waitFor(() => document.querySelector('.exo-cal-filters') ? 'ready' : document.querySelector('.exo-store-error') ? 'error' : null, { timeoutMs: 30000 })
     if (state === 'error') c.skip('the store did not answer')
     if (state !== 'ready') return ['the calendar never showed']
     const view = await t.shell.eval(`({
@@ -102,13 +102,15 @@ export async function run(t) {
     if (!page) return ['the page did not open']
     await t.shell.waitFor(() => !document.querySelector('.exo-sgp-placeholder'), { timeoutMs: 15000 })
     await sleep(600)
-    const parts = await t.shell.eval(`({ about: /About/.test(document.querySelector('.exo-sgp')?.innerText ?? ''), reqs: /System requirements/.test(document.querySelector('.exo-sgp')?.innerText ?? ''), thisPc: /This PC/.test(document.querySelector('.exo-sgp')?.innerText ?? ''), buy: !!document.querySelector('.exo-sgp-buy') })`)
+    const parts = await t.shell.eval(`({ about: /About/.test(document.querySelector('.exo-sgp')?.innerText ?? ''), reqs: /System requirements/.test(document.querySelector('.exo-sgp')?.innerText ?? ''), thisPc: /This PC/.test(document.querySelector('.exo-sgp')?.innerText ?? ''), buy: !!document.querySelector('.exo-sgp-buy'), facts: Object.fromEntries([...document.querySelectorAll('.exo-sgp-facts dl > div')].map(d => [d.querySelector('dt')?.textContent, d.querySelector('dd')?.textContent])) })`)
     c.evidence.title = page
     c.evidence.parts = parts
     await c.shot('page', t.shell)
     const failures = await k.look(c, 'page')
     if (!parts.buy) failures.push('no buying section')
     if (!parts.about) c.warn('no About')
+    // The ten facts, the last 30 days' reviews among them, each settled to a value or a dash.
+    for (const name of ['Reviews', 'Recent reviews', 'Controller', 'Languages', 'Other account', 'DRM']) if (!parts.facts?.[name]) failures.push(`no ${name} fact`)
     if (parts.reqs && !parts.thisPc) failures.push('requirements without this PC')
     await t.shell.key('Escape')
     if (!await t.shell.waitFor(() => !document.querySelector('.exo-sgp'), { timeoutMs: 3000 })) failures.push('Escape did not close the page')

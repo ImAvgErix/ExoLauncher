@@ -1,12 +1,11 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
-import { host, onHostEvent, type AccountStore, type LauncherSettings, type StoreAccounts, type SwitchStore } from '../../lib/host'
-import { report } from '../../lib/report'
-import { Switch } from '../Switch'
+import { host, onHostEvent, type AccountStore, type StoreAccounts, type SwitchStore } from '../../lib/host'
 import { Menu, type MenuItem } from '../ui/Menu'
 import { ChevronDown } from '../../brand/icons'
+import { CompanyLogo } from '../../brand/CompanyLogo'
 import { confirm } from '../ui/Dialog'
 import { Spinner } from '../ui/Spinner'
-import { Row, State } from './parts'
+import { Row } from './parts'
 
 type Result = { ok: boolean; message?: string | null }
 
@@ -46,15 +45,45 @@ export function accountDetail(store: string, accounts: StoreAccounts | null, lin
 
 const CLIENT: Record<SwitchStore, string> = { steam: 'Steam', riot: 'Riot Client' }
 
-/** Add account on Steam's and Riot's rows: the client closes and opens its own sign-in. */
-function addLine(store: SwitchStore, accounts: StoreAccounts): string {
-  const kept = store === 'riot' ? accounts.riot?.current : null
-  return kept ? `Riot Client closes and opens its sign-in. Exo keeps ${kept} to switch back` : `${CLIENT[store]} closes and opens its sign-in`
+type AccountItem = MenuItem & { pending?: Pending; run?: () => Promise<Result>; line?: string }
+
+/** One of Steam's remembered accounts or the Riot accounts Exo saved. */
+type SwitchAccount = { key: string; name: string; current: boolean; saved?: boolean }
+
+/**
+ * Steam's and Riot's Account menu, the same menu as every store's: the accounts on this PC (the one in use checked; any
+ * other switches to it), Add account, and Forget for the others. Switching runs at once, its steps in the row's line;
+ * Forget asks first.
+ */
+function switchMenuFor(store: SwitchStore, accounts: StoreAccounts): AccountItem[] {
+  const list: SwitchAccount[] = (store === 'steam' ? accounts.steam?.accounts : accounts.riot?.accounts) ?? []
+  const items: AccountItem[] = list.map(account => ({
+    id: `switch:${account.key}`,
+    label: account.name,
+    section: 'Accounts',
+    on: account.current,
+    line: account.current ? undefined : `${CLIENT[store]} restarts to sign in as ${account.name}…`,
+    run: account.current ? undefined : () => host.accountsSwitch(store, account.key),
+  }))
+  items.push({ id: 'add', label: 'Add account', line: `${CLIENT[store]} closes and opens its sign-in`, run: () => host.accountsAdd(store) })
+  for (const account of list.filter(entry => !entry.current && (store === 'steam' || entry.saved === true))) {
+    items.push({
+      id: `forget:${account.key}`,
+      label: `Forget ${account.name}`,
+      section: 'Forget',
+      pending: {
+        title: `Forget ${account.name}?`,
+        body: store === 'steam' ? `Steam forgets ${account.name} on this PC. Signing in again brings it back.` : `Exo forgets ${account.name}'s saved sign-in. Signing in again brings it back.`,
+        action: 'Forget', line: `Forgetting ${account.name}`, run: () => host.accountsRemove(store, account.key),
+      },
+    })
+  }
+  return items
 }
 
-function menuFor(store: Exclude<AccountStore, 'steam'>, accounts: StoreAccounts): Array<MenuItem & { pending?: Pending; run?: () => Promise<Result> }> {
+function menuFor(store: Exclude<AccountStore, 'steam'>, accounts: StoreAccounts): AccountItem[] {
   const name = { epic: 'Epic', gog: 'GOG', amazon: 'Amazon' }[store]
-  const items: Array<MenuItem & { pending?: Pending; run?: () => Promise<Result> }> = [{
+  const items: AccountItem[] = [{
     id: 'switch',
     label: 'Switch account',
     pending: {
@@ -73,6 +102,17 @@ function menuFor(store: Exclude<AccountStore, 'steam'>, accounts: StoreAccounts)
     })
   }
   if (store === 'epic') items.push({ id: 'add', label: 'Add another account', run: host.accountsEpicAdd })
+  if (store === 'epic' && accounts.epic.canSwitchLauncher) {
+    items.push({
+      id: 'newlauncher',
+      label: "Switch to Epic's new launcher",
+      pending: {
+        title: "Switch to Epic's new launcher?",
+        body: "Exo downloads Epic's new launcher from Epic and opens its installer. It moves your games, saves and purchases over and takes out the old launcher. Epic still calls it a preview.",
+        action: 'Switch', line: "Downloading Epic's new launcher", run: host.accountsEpicNewLauncher,
+      },
+    })
+  }
   const canSignOut = store === 'epic' ? accounts.epic.signedIn : store === 'gog' ? accounts.gog.canSignOut : accounts.amazon.signedIn
   if (canSignOut) {
     items.push({
@@ -105,8 +145,8 @@ export function AccountControl({ store, accounts, busy, onBusy, onLine, onError,
     if (!running || !switches) return
     return onHostEvent('accounts.progress', progress => { if (progress.store === store) onLine(progress.line) })
   }, [running, switches, store, onLine])
-  const items = switches ? [] : menuFor(store, accounts)
-  if (!switches && items.length === 0) return null
+  const items = switches ? switchMenuFor(store, accounts) : menuFor(store, accounts)
+  if (items.length === 0) return null
 
   async function run(action: () => Promise<Result>) {
     onBusy(true)
@@ -132,18 +172,6 @@ export function AccountControl({ store, accounts, busy, onBusy, onLine, onError,
     await run(pending.run)
   }
 
-  if (switches) {
-    return (
-      <button
-        type="button"
-        className="exo-set-btn"
-        disabled={busy}
-        onClick={() => { onLine(addLine(store, accounts)); void run(() => host.accountsAdd(store)) }}
-      >
-        {busy ? <Spinner label="Adding the account" /> : null}Add account
-      </button>
-    )
-  }
   return (
     <Menu
       label="Account"
@@ -155,6 +183,7 @@ export function AccountControl({ store, accounts, busy, onBusy, onLine, onError,
       disabled={busy}
       onAction={(id) => {
         const item = items.find(entry => entry.id === id)
+        if (item?.line) onLine(item.line)
         if (item?.run) void run(item.run)
         else if (item?.pending) void ask(item.pending)
       }}
@@ -162,109 +191,13 @@ export function AccountControl({ store, accounts, busy, onBusy, onLine, onError,
   )
 }
 
-type SwitchAccount = { key: string; name: string; current: boolean; remembered?: boolean; saved?: boolean; lastIn?: string[] }
-
-/** The line under one account: its store, whether it needs Steam's sign-in, and what last played as it. */
-function accountNote(store: SwitchStore, account: SwitchAccount): string {
-  const label = store === 'steam' ? 'Steam' : 'Riot'
-  const facts = [
-    store === 'steam' && account.remembered === false ? 'sign in once in Steam' : null,
-    ...(account.lastIn ?? []).map(game => `last used in ${game}`),
-  ].filter(Boolean)
-  return [label, ...facts].join(', ')
-}
-
-function AccountRow({ store, account, busy, onBusy, onDone }: {
-  store: SwitchStore
-  account: SwitchAccount
-  busy: boolean
-  onBusy: (busy: boolean) => void
-  onDone: () => void
-}) {
-  // Remove asks first; Switch runs at once, its steps in the row's line.
-  const [running, setRunning] = useState<'switch' | 'remove' | null>(null)
-  const [line, setLine] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const canRemove = !account.current && (store === 'steam' || account.saved === true)
-  useEffect(() => {
-    if (running !== 'switch') return
-    return onHostEvent('accounts.progress', progress => { if (progress.store === store) setLine(progress.line) })
-  }, [running, store])
-  async function run(action: 'switch' | 'remove') {
-    onBusy(true)
-    setRunning(action)
-    setError(null)
-    setLine(action === 'switch' ? `${CLIENT[store]} restarts to sign in as ${account.name}…` : null)
-    try {
-      const result = action === 'switch' ? await host.accountsSwitch(store, account.key) : await host.accountsRemove(store, account.key)
-      setLine(result.ok ? result.message ?? null : null)
-      if (!result.ok) setError(result.message ?? 'That did not finish. Try again.')
-    } catch (cause) {
-      report(cause, `StoreAccounts.${action}`)
-      setLine(null)
-      setError('That did not finish. Try again.')
-    } finally {
-      setRunning(null)
-      onBusy(false)
-      onDone()
-    }
-  }
-  async function remove() {
-    const sure = await confirm({
-      title: `Remove ${account.name}?`,
-      body: store === 'steam' ? `Steam forgets ${account.name} on this PC. Signing in again brings it back.` : `Exo forgets ${account.name}'s saved sign-in. Signing in again brings it back.`,
-      action: 'Remove',
-      danger: true,
-    })
-    if (sure === true) await run('remove')
-  }
-  return (
-    <Row label={account.name} detail={line ?? accountNote(store, account)} error={error}>
-      {account.current ? (
-        <State on>Signed in</State>
-      ) : (
-        <>
-          {canRemove ? (
-            <button type="button" className="exo-set-btn" disabled={busy} onClick={() => void remove()}>
-              {running === 'remove' ? <Spinner label={`Removing ${account.name}`} /> : null}Remove
-            </button>
-          ) : null}
-          <button type="button" className="exo-set-btn" disabled={busy} onClick={() => void run('switch')}>
-            {running === 'switch' ? <Spinner label={`Switching to ${account.name}`} /> : null}Switch
-          </button>
-        </>
-      )}
-    </Row>
-  )
-}
-
-/**
- * Steam's remembered accounts, or the Riot accounts Exo saved, under the store's row
- * once there is more than one: the active one, and Switch and Remove for the others.
- */
-export function AccountRows({ store, accounts, busy, onBusy, onDone }: {
-  store: SwitchStore
+/** The Epic accounts added for their hours (hours always count every account on this PC). */
+export function AccountHours({ accounts, onChanged }: {
   accounts: StoreAccounts | null
-  busy: boolean
-  onBusy: (busy: boolean) => void
-  onDone: () => void
-}) {
-  const list: SwitchAccount[] = (store === 'steam' ? accounts?.steam?.accounts : accounts?.riot?.accounts) ?? []
-  if (list.length < 2) return null
-  return list.map(account => <AccountRow key={account.key} store={store} account={account} busy={busy} onBusy={onBusy} onDone={onDone} />)
-}
-
-/** The opt-in hours switch and the Epic accounts added for their hours. */
-export function AccountHours({ settings, accounts, onSave, onChanged }: {
-  settings: LauncherSettings | null
-  accounts: StoreAccounts | null
-  onSave: (patch: Partial<LauncherSettings>) => Promise<boolean>
   onChanged: () => void
 }) {
-  const [error, setError] = useState<string | null>(null)
   const [removing, setRemoving] = useState<string | null>(null)
   const [removeError, setRemoveError] = useState<{ key: string; message: string } | null>(null)
-  const on = settings?.countHoursAcrossAccounts === true
   async function remove(account: { key: string; name: string }) {
     const sure = await confirm({ title: `Remove ${account.name}?`, body: "Exo stops counting this account's Epic hours. Add it again to count them.", action: 'Remove', danger: true })
     if (sure !== true) return
@@ -284,16 +217,8 @@ export function AccountHours({ settings, accounts, onSave, onChanged }: {
   }
   return (
     <>
-      <Row label="Count hours from all my accounts" labelId="set-account-hours" detail="Every Steam and Epic account on this PC" error={error}>
-        <Switch
-          checked={on}
-          disabled={!settings}
-          labelledBy="set-account-hours"
-          onChange={value => { setError(null); void onSave({ countHoursAcrossAccounts: value }).then(ok => { if (!ok) setError('Could not save. Try again.') }) }}
-        />
-      </Row>
       {(accounts?.epic.added ?? []).map(account => (
-        <Row key={account.key} label={account.name} detail="Epic, for its hours" error={removeError?.key === account.key ? removeError.message : null}>
+        <Row key={account.key} label={account.name} icon={<CompanyLogo company="epic" size={22} />} error={removeError?.key === account.key ? removeError.message : null}>
           <button type="button" className="exo-set-btn" disabled={removing !== null} onClick={() => void remove(account)}>
             {removing === account.key ? <Spinner label={`Removing ${account.name}`} /> : null}Remove
           </button>

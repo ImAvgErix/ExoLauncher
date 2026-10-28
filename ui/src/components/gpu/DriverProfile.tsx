@@ -49,7 +49,7 @@ export function DriverProfile({ active, profile, head, busy, error, onAct }: {
   const status = changed ? null : appliedState(profile)
   return (
     <>
-      <Row label={profile.gpu || 'Graphics card'} detail={<>{status}{head}{profile.summary ? `. ${profile.summary}` : ''}</>}
+      <Row label={profile.gpu || 'Graphics card'} detail={<>{status}{head}</>}
         error={error ?? (profile.ok ? null : trimStop(profile.message) || 'The driver did not answer')}>
         <Choice label={intel ? 'Low latency' : 'Anti-Lag'} value={latency} choices={intel ? LOW_LATENCY : ANTI_LAG} disabled={!!busy} onChange={setChoice} />
         <ProfileButtons apply={applyWords(profile, changed, busy === 'apply')} undo={!!profile.canUndo} busy={busy} onAct={act} />

@@ -176,6 +176,7 @@ export function AccessibilityPage() {
   )
 }
 
+/** Discord's languages, as it lists them: a server's primary language (Server Settings > Community). */
 export const LANGUAGES: { value: string; label: string }[] = [
   ['en-US', 'English, US'], ['en-GB', 'English, UK'], ['bg', 'български'], ['zh-CN', '中文'], ['zh-TW', '繁體中文'], ['hr', 'Hrvatski'], ['cs', 'Čeština'],
   ['da', 'Dansk'], ['nl', 'Nederlands'], ['fi', 'Suomi'], ['fr', 'Français'], ['de', 'Deutsch'], ['el', 'Ελληνικά'], ['hi', 'हिंदी'], ['hu', 'Magyar'],
@@ -183,23 +184,6 @@ export const LANGUAGES: { value: string; label: string }[] = [
   ['ro', 'Română'], ['ru', 'Русский'], ['es-ES', 'Español'], ['es-419', 'Español, LATAM'], ['sv-SE', 'Svenska'], ['th', 'ไทย'], ['tr', 'Türkçe'],
   ['uk', 'Українська'], ['vi', 'Tiếng Việt'],
 ].map(([value, label]) => ({ value, label }))
-
-/** Discord settings > Language & Time: the account's language and the time format in chat. */
-export function LanguagePage() {
-  const settings = useAccountSettings()
-  const locale = settings.locale || (LANGUAGES.some(l => l.value === navigator.language) ? navigator.language : 'en-US')
-  return (
-    <>
-      <h1>Language & time</h1>
-      <Category>
-        <ChoiceRow label="Language" detail="The language Discord uses for your account: its emails, and notifications on your phone." value={locale} choices={LANGUAGES}
-          onChange={value => changeAccountSettings({ locale: value })} />
-        <ChoiceRow label="Time format" value={settings.timestampHourCycle} onChange={value => changeAccountSettings({ timestampHourCycle: value })}
-          choices={[{ value: 0, label: 'Auto' }, { value: 1, label: '12-hour' }, { value: 2, label: '24-hour' }]} />
-      </Category>
-    </>
-  )
-}
 
 /** Discord settings > Developer: Developer Mode, which adds Copy ID to menus. */
 export function DeveloperPage() {

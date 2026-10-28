@@ -39,6 +39,16 @@ async function fileFrom(t, button, id, label) {
   return false
 }
 
+/** A game's sheet through Ctrl+K by its name; false when it didn't open. */
+async function openByName(t, title) {
+  await t.shell.key('k', { ctrl: true })
+  if (!await t.shell.waitFor(() => document.activeElement?.getAttribute('role') === 'combobox', { timeoutMs: 3000 })) return false
+  await t.shell.type(title.slice(0, 18))
+  if (!await t.shell.waitFor((n) => [...document.querySelectorAll('[role="dialog"] [role="option"]')].some(o => o.textContent.includes(n)), { timeoutMs: 4000, args: [title.slice(0, 12)] })) return false
+  await t.shell.key('Enter')
+  return !!await t.shell.waitFor(sheetTitle, { timeoutMs: 5000 })
+}
+
 async function pickSort(t, label) {
   await t.shell.click(sortTrigger)
   await sleep(350)
@@ -175,6 +185,103 @@ export async function run(t) {
     const opened = await t.shell.waitFor(sheetTitle, { timeoutMs: 5000 })
     await k.closeAll()
     return opened ? [] : ['Enter did not open the game']
+  })
+
+  // Never pressed: a press writes the game's own settings files.
+  await run.check('library', 'optimize', "a game Exo has best settings for shows Optimize with the word its files call for, Applied in green; others show none", async (c) => {
+    const games = (await t.host('library.get'))?.games ?? []
+    let found = null
+    let other = null
+    for (const game of games) {
+      const state = await t.host('game.settings', { id: game.id })
+      if (state?.ok && state.supported) found ??= { game, state }
+      else if (state?.ok && game.installed) other ??= game
+      if (found && other) break
+    }
+    if (!found) c.skip('no game here that Exo has best settings for')
+    const { game, state } = found
+    const on = state.groups?.filter(g => g.on).length ?? 0
+    const want = state.running ? `Close ${state.title} first` : !state.found ? `Play ${state.title} once first`
+      : on === state.groups.length && on > 0 ? 'Applied' : 'Not optimized'
+    c.evidence.game = game.title
+    c.evidence.groups = `${on} of ${state.groups?.length ?? 0} on`
+    const open = (title) => openByName(t, title)
+    const line = () => { const s = document.querySelector('.exo-game-overlay-stage section.exo-game-line[aria-label="Optimize"]'); const b = s?.querySelector('button'); const w = s?.querySelector('.exo-game-line-word'); return s && { word: w?.textContent.trim() ?? '', good: w?.classList.contains('is-good') ?? false, color: w ? getComputedStyle(w).color : '', disabled: b?.disabled ?? false, visible: s.checkVisibility() } }
+    if (!await open(game.title)) { await k.closeAll(); return [`Ctrl+K did not open ${game.title}`] }
+    const shown = await t.shell.waitFor(() => { const s = document.querySelector('.exo-game-overlay-stage section.exo-game-line[aria-label="Optimize"] .exo-game-line-word'); return s?.textContent.trim() ? true : null }, { timeoutMs: 5000 }) && await t.shell.eval(`(${line})()`)
+    c.evidence.line = shown
+    const failures = []
+    if (!shown) failures.push(`${game.title}'s sheet has no Optimize line`)
+    else {
+      await sleep(500)
+      await c.shot('optimize', t.shell)
+      failures.push(...await k.look(c, 'optimize'))
+      if (!shown.visible) failures.push('the Optimize line is not visible')
+      if (shown.word !== want) failures.push(`Optimize says "${shown.word}", ${game.title}'s files call for "${want}"`)
+      if (want === 'Applied' && (!shown.good || !shown.disabled)) failures.push('Applied is not green, or can still be pressed')
+      if (want === 'Not optimized' && shown.disabled) failures.push('Not optimized but Optimize cannot be pressed')
+    }
+    await k.closeAll()
+    if (other) {
+      c.evidence.other = other.title
+      if (!await open(other.title)) failures.push(`Ctrl+K did not open ${other.title}`)
+      else {
+        await sleep(800)
+        if (await t.shell.eval(`!!document.querySelector('.exo-game-overlay-stage section.exo-game-line[aria-label="Optimize"]')`)) failures.push(`${other.title} shows Optimize without best settings`)
+      }
+      await k.closeAll()
+    }
+    return failures
+  })
+
+  // Never pressed: Rebuild deletes the game's shader cache.
+  await run.check('library', 'shaders-rebuild', "Call of Duty's Properties › Installed files shows its shader cache with Rebuild shaders; a game without one shows no such row", async (c) => {
+    const games = (await t.host('library.get'))?.games?.filter(g => g.installed) ?? []
+    let found = null
+    let other = null
+    for (const game of games) {
+      const props = await t.host('game.properties', { id: game.id })
+      if (props?.ok && props.shaderCacheBytes != null) found ??= { game, props }
+      else if (props?.ok && /steam|epic/.test(props.store)) other ??= game
+      if (found && other) break
+    }
+    if (!found) c.skip('no game here whose shaders Exo can rebuild')
+    const { game, props } = found
+    c.evidence.game = game.title
+    c.evidence.bytes = props.shaderCacheBytes
+    const row = () => { const r = [...document.querySelectorAll('.exo-props .exo-props-row')].find(x => x.querySelector('.exo-set-item-label')?.textContent.trim() === 'Shaders'); if (!r) return null; const b = [...r.querySelectorAll('button')].find(x => x.textContent.trim() === 'Rebuild shaders'); return { text: r.innerText.replace(/\s+/g, ' ').trim(), button: !!b, disabled: b?.disabled ?? null, visible: r.checkVisibility() } }
+    const files = async (title) => {
+      if (!await openByName(t, title)) return `Ctrl+K did not open ${title}`
+      if (!await t.shell.click(() => document.querySelector('.exo-game-overlay-stage button[aria-label="Properties"]'))) return `${title} has no Properties button`
+      // The sections come with the game's properties; until they are read only General shows.
+      if (!await t.shell.waitFor(() => [...document.querySelectorAll('.exo-props-nav button')].some(b => b.textContent.trim() === 'Installed files' && b.checkVisibility()) || null, { timeoutMs: 15000 })) return 'Properties did not open at its sections'
+      if (!await t.shell.click(() => [...document.querySelectorAll('.exo-props-nav button')].find(b => b.textContent.trim() === 'Installed files'))) return 'Properties has no Installed files'
+      await t.shell.waitFor(() => document.querySelector('.exo-props .exo-props-row') || null, { timeoutMs: 8000 })
+      await sleep(500)
+      return null
+    }
+    const failures = []
+    const missing = await files(game.title)
+    if (missing) { await k.closeAll(); return [missing] }
+    const shown = await t.shell.eval(`(${row})()`)
+    c.evidence.row = shown
+    await c.shot('shaders-rebuild', t.shell)
+    failures.push(...await k.look(c, 'shaders-rebuild'))
+    if (!shown) failures.push('Installed files has no Shaders row')
+    else {
+      if (!shown.button) failures.push('the Shaders row has no Rebuild shaders')
+      if (props.shaderCacheBytes > 0 && (shown.disabled || /Builds at next start/.test(shown.text))) failures.push(`${props.shaderCacheBytes} bytes of shaders, but the row reads "${shown.text}" or can't be pressed`)
+      if (props.shaderCacheBytes === 0 && (!shown.disabled || !/Builds at next start/.test(shown.text))) failures.push(`no shaders, but the row reads "${shown.text}" or can be pressed`)
+    }
+    await k.closeAll()
+    if (other) {
+      c.evidence.other = other.title
+      const missingOther = await files(other.title)
+      if (missingOther) failures.push(missingOther)
+      else if (await t.shell.eval(`(${row})()`)) failures.push(`${other.title} shows a Shaders row`)
+      await k.closeAll()
+    }
+    return failures
   })
 
   await run.check('library', 'folder', 'a folder is made, shows first, opens, changes color and is deleted', async (c) => {

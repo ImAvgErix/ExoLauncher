@@ -1,3 +1,4 @@
+import { CopyLogs, ErrorNote } from '../ui/ErrorNote'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type CSSProperties } from 'react'
 import { host, onHostEvent } from '../../lib/host'
 import { useNotice } from '../../lib/notify'
@@ -488,7 +489,8 @@ function StreamStage({ member, onStop, onRetry, membersHidden, onToggleMembers }
       {stream.live ? null : failed ? (
         <p className="exo-dc-note" role="alert">
           {member.name}'s stream didn't start.{' '}
-          <button type="button" className="exo-dc-tab" onClick={retry}>Try again</button>
+          <button type="button" className="exo-dc-tab" onClick={retry}>Try again</button>{' '}
+          <CopyLogs error={`${member.name}'s stream didn't start.`} />
         </p>
       ) : <span className="sr-only" role="status">Joining {member.name}'s stream</span>}
       <span className="exo-dc-live">LIVE</span>
@@ -533,7 +535,7 @@ export function VoicePanel({ controls, place, onOpen }: { controls: VoiceControl
           {voice.state === 'connected' ? 'Voice connected' : voice.state === 'connecting' ? 'Connecting' : 'Voice'}
           {voice.state === 'connected' && voice.e2ee ? <span className="exo-dc-voice-e2ee" role="img" aria-label="End-to-end encrypted"><Icons.Lock size={12} /></span> : null}
         </strong>
-        {error ? <span role="alert">{error}</span> : voice.state !== 'off' && place
+        {error ? <ErrorNote as="span" message={error} /> : voice.state !== 'off' && place
           ? <button type="button" className="exo-dc-voice-place" onClick={onOpen}>{place}</button>
           : null}
         {voice.state === 'connected' && voice.micSilent && !voice.muted
