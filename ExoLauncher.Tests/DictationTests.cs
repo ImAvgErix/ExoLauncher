@@ -72,6 +72,9 @@ public sealed class DictationTests
 
         var path = Path.Combine(folder, "encoder.onnx");
         var written = File.GetLastWriteTimeUtc(path);
+        // Past the system clock's tick (15.6 ms unless something asks for a finer one), which file times are read from: a
+        // change in the same tick as the file's own write keeps its change time (GitHub's runners), as no real change can.
+        Thread.Sleep(40);
         var bytes = File.ReadAllBytes(path);
         bytes[100] ^= 0xFF;
         File.WriteAllBytes(path, bytes);

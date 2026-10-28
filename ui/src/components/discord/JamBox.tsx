@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Close, Pause, Play } from '../../brand/icons'
+import { Close } from '../../brand/icons'
 import { host, onHostEvent } from '../../lib/host'
 import type { MusicPlayback } from '../../lib/music'
 import { listenAlong, sameSong, stopListening, useListenAlong, useListeningFriends } from '../../lib/listenAlong'
@@ -70,17 +70,12 @@ export function JamBox({ callIds }: { callIds: readonly string[] }) {
   )
 }
 
-/** The song Exo plays: its cover, title and artist, and pause or play. */
+/** The song Exo plays: its cover, title and artist. Its controls are the Bar's player's. */
 function NowPlaying({ now }: { now: MusicPlayback }) {
-  const paused = now.status === 'paused'
   return (
     <section className="exo-dc-jam" aria-label="Now playing">
       {now.artworkDataUrl ? <img className="exo-dc-jam-art" src={now.artworkDataUrl} alt="" draggable={false} /> : null}
       <span className="exo-dc-me-names"><strong>{now.title}</strong><span>{now.artist}</span></span>
-      <button type="button" className="exo-dc-icon-btn" aria-label={paused ? 'Play' : 'Pause'} disabled={paused ? !now.canPlay : !now.canPause}
-        onClick={() => void host.musicControl(paused ? 'play' : 'pause')}>
-        {paused ? <Play size={14} /> : <Pause size={14} />}
-      </button>
     </section>
   )
 }

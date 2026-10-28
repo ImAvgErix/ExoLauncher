@@ -50,6 +50,19 @@ public sealed class VoiceprintLearningTests
     }
 
     [Fact]
+    public void YourVoiceAsLoudAsYoursTeachesWhatAShortTeachMissed()
+    {
+        // The voice a call hears (in a game, tired) at 0.52 like what was taught: folded in when it was as loud as the
+        // user at their mic, never when it wasn't; another man's (0.47) never, loud or not.
+        var calls = At(Axis(0), Axis(1), 0.52f);
+        Assert.Null(VoiceprintLearning.Fold(Taught(), calls, 30));
+        var next = VoiceprintLearning.Fold(Taught(), calls, 30, close: true)!;
+        Assert.True(VoiceprintLearning.Dot(next.Print, calls) > VoiceprintLearning.Dot(Taught().Print, calls));
+        Assert.True(VoiceprintLearning.Dot(next.Print, next.Anchor) >= VoiceprintLearning.AnchorKeep);
+        Assert.Null(VoiceprintLearning.Fold(Taught(), At(Axis(0), Axis(1), 0.47f), 30, close: true));
+    }
+
+    [Fact]
     public void ItCannotDriftToSomeoneElseAStepAtATime()
     {
         // Each sample is clearly like the voiceprint as it stands (0.9) but leans further from what was taught.
@@ -127,6 +140,11 @@ public sealed class VoiceprintLearningTests
             for (var i = 0; i < 10; i++) VoiceprintLearning.Learn(mine, 0.9f, 1.5f);
             VoiceprintLearning.Reset();
             for (var i = 0; i < 19; i++) Assert.Null(VoiceprintLearning.Learn(mine, 0.9f, 1.5f));
+            // A judgment under LearnFrom counts when the voice was as loud as the user's (close), and only from CloseLearnFrom.
+            VoiceprintLearning.Reset();
+            for (var i = 0; i < 40; i++) Assert.Null(VoiceprintLearning.Learn(mine, VoiceprintLearning.CloseLearnFrom - 0.01f, 1.5f, close: true));
+            for (var i = 0; i < 19; i++) Assert.Null(VoiceprintLearning.Learn(mine, 0.55f, 1.5f, close: true));
+            Assert.NotNull(VoiceprintLearning.Learn(mine, 0.55f, 1.5f, close: true));
         }
         finally
         {

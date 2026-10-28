@@ -175,11 +175,15 @@ internal sealed unsafe class NoiseSuppressor : IDisposable
     private void ApplyThresholds(bool light = false) => _thresholds(_state, MinDb, MaxErbDb, light ? LightDf : FullDf);
 
     // One let go of waits here for the next call, Voice Check or Voice Tune (each holds its own model: about 40 MB of its
-    // own memory and 80 MB in use, half a second to load), and is freed after a minute unused (df_free), so a PC between
-    // calls doesn't carry it. A call loads one as it joins (DiscordSession.JoinVoice), well inside the connection's own time.
+    // own memory and 80 MB in use, half a second to load), and is freed after a minute unused (df_free). While Discord is
+    // connected one is kept (KeepOne, set by DiscordSession.Start), so no call starts on a cold model: one loaded as a call
+    // joined and was freed a minute after it ended, and with a game running the next call's first words went out uncleaned.
     private static readonly Stack<NoiseSuppressor> Idle = new();
     private static readonly TimeSpan IdleFor = TimeSpan.FromMinutes(1);
     private static Timer? _sweep;
+
+    /// <summary>Whether the sweep keeps the newest idle model: while Discord is connected.</summary>
+    internal static volatile bool KeepOne;
     private int _inUse = 1;
     private long _idleSince;
 
@@ -303,7 +307,8 @@ internal sealed unsafe class NoiseSuppressor : IDisposable
         {
             var now = Environment.TickCount64;
             var all = Idle.ToArray();
-            stale = [.. all.Where(s => now - s._idleSince >= IdleFor.TotalMilliseconds)];
+            // The newest is on top (ToArray's first); with KeepOne it stays, warm for the next call.
+            stale = [.. all.Skip(KeepOne ? 1 : 0).Where(s => now - s._idleSince >= IdleFor.TotalMilliseconds)];
             if (stale.Count == 0) return;
             Idle.Clear();
             foreach (var keep in all.Reverse().Where(s => !stale.Contains(s))) Idle.Push(keep);
@@ -405,15 +410,15 @@ internal sealed class DelayTracker
 }
 
 /// <summary>
-/// Whether DeepFilterNet runs light, from how long each 20 ms run takes. A run waits on the plugin's worker for one
-/// 10 ms hop's inference and its 2 ms polls: 4 to 6 ms at rest on a Ryzen 5 5600X, and no slower with every core busy
-/// (24 burners at normal priority, or 12 at high), since Exo runs the worker above them. A worker that can't keep up
-/// makes runs come back slow, and a late one makes the plugin add 10 ms of delay for 20 s or more (and at a second of it,
-/// abort). So, as Krisp swaps its model for a smaller one once 20 frames in a row run over its line, it goes light when
-/// <see cref="SlowRuns"/> of the last <see cref="Window"/> runs took over <see cref="SlowMs"/> (half the frame: the worker
-/// at three quarters of its hop or more); one stall alone (a garbage collection, a busy moment elsewhere in Exo) never
-/// does, which a late-run rule did at rest. Light is about 30% less CPU (25% of a core to 18% on that Ryzen, a fan behind
-/// speech) at the same delay. It goes back once a span of runs had almost none slow (<see cref="SlowShare"/>): the span is
+/// Whether DeepFilterNet runs light, from how long each 20 ms run takes. A run is its two 10 ms hops' inference on Exo's
+/// voice thread (a real-time audio thread): 4 to 6 ms at rest on a Ryzen 5 5600X, and 10 to 14 ms in bursts while a game
+/// shares the cores, still well inside the frame. Light drops DeepFilterNet's second stage, which takes most of a close or
+/// tonal noise, so it is only for a PC that would otherwise fall behind the 20 ms frame: as Krisp swaps its model for a
+/// smaller one once 20 frames in a row run over its line, it goes light when <see cref="SlowRuns"/> of the last
+/// <see cref="Window"/> runs took over <see cref="SlowMs"/> (three quarters of the frame, the rest of the chain and Opus
+/// fitting in what is left). Its line was 10 ms, from a plugin worker that is gone: in a game it went light every few
+/// minutes and the room came through. One stall alone (a garbage collection, a busy moment elsewhere in Exo) never makes
+/// it light. Light is about 30% less CPU (25% of a core to 18% on that Ryzen, a fan behind speech) at the same delay. It goes back once a span of runs had almost none slow (<see cref="SlowShare"/>): the span is
 /// <see cref="Settle"/> runs (20 s, the plugin's own wait before it takes its added delay back) the first two times, then
 /// longer each time it had to go light again, as Krisp's wait grows (Fibonacci: 20, 20, 40, 60, 100 s, at most 13 spans,
 /// about 4 minutes), so a PC that stays busy doesn't swap back and forth; a new call starts over (<see cref="Reset"/>).
@@ -421,7 +426,7 @@ internal sealed class DelayTracker
 internal sealed class Overload
 {
     internal const int Window = 20, SlowRuns = 15, Settle = 1000;
-    internal const double SlowMs = 10, SlowShare = 0.01;
+    internal const double SlowMs = 15, SlowShare = 0.01;
     private readonly bool[] _last = new bool[Window];
     private int _at, _slowInWindow, _settled, _slow, _times;
 

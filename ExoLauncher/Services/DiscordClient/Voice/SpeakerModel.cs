@@ -62,6 +62,17 @@ internal static class SpeakerModel
     private static unsafe delegate* unmanaged[Cdecl]<nint, nint, int> _ready;
     private static unsafe delegate* unmanaged[Cdecl]<nint, nint, float*> _compute;
 
+    /// <summary>
+    /// Loads the model ahead of a call when there is a voice to judge (a voiceprint taught): as Discord connects
+    /// (DiscordSession.Start), so Only My Voice holds back other voices from a call's first moment, not from its first
+    /// judgment. Never on the audio thread.
+    /// </summary>
+    internal static void Warm()
+    {
+        if (!Voiceprint.Learned) return;
+        lock (Gate) Load();
+    }
+
     // Loads sherpa-onnx and the model once; under Gate.
     private static unsafe bool Load()
     {

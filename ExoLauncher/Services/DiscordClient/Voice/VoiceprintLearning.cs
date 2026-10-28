@@ -17,6 +17,13 @@ internal static class VoiceprintLearning
 {
     /// <summary>A 1.5 s judgment this like the voiceprint is clearly the user: kept to learn from.</summary>
     internal const float LearnFrom = 0.70f;
+    /// <summary>
+    /// A judgment this like the voiceprint, of a voice as loud as the user's at their microphone (VoiceChain.AsLoudAs), is
+    /// the user too, and learned from: someone across the room or a TV never reaches a close mic that loud, and every other
+    /// voice measured scored at most 0.47. At <see cref="LearnFrom"/> alone the voiceprint never learned in this PC's calls
+    /// (the voice a call hears, in a game or tired, rarely scored that like a short teach), so only a teach changed it.
+    /// </summary>
+    internal const float CloseLearnFrom = 0.50f;
     /// <summary>How like what was taught a sample, and the voiceprint after it, must stay (another man's voice scored at most 0.47).</summary>
     internal const float AnchorKeep = 0.65f;
     /// <summary>Speech averaged into one sample before it is folded in.</summary>
@@ -31,14 +38,22 @@ internal static class VoiceprintLearning
     /// </summary>
     internal sealed record State(float[] Anchor, float[] Print, float Seconds, int Updates);
 
-    /// <summary>A sample of the user's voice (unit length, from <see cref="FoldSeconds"/> of speech) folded in, or null when it is refused.</summary>
-    internal static State? Fold(State now, float[] sample, float sampleSeconds)
+    /// <summary>
+    /// A sample of the user's voice (unit length, from <see cref="FoldSeconds"/> of speech) folded in, or null when it is
+    /// refused. <paramref name="close"/>: it holds speech learned for its loudness (<see cref="CloseLearnFrom"/>), so it
+    /// may be as far from what was taught as that; the voiceprint after it still keeps to <see cref="AnchorKeep"/>.
+    /// </summary>
+    internal static State? Fold(State now, float[] sample, float sampleSeconds, bool close = false)
     {
         if (sample.Length != now.Print.Length || !(sampleSeconds > 0)) return null;
-        if (Dot(sample, now.Anchor) < AnchorKeep) return null;
+        if (Dot(sample, now.Anchor) < (close ? CloseLearnFrom : AnchorKeep)) return null;
         var weight = Math.Min(now.Seconds, MostWeightSeconds);
+        // A sample learned for its loudness never outweighs what is learned already, so the voiceprint moves toward the
+        // voice calls hear a step at a time (after a 6 s teach, 30 s of it alone swung the voiceprint past AnchorKeep, and
+        // it was refused every time).
+        var sampleWeight = close ? Math.Min(sampleSeconds, weight) : sampleSeconds;
         var print = new float[now.Print.Length];
-        for (var i = 0; i < print.Length; i++) print[i] = now.Print[i] * weight + sample[i] * sampleSeconds;
+        for (var i = 0; i < print.Length; i++) print[i] = now.Print[i] * weight + sample[i] * sampleWeight;
         if (!Normalize(print) || Dot(print, now.Anchor) < AnchorKeep) return null;
         return now with { Print = print, Seconds = now.Seconds + sampleSeconds, Updates = now.Updates + 1 };
     }
@@ -104,28 +119,32 @@ internal static class VoiceprintLearning
     private static readonly object Gate = new();
     private static float[]? _sum;
     private static float _sumSeconds;
+    private static bool _sumClose;
 
     /// <summary>
-    /// A 1.5 s embedding from a call and how like the voiceprint it judged: kept when it is clearly the user, and every
-    /// <see cref="FoldSeconds"/> of those folded into the voiceprint and saved. The new voiceprint when one was saved, else
-    /// null. Off the audio thread (MyVoice's judgment).
+    /// A 1.5 s embedding from a call and how like the voiceprint it judged: kept when it is clearly the user (or, as loud
+    /// as their voice at their mic, <paramref name="close"/>, when it is like enough: <see cref="CloseLearnFrom"/>), and
+    /// every <see cref="FoldSeconds"/> of those folded into the voiceprint and saved. The new voiceprint when one was
+    /// saved, else null. Off the audio thread (MyVoice's judgment).
     /// </summary>
-    internal static float[]? Learn(float[] embedding, float similarity, float seconds)
+    internal static float[]? Learn(float[] embedding, float similarity, float seconds, bool close = false)
     {
-        if (similarity < LearnFrom) return null;
+        if (similarity < (close ? CloseLearnFrom : LearnFrom)) return null;
         float[] sample;
         float sampleSeconds;
+        bool sampleClose;
         lock (Gate)
         {
-            if (_sum is null || _sum.Length != embedding.Length) (_sum, _sumSeconds) = (new float[embedding.Length], 0);
+            if (_sum is null || _sum.Length != embedding.Length) (_sum, _sumSeconds, _sumClose) = (new float[embedding.Length], 0, false);
             for (var i = 0; i < embedding.Length; i++) _sum[i] += embedding[i] * seconds;
             _sumSeconds += seconds;
+            _sumClose |= similarity < LearnFrom;
             if (_sumSeconds < FoldSeconds) return null;
-            (sample, sampleSeconds) = (_sum, _sumSeconds);
-            (_sum, _sumSeconds) = (null, 0);
+            (sample, sampleSeconds, sampleClose) = (_sum, _sumSeconds, _sumClose);
+            (_sum, _sumSeconds, _sumClose) = (null, 0, false);
         }
         if (!Normalize(sample) || Voiceprint.LoadState() is not { } now) return null;
-        if (Fold(now, sample, sampleSeconds) is not { } next)
+        if (Fold(now, sample, sampleSeconds, sampleClose) is not { } next)
         {
             AppLog.Info($"Discord voice: kept your voiceprint as it was ({Dot(sample, now.Anchor):0.00} like the voice you taught, under {AnchorKeep:0.00}).");
             return null;
@@ -138,6 +157,6 @@ internal static class VoiceprintLearning
     /// <summary>A new teach or Forget: speech kept toward the next sample was judged against the voiceprint before it.</summary>
     internal static void Reset()
     {
-        lock (Gate) (_sum, _sumSeconds) = (null, 0);
+        lock (Gate) (_sum, _sumSeconds, _sumClose) = (null, 0, false);
     }
 }

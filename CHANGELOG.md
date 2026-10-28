@@ -1,5 +1,15 @@
 # Changelog
 
+## 3.17.1 — October 27, 2026
+
+- **Exo Voice keeps the room out while you play.** Noise suppression dropped to its light mode (its first stage alone, which leaves close and tonal noise in) whenever a few runs took over 10 ms, a line from a worker thread it no longer has: with a game running it went light every few minutes and your room came through. It now goes light only when the PC would fall behind the 20 ms frame. _Checked in code only; needs a call during a game._
+- **Only My Voice never holds you back when you are the loud one.** A voice as loud as yours at your microphone is never held back as someone else's: someone across the room or a TV reaches your mic well under your own voice, while your voice in a game, louder and excited, was misjudged and held back, again and again. Your level is learned from what goes out as yours. _Checked in code only; needs a call during a game._
+- **Exo Voice is ready when Discord is.** Noise suppression's model loads as Exo's Discord connects and stays warm while it is connected, and Only My Voice's voice model loads then too, so a call's first words are cleaned and judged at once instead of after a model loads. _Checked in code only._
+- **Only My Voice learns your voice as calls hear it.** It learned in calls only from speech it already judged clearly yours, which your voice in a call (in a game, tired) rarely was, so only teaching it again changed it. Now speech as loud as yours at your microphone teaches it too, a step at a time and never away from the voice you taught, so a TV or someone across the room never becomes you. _Checked in code only._
+- **The song above your call just shows the song.** Its pause and play button is gone; the Bar's player has the controls. _Checked in code only._
+- **One clean ring around whoever is talking.** A call tile's green speaking ring sat 2 pixels outside the tile, with a strip of black between them that read as a second, dark line; it now sits on the tile's own edge, over their picture or camera, as the call's members wear theirs, and their picture no longer lights up as well. _Verified: on screen._
+- **Labels over art are one clean shape.** A call tile's name, a stream's name and buttons, Continue's title plates, More and Play, and the badges on covers had the glass's thin light line around their dimmed glass, which over a bright picture read as a second edge or a shadow. They are the dimmed glass alone now. _Verified: on screen._
+
 ## 3.17.0 — October 27, 2026
 
 - **Exo never writes to your controller during a game, even when it starts mid-game.** An Edge's calibration and a DualSense's light and sound settings go back when the controller connects, but only with no game running. Exo judged that from its library, which isn't read yet the moment Exo starts, so Exo started or restarted during a match could write to the controller then. It now waits for the library first. _Verified: on screen._

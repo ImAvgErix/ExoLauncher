@@ -14,6 +14,23 @@ public sealed class MyVoiceTests
     // game: 64 holds to 5 "your voice again"). Over half of 20 s of speech held back stops it; a voice held back now and
     // then (a cough, someone talking over them) never does.
     [Fact]
+    public void AVoiceAsLoudAsYoursIsNeverHeldBack()
+    {
+        // The user at a tuned mic (-24 dBFS), shouting in a game (-14): never held back, whatever the voiceprint says.
+        Assert.True(VoiceChain.AsLoudAs(-24f, -24f));
+        Assert.True(VoiceChain.AsLoudAs(-14f, -24f));
+        Assert.True(VoiceChain.AsLoudAs(-24f - VoiceChain.CloseDb, -24f));
+        // Someone across the room or a TV at the same mic, 10 dB and more under the user: held back as before.
+        Assert.False(VoiceChain.AsLoudAs(-34f, -24f));
+        // The level follows the user's talking, a frame at a time, and a shout or silence can't run off with it.
+        Assert.Equal(-24f + 10f / 75, VoiceChain.YourLevel(-24f, -14f), 3);
+        Assert.Equal(-24f, VoiceChain.YourLevel(-24f, -100f));
+        var level = -24f;
+        for (var i = 0; i < 2000; i++) level = VoiceChain.YourLevel(level, 0f);
+        Assert.Equal(-10f, level);
+    }
+
+    [Fact]
     public void HoldingBackMostOfTwentySecondsOfSpeechStopsItAndNowAndThenNeverDoes()
     {
         var mostly = Enumerable.Repeat(30, MyVoice.StopSeconds).ToArray(); // 30 of each second's 50 voiced frames held

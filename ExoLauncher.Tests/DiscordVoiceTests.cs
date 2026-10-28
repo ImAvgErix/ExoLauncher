@@ -851,10 +851,20 @@ public sealed class OverloadTests
     public void SustainedSlowRunsGoLightAndStallsDoNot()
     {
         var load = new Overload();
-        for (var i = 0; i < 3000; i++) load.Add(i % 50 == 0 ? 150 : i % 7 == 0 ? 12 : 5); // a 150 ms stall a second, some slow runs
+        for (var i = 0; i < 3000; i++) load.Add(i % 50 == 0 ? 150 : i % 7 == 0 ? 17 : 5); // a 150 ms stall a second, some slow runs
         Assert.False(load.Light);
-        for (var i = 0; i < Overload.SlowRuns; i++) load.Add(12);
+        for (var i = 0; i < Overload.SlowRuns; i++) load.Add(17);
         Assert.True(load.Light);
+    }
+
+    // A game sharing the cores: runs of 10 to 14 ms, all of them, are still inside the 20 ms frame. They went light at the
+    // old 10 ms line, every few minutes of a match, and the room came through.
+    [Fact]
+    public void RunsAGameSlowsButStillOnTimeStayFull()
+    {
+        var load = new Overload();
+        for (var i = 0; i < 3000; i++) load.Add(10 + i % 5);
+        Assert.False(load.Light);
     }
 
     [Fact]
@@ -863,11 +873,11 @@ public sealed class OverloadTests
         var load = new Overload();
         GoLight(load);
         Assert.True(load.Light);
-        for (var i = 0; i < 4 * Overload.Settle; i++) load.Add(i % 20 == 0 ? 12 : 5); // lighter, but the CPU still busy: 5% slow
+        for (var i = 0; i < 4 * Overload.Settle; i++) load.Add(i % 20 == 0 ? 17 : 5); // lighter, but the CPU still busy: 5% slow
         Assert.True(load.Light);
         for (var i = 0; i < Overload.Settle; i++) load.Add(i == 500 ? 150 : 6); // free: one stall in 20 s
         Assert.False(load.Light);
-        for (var i = 0; i < Overload.SlowRuns - 1; i++) load.Add(12); // the runs before it came back don't count again
+        for (var i = 0; i < Overload.SlowRuns - 1; i++) load.Add(17); // the runs before it came back don't count again
         Assert.False(load.Light);
     }
 

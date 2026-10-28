@@ -155,14 +155,16 @@ internal sealed class VoiceChain : IDisposable
             // voice (VoiceprintLearning); holding back is Only My Voice's alone.
             if (!focus)
             {
-                Voiced = open;
                 if ((processing.OnlyMyVoice || Voiceprint.Learned) && Mine() is { } mine)
                 {
-                    mine.Feed(frame, open, processing.OnlyMyVoice);
+                    mine.Feed(frame, open, processing.OnlyMyVoice, AsLoudAs(_gate.Level, _yourDb));
                     // A voice that was going out ends on this frame, faded to silence as the gate's own close fades it
-                    // (cut off mid-word, the other side heard a click each time); one that wasn't stays shut.
-                    if (processing.OnlyMyVoice && open && mine.HoldingBack) (held, open) = (true, _sending);
+                    // (cut off mid-word, the other side heard a click each time); one that wasn't stays shut. Only a voice
+                    // quieter than the user's own is held back (see AsLoudAs).
+                    if (processing.OnlyMyVoice && open && mine.HoldingBack && !AsLoudAs(_gate.Level, _yourDb)) (held, open) = (true, _sending);
+                    if (open && !held && !mine.HoldingBack) _yourDb = YourLevel(_yourDb, _gate.Level);
                 }
+                Voiced = open && !held;
             }
             cleaned?.Invoke(frame, open && !held, DelaySamples);
         }
@@ -258,6 +260,19 @@ internal sealed class VoiceChain : IDisposable
         if (processing.Suppressor == "standard") return;
         _suppressor ??= NoiseSuppressor.Create();
     }
+
+    // Only My Voice holds back only a voice clearly quieter than the user's own at their microphone: someone across the
+    // room or a TV reaches a close mic 10 dB and more under the voice talking into it, while the user's own voice in a game
+    // (shouting, excited) is as loud or louder, and was what the voiceprint misjudged and held back, again and again, while
+    // they played. Their level is learned from what goes out as theirs, from the level a tuned mic brings speech to.
+    internal const float CloseDb = 8f;
+    private float _yourDb = SpeechLeveler.TargetDb;
+
+    /// <summary>A frame at <paramref name="db"/> is as loud as the user's own voice at <paramref name="yourDb"/>: never held back.</summary>
+    internal static bool AsLoudAs(float db, float yourDb) => db >= yourDb - CloseDb;
+
+    /// <summary>The user's level after a frame of theirs: about the last 1.5 s of talking (75 frames), kept to a voice's range so a shout or a whisper never runs off with it.</summary>
+    internal static float YourLevel(float yourDb, float db) => db > -70f ? Math.Clamp(yourDb + (db - yourDb) / 75, -40f, -10f) : yourDb;
 
     // The voiceprint and model are read off the audio thread; until they are, nothing is held back.
     /// <summary>Only My Voice's safety stop came in this chain: it held back the user's own speech and stopped holding back.</summary>

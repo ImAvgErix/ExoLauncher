@@ -36,6 +36,11 @@ internal sealed class MyVoice : IThreadPoolWorkItem
     private readonly float[] _ring = new float[Window], _work = new float[Window];
     private int _write, _filled, _sinceCheck, _quiet, _workLength, _busy, _generation, _workGeneration, _judged;
     private Verdict _verdict;
+    // Which of the window's frames were as loud as the user's own voice at their mic (VoiceChain.AsLoudAs); a window
+    // mostly so is theirs to learn from at VoiceprintLearning.CloseLearnFrom.
+    private readonly bool[] _close = new bool[Window / Down];
+    private int _closeAt, _closeCount;
+    private bool _workClose;
     // The safety stop: how much of the last 20 s of speech (20 buckets of a second's voiced frames) was held back.
     private readonly int[] _heldPerSecond = new int[StopSeconds];
     private int _bucket, _inBucket, _seconds, _stopped;
@@ -67,7 +72,7 @@ internal sealed class MyVoice : IThreadPoolWorkItem
     /// frames are kept at 16 kHz, and every half second (once a second of voice is in) the last 1.5 s is judged off
     /// the audio thread. Nothing is allocated here.
     /// </summary>
-    internal void Feed(float[] stereo, bool voiced, bool holding)
+    internal void Feed(float[] stereo, bool voiced, bool holding, bool close = false)
     {
         // Off (Only My Voice not on), it still judges, to learn, but holds nobody back: no safety stop, no log of it.
         Volatile.Write(ref _holding, holding);
@@ -78,6 +83,8 @@ internal sealed class MyVoice : IThreadPoolWorkItem
             if (++_quiet == GapFrames)
             {
                 _filled = _sinceCheck = 0;
+                Array.Clear(_close);
+                _closeCount = 0;
                 Interlocked.Increment(ref _generation);
                 _verdict = default;
             }
@@ -86,12 +93,18 @@ internal sealed class MyVoice : IThreadPoolWorkItem
         _quiet = 0;
         if (holding) CountHeld();
         foreach (var sample in _down) { _ring[_write] = sample; _write = (_write + 1) % Window; }
+        if (_close[_closeAt]) _closeCount--;
+        _close[_closeAt] = close;
+        if (close) _closeCount++;
+        _closeAt = (_closeAt + 1) % _close.Length;
         _filled = Math.Min(_filled + Down, Window);
         _sinceCheck += Down;
         if (_filled < First || _sinceCheck < Step || Interlocked.CompareExchange(ref _busy, 1, 0) != 0) return;
         _sinceCheck = 0;
         _workLength = _filled;
         for (var i = 0; i < _filled; i++) _work[i] = _ring[(_write - _filled + i + Window) % Window];
+        // Four in five of the window's frames as loud as the user: theirs.
+        _workClose = _closeCount * 5 >= _filled / Down * 4;
         _workGeneration = Volatile.Read(ref _generation);
         ThreadPool.UnsafeQueueUserWorkItem(this, preferLocal: false);
     }
@@ -129,7 +142,7 @@ internal sealed class MyVoice : IThreadPoolWorkItem
             var similarity = VoiceprintLearning.Dot(now, _mine);
             // Every third judgment of a full window is 1.5 s of speech none of the others learned from: clearly the
             // user's, it goes toward the next sample the voiceprint learns from.
-            if (_workLength == Window && ++_judged % 3 == 0 && VoiceprintLearning.Learn(now, similarity, Window / (float)Rate) is { } learned)
+            if (_workLength == Window && ++_judged % 3 == 0 && VoiceprintLearning.Learn(now, similarity, Window / (float)Rate, _workClose) is { } learned)
                 _mine = learned;
             if (_workGeneration != Volatile.Read(ref _generation)) return; // a pause came: a new voice is judged afresh
             var before = _verdict.Held;

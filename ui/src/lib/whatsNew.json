@@ -1,5 +1,25 @@
 [
   {
+    "version": "3.17.1",
+    "items": [
+      {
+        "icon": "Mic",
+        "title": "Your voice stays clean in games",
+        "detail": "Exo Voice keeps your room out while a game runs, and is ready the moment you join a call."
+      },
+      {
+        "icon": "Users",
+        "title": "Only My Voice knows you",
+        "detail": "It never holds back your own voice when you get loud, and learns your voice from your calls."
+      },
+      {
+        "icon": "Chats",
+        "title": "Cleaner calls",
+        "detail": "One green ring around whoever is talking, and names over pictures without a second edge."
+      }
+    ]
+  },
+  {
     "version": "3.17.0",
     "items": [
       {

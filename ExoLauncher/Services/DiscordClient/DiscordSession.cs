@@ -66,9 +66,19 @@ internal sealed partial class DiscordSession
             if (DiscordToken.Read() is not { } token) { SetState("signedOut"); return; }
             var session = new DiscordSession(token);
             _current = session;
-            // Noise suppression fetched now; its model loads as a call joins (JoinVoice), not for the whole session.
+            // Exo Voice is ready when Discord is: noise suppression fetched, its model loaded and kept warm while Discord is
+            // connected (NoiseSuppressor.KeepOne), and Only My Voice's voice model loaded, so a call's first words are
+            // cleaned and judged at once, with a game running too.
             if (NoiseSuppressionWanted)
-                _ = Voice.NoiseSuppressorDownload.EnsureAsync(CancellationToken.None);
+            {
+                Voice.NoiseSuppressor.KeepOne = true;
+                _ = Task.Run(async () =>
+                {
+                    await Voice.NoiseSuppressorDownload.EnsureAsync(CancellationToken.None).ConfigureAwait(false);
+                    if (Voice.NoiseSuppressorDownload.Ready()) Voice.NoiseSuppressor.Create()?.Dispose();
+                    Voice.SpeakerModel.Warm();
+                });
+            }
             _ = Task.Run(() => session.RunAsync()).ContinueWith(run => session.Ended(run.Exception), TaskScheduler.Default);
             // NVIDIA's noise removal is gone from Exo: its runtime, fetched by earlier versions, goes too (800 MB and more).
             _ = Task.Run(() =>
@@ -92,9 +102,11 @@ internal sealed partial class DiscordSession
     }
 
     // What a session armed dies with it: after a sign-out a saved-message reminder must not still pop up with that
-    // account's text, nor a custom status clear send a presence for a connection that is gone.
+    // account's text, nor a custom status clear send a presence for a connection that is gone; and the warm noise
+    // suppression model may go a minute after its last use.
     private void StopTimers()
     {
+        Voice.NoiseSuppressor.KeepOne = false;
         lock (_reminderGate)
         {
             _reminderTimer?.Dispose();
@@ -285,6 +297,7 @@ internal sealed partial class DiscordSession
             if (_stop.IsCancellationRequested) return;
             if (fatal is not null)
             {
+                StopTimers();
                 lock (StartGate) if (_current == this) _current = null;
                 if (fatal == "signedOut") { DiscordToken.Clear(); DiscordAccounts.ForgetToken(_token); }
                 SetState(fatal == "signedOut" ? "signedOut" : "error",
