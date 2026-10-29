@@ -1,5 +1,9 @@
 # Changelog
 
+## 3.18.1 — October 29, 2026
+
+- **Exo Shield blocks ads in the music players again.** 3.18.0 shipped a newer Exo Shield than the copy it checks it against, so on a new install or an update from 3.17 it refused to install it, and ads came back in YouTube Music and the other players. It now checks against the copy it ships, and what the browser writes into Exo Shield's folder after loading it no longer counts as a change, so a later check can't refuse it either. _Checked in code only; needs a new install._
+
 ## 3.18.0 — October 29, 2026
 
 - **Update before you start, never in the middle.** When a newer Exo is out as Exo opens, a small sheet in What's New's look says Update available and the new version, with one button, Update now: it downloads with its bar, checks the download against the release, installs and opens the new version, and What's New then shows what changed. A version released while Exo is already open never interrupts you; it waits for the next start, and nothing checks again until then but Settings › About. Offline, or on a developer build, nothing shows. If the update fails, the sheet says why, with Try again and Not now, which keeps your version until Exo next opens; an update that didn't take the last time offers both at once. While the update sheet or What's New is up, nothing behind it scrolls or takes a key or a press, the window's own buttons still work, and Update now or Continue gives everything back. A sheet or page Exo opens by itself while it is in the background no longer brings its window to the front over your game: it takes the keyboard once you switch to Exo. _Checked in code only; needs a newer release._
