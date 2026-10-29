@@ -15,7 +15,7 @@ Legendary, gogdl and Nile aren't bundled in Exo's installer. Each runs as its ow
 
 ## What Exo does
 
-- **Steam:** lists your owned, installed and Steam Family games and installs, updates, uninstalls and launches them through the Steam client you're signed in to. Download progress is Steam's own. Exo turns Steam's overlay off for its games unless you turn it on, and can turn off Steam's notifications and sounds; it writes those switches in Steam's own settings files while Steam is closed.
+- **Steam:** lists your owned, installed and Steam Family games and installs, updates, uninstalls and launches them through the Steam client you're signed in to. Download progress is Steam's own. Exo sets Steam's overlay and Steam Input for each game and keeps Steam's notifications, sounds and controller notes before a game off; it writes those switches in Steam's own settings files while Steam is closed.
 - **Epic, GOG and Amazon:** lists your library and installs, updates and launches games through Legendary, gogdl and Nile. You sign in on the store's own page. A game the Epic Games Launcher installed updates in that launcher, out of sight, and Epic games installed with Heroic show up too.
 - **Riot:** finds Riot games installed anywhere, shows when Riot needs to update them, and launches them with the Riot Client's own commands.
 - **Xbox, EA app, Ubisoft Connect, Battle.net, Rockstar and others:** finds the games installed on your PC and launches them.

@@ -1,37 +1,31 @@
 # Contributing to Exo Launcher
 
-Exo Launcher is source-available, not open source ([LICENSE](LICENSE)). Contributions are welcome all the same: a bug fix, a store or game that is read wrongly, a clearer sentence, a translation of the help. This page says what you are agreeing to and what a change needs.
+Exo Launcher is free for personal use, and from 3.18.0 its source isn't published ([LICENSE](LICENSE)), so there are no pull requests or patches to send. Issues are welcome all the same: a bug, a store or game that is read wrongly, an idea, or a clearer sentence or a translation for the help. This page says how, and what you agree to when you send one.
+
+## Sending an issue
+
+- **A bug, or a game or store read wrongly:** [open an issue](https://github.com/UhhErix/ExoLauncher/issues/new/choose) with the version (Settings > About), what you did and what happened.
+- **An idea:** open an issue and say what you'd do with it. Anything that would change what Exo sends over the network gets an issue before anything else.
+- **The help:** an issue with the sentence as it is and as you'd have it, or with a translation.
+
+Don't put passwords, tokens, account exports or personal paths in an issue.
 
 ## What you agree to
 
-By sending a pull request, patch or any other contribution you confirm that:
+By sending an issue, a suggestion, a translation or any other contribution you confirm that:
 
-1. you wrote it, or have the right to submit it;
-2. it does not include code from a project whose license forbids that (copy-left code belongs in the add-ons, not in Exo Launcher), and it adds no dependency without saying so;
-3. you grant the copyright holder a perpetual, worldwide, royalty-free and irrevocable license to use, change and distribute it as part of Exo Launcher under any terms, which is the clause in [LICENSE](LICENSE). You keep your own copyright.
+1. you wrote it, or have the right to send it;
+2. you grant the copyright holder a perpetual, worldwide, royalty-free and irrevocable license to use, change and distribute it as part of Exo Launcher under any terms, which is the clause in [LICENSE](LICENSE). You keep your own copyright.
 
-Add a `Signed-off-by: Your Name <email>` line to each commit (`git commit -s`) to say you agree. The add-ons are different: a contribution to [Exo Capture](https://github.com/UhhErix/ExoLauncher/blob/main/capture), [Exo Mouse](https://github.com/UhhErix/ExoLauncher/blob/main/mouse) or Exo Shaders is under that program's own license (GPL-3.0-or-later or AGPL-3.0-or-later), as its README says.
-
-## Before you start
-
-- A small fix: open the pull request. A new feature, a new store, or anything that changes what Exo sends over the network: open an [issue](https://github.com/UhhErix/ExoLauncher/issues) first so you do not build something that cannot ship.
-- Read [BUILDING.md](BUILDING.md) to build it and [ARCHITECTURE.md](https://github.com/UhhErix/ExoLauncher/blob/main/ARCHITECTURE.md) for the shape. [DESIGN.md](https://github.com/UhhErix/ExoLauncher/blob/main/DESIGN.md) is the brief for anything visual.
-
-## What a change needs
-
-- It builds and passes `npm run check`, `npm run dead` and the host tests ([BUILDING.md](BUILDING.md) lists them). Several rules are enforced by those checks, not by review.
-- The smallest complete change: reuse before adding, delete what the change replaces.
-- A bug fix comes with a test that fails without it, when the failure is silent (a parser, a path rule, an update or network policy).
-- A change a user will notice gets a [CHANGELOG](CHANGELOG.md) line in plain words, ending with how it was checked.
+**The open-source add-ons are different.** [Exo Mouse](https://github.com/UhhErix/exo-mouse) (AGPL-3.0-or-later), [Exo Shaders](https://github.com/UhhErix/exo-shaders) (GPL-3.0-or-later) and [Exo Shield](https://github.com/UhhErix/exo-shield) (GPL-3.0) have their source public in their own repositories; code for one of them goes there, under its license, as its README says.
 
 ## The lines that do not move
 
-These are not up for discussion; a change that crosses one is closed.
+An idea that crosses one of these won't ship.
 
 - Exo never edits a game's executable or touches anti-cheat, never kills a process that is anti-cheat, and never modifies Riot games. The one file change it makes, an upscaler swap, uses the vendor's signed files only, keeps the original, and asks first for a game with anti-cheat.
 - Nothing downloads, installs or elevates without the user's say-so.
-- No ads, analytics, telemetry, tray agents or accounts. Every host native code contacts is listed in [PRIVACY.md](PRIVACY.md).
-- Secrets and file paths stay in native code; the interface gets bounded values.
+- No ads, analytics, telemetry or tray agents. Every host Exo contacts is listed in [PRIVACY.md](PRIVACY.md).
 - Exo itself never captures the screen or sends synthetic input; that lives in Exo Capture.
 
 ## Security problems

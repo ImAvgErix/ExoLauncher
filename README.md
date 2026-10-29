@@ -1,10 +1,10 @@
 <p align="center"><img src="docs/media/logo.png" alt="Exo" width="88"></p>
-<h1 align="center">Exo Launcher 3.17</h1>
+<h1 align="center">Exo Launcher 3.18</h1>
 <p align="center"><strong>Every game store, Discord, your music, your captures and your mouse in one app for Windows 11.</strong></p>
 
 <p align="center">
   <a href="https://github.com/UhhErix/ExoLauncher/releases/latest/download/ExoLauncher-Setup.exe"><strong>Download for Windows 11</strong></a>
-  · <a href="https://github.com/UhhErix/ExoLauncher/releases/tag/v3.17.1">What's new in 3.17</a>
+  · <a href="https://github.com/UhhErix/ExoLauncher/releases/tag/v3.18.0">What's new in 3.18</a>
   · <a href="CHANGELOG.md">Changelog</a>
   · <a href="PRIVACY.md">Privacy</a>
   · <a href="LICENSE">License</a>
@@ -16,11 +16,11 @@
 
 | File | Version | SHA-256 |
 | --- | --- | --- |
-| [ExoLauncher-Setup.exe](https://github.com/UhhErix/ExoLauncher/releases/download/v3.17.1/ExoLauncher-Setup.exe) | 3.17.1 | `633bea00e3225b4c15d68b5d9ce8415e0a61a77d2154c0983b9c4690d73147d5` |
+| [ExoLauncher-Setup.exe](https://github.com/UhhErix/ExoLauncher/releases/download/v3.18.0/ExoLauncher-Setup.exe) | 3.18.0 | `4d398fbb332c9f2f77a2451952bb9a9c96a75d9385fa62890a9a69d7dbf3aed2` |
 
 **Requirements:** Windows 11 x64. Installs for your Windows user only, in `%LOCALAPPDATA%\ExoLauncher\app`, with no administrator rights.
 
-**Check your download.** The installer isn't code-signed yet, so Windows SmartScreen may warn the first time (choose **More info**, then **Run anyway**). Before you run it, check that its hash matches the one above and on the [release page](https://github.com/UhhErix/ExoLauncher/releases/tag/v3.17.1):
+**Check your download.** The installer isn't code-signed yet, so Windows SmartScreen may warn the first time (choose **More info**, then **Run anyway**). Before you run it, check that its hash matches the one above and on the [release page](https://github.com/UhhErix/ExoLauncher/releases/tag/v3.18.0):
 
 ```powershell
 Get-FileHash .\ExoLauncher-Setup.exe -Algorithm SHA256
@@ -40,10 +40,8 @@ irm https://raw.githubusercontent.com/UhhErix/ExoLauncher/main/Install-ExoLaunch
 ## Install
 
 1. Download **ExoLauncher-Setup.exe** (above) and check its hash.
-2. Run it, choose **Install**, then **Launch Exo**. First run walks you through your game stores, music, Discord, captures and this PC's graphics, and offers to remove the apps Exo replaces.
-3. Exo finds your games and starts your music service out of sight. New versions show in **Settings > About** and install when you choose.
-
-To build it yourself and compare it with the release, see [BUILDING.md](BUILDING.md).
+2. Run it, choose **Install**, then **Launch Exo**. First run walks you through your game stores, music, Discord and captures, offers to remove the apps Exo replaces, and ends with Best settings for this PC.
+3. Exo finds your games and starts your music service out of sight. When a new version is out, Exo asks once as it opens, before you start, never in the middle of a game; **Settings > About** shows it too.
 
 ## What it does
 
@@ -77,23 +75,23 @@ Every game you own, from every store, in one grid, plus the games your Steam Fam
 
 A game's page shows where it's from, time played, last launched, size and achievements, with Play, Uninstall (Remove for a game you added) and Properties. Rows for its upscalers and shaders open their PC page, and HDR sets whether the game plays in HDR.
 
-**Properties** has what Steam's and Epic's own Properties have: launch options, language, cloud saves, the Steam overlay, betas, automatic updates, checking files, moving the game to another drive, and DLC and optional content (such as a high-resolution texture pack), with the space each takes or frees shown first. Artwork replaces the cover with your own picture.
+**Properties** has the choices that are yours: launch options, language, betas, checking files, moving the game to another drive, and DLC and optional content (such as a high-resolution texture pack), with the space each takes or frees shown first. Artwork replaces the cover with your own picture. What has one right answer Exo sets for each Steam game itself: cloud saves on, updates kept, the Steam overlay only where the game needs it (Steam purchases, playing online with friends, Remote Play Together, Steam Input) and Steam Input from the game's controller support.
 
 ### PC
 
 ![PC > Display: refresh rate, output color, scaling and its override, color and RTX Video](docs/media/gpu.jpg)
 
-Five pages: Overview (About card and Best settings), Graphics (driver and profile, Upscalers and Shaders), Display, Performance and Apps (the uninstaller and game runtimes).
+One page: This PC with Best settings for this PC, Needs you, then Graphics (driver and profile), Display, Network, Drives, Performance, Apps (the uninstaller and game runtimes), Upscalers and Shaders.
 
 - **Driver and profile:** NVIDIA's newest driver for your card, checked at most once an hour and installed clean, driver only, with no NVIDIA app, telemetry, PhysX or HDMI audio (AMD's or Intel's newest on Radeon or Intel graphics). Exo's NVIDIA driver profile for the lowest latency, with or without G-SYNC.
 - **HDR:** on only while a game with real HDR runs, with SDR drawn at gamma 2.2 so blacks stay black.
-- **Display:** the refresh rates and colors your screen really takes, scaling and **Override the scaling set by games**, color from brightness to hue, and RTX Video Super Resolution and HDR. A picture change undoes itself after 15 seconds unless you keep it.
+- **Display:** the refresh rates and colors your screen really takes, scaling and **Override the scaling set by games**, color from brightness to hue, and RTX Video Super Resolution and HDR. A change applies and stays.
 
 ### Upscalers
 
 ![PC > Graphics > Upscalers](docs/media/upscalers.jpg)
 
-PC > Graphics > Upscalers lists every installed game that can get newer DLSS, FSR or XeSS and updates them all at once.
+PC > Upscalers lists every installed game that can get newer DLSS, FSR or XeSS and updates them all at once.
 
 - **New releases:** when Exo opens it checks NVIDIA's, AMD's and Intel's own releases, so a new DLSS, FSR 4 or XeSS reaches your games without an Exo update.
 - **Files:** every file is the vendor's own, checked for its signature, exact version and checksum before it goes in. Restore puts the game's originals back byte for byte. A running game waits until you close it.
@@ -150,7 +148,7 @@ The Capture button in the top bar, or its keys, saves an instant replay of the l
 Devices shows what you plug in, each with the maker's own picture of that model: your mouse, keyboard, what you listen on and your controller.
 
 - **Headphones:** Windows can't tell which pair is on the jack, so you pick yours from the hundreds Lucid knows. Its page holds Lucid (it switches your headphones' EQ when your device or game changes), Game Mode and Night Shift. Lucid is made by [tekkusai](https://github.com/tekkusai/Lucid).
-- **Controllers:** a DualSense, DualSense Edge, DualShock 4, Xbox controller or other gamepad opens the Controller Lab: live sticks and triggers, a stick test and its measured polling rate. A DualSense or Edge calibrates its sticks with its own routine, an Edge's four profiles (stick curves, trigger ranges, back buttons) are edited here and stored in the controller, and one switch lets games that support a PlayStation controller read it directly instead of through Steam Input.
+- **Controllers:** a DualSense, DualSense Edge, DualShock 4, Xbox controller or other gamepad opens the Controller Lab: live sticks and triggers, a stick test and its measured polling rate. A DualSense or Edge calibrates its sticks with its own routine, an Edge's four profiles (stick curves, trigger ranges, back buttons) are edited here and stored in the controller, and each Steam game gets Steam Input only where it needs it: one that reads the controller itself skips it.
 - **USB ports:** each device's page says which USB it's on, and Devices says when a device would gain from one of the processor's own ports.
 - **Keyboards** show as Coming soon until Exo sets them up.
 
@@ -160,7 +158,7 @@ Your mouse's page is **Exo Mouse**, which talks to your mouse directly over USB,
 
 ![Settings: a floating panel over the room you were in](docs/media/settings.jpg)
 
-One page that floats over the room you were in: appearance (Match Windows, Light, Dark or Void), Glass, text size and reduce motion; download hours and the install folder; your music service; capture keys and instant replay; your game stores, their accounts and notifications; dictation (a mic in Exo's text boxes that types what you say, on this PC); optional keys and updates.
+One page that floats over the room you were in: appearance (Match Windows, Light, Dark or Void), Glass, text size and reduce motion; download hours and the install folder; your music service; your game stores, their accounts and notifications, and Steam's offline mode; dictation (a mic in Exo's text boxes that types what you say, on this PC); optional keys and updates.
 
 ## How it works
 
@@ -169,12 +167,12 @@ Exo is a native Windows app (WinUI 3 and .NET) with its interface drawn in an em
 - **Stores:** Exo reads what each store already keeps on your PC (Steam's library and manifests, Riot Client's records, the Xbox app's game configs and more) and launches through each store's own client. Epic, GOG and Amazon run through the open-source tools Legendary, gogdl and Nile, and a game Epic's own launcher installed updates in that launcher, out of sight. You sign in on each store's own page. Downloads, ownership, DRM and anti-cheat stay the stores' job.
 - **Discord:** Exo's own client. No Discord app to install.
 - **Music:** each service plays the music itself, hidden behind Exo: Spotify's desktop app, and Apple Music's and YouTube Music's web players. Exo drives them through their own interfaces and draws what you see, so your account, downloads and sound quality are the service's own.
-- **Captures, Devices and Shaders:** separate open-source programs that ship with Exo and talk to it only through messages. Exo Capture records on the graphics card's encoder, Exo Mouse talks to your mouse over USB, and Exo Shaders precompiles shaders for your driver.
+- **Captures, Devices and Shaders:** separate programs that ship with Exo and talk to it only through messages (Exo Mouse and Exo Shaders are open source). Exo Capture records on the graphics card's encoder, Exo Mouse talks to your mouse over USB, and Exo Shaders precompiles shaders for your driver.
 - **Memory:** a room you can't see stops drawing, has its memory trimmed and runs in efficiency mode. Nothing a game, download or call needs is ever closed.
 
 ## Privacy and safety
 
-- **No Exo account, no ads, no analytics, no telemetry.** Exo has no server of its own. Your library, settings, covers, play time and keys stay in `%LocalAppData%\ExoLauncher`, and your captures in your Videos folder. Optional keys and your Discord sign-in are encrypted with Windows.
+- **No Exo account, no ads, no analytics, no telemetry.** Exo's own servers send its updates, and its call relay passes what you play between the Exo apps in one Discord call, end-to-end encrypted so it can't read it. Your library, settings, covers, play time and keys stay in `%LocalAppData%\ExoLauncher`, and your captures in your Videos folder. Optional keys and your Discord sign-in are encrypted with Windows.
 - **Your sign-ins stay with each service.** You sign in on the store's or service's own page or window, and to Discord with your phone. Exo never sees your passwords.
 - **What leaves your PC** is only what a feature needs: store lookups, cover art, Store pages, prices, driver and upscaler releases, the update check, and what you do in Discord and your music service. The [privacy policy](PRIVACY.md) lists every destination and what is sent.
 - **Account risks:** see the warning under [Download](#download).
@@ -182,23 +180,21 @@ Exo is a native Windows app (WinUI 3 and .NET) with its interface drawn in an em
 
 ## License
 
-Exo Launcher is **source-available and free for personal use**. It is not open source. The full terms are in [LICENSE](LICENSE); this is a plain summary, and LICENSE wins if they differ.
+Exo Launcher is **free for personal use; from 3.18.0 its source isn't published**. The full terms are in [LICENSE](LICENSE); this is a plain summary, and LICENSE wins if they differ.
 
 | You can | You need written permission to |
 | --- | --- |
-| Download, install and run the official app on your devices | Copy, fork outside GitHub, mirror or redistribute the source |
-| Read the source to see what Exo does | Publish, sell or rebrand a changed version |
-| Build it and run it on your own devices to check it against the release | Use the Exo names or logo for your own build ([TRADEMARKS.md](TRADEMARKS.md)) |
-| Send fixes as pull requests ([CONTRIBUTING.md](CONTRIBUTING.md)) | |
+| Download, install and run the official app on your devices | Copy, redistribute, resell or rebrand the app; reverse engineer it |
+| Send bugs and ideas as issues ([CONTRIBUTING.md](CONTRIBUTING.md)) | Use the Exo names or logo ([TRADEMARKS.md](TRADEMARKS.md)) |
 
 To ask for permission, [open an issue](https://github.com/UhhErix/ExoLauncher/issues). The app is provided as is, without warranty. Versions released earlier under the MIT license keep their MIT permissions.
 
 **Open-source parts that ship with Exo** keep their own licenses, and their source is public:
 
 - [Exo Mouse](https://github.com/UhhErix/exo-mouse) (AGPL-3.0-or-later), built on OpenMouse by snekxs.
-- [Exo Capture](https://github.com/UhhErix/exo-capture) (GPL-3.0-or-later), with OBS Studio's game capture hook.
+- OBS Studio's game capture hook (GPL-2.0-or-later), unchanged, which Exo Capture runs for a game in exclusive full screen. Exo Capture itself is Exo's own; [its versions up to 3.17.1](https://github.com/UhhErix/exo-capture) are GPL-3.0-or-later.
 - [Exo Shaders](https://github.com/UhhErix/exo-shaders) (GPL-3.0-or-later), based on SCSKiller.
-- uBlock Origin Lite, SponsorBlock and Better Lyrics (GPL-3.0), in the music players' browser.
+- [Exo Shield](https://github.com/UhhErix/exo-shield) (GPL-3.0), Exo's blocker, made from uBlock Origin Lite and HaGeZi's Multi PRO list, and SponsorBlock (GPL-3.0), in the music players' browser.
 
 Every bundled library and tool is listed in [Third-party notices](THIRD_PARTY_NOTICES.md).
 

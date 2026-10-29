@@ -14,8 +14,8 @@ jobs:
     name: Markdown lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - uses: DavidAnson/markdownlint-cli2-action@992badcdf24e3b8eb7e87ff9287fe931bcb00c6e # v20
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: DavidAnson/markdownlint-cli2-action@696eb3f2509270d7b882d2aa68347bc676e7af34 # v25.0.0
         with:
           config: .github/.markdownlint-cli2.yaml
           globs: |
@@ -23,7 +23,7 @@ jobs:
             CHANGELOG.md
             PRIVACY.md
             THIRD_PARTY_NOTICES.md
-            BUILDING.md
+            SECURITY.md
             CONTRIBUTING.md
             TRADEMARKS.md
             docs/HELP.md
@@ -36,10 +36,10 @@ jobs:
     name: Links
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - uses: lycheeverse/lychee-action@e7477775783ea5526144ba13e8db5eec57747ce8 # v2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: lycheeverse/lychee-action@e7477775783ea5526144ba13e8db5eec57747ce8 # v2.9.0
         with:
-          args: --config .github/lychee.toml --no-progress './README.md' './CHANGELOG.md' './PRIVACY.md' './THIRD_PARTY_NOTICES.md' './BUILDING.md' './CONTRIBUTING.md' './TRADEMARKS.md' './docs/HELP.md' './docs/SUPPORT_MATRIX.md' './docs/VENDORS.md' './docs/RELEASE_*.md' './.github/**/*.md'
+          args: --config .github/lychee.toml --no-progress './README.md' './CHANGELOG.md' './PRIVACY.md' './THIRD_PARTY_NOTICES.md' './SECURITY.md' './CONTRIBUTING.md' './TRADEMARKS.md' './docs/HELP.md' './docs/SUPPORT_MATRIX.md' './docs/VENDORS.md' './docs/RELEASE_*.md' './.github/**/*.md'
           fail: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -48,7 +48,7 @@ jobs:
     name: Version sync
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: README, CHANGELOG and release notes agree
         shell: pwsh
         run: ./.github/scripts/Test-DocsVersion.ps1 -Version (Get-Content VERSION -Raw).Trim() -AllowUnreleased

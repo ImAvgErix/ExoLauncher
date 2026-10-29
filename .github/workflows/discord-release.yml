@@ -1,10 +1,14 @@
 name: Discord release announcement
 
 # Keeps exactly one release card per Discord releases channel: when a release is
-# published (stable or pre-release), posts the branded card for it, deletes the
-# previous card, and stores the new Discord message id as a workflow artifact
-# for the next run. Run manually with dry_run=true to preview the payload built
-# from the latest release, or dry_run=false to perform the same replace.
+# published (stable or pre-release), posts a card that says the new version is
+# out (the app's icon, its name and version; what changed is in the app's What's
+# New, and the app updates itself as it opens), deletes the previous card, and
+# stores the new Discord message id as a workflow artifact for the next run.
+# Run manually with dry_run=true to preview the payload built from the latest
+# release, or dry_run=false to perform the same replace.
+# Exo Launcher, Exo Cinema and Exo Browser run this same file: only PRODUCT and
+# APP below differ.
 
 on:
   release:
@@ -15,6 +19,10 @@ on:
         description: Build the payload from the latest release and print it instead of posting
         type: boolean
         default: true
+      ping:
+        description: Mention the release role (a published release always does)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -26,7 +34,8 @@ concurrency:
 
 env:
   PRODUCT: "Exo Launcher"
-  AVATAR_FILE: exo-launcher-avatar.png
+  # getexo.app/<APP> and .github/discord/exo-<APP>-avatar.png
+  APP: launcher
   ASSET_DIR: .github/discord
   STATE_ARTIFACT: discord-last-release-message
 
@@ -77,53 +86,72 @@ jobs:
 
       - name: Build payload
         env:
-          ROLE_ID: ${{ vars.DISCORD_RELEASE_ROLE_ID }}
+          ROLE_ID: ${{ (github.event_name == 'release' || inputs.ping) && vars.DISCORD_RELEASE_ROLE_ID || '' }}
         run: |
           set -euo pipefail
-          # ?v= busts Discord's image-proxy cache when the avatar file changes.
-          icon_url="https://raw.githubusercontent.com/$GITHUB_REPOSITORY/main/$ASSET_DIR/$AVATAR_FILE?v=${GITHUB_SHA:0:12}"
-          role="${ROLE_ID:-}"
-          role="${role//[[:space:]]/}"
-          if [[ -n "$role" && ! "$role" =~ ^[0-9]{17,20}$ ]]; then
-            echo "::warning::Variable DISCORD_RELEASE_ROLE_ID is not a Discord snowflake; posting without a role mention."
-            role=""
-          fi
+          python3 - "$RUNNER_TEMP/release.json" "$RUNNER_TEMP/payload.json" <<'PY'
+          import hashlib, json, os, re, sys, urllib.request
+
+          r = json.load(open(sys.argv[1], encoding="utf-8"))
+          product, app, repo = os.environ["PRODUCT"], os.environ["APP"], os.environ["GITHUB_REPOSITORY"]
+          version, pre = r["tag_name"].removeprefix("v"), r.get("prerelease") is True
+          raw = f"https://raw.githubusercontent.com/{repo}"
+
+          def warn(text):
+              print(f"::warning::{text}")
+
+          def image(url):
+              """The URL when it answers as a picture; Discord draws a broken one (or the default avatar) otherwise."""
+              try:
+                  req = urllib.request.Request(url, method="HEAD", headers={"User-Agent": "exo-release-card"})
+                  with urllib.request.urlopen(req, timeout=20) as res:
+                      kind = res.headers.get("Content-Type", "")
+              except Exception as e:
+                  return warn(f"{url} did not load ({e}).")
+              return url if kind.startswith("image/") else warn(f"{url} is {kind or 'not a picture'}.")
+
+          # Only that a new version is out: what changed is in the app's What's New, and the app updates itself
+          # as it opens, so the card has no change list, picture or links.
+          role = re.sub(r"\s", "", os.environ.get("ROLE_ID") or "")
+          if role and not re.fullmatch(r"[0-9]{17,20}", role):
+              warn("Variable DISCORD_RELEASE_ROLE_ID is not a Discord snowflake; posting without a role mention.")
+              role = ""
+          # ?v= is the picture's own hash: it changes only when the avatar does, so Discord keeps the copy it already
+          # fetched (a new address every commit made its first fetch fail, and the post went up with the default avatar).
+          avatar = f"{raw}/main/{os.environ['ASSET_DIR']}/exo-{app}-avatar.png"
+          try:
+              with urllib.request.urlopen(urllib.request.Request(avatar, headers={"User-Agent": "exo-release-card"}), timeout=20) as res:
+                  avatar += "?v=" + hashlib.sha256(res.read()).hexdigest()[:12]
+          except Exception as e:
+              warn(f"{avatar} did not load ({e}).")
+          # Exo's family mark (M3 Bracket) beside "Exo": the one in Exo Launcher's repo serves all three.
+          mark = image("https://raw.githubusercontent.com/UhhErix/ExoLauncher/main/.github/discord/exo-logo-512.png")
+          embed = {
+              "color": 0x010101,  # Void black; Discord draws 0 as no color
+              "title": f"{product} {version}" + (" (pre-release)" if pre else ""),
+              # The app's own updater offers stable releases only.
+              "description": "A test version: the app doesn't offer it as an update." if pre else f"Open {product} to update.",
+              "footer": {"text": "Exo", **({"icon_url": mark} if mark else {})},
+              "timestamp": r.get("published_at") or r.get("created_at"),
+          }
           # Discord blocks phantom pings: <@&id> has to be in content on POST
           # (flags 4096 = silent). The post step immediately clears content
           # so the card is embed-only — spoilers and ZWSP still leave a line.
-          jq -n \
-            --arg product "$PRODUCT" \
-            --arg icon "$icon_url" \
-            --arg role "$role" \
-            --slurpfile rel "$RUNNER_TEMP/release.json" '
-            $rel[0] as $r
-            | ($r.prerelease == true) as $pre
-            | {
-                username: "\($product) Releases",
-                avatar_url: $icon,
-                content: (if $role != "" then "<@&\($role)>" else "" end),
-                allowed_mentions: (if $role != "" then { parse: [], roles: [$role] } else { parse: [] } end),
-                flags: 4096,
-                embeds: [
-                  {
-                    color: 1118740,
-                    title: ("\($product) \($r.tag_name)" + (if $pre then " (Pre-release)" else "" end))[0:256],
-                    url: $r.html_url,
-                    description: "A new version of \($product) is out. The full changelog is built into the app.",
-                    fields: [
-                      {
-                        name: "Channel",
-                        value: (if $pre then "Pre-release" else "Stable" end),
-                        inline: true
-                      }
-                    ],
-                    footer: { text: "Exo", icon_url: $icon },
-                    timestamp: ($r.published_at // $r.created_at)
-                  }
-                ]
-              }
-            | if .content == "" then del(.content) else . end' > "$RUNNER_TEMP/payload.json"
-          jq -e '.embeds | length == 1' "$RUNNER_TEMP/payload.json" > /dev/null
+          payload = {
+              "username": f"{product} Releases",
+              "avatar_url": avatar,
+              **({"content": f"<@&{role}>"} if role else {}),
+              "allowed_mentions": {"parse": [], **({"roles": [role]} if role else {})},
+              "flags": 4096,
+              "embeds": [embed],
+          }
+
+          # Discord's limits: title 256, username 80.
+          if len(embed["title"]) > 256 or len(payload["username"]) > 80:
+              sys.exit("::error::The card is over Discord's limits.")
+          json.dump(payload, open(sys.argv[2], "w", encoding="utf-8"), ensure_ascii=False)
+          print(f"Card: {embed['title']}; {embed['description']}")
+          PY
 
       - name: Load previous card id
         id: prev
@@ -195,17 +223,29 @@ jobs:
             printf 'url = "%s%s%s"\n' "$base" "$suffix" "${q:+?$q}" | curl -sS -K - -X "$method" \
               -o "$RUNNER_TEMP/discord-response.json" -w '%{http_code}' "$@"
           }
-          code="$(discord POST "" "wait=true" -H "Content-Type: application/json" --data-binary "@$payload")"
-          if [[ "$code" != 2* ]]; then
-            echo "::error::Discord webhook returned HTTP $code."
-            jq -c '{code, message, errors}' "$RUNNER_TEMP/discord-response.json" 2>/dev/null || true
-            exit 1
-          fi
-          new_id="$(jq -r '.id // empty' "$RUNNER_TEMP/discord-response.json")"
-          if [[ ! "$new_id" =~ ^[0-9]{17,20}$ ]]; then
-            echo "::error::Discord did not return a message id."
-            exit 1
-          fi
+          # Discord fetches avatar_url once, as it posts, and a card it couldn't fetch it for keeps
+          # the webhook's default avatar for good (Exo Cinema 1.3.0's did): post that card again.
+          for try in 1 2 3; do
+            code="$(discord POST "" "wait=true" -H "Content-Type: application/json" --data-binary "@$payload")"
+            if [[ "$code" != 2* ]]; then
+              echo "::error::Discord webhook returned HTTP $code."
+              jq -c '{code, message, errors}' "$RUNNER_TEMP/discord-response.json" 2>/dev/null || true
+              exit 1
+            fi
+            new_id="$(jq -r '.id // empty' "$RUNNER_TEMP/discord-response.json")"
+            if [[ ! "$new_id" =~ ^[0-9]{17,20}$ ]]; then
+              echo "::error::Discord did not return a message id."
+              exit 1
+            fi
+            [[ -n "$(jq -r '.author.avatar // empty' "$RUNNER_TEMP/discord-response.json")" ]] && break
+            if [[ "$try" == 3 ]]; then
+              echo "::warning::Discord did not take the avatar in 3 tries; card $new_id shows the webhook's own."
+              break
+            fi
+            echo "Discord did not take the avatar (try $try); posting the card again."
+            discord DELETE "/messages/$new_id" "" > /dev/null || true
+            sleep 10
+          done
           echo "Posted release card (HTTP $code, message id $new_id)."
           echo "message_id=$new_id" >> "$GITHUB_OUTPUT"
           mkdir -p "$RUNNER_TEMP/state"
@@ -232,7 +272,7 @@ jobs:
 
       - name: Save card id for next run
         if: steps.post.outputs.message_id != ''
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ${{ env.STATE_ARTIFACT }}
           path: ${{ runner.temp }}/state/message-id.txt

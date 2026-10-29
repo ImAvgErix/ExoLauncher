@@ -5,7 +5,7 @@
 ## You may
 
 - Say that something works with, or is a review, guide, video or tutorial about, Exo Launcher, using its name as plain text.
-- Build Exo for yourself, or an add-on from its own source, and run it ([BUILDING.md](BUILDING.md)).
+- Build an open-source add-on (Exo Mouse, Exo Shaders, Exo Shield) from its own source and run it.
 - Publish a fork or changed version of an add-on under its own license, if it carries a different name and logo and says plainly that it is not the official Exo.
 - Link to the official download: <https://github.com/UhhErix/ExoLauncher/releases/latest>.
 
