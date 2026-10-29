@@ -79,17 +79,19 @@ A game's page shows where it's from, time played, last launched, size and achiev
 
 ### PC
 
-![PC > Display: refresh rate, output color, scaling and its override, color and RTX Video](docs/media/gpu.jpg)
+![The PC room: your hardware, drivers, network, drives, apps and shaders on one page](docs/media/gpu.jpg)
 
-One page: This PC with Best settings for this PC, Needs you, then Graphics (driver and profile), Display, Network, Drives, Performance, Apps (the uninstaller and game runtimes), Upscalers and Shaders.
+One page: This PC with its parts, Best settings in green beside its name (or what's still missing in red) and a check for Upscalers, then Network, Drives (which clean themselves), Apps (the uninstaller and game runtimes), every driver in one list, and Shaders. Display opens as a floating menu, with your graphics card's control panel.
 
 - **Driver and profile:** NVIDIA's newest driver for your card, checked at most once an hour and installed clean, driver only, with no NVIDIA app, telemetry, PhysX or HDMI audio (AMD's or Intel's newest on Radeon or Intel graphics). Exo's NVIDIA driver profile for the lowest latency, with or without G-SYNC.
 - **HDR:** on only while a game with real HDR runs, with SDR drawn at gamma 2.2 so blacks stay black.
 - **Display:** the refresh rates and colors your screen really takes, scaling and **Override the scaling set by games**, color from brightness to hue, and RTX Video Super Resolution and HDR. A change applies and stays.
 
+![PC > Display: refresh rate, output color, scaling and its override, color and RTX Video](docs/media/gpu-display.jpg)
+
 ### Upscalers
 
-![PC > Graphics > Upscalers](docs/media/upscalers.jpg)
+![PC > Upscalers: every installed game's DLSS, FSR and XeSS, here all on the newest release](docs/media/upscalers.jpg)
 
 PC > Upscalers lists every installed game that can get newer DLSS, FSR or XeSS and updates them all at once.
 
@@ -99,7 +101,7 @@ PC > Upscalers lists every installed game that can get newer DLSS, FSR or XeSS a
 
 ### Shaders
 
-![PC > Graphics > Shaders: Exo Shaders shows which games are compiled](docs/media/shaders.jpg)
+![PC > Shaders: which games are compiled for your driver, with Refresh and Compile](docs/media/shaders.jpg)
 
 Exo Shaders precompiles each game's shaders for your current graphics driver, so a game doesn't stutter the first time it meets a new effect. It shows which games are compiled, keeps a queue, and skips a game Windows already compiled for your card. After a driver update, Refresh shows the games to compile again. It runs only when you press Compile or Refresh, keeps its memory use down while it works, and stops soon after.
 
@@ -126,7 +128,7 @@ Exo's own Discord client, laid out like Discord: servers, DMs, Friends, forums, 
 
 ### Music
 
-![The Music room: Exo's own player, here with Spotify (your library blurred in this picture)](docs/media/music.jpg)
+![The Music room: Exo's own player, here with Apple Music (your library blurred in this picture)](docs/media/music.jpg)
 
 Exo's own player for Spotify, Apple Music and YouTube Music:
 
