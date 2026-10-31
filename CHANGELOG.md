@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.20.0 — October 31, 2026
+
+- **Exo sleeps while you play.** With a game running and Exo hidden, its page suspends entirely (no drawing, no timers) and comes back exactly where you left it; if a suspend can't finish or is cancelled, the page simply stays awake. _Checked in code only._
+- **Every cover arrives at the size it's drawn.** The Library grid, your profile, folders, the Exo Store and Discord's Tonight now ask for a cover scaled to its card instead of the full file, so pages dense with covers open faster and use less memory. _Checked in code only._
+- **Motion and glass match your PC.** Exo reads your graphics card, its memory and your screen's refresh rate and sets its own motion tier: a light PC draws the Solid material and simpler motion by itself, with nothing to set. _Checked in code only._
+- **Exo moves as one piece.** Every spring is solved once for your screen and baked into the page's own timing, and a thrown mini-stream tile flies home at the speed you let it go. _Checked in code only._
+- **A new version shows up within a minute.** Exo's update address kept its answer about the newest version for five minutes, so a just-shipped release could stay invisible for a while; the answer now turns over within a minute, while the release files themselves keep their long cache. _Checked in code only._
 ## 3.19.1 — October 31, 2026
 
 - **Go Live reaches full quality on a line that always drops a little.** A connection that asks for a few percent of the stream again at every rate, even a wired one, held Go Live at 0.5 Mbit/s for the whole stream while Discord's server would take 9. Exo now learns the share your line always loses, counts only what goes beyond it as congestion, and climbs back to the stream's full rate within about a minute. _Checked in code only._
