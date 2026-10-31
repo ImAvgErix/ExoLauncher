@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.19.1 — October 31, 2026
+
+- **Go Live reaches full quality on a line that always drops a little.** A connection that asks for a few percent of the stream again at every rate, even a wired one, held Go Live at 0.5 Mbit/s for the whole stream while Discord's server would take 9. Exo now learns the share your line always loses, counts only what goes beyond it as congestion, and climbs back to the stream's full rate within about a minute. _Checked in code only._
+- **The Steam overlay switch is back.** A Steam game's Properties › General has its Steam overlay switch again, and what you pick sticks, Call of Duty included. If you change it in Steam afterwards, Steam's choice wins. _Checked in code only._
+- **Every DLC you own has its switch.** DLC you own but haven't downloaded showed no switch, since Exo only asked what was on disk; Exo now asks Steam which DLC you own. With Steam closed, a DLC row says Open Steam to change instead of standing blank. _Checked in code only._
+- **Stream controls in the voice bar.** Beside Disconnect at the bottom left of Discord: share your screen, and while you're live, change what you share or stop streaming, without opening the call. _Checked in code only._
+- **Roomier menus.** Menus are wider, with taller rows and more space around them, in the Library, its sort menu and Discord. _Checked in code only._
 ## 3.19.0 — October 31, 2026
 
 - **One browser engine for Exo's apps.** Exo Launcher, Exo Cinema and Exo OS now run their pages in one shared WebView2 instead of one each, every app on its own profile so nothing of one app's data reaches another's. With all three open that is about 580 MB less memory (1,349 to 772 MB measured), and Exo Cinema opens about 45% faster when Launcher is already running. Launcher moves its own folder into the shared one once, whole, so your music sign-ins stay; the others join only after that, and an app on its own keeps working exactly as before. Launcher trims and lowers only its own pages, and leaves the shared engine alone while Cinema or Exo OS is in front, so a film never stutters because Launcher went to the background. _Verified: on screen._

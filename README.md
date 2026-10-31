@@ -4,7 +4,7 @@
 
 <p align="center">
   <a href="https://github.com/UhhErix/ExoLauncher/releases/latest/download/ExoLauncher-Setup.exe"><strong>Download for Windows 11</strong></a>
-  · <a href="https://github.com/UhhErix/ExoLauncher/releases/tag/v3.19.0">What's new in 3.19</a>
+  · <a href="https://github.com/UhhErix/ExoLauncher/releases/tag/v3.19.1">What's new in 3.19</a>
   · <a href="CHANGELOG.md">Changelog</a>
   · <a href="PRIVACY.md">Privacy</a>
   · <a href="LICENSE">License</a>
@@ -16,11 +16,11 @@
 
 | File | Version | SHA-256 |
 | --- | --- | --- |
-| [ExoLauncher-Setup.exe](https://github.com/UhhErix/ExoLauncher/releases/download/v3.19.0/ExoLauncher-Setup.exe) | 3.19.0 | `4c2361393ef476b8ad8225af38ead3c79ddf7f986ffa6f06480f4a5755048332` |
+| [ExoLauncher-Setup.exe](https://github.com/UhhErix/ExoLauncher/releases/download/v3.19.1/ExoLauncher-Setup.exe) | 3.19.1 | `7b64a59ea1e65b93c51c0830401531c5c43ce587389c9f8561a3bf463c38cb3a` |
 
 **Requirements:** Windows 11 x64. Installs for your Windows user only, in `%LOCALAPPDATA%\ExoLauncher\app`, with no administrator rights.
 
-**Check your download.** The installer isn't code-signed yet, so Windows SmartScreen may warn the first time (choose **More info**, then **Run anyway**). Before you run it, check that its hash matches the one above and on the [release page](https://github.com/UhhErix/ExoLauncher/releases/tag/v3.19.0):
+**Check your download.** The installer isn't code-signed yet, so Windows SmartScreen may warn the first time (choose **More info**, then **Run anyway**). Before you run it, check that its hash matches the one above and on the [release page](https://github.com/UhhErix/ExoLauncher/releases/tag/v3.19.1):
 
 ```powershell
 Get-FileHash .\ExoLauncher-Setup.exe -Algorithm SHA256
